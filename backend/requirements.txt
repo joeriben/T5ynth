@@ -33,6 +33,14 @@ numpy>=1.23,<2
 scipy
 torchsde
 einops
+# The LCO author (Csound-writing LLM) runs as a 4-bit GGUF through llama.cpp, not
+# through transformers: a 12B fits in 6.98 GB that way — small enough for a 16 GB
+# Mac — while the same model in bf16 is 23.9 GB, and transformers has no working
+# 4-bit path on MPS (bitsandbytes is CUDA-only). llama.cpp runs the identical file
+# on Metal and CUDA, which keeps ONE model file for every platform. Unpinned: it
+# tracks upstream llama.cpp, and a new author model generally needs a recent build
+# (gemma-4 support is only in 0.3.34+).
+llama-cpp-python>=0.3.34
 # protobuf <3.21 — needed ONLY on the path where a t5gemma tokenizer is loaded from
 # a bare SentencePiece `tokenizer.model` with no `tokenizer.json` (the ungated SA3
 # install): AutoTokenizer.from_pretrained (default use_fast=True) builds a

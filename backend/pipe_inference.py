@@ -920,6 +920,44 @@ def _resolve_translation_model_dir(request):
     return None
 
 
+# The LCO author ships as a single 4-bit GGUF (google/gemma-4-12B-it-qat-q4_0-gguf),
+# not a transformers directory: a 12B in 6.98 GB, which is what makes it fit a
+# 16 GB Mac at all -- the same model in bf16 is 23.9 GB, and transformers has no
+# working 4-bit path on MPS (bitsandbytes is CUDA-only). llama.cpp runs the same
+# file on Metal and on CUDA.
+_MMPROJ_PREFIX = "mmproj"
+# Context the author is loaded with. A KV-cache size, NOT an output cap: an
+# orchestra is a few hundred tokens, so this never truncates one, and generation
+# itself runs uncapped to EOS (run_gguf_instruct). Overridable for a machine that
+# wants a smaller cache.
+_GGUF_N_CTX = int(os.environ.get("T5YNTH_CODER_N_CTX", 65536))
+# The install slot the Model Manager writes and the resolver checks by name,
+# so a leftover coder directory cannot shadow it in the alphabetical scan.
+_CODER_SLOT = "gemma-4-12b-it-qat-q4_0"
+
+
+def _coder_gguf_file(path):
+    """The single text GGUF inside a coder slot, or None.
+
+    Ignores the `mmproj*` multimodal projector Google ships beside it: that file
+    is the vision/audio tower, not a language model, and loading it as one fails.
+    A slot with more than one text GGUF is ambiguous, so it is refused rather than
+    silently picking one.
+    """
+    if not path.is_dir():
+        return None
+    ggufs = [f for f in sorted(path.glob("*.gguf"))
+             if not f.name.lower().startswith(_MMPROJ_PREFIX)]
+    return ggufs[0] if len(ggufs) == 1 else None
+
+
+def _is_local_coder_model_dir(path):
+    """A usable LCO author slot: a GGUF the llama.cpp path can open, or a
+    self-contained transformers directory (the pre-GGUF install shape, and any
+    dev drop)."""
+    return _coder_gguf_file(path) is not None or _is_local_transformers_model_dir(path)
+
+
 def _resolve_coder_model_dir(request):
     """Locate the LCO coder model directory (a HF causal-LM dir), or None.
 
@@ -944,7 +982,7 @@ def _resolve_coder_model_dir(request):
                 or os.environ.get("LCO_MODEL_DIR"))
     if explicit:
         candidate = Path(explicit).expanduser()
-        return candidate if _is_local_transformers_model_dir(candidate) else None
+        return candidate if _is_local_coder_model_dir(candidate) else None
 
     # The LCO's author is a 7B CODING model (Qwen2.5-Coder-7B-Instruct) that
     # WRITES the Csound orchestra for the prompt. Check its exact, current
@@ -956,9 +994,9 @@ def _resolve_coder_model_dir(request):
     # whatever else is sitting in coder/. The env overrides above stay supreme
     # (a deployment that deliberately pins a model still wins).
     for base in _model_search_base_dirs():
-        coder7b = base / "coder" / "qwen2.5-coder-7b-instruct"
-        if _is_local_transformers_model_dir(coder7b):
-            return coder7b
+        authoritative = base / "coder" / _CODER_SLOT
+        if _is_local_coder_model_dir(authoritative):
+            return authoritative
 
     for base in _model_search_base_dirs():
         for sub in ("coder", "lco-coder"):
@@ -966,7 +1004,7 @@ def _resolve_coder_model_dir(request):
             if not coder_dir.is_dir():
                 continue
             for child in sorted(coder_dir.iterdir()):
-                if _is_local_transformers_model_dir(child):
+                if _is_local_coder_model_dir(child):
                     return child
 
     # No fallback beyond the coder dirs above: the retired "LCO interpreter"
@@ -974,6 +1012,52 @@ def _resolve_coder_model_dir(request):
     # author is the 7B coding model or nothing (LLM-first). A missing model
     # returns None and the caller raises the standard error frame.
     return None
+
+
+_gguf_cache = {}  # {gguf_path_str: Llama}
+
+
+def _get_gguf(gguf_path):
+    """Lazily load + cache a llama.cpp model. All layers go to the GPU (Metal on
+    macOS, CUDA elsewhere); llama.cpp falls back to CPU for what does not fit."""
+    key = str(gguf_path)
+    cached = _gguf_cache.get(key)
+    if cached is not None:
+        return cached
+    from llama_cpp import Llama
+
+    log.info(f"Loading LCO author (GGUF) from {gguf_path}...")
+    real_stdout = sys.stdout
+    sys.stdout = sys.stderr  # protect the IPC pipe from llama.cpp's own stdout
+    try:
+        llm = Llama(model_path=key, n_gpu_layers=-1, n_ctx=_GGUF_N_CTX,
+                    verbose=False)
+    finally:
+        sys.stdout = real_stdout
+    _gguf_cache[key] = llm
+    log.info("LCO author ready.")
+    return llm
+
+
+def run_gguf_instruct(text, gguf_path, system_prompt, max_new_tokens=None):
+    """run_instruct's contract on the llama.cpp path: one short user text under an
+    arbitrary system prompt, greedy for determinism, the model's own chat template.
+
+    No invented output cap. `max_tokens=-1` means "until EOS or the context ends",
+    which is the model's real ceiling; a number here would cut an orchestra off
+    mid-line. Callers that pass max_new_tokens are honoured, but nothing in the
+    csound path does."""
+    text = (text or "").strip()
+    if not text:
+        return ""
+    llm = _get_gguf(gguf_path)
+    out = llm.create_chat_completion(
+        messages=[{"role": "system", "content": system_prompt},
+                  {"role": "user", "content": text}],
+        temperature=0.0,
+        max_tokens=int(max_new_tokens) if max_new_tokens else -1,
+    )
+    return out["choices"][0]["message"]["content"] or ""
 
 
 # Qwen serves BOTH translate and interpret/reprompt — one shared instance. It
@@ -3354,10 +3438,55 @@ def send_text(message):
 
 # ─── Main loop ──────────────────────────────────────────────────────
 
+def _start_parent_watchdog(poll_seconds=2.0):
+    """Exit when the plugin that launched this backend is gone.
+
+    The request loop notices a dead parent only at stdin EOF, and it does not
+    get back there while a request is in flight — so quitting the Standalone
+    mid-generation orphaned this process indefinitely: it kept computing an
+    answer nobody could receive any more. Measured 2026-07-22: one orphan four
+    hours old, holding ~97% of a core with a 196 GB physical footprint and the
+    machine's swap at 66.8 of 67.6 GB.
+
+    Polling getppid() is what works DURING a request: a model load, a sampler
+    loop or an LLM generation cannot be interrupted cooperatively from a
+    thread, so the watchdog exits the process outright. os._exit skips
+    interpreter cleanup on purpose — there is no one left to talk to, and
+    atexit/GC on a half-finished MPS graph is exactly what we are escaping.
+
+    Armed only when there IS a parent to watch: started detached (getppid()==1,
+    a nohup/launchd run or a debugging session whose shell has gone) the
+    watchdog would fire immediately, so it stays off.
+    """
+    import threading
+
+    initial_ppid = os.getppid()
+    if initial_ppid <= 1:
+        log.info("no parent process to watch — orphan watchdog off")
+        return
+
+    def watch():
+        while True:
+            time.sleep(poll_seconds)
+            if os.getppid() != initial_ppid:
+                log.warning("parent process %d is gone — exiting", initial_ppid)
+                try:
+                    sys.stderr.flush()
+                except Exception:
+                    pass
+                os._exit(0)
+
+    threading.Thread(target=watch, name="parent-watchdog", daemon=True).start()
+
+
 def main():
     global _available_models
     import sys
     sys.setrecursionlimit(50000)  # torchsde workaround
+
+    # Before anything slow: a Standalone quit during the very first model load
+    # orphans this process just as thoroughly as one during a generation.
+    _start_parent_watchdog()
 
     _available_models = find_models()
     if not _available_models:
@@ -3493,10 +3622,17 @@ def main():
                     raise RuntimeError("Csound author model not installed (load it in Settings)")
                 coder_device = _translator_device(t_device)
 
+                coder_gguf = _coder_gguf_file(coder_dir)
+
                 def csound_llm(text, system_prompt, max_new_tokens,
-                               _dir=coder_dir, _dev=coder_device):
-                    """The single model surface build_csound_response needs: a
-                    greedy instruct call on the interpreter (7B) model."""
+                               _dir=coder_dir, _dev=coder_device, _gguf=coder_gguf):
+                    """The single model surface build_csound_response needs: one
+                    greedy instruct call on the author model. Two shapes reach
+                    here — the shipped 4-bit GGUF through llama.cpp, and a
+                    transformers directory (dev drop, or a pre-GGUF install)."""
+                    if _gguf is not None:
+                        return run_gguf_instruct(text, _gguf, system_prompt,
+                                                 max_new_tokens=max_new_tokens)
                     return run_instruct(text, _dir, _dev, system_prompt,
                                         max_new_tokens=max_new_tokens)
 
@@ -3590,3 +3726,17 @@ def main():
 
 if __name__ == "__main__":
     main()
+    # main() returns only on a clean shutdown (the host closed stdin). Leave via
+    # os._exit so the process does NOT run C++ static destructors.
+    #
+    # llama.cpp's Metal backend aborts in one: ggml-metal-device.m asserts
+    # `[rsets->data count] == 0` while freeing the device at __cxa_finalize, so a
+    # backend that has authored even one orchestra exits 134/SIGABRT instead of 0
+    # (measured; upstream ggml-org/llama.cpp#17869). The host would read that as a
+    # backend crash on every ordinary quit. Nothing here owns unflushed state --
+    # every frame is written and flushed as it is produced -- so skipping
+    # finalization costs nothing. Error paths inside main() still exit their own
+    # way and keep their status.
+    sys.stdout.flush()
+    sys.stderr.flush()
+    os._exit(0)
