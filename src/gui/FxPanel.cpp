@@ -33,8 +33,8 @@ static const int kPlateFamily[] = { ReverbType::Dark, ReverbType::Medium, Reverb
 static const int kAlgoFamily[]  = { ReverbType::Algo, ReverbType::AlgoPlus };
 
 // Cell labels for the active variant. Indexed by DelayType::character().
-static const char* kTapeVariantLbls[] = { "Natural", "Warm", "Wild", "Old" };
-static const char* kBbdVariantLbls[]  = { "Vintage", "Clean", "Degraded" };
+static const char* kTapeVariantLbls[] = { "Clean", "Warm", "Wild", "Old" };
+static const char* kBbdVariantLbls[]  = { "Warm", "Clean", "Degraded" };
 
 FxPanel::FxPanel(juce::AudioProcessorValueTreeState& apvts, T5ynthProcessor& processor)
     : processorRef(processor)
