@@ -254,6 +254,12 @@ private:
     HANDLE hChildStdinWr_  = INVALID_HANDLE_VALUE;  // parent → child
     HANDLE hChildStdoutRd_ = INVALID_HANDLE_VALUE;  // child → parent
     HANDLE hProcess_       = INVALID_HANDLE_VALUE;
+    // Kill-on-close job holding the backend: closing this handle — including
+    // implicitly, when this process dies without reaching shutdown() — takes the
+    // backend down with it. The Windows half of the orphan guard; the Python
+    // side (pipe_inference.py, _start_parent_watchdog) cannot cover this
+    // platform because getppid() there keeps returning a dead parent's id.
+    HANDLE hJob_           = nullptr;
    #else
     int stdinFd_ = -1;   // parent → child (write)
     int stdoutFd_ = -1;  // child → parent (read)

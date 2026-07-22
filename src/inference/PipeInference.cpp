@@ -455,7 +455,33 @@ bool PipeInference::launch(const juce::File& backendDir)
     auto cmdWide = cmdLine.toWideCharPointer();
     std::wstring cmdBuf(cmdWide);
 
-    const DWORD creationFlags = CREATE_NO_WINDOW | inferencePriorityClass();
+    // Kill-on-close job for the backend. Without it a host that dies without
+    // reaching shutdown() (crash, force-quit, debugger stop) leaves the backend
+    // running: it only notices a dead parent at stdin EOF, and while a request
+    // is in flight it never gets back there — a macOS orphan measured
+    // 2026-07-22 held a core and grew for four hours. pipe_inference.py's own
+    // watchdog polls getppid(), which on Windows keeps returning the dead
+    // parent's id, so this platform needs the guard from the OUTSIDE. Closing
+    // the handle kills everything in the job, and process death closes it.
+    // CREATE_SUSPENDED so the child cannot run — or spawn — before it is in the
+    // job; it is resumed right after the assignment below.
+    if (hJob_ != nullptr) { CloseHandle(hJob_); hJob_ = nullptr; }
+    HANDLE hJob = CreateJobObjectW(nullptr, nullptr);
+    if (hJob != nullptr)
+    {
+        JOBOBJECT_EXTENDED_LIMIT_INFORMATION jeli = {};
+        jeli.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+        if (!SetInformationJobObject(hJob, JobObjectExtendedLimitInformation, &jeli, sizeof(jeli)))
+        {
+            juce::Logger::writeToLog("PipeInference: job object could not be configured (error "
+                                     + juce::String((int)GetLastError())
+                                     + ") — the backend may outlive a crashed host");
+            CloseHandle(hJob);
+            hJob = nullptr;
+        }
+    }
+
+    const DWORD creationFlags = CREATE_NO_WINDOW | CREATE_SUSPENDED | inferencePriorityClass();
 
     if (!CreateProcessW(nullptr, cmdBuf.data(), nullptr, nullptr, TRUE,
                         creationFlags, nullptr, nullptr, &si, &pi))
@@ -469,9 +495,23 @@ bool PipeInference::launch(const juce::File& backendDir)
         CloseHandle(hChildStdoutRd);
         CloseHandle(hChildStdoutWr);
         if (hChildStderrWr != INVALID_HANDLE_VALUE) CloseHandle(hChildStderrWr);
+        if (hJob != nullptr) CloseHandle(hJob);
         launching_ = false;
         return false;
     }
+
+    // Into the job while still suspended, then let it run. A failed assignment
+    // is not fatal — the backend simply loses the crash-orphan guard — but it
+    // must not leave the process suspended forever.
+    if (hJob != nullptr && !AssignProcessToJobObject(hJob, pi.hProcess))
+    {
+        juce::Logger::writeToLog("PipeInference: backend could not be put in the kill-on-close job (error "
+                                 + juce::String((int)GetLastError())
+                                 + ") — it may outlive a crashed host");
+        CloseHandle(hJob);
+        hJob = nullptr;
+    }
+    ResumeThread(pi.hThread);
 
     // Close child-side handles (now owned by child process)
     CloseHandle(hChildStdinRd);
@@ -482,6 +522,7 @@ bool PipeInference::launch(const juce::File& backendDir)
     hChildStdinWr_ = hChildStdinWr;
     hChildStdoutRd_ = hChildStdoutRd;
     hProcess_ = pi.hProcess;
+    hJob_ = hJob;
 
 #else
     // ── POSIX: pipe + fork + exec ───────────────────────────────────
@@ -727,6 +768,10 @@ void PipeInference::shutdown()
         CloseHandle(hProcess_);
         hProcess_ = INVALID_HANDLE_VALUE;
     }
+    // After the process is gone: closing the job is the backstop for anything
+    // TerminateProcess missed (a child the backend spawned), and it must not be
+    // left open for a relaunch to inherit.
+    if (hJob_ != nullptr) { CloseHandle(hJob_); hJob_ = nullptr; }
 #else
     if (stdinFd_ >= 0) { close(stdinFd_); stdinFd_ = -1; }
     if (stdoutFd_ >= 0) { close(stdoutFd_); stdoutFd_ = -1; }

@@ -897,29 +897,6 @@ TRANSLATION_SYSTEM_PROMPT = (
 _translator_cache = {}  # {(model_dir_str, device): (tokenizer, model)}
 
 
-def _resolve_translation_model_dir(request):
-    """Locate the optional prompt-translation model directory, or None.
-
-    Precedence:
-      1. request["model_path"]           — explicit absolute path from the client
-      2. $T5YNTH_TRANSLATION_MODEL       — override (dev/testing)
-      3. <model root>/translation/<dir>  — auto-discovered installed translator
-    """
-    explicit = request.get("model_path") or os.environ.get("T5YNTH_TRANSLATION_MODEL")
-    if explicit:
-        candidate = Path(explicit).expanduser()
-        return candidate if _is_local_transformers_model_dir(candidate) else None
-
-    for base in _model_search_base_dirs():
-        translation_dir = base / "translation"
-        if not translation_dir.is_dir():
-            continue
-        for child in sorted(translation_dir.iterdir()):
-            if _is_local_transformers_model_dir(child):
-                return child
-    return None
-
-
 # The LCO author ships as a single 4-bit GGUF (google/gemma-4-12B-it-qat-q4_0-gguf),
 # not a transformers directory: a 12B in 6.98 GB, which is what makes it fit a
 # 16 GB Mac at all -- the same model in bf16 is 23.9 GB, and transformers has no
@@ -961,9 +938,9 @@ def _is_local_coder_model_dir(path):
 def _resolve_coder_model_dir(request):
     """Locate the LCO coder model directory (a HF causal-LM dir), or None.
 
-    Mirrors _resolve_translation_model_dir but for the code-authoring LLM the LCO
-    uses. Coexists with the translator: run_instruct caches per (dir, device), so
-    both models live side by side without evicting each other.
+    The ONE instruct model in the product: it authors the Csound, translates
+    prompts and drives Re-Prompt. The separately-installed 1.5B translator it
+    replaced is gone (it was measurably bad at both of its jobs).
 
     Precedence:
       1. request["coder_model_path"]              — explicit path from the client
@@ -1224,6 +1201,37 @@ def run_instruct(text, model_dir, device, system_prompt, max_new_tokens=None,
 
     new_tokens = generated[0, input_ids.shape[1]:]
     return tokenizer.decode(new_tokens, skip_special_tokens=True).strip()
+
+
+def run_author_instruct(request, text, system_prompt, device, max_new_tokens=None,
+                        **transformers_only):
+    """One instruct call on the AUTHOR model — the single LLM in the product.
+
+    Translate, Re-Prompt and the Csound author all run on it. There is no second,
+    smaller instruct model: the 1.5B that used to serve translate/Re-Prompt was
+    measurably bad at both (it collapsed to a constant answer on the self-check's
+    comparison task, which is why that path already asked for the author model
+    instead), and keeping a weak model alive for two features while a strong one
+    is already resident bought nothing but a download and a second failure mode.
+
+    `transformers_only` carries generate() kwargs that exist only on the
+    transformers path (repetition_penalty, no_repeat_ngram_size). They are DROPPED
+    for the GGUF author, deliberately: both were crutches for the 1.5B's greedy
+    degeneration ("sharp, thin, metallic, buzzing, sharp, thin, ..."), and
+    no_repeat_ngram_size is a hard ban rather than a penalty — it spans the prompt
+    too, so a system prompt that spells out a required answer form makes that form
+    unsayable (measured: "butthe sound measuresbrightandthin"). Re-measured on the
+    author model with BOTH off, on the exact palette that provoked the cycle: six
+    words, clean stop, zero repeated 3-grams, identical across five runs.
+    """
+    model_dir = _resolve_coder_model_dir(request)
+    if model_dir is None:
+        raise ValueError("Language model is not installed (load it in Settings).")
+    gguf = _coder_gguf_file(model_dir)
+    if gguf is not None:
+        return run_gguf_instruct(text, gguf, system_prompt, max_new_tokens=max_new_tokens)
+    return run_instruct(text, model_dir, _translator_device(device), system_prompt,
+                        max_new_tokens=max_new_tokens, **transformers_only)
 
 
 def translate_prompt(text, model_dir, device, max_new_tokens=None):
@@ -3457,6 +3465,11 @@ def _start_parent_watchdog(poll_seconds=2.0):
     Armed only when there IS a parent to watch: started detached (getppid()==1,
     a nohup/launchd run or a debugging session whose shell has gone) the
     watchdog would fire immediately, so it stays off.
+
+    POSIX only, by construction: Windows does not reparent orphans, so
+    getppid() there keeps returning the id of a parent that is long gone. The
+    Windows guard is the kill-on-close job object the plugin puts the backend
+    in (PipeInference.cpp), which needs nothing from this side.
     """
     import threading
 
@@ -3484,8 +3497,10 @@ def main():
     import sys
     sys.setrecursionlimit(50000)  # torchsde workaround
 
-    # Before anything slow: a Standalone quit during the very first model load
-    # orphans this process just as thoroughly as one during a generation.
+    # Before the startup model load: a Standalone quit during THAT orphans this
+    # process just as thoroughly as one during a generation. (The module-level
+    # torch import already ran; a parent that dies during it is caught anyway —
+    # send_ready() then writes into a dead pipe and the process ends.)
     _start_parent_watchdog()
 
     _available_models = find_models()
@@ -3535,14 +3550,9 @@ def main():
                 t_device = request.get("device", default_device)
                 if t_device == "auto" or t_device not in devices:
                     t_device = default_device
-                translation_dir = _resolve_translation_model_dir(request)
-                if translation_dir is None:
-                    raise ValueError(
-                        "Translation model is not installed "
-                        "(expected under <model root>/translation/, or pass model_path)."
-                    )
                 source_text = request.get("prompt_a") or request.get("text") or ""
-                send_text(translate_prompt(source_text, translation_dir, t_device))
+                send_text(run_author_instruct(request, source_text,
+                                              TRANSLATION_SYSTEM_PROMPT, t_device))
                 continue
 
             # Optional prompt INTERPRETATION: same instruct LLM as ``translate``,
@@ -3561,17 +3571,10 @@ def main():
                 # measurement of bright), while the author model gets it right.
                 # Resolved the same way mode="csound" resolves it, so the check
                 # follows whatever the user loaded in Settings.
-                if request.get("use_coder_model"):
-                    translation_dir = _resolve_coder_model_dir(request)
-                    if translation_dir is None:
-                        raise ValueError("Author model is not installed (load it in Settings).")
-                else:
-                    translation_dir = _resolve_translation_model_dir(request)
-                if translation_dir is None:
-                    raise ValueError(
-                        "Instruct/translation model is not installed "
-                        "(expected under <model root>/translation/, or pass model_path)."
-                    )
+                # `use_coder_model` is still accepted on the wire but no longer
+                # selects anything: there IS only the author model now. The flag
+                # existed because the self-check needed the bigger model while
+                # Re-Prompt was stuck on the 1.5B — the split it named is gone.
                 system_prompt = request.get("system_prompt") or TRANSLATION_SYSTEM_PROMPT
                 source_text = request.get("prompt_a") or request.get("text") or ""
                 # No default cap (see run_instruct): only an explicit request value
@@ -3597,8 +3600,8 @@ def main():
                 anti_cycle = request.get("anti_cycle", True)
                 extra = ({"repetition_penalty": 1.2, "no_repeat_ngram_size": 3}
                          if anti_cycle else {})
-                send_text(run_instruct(source_text, translation_dir, t_device,
-                                       system_prompt, max_new, **extra))
+                send_text(run_author_instruct(request, source_text, system_prompt,
+                                              t_device, max_new, **extra))
                 continue
 
             # Csound orchestra author (the CORRECT backend, 2026-07-17): the same
