@@ -1342,6 +1342,7 @@ PipeInference::CsoundAuthorResult PipeInference::authorCsoundOrchestra(const juc
             result.orchestra  = parsed.getProperty("orchestra", juce::var()).toString();
             result.reading    = parsed.getProperty("reading", juce::var()).toString();
             result.paramsText = parsed.getProperty("params_text", juce::var()).toString();
+            result.authorModel = parsed.getProperty("author_model", juce::var()).toString();
             result.success    = result.orchestra.isNotEmpty();
             if (!result.success)
                 result.errorMessage = "Empty orchestra in Csound response";

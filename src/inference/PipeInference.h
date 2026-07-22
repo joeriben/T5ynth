@@ -148,6 +148,10 @@ public:
         juce::String reading;       // human "how it was heard" line(s), one per layer
         juce::String paramsText;    // catalogue "<key>: <why>" + "params: ..." block per
                                      // resolved technique — the panel's transparency surface
+        juce::String authorModel;   // directory name of the model that ACTUALLY wrote this
+                                     // orchestra, straight from the backend's resolver. The
+                                     // panel names this instead of a compiled-in string, so a
+                                     // resolver that walks past the intended slot is visible.
         juce::String errorMessage;  // set when success == false
     };
 

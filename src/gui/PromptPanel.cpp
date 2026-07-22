@@ -404,7 +404,12 @@ PromptPanel::PromptPanel(T5ynthProcessor& processor)
         // MainPanel). Replaces the old single "LCO: ready" status line and the
         // earlier single collapsed model button.
         {
-            const char* lcoSlotLabels[kNumLcoModelSlots] = { "Coder 7B" };
+            // NOT the model's name: nothing here knows which model the backend's
+            // resolver will actually pick, and a compiled-in "Coder 7B" was wrong
+            // for a whole afternoon while an unloadable 7B slot sent authoring to
+            // the 3B. The real directory name replaces this the moment the first
+            // authored orchestra comes back (setLcoAuthorModel).
+            const char* lcoSlotLabels[kNumLcoModelSlots] = { kLcoAuthorUnknownLabel };
             for (int i = 0; i < kNumLcoModelSlots; ++i)
             {
                 dcoModelBtns[i].setButtonText(lcoSlotLabels[i]);
@@ -2415,6 +2420,9 @@ void PromptPanel::triggerDcoBake()
             // chain reads its own last reading/flags to build the next
             // stance turn, exactly like the retired bake fed it — Csound has
             // no per-word flags concept, so the flags line is simply empty.
+            // Name the model that actually wrote this orchestra.
+            self->setLcoAuthorModel(authored.authorModel);
+
             self->dcoLastMachineReading_ = authored.reading;
             self->dcoLastFlagsLine_ = {};
             if (text != self->dcoLoopLast_)
@@ -3119,6 +3127,21 @@ void PromptPanel::setCoderAvailable(bool available)
 {
     coderAvailable_ = available;
     updateLcoModelTabs();
+}
+
+// Name the model that ACTUALLY wrote the orchestra. The backend puts its
+// resolver's answer on the wire (`author_model`); the tab shows that and nothing
+// else, so a resolver that walked past the intended slot is visible on the panel
+// instead of hiding behind a compiled-in name. The full directory name goes in
+// the tooltip because the tab is narrow.
+void PromptPanel::setLcoAuthorModel(const juce::String& modelDirName)
+{
+    const auto name = modelDirName.trim();
+    if (name.isEmpty())
+        return;                       // no claim beats a wrong claim
+    dcoModelBtns[0].setButtonText(name);
+    dcoModelBtns[0].setTooltip("Wrote this orchestra: " + name);
+    dcoModelBtns[0].repaint();
 }
 
 // Refresh the single-tab LCO model strip: the tab shows the model at full

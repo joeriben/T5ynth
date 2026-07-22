@@ -3509,6 +3509,15 @@ def main():
                 response = build_csound_response(request.get("text") or "", csound_llm,
                                                  request.get("correction") or "",
                                                  request.get("previous") or "")
+                # Report WHICH model actually authored. The UI otherwise shows a
+                # hardcoded name and cannot tell that the resolver walked past the
+                # intended slot: an install missing its shard map fails
+                # _is_local_transformers_model_dir, the scan continues, and another
+                # coder writes the orchestra while the panel still names the first.
+                # Observed exactly so (2026-07-22): the 7B slot was unloadable and
+                # the 3B authored, with nothing on the wire to show it.
+                if isinstance(response, dict):
+                    response["author_model"] = coder_dir.name
                 send_text(json.dumps(response))
                 continue
 

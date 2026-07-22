@@ -114,6 +114,11 @@ public:
     // (triggerDcoReprompt) is untouched, it already has its own qwenAvailable_
     // gate for the (different) translation model. Message thread.
     void setCoderAvailable(bool available);
+
+    /** Name the model that authored the orchestra just received, as reported by
+     *  the backend resolver (`author_model` on the csound response). Empty leaves
+     *  the placeholder standing. Call from the message thread. */
+    void setLcoAuthorModel(const juce::String& modelDirName);
     bool isEasyMode() const { return easyMode_; }
     bool hasHiddenActiveState() const;
 
@@ -517,7 +522,12 @@ private:
     // (updateLcoModelTabs). Must stay declared AFTER modelSwitchLnF above (LnF
     // destruction-order rule: the LnF must outlive every component whose
     // setLookAndFeel points at it).
-    static constexpr int kNumLcoModelSlots = 1;   // the 7B coder (the LCO author)
+    static constexpr int kNumLcoModelSlots = 1;   // the LCO author
+    // Placeholder until the backend reports which model it actually resolved.
+    // Never a model NAME: the panel cannot know the resolver's choice, and a
+    // compiled-in name is exactly how "Coder 7B" stayed on screen while a
+    // different model wrote every orchestra.
+    static constexpr const char* kLcoAuthorUnknownLabel = "LCO author";
     juce::TextButton dcoModelBtns[kNumLcoModelSlots];
     juce::String modelSlotIds[kNumModelSlots];  // resolved model directory name per slot
     juce::Rectangle<int> modelSwitchBounds;
