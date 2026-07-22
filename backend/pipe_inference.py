@@ -264,6 +264,35 @@ def _validate_cuda_runtime_or_raise():
 
 # ─── Model loading ──────────────────────────────────────────────────
 
+def _diffusers_weights_present(model_dir, idx):
+    """True when a model_index.json is backed by weights that are actually there.
+
+    diffusers keeps its weights in per-component SUBFOLDERS (unet/, vae/, ...),
+    so the index file alone says nothing about whether the model is installed.
+    A model slot is a symlink to the directory the model was imported from
+    (SettingsPage::importModelDirectoryForId), and one pointing at a folder that
+    merely happens to contain a leftover model_index.json — a browser Downloads
+    folder, say — used to register as a complete engine: the plugin offered it,
+    and the failure only surfaced at load time as "no file named
+    diffusion_pytorch_model.bin found in directory ...". Check the components the
+    index itself declares, so nothing scans an unrelated tree.
+    """
+    for key, value in idx.items():
+        if key.startswith("_"):
+            continue
+        # A component entry is a ["module", "ClassName"] pair; anything else
+        # (scalars, nested dicts) is metadata, not a weights folder.
+        if not (isinstance(value, (list, tuple)) and len(value) == 2):
+            continue
+        component = model_dir / key
+        if not component.is_dir():
+            continue
+        for pattern in ("*.safetensors", "*.bin", "*.ckpt", "*.pth"):
+            if any(component.glob(pattern)):
+                return True
+    return False
+
+
 def _model_format(model_dir):
     """Detect model format. Returns 'diffusers', 'audioldm2', 'native', or None."""
     native_weights = (model_dir / "model.safetensors").is_file()
@@ -273,10 +302,19 @@ def _model_format(model_dir):
         try:
             with open(model_index) as f:
                 idx = json.load(f)
-            if "AudioLDM2" in idx.get("_class_name", ""):
-                return "audioldm2"
         except (json.JSONDecodeError, OSError):
-            pass
+            idx = None
+        if idx is not None and not _diffusers_weights_present(model_dir, idx):
+            # Index without weights: not an install. Fall through to the native
+            # check so a native model that happens to carry an index is still
+            # found, and report nothing rather than a model that cannot load.
+            if native_weights and config_path.is_file():
+                return "native"
+            log.warning("skipping %s: model_index.json without component weights",
+                        model_dir)
+            return None
+        if idx is not None and "AudioLDM2" in idx.get("_class_name", ""):
+            return "audioldm2"
         if native_weights and config_path.is_file():
             return "native"
         return "diffusers"
@@ -295,8 +333,15 @@ def _model_search_base_dirs():
         return [Path(configured_dir)]
 
     base_dirs = [
-        Path.home() / "Library" / "Application Support" / "T5ynth" / "models",  # per-user macOS (primary)
-        Path.home() / "Library" / "T5ynth" / "models",       # legacy macOS
+        # CANONICAL per-user macOS root — this is the folder the app actually WRITES:
+        # SettingsPage::getAppSupportModelDir() (src/gui/SetupWizard.cpp) resolves
+        # JUCE's userApplicationDataDirectory, which on macOS is ~/Library, plus
+        # "T5ynth/models". It used to be listed BELOW as "legacy" while the
+        # Application Support path was labelled "primary" — but nothing ever writes
+        # that one, so the writer and the reader disagreed about where models live
+        # and the multi-root scan hid it.
+        Path.home() / "Library" / "T5ynth" / "models",       # per-user macOS (canonical, app-written)
+        Path.home() / "Library" / "Application Support" / "T5ynth" / "models",  # manual/older placement, scan-only
         Path.home() / ".config" / "share" / "T5ynth" / "models",  # Linux current app data path
         Path.home() / ".local" / "share" / "T5ynth" / "models",  # Linux
         Path.home() / "t5ynth" / "models",                    # legacy
