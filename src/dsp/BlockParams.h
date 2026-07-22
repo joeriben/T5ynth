@@ -702,9 +702,9 @@ namespace ReverbType {
     enum : int { Off = 0, Dark = 1, Medium = 2, Bright = 3, Algo = 4, AlgoPlus = 5 };
     static constexpr ChoiceEntry kEntries[] = {
         { "off",       "Off"       },
-        { "dark",      "Dark"      },
-        { "medium",    "Medium"    },
-        { "bright",    "Bright"    },
+        { "dark",      "Plate Dk"  },
+        { "medium",    "Plate Md"  },
+        { "bright",    "Plate Br"  },
         { "algo",      "Freeverb"  },
         { "algo_plus", "Freeverb+" }
     };
@@ -713,6 +713,8 @@ namespace ReverbType {
 
     /** Both algorithmic types; the plate IRs are convolution. */
     inline bool isAlgorithmic(int t) { return t == Algo || t == AlgoPlus; }
+    /** The three tone colours of the one EMT-140 plate. */
+    inline bool isPlate(int t) { return t == Dark || t == Medium || t == Bright; }
 }
 
 // ── FX Mix: wet-path normalisation + the dry/wet law ─────────────────────────

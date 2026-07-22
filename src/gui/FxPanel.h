@@ -29,6 +29,9 @@ private:
     void timerCallback() override;
     float fs() const;
     void updateVisibility();
+    // One dropdown per category: opens the family's variant menu on its cell.
+    void showDelayFamilyMenu(int btnIndex, const int* types, int numTypes);
+    void showReverbFamilyMenu(int btnIndex, const int* types, int numTypes);
     T5ynthProcessor& processorRef;
 
     // Clock-button LnF — declared BEFORE the button using it so destruction
@@ -39,7 +42,7 @@ private:
     // Delay section
     juce::Label delayHeader;
     static constexpr int kNumDelayBtns = 5;
-    juce::TextButton delayTypeBtns[kNumDelayBtns]; // [OFF][Dig][PP][Tape][BBD]; Tape+BBD cycle chars on re-click
+    juce::TextButton delayTypeBtns[kNumDelayBtns]; // [OFF][Dig][PP][Tape v][BBD v]; family cells open their own dropdown
     juce::ComboBox   delayTypeHidden;              // APVTS-attached, not visible
     juce::Rectangle<int> delayTypeSwitchBounds;
     juce::Rectangle<int> delayCardBounds;      // framed module card (header + content)
@@ -50,8 +53,8 @@ private:
 
     // Reverb section
     juce::Label reverbHeader;
-    static constexpr int kNumReverbBtns = 5;
-    juce::TextButton reverbTypeBtns[kNumReverbBtns]; // [OFF][Dark][Med][Brt][Algo]
+    static constexpr int kNumReverbBtns = 3;
+    juce::TextButton reverbTypeBtns[kNumReverbBtns]; // [OFF][Plate v][Freeverb v]
     juce::ComboBox reverbTypeHidden;
     juce::Rectangle<int> reverbTypeSwitchBounds;
     juce::Rectangle<int> reverbCardBounds;     // framed module card (header + content)

@@ -21,6 +21,21 @@ static juce::String fmtDampPct(double v)
     return juce::String(juce::roundToInt(v * 100.0)) + "%";
 }
 
+// ── Family tables ────────────────────────────────────────────────────────────
+// Each family cell in the type switchboxes owns a dropdown listing exactly its
+// own variants. The tables give the menu ORDER (mildest -> wildest, which is not
+// the parameter's index order) and the short cell labels.
+static const int kTapeFamily[] = { DelayType::Tape, DelayType::TapeWarm,
+                                   DelayType::TapeWild, DelayType::TapeOld };
+static const int kBbdFamily[]  = { DelayType::BbdClean, DelayType::Bbd,
+                                   DelayType::BbdDegraded };
+static const int kPlateFamily[] = { ReverbType::Dark, ReverbType::Medium, ReverbType::Bright };
+static const int kAlgoFamily[]  = { ReverbType::Algo, ReverbType::AlgoPlus };
+
+// Cell labels for the active variant. Indexed by DelayType::character().
+static const char* kTapeVariantLbls[] = { "Natural", "Warm", "Wild", "Old" };
+static const char* kBbdVariantLbls[]  = { "Vintage", "Clean", "Degraded" };
+
 FxPanel::FxPanel(juce::AudioProcessorValueTreeState& apvts, T5ynthProcessor& processor)
     : processorRef(processor)
 {
@@ -28,85 +43,61 @@ FxPanel::FxPanel(juce::AudioProcessorValueTreeState& apvts, T5ynthProcessor& pro
     paintSectionHeader(delayHeader, "DELAY", kFxCol);
     addAndMakeVisible(delayHeader);
 
-    // Delay type switchbox: 5 radio buttons [OFF][Dig][PP][Tape][BBD].
-    // Tape and BBD cycle through character presets on re-click:
-    //   Tape  → Natural → Warm → Wild → Old → Natural …  (Old = legacy additive)
-    //   BBD   → Vintage → Clean → Degraded → Vintage …
-    // The button label reflects the active character. All 10 choices map to the
-    // flat delayType APVTS param via delayTypeHidden (hidden ComboBox).
+    // Delay type switchbox: 5 cells [OFF][Dig][PP][Tape][BBD].
+    //
+    // Tape and BBD are FAMILIES, not single voicings — each has character variants.
+    // Those variants used to be reached by clicking the cell again and again
+    // (Tp1→Tp2→Tp3→Tp4), which hid four states behind one button and was the only
+    // place in this UI that worked that way. Each family cell now opens its OWN
+    // dropdown instead: one dropdown per category, listing only that category's
+    // variants. Off/Digital/Ping-Pong have no variants, so they stay plain cells.
+    //
+    // All 10 choices map to the flat delayType APVTS param via delayTypeHidden.
     {
         juce::StringArray delayTypeItems;
         for (const auto& e : DelayType::kEntries) delayTypeItems.add(e.label);
         delayTypeHidden.addItemList(delayTypeItems, 1);
     }
 
-    // Update toggle states + button labels whenever the APVTS selection changes.
-    // Width is tight, so the cycling types are numbered series — Tp1/2/3 and
-    // BBD1/2/3 — with the full character name in the tooltip. The label always
-    // shows the armed variant (the one a click would select).
-    // Indexed by DelayType::character() (0/1/2). The NUMBER reflects the logical
-    // order (mildest → wildest), NOT the DSP character index:
-    //   Tape: Natural=Tp1, Warm=Tp2, Wild=Tp3, Old=Tp4 (char 3 = legacy additive)
-    //   BBD:  Clean=BBD1, Vintage=BBD2, Degraded=BBD3 (Vintage=char 0 is the
-    //         released default → sits in the MIDDLE, so its label is BBD2).
-    static const char* kTapeLbls[] = { "Tp1",  "Tp2",  "Tp3", "Tp4" };  // char 0/1/2/3 = Nat/Warm/Wild/Old
-    static const char* kBbdLbls[]  = { "BBD2", "BBD1", "BBD3" };  // char 0/1/2 = Vint/Clean/Degr
-    static const char* kTapeTips[] = { "Tape echo - Natural", "Tape echo - Warm", "Tape echo - Wild", "Tape echo - Old (additive wobble)" };
-    static const char* kBbdTips[]  = { "Bucket-brigade - Vintage", "Bucket-brigade - Clean", "Bucket-brigade - Degraded" };
+    // Update toggle states + family-cell labels whenever the APVTS selection
+    // changes. A family cell shows the FAMILY name while another type is active
+    // and the ACTIVE VARIANT's name while its own family is playing, so the panel
+    // always states which character is running. Full name in the tooltip.
     delayTypeHidden.onChange = [this]
     {
         const int dt       = delayTypeHidden.getSelectedId() - 1;
         const int baseType = DelayType::baseMode(dt);
-        const int charIdx  = DelayType::character(dt);
         for (int i = 0; i < kNumDelayBtns; ++i)
             delayTypeBtns[i].setToggleState(i == baseType, juce::dontSendNotification);
-        const int tapeIdx = (baseType == DelayType::Tape) ? charIdx : 0;
-        const int bbdIdx  = (baseType == DelayType::Bbd)  ? charIdx : 0;
-        delayTypeBtns[3].setButtonText(kTapeLbls[tapeIdx]);
-        delayTypeBtns[4].setButtonText(kBbdLbls[bbdIdx]);
-        delayTypeBtns[3].setTooltip(kTapeTips[tapeIdx]);
-        delayTypeBtns[4].setTooltip(kBbdTips[bbdIdx]);
+
+        const bool tapeOn = (baseType == DelayType::Tape);
+        const bool bbdOn  = (baseType == DelayType::Bbd);
+        delayTypeBtns[3].setButtonText(tapeOn ? kTapeVariantLbls[DelayType::character(dt)] : "Tape");
+        delayTypeBtns[4].setButtonText(bbdOn  ? kBbdVariantLbls[DelayType::character(dt)]   : "BBD");
+        delayTypeBtns[3].setTooltip(tapeOn ? juce::String("Tape echo - ") + kTapeVariantLbls[DelayType::character(dt)]
+                                           : juce::String("Tape echo - pick a character"));
+        delayTypeBtns[4].setTooltip(bbdOn  ? juce::String("Bucket-brigade - ") + kBbdVariantLbls[DelayType::character(dt)]
+                                           : juce::String("Bucket-brigade - pick a character"));
         updateVisibility();
     };
 
-    static const char* delayLabels[] = { "OFF", "Dig", "PP", "Tp1", "BBD2" };
+    static const char* delayLabels[] = { "OFF", "Dig", "PP", "Tape", "BBD" };
     for (int i = 0; i < kNumDelayBtns; ++i)
     {
         delayTypeBtns[i].setButtonText(delayLabels[i]);
         styleSwitchButton(delayTypeBtns[i], kFxCol);
-        delayTypeBtns[i].setClickingTogglesState(true);
-        delayTypeBtns[i].setRadioGroupId(4001);
+        // The toggle state is driven by delayTypeHidden.onChange, never by the
+        // click itself: a family click only OPENS a menu, and dismissing that
+        // menu must leave the switchbox exactly as it was.
+        delayTypeBtns[i].setClickingTogglesState(false);
         addAndMakeVisible(delayTypeBtns[i]);
     }
-    // Off / Digital / Ping-Pong: simple select.
+    // Off / Digital / Ping-Pong: no variants, simple select.
     for (int i = 0; i < 3; ++i)
         delayTypeBtns[i].onClick = [this, i] { delayTypeHidden.setSelectedId(i + 1); };
-    // Tape: cycle Natural → Warm → Wild → Old → Natural on repeated clicks
-    // (Tp1→Tp2→Tp3→Tp4→Tp1). Tp4 = the legacy additive wobble.
-    delayTypeBtns[3].onClick = [this]
-    {
-        const int cur = delayTypeHidden.getSelectedId() - 1;
-        int next;
-        if      (cur == DelayType::Tape)     next = DelayType::TapeWarm;
-        else if (cur == DelayType::TapeWarm) next = DelayType::TapeWild;
-        else if (cur == DelayType::TapeWild) next = DelayType::TapeOld;
-        else if (cur == DelayType::TapeOld)  next = DelayType::Tape;
-        else                                  next = DelayType::Tape;
-        delayTypeHidden.setSelectedId(next + 1);
-    };
-    // BBD: cycle in logical order BBD1→BBD2→BBD3→BBD1 = Clean→Vintage→Degraded
-    // →Clean on repeated clicks. Entry from another type lands on Vintage (BBD2,
-    // the released default — preserves delayType=4's established voicing).
-    delayTypeBtns[4].onClick = [this]
-    {
-        const int cur = delayTypeHidden.getSelectedId() - 1;
-        int next;
-        if      (cur == DelayType::BbdClean)    next = DelayType::Bbd;          // BBD1→BBD2
-        else if (cur == DelayType::Bbd)         next = DelayType::BbdDegraded;  // BBD2→BBD3
-        else if (cur == DelayType::BbdDegraded) next = DelayType::BbdClean;     // BBD3→BBD1
-        else                                     next = DelayType::Bbd;         // entry → Vintage
-        delayTypeHidden.setSelectedId(next + 1);
-    };
+    // Tape / BBD: the cell IS the dropdown for its family.
+    delayTypeBtns[3].onClick = [this] { showDelayFamilyMenu(3, kTapeFamily, 4); };
+    delayTypeBtns[4].onClick = [this] { showDelayFamilyMenu(4, kBbdFamily,  3); };
 
     delayTimeRow = std::make_unique<SliderRow>("Time", fmtMs, kFxCol);
     delayFbRow   = std::make_unique<SliderRow>("FB",   fmtF2, kFxCol);
@@ -208,27 +199,47 @@ FxPanel::FxPanel(juce::AudioProcessorValueTreeState& apvts, T5ynthProcessor& pro
     paintSectionHeader(reverbHeader, "REVERB", kFxCol);
     addAndMakeVisible(reverbHeader);
 
-    // Reverb type switchbox: OFF / Dark / Med / Brt / Algo
+    // Reverb type switchbox: 3 cells [OFF][Plate][Freeverb].
+    //
+    // Dark/Med/Brt were never three reverbs — they are three IRs of the SAME
+    // EMT-140 plate, one reverb in three tone colours, so they belong under one
+    // cell with their own dropdown. Freeverb likewise now has two voicings
+    // (Freeverb and Freeverb+, the latter with the early-reflection front end
+    // Freeverb omits), reached from that cell's dropdown. One dropdown per
+    // category, exactly like Tape and BBD above.
     juce::StringArray reverbTypeItems;
     for (const auto& e : ReverbType::kEntries) reverbTypeItems.add(e.label);
     reverbTypeHidden.addItemList(reverbTypeItems, 1);
-    reverbTypeHidden.onChange = [this] {
-        int id = reverbTypeHidden.getSelectedId();
-        for (int i = 0; i < kNumReverbBtns; ++i)
-            reverbTypeBtns[i].setToggleState(i + 1 == id, juce::dontSendNotification);
+    reverbTypeHidden.onChange = [this]
+    {
+        const int rt = reverbTypeHidden.getSelectedId() - 1;
+        const bool plateOn = ReverbType::isPlate(rt);
+        const bool algoOn  = ReverbType::isAlgorithmic(rt);
+        reverbTypeBtns[0].setToggleState(rt == ReverbType::Off, juce::dontSendNotification);
+        reverbTypeBtns[1].setToggleState(plateOn, juce::dontSendNotification);
+        reverbTypeBtns[2].setToggleState(algoOn,  juce::dontSendNotification);
+        // Same rule as the delay families: family name when idle, the active
+        // variant's own name when playing.
+        reverbTypeBtns[1].setButtonText(plateOn ? ReverbType::kEntries[rt].label : "Plate");
+        reverbTypeBtns[2].setButtonText(algoOn  ? ReverbType::kEntries[rt].label : "Freeverb");
+        reverbTypeBtns[1].setTooltip(plateOn ? juce::String("EMT-140 plate - ") + ReverbType::kEntries[rt].label
+                                             : juce::String("EMT-140 plate - pick a tone colour"));
+        reverbTypeBtns[2].setTooltip(algoOn  ? juce::String("Algorithmic - ") + ReverbType::kEntries[rt].label
+                                             : juce::String("Algorithmic - pick a voicing"));
         updateVisibility();
     };
 
-    static const char* reverbLabels[] = {"OFF", "Drk", "Med", "Brt", "Algo"};
+    static const char* reverbLabels[] = { "OFF", "Plate", "Freeverb" };
     for (int i = 0; i < kNumReverbBtns; ++i)
     {
         reverbTypeBtns[i].setButtonText(reverbLabels[i]);
         styleSwitchButton(reverbTypeBtns[i], kFxCol);
-        reverbTypeBtns[i].setClickingTogglesState(true);
-        reverbTypeBtns[i].setRadioGroupId(4002);
-        reverbTypeBtns[i].onClick = [this, i] { reverbTypeHidden.setSelectedId(i + 1); };
+        reverbTypeBtns[i].setClickingTogglesState(false);  // see the delay cells
         addAndMakeVisible(reverbTypeBtns[i]);
     }
+    reverbTypeBtns[0].onClick = [this] { reverbTypeHidden.setSelectedId(ReverbType::Off + 1); };
+    reverbTypeBtns[1].onClick = [this] { showReverbFamilyMenu(1, kPlateFamily, 3); };
+    reverbTypeBtns[2].onClick = [this] { showReverbFamilyMenu(2, kAlgoFamily,  2); };
 
     reverbMixRow  = std::make_unique<SliderRow>("Mix",   fmtF3, kFxCol);
     algoRoomRow   = std::make_unique<SliderRow>("Room",  fmtF2, kFxCol);
@@ -277,6 +288,45 @@ void FxPanel::timerCallback()
         r->tickGhost();
 }
 
+// Opens a family's dropdown anchored to its switchbox cell. The menu is async,
+// so the callback must survive the panel being torn down while it is open —
+// hence the SafePointer. Dismissing without a pick changes nothing.
+void FxPanel::showDelayFamilyMenu(int btnIndex, const int* types, int numTypes)
+{
+    const int cur = delayTypeHidden.getSelectedId() - 1;
+    juce::PopupMenu m;
+    for (int i = 0; i < numTypes; ++i)
+        m.addItem(types[i] + 1, DelayType::kEntries[types[i]].label, true, types[i] == cur);
+
+    juce::Component::SafePointer<FxPanel> safe(this);
+    m.showMenuAsync(juce::PopupMenu::Options()
+                        .withTargetComponent(&delayTypeBtns[btnIndex])
+                        .withMinimumWidth(juce::jmax(96, delayTypeBtns[btnIndex].getWidth())),
+                    [safe](int id)
+                    {
+                        if (safe != nullptr && id > 0)
+                            safe->delayTypeHidden.setSelectedId(id);
+                    });
+}
+
+void FxPanel::showReverbFamilyMenu(int btnIndex, const int* types, int numTypes)
+{
+    const int cur = reverbTypeHidden.getSelectedId() - 1;
+    juce::PopupMenu m;
+    for (int i = 0; i < numTypes; ++i)
+        m.addItem(types[i] + 1, ReverbType::kEntries[types[i]].label, true, types[i] == cur);
+
+    juce::Component::SafePointer<FxPanel> safe(this);
+    m.showMenuAsync(juce::PopupMenu::Options()
+                        .withTargetComponent(&reverbTypeBtns[btnIndex])
+                        .withMinimumWidth(juce::jmax(96, reverbTypeBtns[btnIndex].getWidth())),
+                    [safe](int id)
+                    {
+                        if (safe != nullptr && id > 0)
+                            safe->reverbTypeHidden.setSelectedId(id);
+                    });
+}
+
 void FxPanel::updateVisibility()
 {
     // Guard: called by APVTS attachment before all components are created
@@ -299,7 +349,7 @@ void FxPanel::updateVisibility()
 
     // Reverb: always visible; dim params based on mode
     bool reverbOn = reverbTypeHidden.getSelectedId() > 1;
-    bool algoOn   = reverbTypeHidden.getSelectedId() == 5;
+    bool algoOn   = ReverbType::isAlgorithmic(reverbTypeHidden.getSelectedId() - 1);
     float reverbAlpha = reverbOn ? 1.0f : dimAlpha;
     // Room/Damp/Width: active only for Algo, dimmed for Convolution and OFF
     float algoParamAlpha = algoOn ? 1.0f : dimAlpha;
