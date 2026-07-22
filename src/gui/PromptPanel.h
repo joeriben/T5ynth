@@ -115,10 +115,11 @@ public:
     // gate for the (different) translation model. Message thread.
     void setCoderAvailable(bool available);
 
-    /** Truthful display name for the LCO interpretation LLM shown on the LCO
-     *  model button (dcoModelBtn). Driven by the model-settings install state
-     *  (MainPanel) — never fabricated; falls back to "LCO" if empty. */
-    void setLcoModelName(juce::String name);
+    /** The LCO panel surfaces BOTH of its LLMs as a two-tab strip: the coder
+     *  (Qwen2.5-Coder-3B, slot 0) and the interpreter (Qwen2.5-7B, slot 1).
+     *  setCoderAvailable above lights/dims the coder tab; this lights/dims the
+     *  interpreter tab. Driven by the model-settings install state (MainPanel). */
+    void setInterpreterAvailable(bool available);
     bool isEasyMode() const { return easyMode_; }
     bool hasHiddenActiveState() const;
 
@@ -504,6 +505,11 @@ private:
     void syncSeedModeFromCurrentState();
     void syncSeedModeButtons();
 
+    // Refresh the LCO two-tab model strip from the coder/interpreter install
+    // flags: each tab shows its model at full opacity when installed and dimmed
+    // when absent, so BOTH LCO LLMs stay visible (the missing one greyed).
+    void updateLcoModelTabs();
+
     // Model selector (fixed 4-slot switchbox: SA3 Music | SA1 Open | SA1 Small | AudioLDM2).
     // Easy-only: the model choice belongs to the neural view — Advanced is
     // the DCO panel, where no neural engine is involved.
@@ -511,12 +517,16 @@ private:
     // Declared BEFORE modelBtns so it outlives them (LnF destruction order).
     ModelSwitchLnF modelSwitchLnF;
     juce::TextButton modelBtns[kNumModelSlots];
-    // LCO (Advanced) model-selector button — display-only for now (selection is
-    // future work), styled EXACTLY like modelBtns[] (same modelSwitchLnF). Must
-    // stay declared AFTER modelSwitchLnF above (LnF destruction-order rule: the
-    // LnF must outlive every component whose setLookAndFeel points at it).
-    juce::TextButton dcoModelBtn;
-    juce::String lcoModelName_ { "LCO" };
+    // LCO (Advanced) model selector — a TWO-tab strip surfacing BOTH LCO LLMs
+    // (slot 0 = coder Qwen2.5-Coder-3B, slot 1 = interpreter Qwen2.5-7B), styled
+    // EXACTLY like modelBtns[] (same modelSwitchLnF, connected edges). Display-only
+    // for now (selection is future work); each tab lights when its model is
+    // installed and dims when absent (updateLcoModelTabs). Must stay declared AFTER
+    // modelSwitchLnF above (LnF destruction-order rule: the LnF must outlive every
+    // component whose setLookAndFeel points at it).
+    static constexpr int kNumLcoModelSlots = 2;   // coder (3B) + interpreter (7B)
+    juce::TextButton dcoModelBtns[kNumLcoModelSlots];
+    bool interpreterAvailable_ = false;           // LCO interpreter (Qwen2.5-7B) installed? lights slot 1
     juce::String modelSlotIds[kNumModelSlots];  // resolved model directory name per slot
     juce::Rectangle<int> modelSwitchBounds;
 

@@ -589,31 +589,22 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
     {
         promptPanel.setQwenAvailable(installed);
     };
-    // Truthful LCO model-button name, by PREFERENCE: the interpreter (Qwen2.5-7B)
-    // is the more capable LCO LLM when present, else the coder (Qwen2.5-Coder-3B),
-    // else no LLM installed at all. Recomputed from BOTH install states so either
-    // one changing alone (coder or interpreter) updates the button correctly.
-    auto lcoModelNameFromInstallState = [this]
-    {
-        if (settingsPage.isInterpreterModelInstalled()) return juce::String("Qwen 7B");
-        if (settingsPage.isCoderModelInstalled())       return juce::String("Qwen 3B");
-        return juce::String("no LLM");
-    };
-    settingsPage.onCoderModelChanged = [this, lcoModelNameFromInstallState](bool installed)
+    // The LCO panel surfaces BOTH its LLMs as a two-tab strip (coder Qwen2.5-Coder-3B
+    // | interpreter Qwen2.5-7B); each tab lights when its model is installed and dims
+    // when absent. The two install callbacks feed the two tabs independently, so
+    // installing/removing either model alone updates the correct tab live — neither
+    // is preferred over the other, both are always shown.
+    settingsPage.onCoderModelChanged = [this](bool installed)
     {
         promptPanel.setCoderAvailable(installed);
-        promptPanel.setLcoModelName(lcoModelNameFromInstallState());
     };
-    // The LCO interpreter model has its OWN parallel callback, mirroring
-    // onCoderModelChanged above, so installing/removing it alone (without
-    // touching the coder) also refreshes the LCO model-button name live.
-    settingsPage.onInterpreterModelChanged = [this, lcoModelNameFromInstallState](bool)
+    settingsPage.onInterpreterModelChanged = [this](bool installed)
     {
-        promptPanel.setLcoModelName(lcoModelNameFromInstallState());
+        promptPanel.setInterpreterAvailable(installed);
     };
     promptPanel.setQwenAvailable(settingsPage.isTranslationModelInstalled());
     promptPanel.setCoderAvailable(settingsPage.isCoderModelInstalled());
-    promptPanel.setLcoModelName(lcoModelNameFromInstallState());
+    promptPanel.setInterpreterAvailable(settingsPage.isInterpreterModelInstalled());
 
     presetScrim.onClick = [this] { hidePresetManager(); };
     presetScrim.setVisible(false);

@@ -396,18 +396,29 @@ PromptPanel::PromptPanel(T5ynthProcessor& processor)
         // The LCO title now lives in the panel header (MainPanel::setOscEasyMode /
         // the header layout), so there is no separate subtitle line here any more.
 
-        // LCO model button — display-only for now (selection is future work),
-        // styled EXACTLY like a T5osc model button (modelBtns[], below): same
-        // LnF, same styleSwitchButton accent, same disabled-dim look. Shows the
-        // LCO interpretation LLM's name (set truthfully via setLcoModelName,
-        // MainPanel). Replaces the old idle "LCO: ready" status line.
-        dcoModelBtn.setButtonText(lcoModelName_);
-        dcoModelBtn.setLookAndFeel(&modelSwitchLnF);
-        styleSwitchButton(dcoModelBtn, kOscCol);
-        dcoModelBtn.setClickingTogglesState(false);
-        dcoModelBtn.setEnabled(false);      // display-only for now (selection is future work)
-        dcoModelBtn.setInterceptsMouseClicks(false, false);
-        addAndMakeVisible(dcoModelBtn);
+        // LCO model strip — TWO tabs surfacing BOTH LCO LLMs (slot 0 = coder
+        // Qwen2.5-Coder-3B, slot 1 = interpreter Qwen2.5-7B), styled EXACTLY like a
+        // T5osc model button (modelBtns[], below): same LnF, same styleSwitchButton
+        // accent, connected edges. Display-only for now (selection is future work);
+        // each tab lights when its model is installed and dims when absent
+        // (updateLcoModelTabs, driven by MainPanel). Replaces the old single "LCO:
+        // ready" status line and the earlier single collapsed model button.
+        {
+            const char* lcoSlotLabels[kNumLcoModelSlots] = { "Coder 3B", "Interp 7B" };
+            for (int i = 0; i < kNumLcoModelSlots; ++i)
+            {
+                dcoModelBtns[i].setButtonText(lcoSlotLabels[i]);
+                dcoModelBtns[i].setLookAndFeel(&modelSwitchLnF);
+                styleSwitchButton(dcoModelBtns[i], kOscCol);
+                dcoModelBtns[i].setClickingTogglesState(false);
+                dcoModelBtns[i].setConnectedEdges(i == 0 ? juce::Button::ConnectedOnRight
+                                                         : juce::Button::ConnectedOnLeft);
+                dcoModelBtns[i].setEnabled(false);      // display-only for now (selection is future work)
+                dcoModelBtns[i].setInterceptsMouseClicks(false, false);
+                addAndMakeVisible(dcoModelBtns[i]);
+            }
+            updateLcoModelTabs();
+        }
 
         // No BAKE button: the reused GENERATE button (MainPanel) authors the bake
         // in LCO mode via triggerLcoGenerate(). dcoStatusLabel stays as the
@@ -1069,7 +1080,7 @@ void PromptPanel::resized()
     // dcoStatusLabel is the hidden logical status holder now (never laid out/
     // shown — see setLcoStatus); it is intentionally NOT toggled here.
     dcoPromptEditor.setVisible(!easy);
-    dcoModelBtn.setVisible(!easy);
+    for (auto& b : dcoModelBtns) b.setVisible(!easy);
     dcoReadingEditorA.setVisible(!easy);
     dcoFlagsLabel.setVisible(!easy);
     dcoStanceBar.setVisible(!easy);
@@ -1113,7 +1124,11 @@ void PromptPanel::resized()
         // GENERATE drives the bake/loop (triggerLcoGenerate).
         {
             auto modelRow = area.removeFromTop(compactRowLco + 2);
-            dcoModelBtn.setBounds(modelRow);
+            const int slotW = modelRow.getWidth() / kNumLcoModelSlots;
+            for (int i = 0; i < kNumLcoModelSlots; ++i)
+                dcoModelBtns[i].setBounds(i == kNumLcoModelSlots - 1
+                                              ? modelRow                        // last slot absorbs the rounding remainder
+                                              : modelRow.removeFromLeft(slotW));
         }
         area.removeFromTop(modelGapLco);
 
@@ -3090,20 +3105,34 @@ void PromptPanel::setQwenAvailable(bool available)
 // The base LCO bake (triggerDcoBake) requires the optional Qwen2.5-Coder-3B model
 // (per-station Csound-GEN authoring). Unlike qwenAvailable_ above, no control here
 // dims or grows a tooltip — the gate lives entirely at the top of triggerDcoBake,
-// so this setter just records the flag. Re-Prompt (triggerDcoReprompt) reads the
-// DIFFERENT qwenAvailable_ flag and is untouched by this one.
+// so this setter records the flag AND lights/dims the coder tab (slot 0) of the LCO
+// model strip. Re-Prompt (triggerDcoReprompt) reads the DIFFERENT qwenAvailable_
+// flag and is untouched by this one.
 void PromptPanel::setCoderAvailable(bool available)
 {
     coderAvailable_ = available;
+    updateLcoModelTabs();
 }
 
-// Truthful display name for the LCO interpretation LLM on dcoModelBtn — driven
-// by the model-settings install state (MainPanel), never fabricated.
-void PromptPanel::setLcoModelName(juce::String name)
+// LCO interpreter (Qwen2.5-7B) install state → lights/dims the interpreter tab
+// (slot 1) of the LCO model strip. Driven by MainPanel, never fabricated.
+void PromptPanel::setInterpreterAvailable(bool available)
 {
-    lcoModelName_ = name.isNotEmpty() ? name : juce::String("LCO");
-    dcoModelBtn.setButtonText(lcoModelName_);
-    dcoModelBtn.repaint();
+    interpreterAvailable_ = available;
+    updateLcoModelTabs();
+}
+
+// Refresh the two-tab LCO model strip: each tab shows its model at full opacity
+// when installed and dimmed (0.3, matching modelBtns[]) when absent — so BOTH LCO
+// LLMs stay visible, the missing one greyed rather than hidden.
+void PromptPanel::updateLcoModelTabs()
+{
+    const bool installed[kNumLcoModelSlots] = { coderAvailable_, interpreterAvailable_ };
+    for (int i = 0; i < kNumLcoModelSlots; ++i)
+    {
+        dcoModelBtns[i].setAlpha(installed[i] ? 1.0f : 0.3f);
+        dcoModelBtns[i].repaint();
+    }
 }
 
 // ──────────────────────────────────────────────────────────────────────────────

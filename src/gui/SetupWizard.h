@@ -59,8 +59,8 @@ public:
 
     /** Fired when the OPTIONAL LCO interpreter model's install state TRANSITIONS
      *  (download / import / removal), with the new installed flag. Mirrors
-     *  onCoderModelChanged; lets the editor prefer the interpreter (7B) over the
-     *  coder (3B) for the LCO model-button name the instant either changes. */
+     *  onCoderModelChanged; lights/dims the interpreter (7B) tab of the LCO
+     *  model strip the instant it changes (the coder tab has its own callback). */
     std::function<void(bool)> onInterpreterModelChanged;
 
     /** True iff the optional prompt-translation LLM (Qwen) is installed on disk.
