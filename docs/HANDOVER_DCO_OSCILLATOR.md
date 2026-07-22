@@ -1,7 +1,15 @@
 # Handover — the DCO oscillator (T5Osc "Advanced" becomes a classical, LLM-authored oscillator)
 
+> **Status correction 2026-07-22 — the v1 pipeline below is no longer live.** Its backend half is
+> deleted: `mode:"dco"` went in `40600a0e`, so nothing produces the recipe JSON any more. `dco::Baker`
+> still compiles (`CMakeLists.txt:157`) but no file in `src/` calls it. `loadDcoWavetable` survives and is
+> now fed by the LCO/Csound result instead (`MainPanel.cpp:2121`, `result.lcoFramesA`). Read the status
+> paragraph below as the 2026-07-10 record it is. What §§2–7 still describe accurately is the *concept*
+> and the subsystem map; §5.4 (the LLM) has been re-verified against HEAD and is current, and
+> `docs/DCO_LLM_GUARDRAILS.md` §1a itemises what of the router still runs.
+
 Status: **BUILT end-to-end (2026-07-10).** The v1 pipeline exists on `main`: DCO prompt → backend
-lexicon router (Qwen guardrailed per `docs/DCO_LLM_GUARDRAILS.md`, Slice 3, commit `427ffef2`) →
+lexicon router (LLM guardrailed per `docs/DCO_LLM_GUARDRAILS.md`, Slice 3, commit `427ffef2`) →
 recipe JSON → `dco::Baker`
 (`src/dsp/DcoBaker.*`, Slices 1+2, commit `bcd02384`) → `loadDcoWavetable` → Wavetable engine
 (Slice 4, commit `71aa57d2`). **UI correction (`acf295e7`): the Advanced view IS the DCO panel** —
@@ -39,7 +47,7 @@ only ever in a lost scratchpad session, it says so explicitly.
 ## 0. TL;DR / orientation
 
 - **What the DCO is.** A *non-neural, classical* oscillator that lives on the T5Osc **Advanced** ("back")
-  view. Instead of a diffusion model, a **small code-LLM authors a compact synthesis recipe** (keyframe
+  view. Instead of a diffusion model, a **code-LLM authors a compact synthesis recipe** (keyframe
   additive spectra + a motion sequence + a loop). That recipe is **baked offline** — exactly like a
   generation — into band-limited single-cycle wavetables, and the **existing Wavetable engine plays them
   back** with the equal-power morph it already has. Perfectly loopable by construction.
@@ -47,8 +55,8 @@ only ever in a lost scratchpad session, it says so explicitly.
   "author-by-description" gesture, but through transparent, closed-form DSP the user can inspect and
   predict — the machine-listening bias made audible by contrast (§1).
 - **Where it plugs in.** Playback target = `WavetableOscillator masterOsc` (NOT `WavetableBank`, which is
-  dead code — §4.0). Delivery spine = the existing `loadGeneratedAudio` path (§5). LLM = the existing Qwen
-  `run_instruct` (§5.4). UI slot = the Advanced param grid, freed by removing Steps/CFG (§6, §4.3 of the
+  dead code — §4.0). Delivery spine = the existing `loadGeneratedAudio` path (§5). LLM = the existing
+  on-board instruct model via `run_author_instruct` (§5.4). UI slot = the Advanced param grid, freed by removing Steps/CFG (§6, §4.3 of the
   EASY handover).
 - **What's done (this session).** SA3 Dim-Explorer/Semantic-Axes wiring (`d05d2f45`) and the Dim-Explorer
   log-axis fix (`dc6dfa9b`) are banked. The EASY 2×2 migration is done except one removal.
@@ -101,7 +109,7 @@ Advanced view once the last raw inference dials (Steps/CFG) move off it.
   user text ("a hollow detuned pulse that opens up")
         │
         ▼  (offline, background — like any generation)
-  small code-LLM  ──► RECIPE  = keyframe additive spectra
+  on-board code-LLM ──► RECIPE  = keyframe additive spectra
                                 + motion sequence (segments: →keyframe, duration, curve)
                                 + loop flag
         │
@@ -144,7 +152,7 @@ predictable param→spectrum map and defeat the whole "transparent, inspectable"
 
 The DSP is deterministic. The failure mode is **the LLM hallucinating a spectrum for an ambiguous timbre
 word.** Named-synth vocabulary ("saw", "PWM 30%", "2-op FM index 3", "3rd-harmonic waveshaper") maps
-cleanly and the small code-LLM handles it. **Vague timbre words ("warm", "glassy", "hollow", "fat")** must
+cleanly and the code-LLM handles it. **Vague timbre words ("warm", "glassy", "hollow", "fat")** must
 be **FLAGGED, not invented** — the LLM should refuse to fabricate a partial series from a mood word and
 instead route those to a *separate analysis branch* (fit the math to measurements of real softsynths, so a
 mapping is grounded in data rather than guessed). Design the LLM contract so "I don't have a closed-form
@@ -201,7 +209,7 @@ Baker contract (deterministic, off-thread):
 
 > Whether the baker runs in **Python** (recipe authored + baked in the backend, frames returned) or in
 > **C++** (recipe returned as JSON, baked plugin-side) is an open architectural choice — §5.6 lays out both
-> seams with exact hooks. Recommendation there: **author in Python (reuse Qwen), bake in C++** (reuse the
+> seams with exact hooks. Recommendation there: **author in Python (reuse the on-board LLM), bake in C++** (reuse the
 > whole `loadGeneratedAudio` spine verbatim) — but both are viable and cheap.
 
 ---
@@ -368,7 +376,7 @@ per-block convergence (`:3237-3242`).
 
 ---
 
-## 5. Subsystem map B — the offline generate→deliver spine + IPC + Qwen LLM
+## 5. Subsystem map B — the offline generate→deliver spine + IPC + the on-board LLM
 
 *Source: full read of `src/gui/PromptPanel.cpp`, `src/inference/PipeInference.{h,cpp}`,
 `backend/pipe_inference.py`, `docs/IPC_PROTOCOL.md`, `docs/ADDING_A_MODEL.md`.*
@@ -403,30 +411,55 @@ fan-out `distributeSamplerBuffer` / **`distributeWavetableFrames`** (`:4662`) / 
   `\x01` audio, `\x02` ready (handshake), `\x03` text. **`\x04`+ are UNUSED** — free for a new payload type.
 - `PipeInference::Result` — `PipeInference.h:106-117`: `success`, `audio`, `sampleRate`, `generationTimeMs`,
   `seed`, `errorMessage`, and `embeddingA/embeddingB/embeddingBaseline` (768-d).
-- `PipeInference::generate(const Request&)` — `PipeInference.cpp:805`. Holds `std::recursive_mutex
-  stateMutex_` (`:807`) that **serializes ALL ops** (generate/translate/interpret/analyze/preload) onto the
+- `PipeInference::generate(const Request&)` — `PipeInference.cpp:865`. Holds `std::recursive_mutex
+  stateMutex_` (`:867`) that **serializes ALL ops** (generate/translate/interpret/analyze/preload) onto the
   single pipe; auto-restarts a dead subprocess. **The Request struct has no `mode` field** → `generate()`
-  never writes `"mode"` → backend defaults to `"generate"` (`pipe_inference.py:3294`). Other ops set
+  never writes `"mode"` → backend defaults to `"generate"` (`pipe_inference.py:3683`). Other ops set
   `"mode"` explicitly.
 
-### 5.4 The Qwen LLM — the analogue for "LLM authors a recipe"
-A general Qwen2.5 instruct model already runs in the backend for `translate`/`interpret`. All in
+### 5.4 The on-board LLM — the analogue for "LLM authors a recipe"
+*(Model + entry point corrected 2026-07-22, `dd2e0373`/`9ece63b3`; line numbers in this subsection are
+current as of that date. The separately-installed Qwen2.5-1.5B translator this section described is
+**gone** — see the last bullet.)*
+
+One instruct model runs in the backend and serves `translate`, `interpret` **and** `csound`. All in
 `backend/pipe_inference.py`:
-- Load/cache: `_get_translator(model_dir, device)` (`:907-937`, `AutoModelForCausalLM.from_pretrained`);
-  device pin `_translator_device` (`:890-904`); model resolution `_resolve_translation_model_dir`
-  (`:855-875`).
-- **`run_instruct(text, model_dir, device, system_prompt, max_new_tokens=96)`** — `:940-981`. THE general
-  form: builds a `[{system},{user}]` chat-template list, **greedy/deterministic** decode
-  (`do_sample=False, num_beams=1`, `:973-974`), returns the decoded string. **This is the exact primitive
-  for "LLM authors a recipe": supply a DCO system prompt, feed the user's text, parse the returned JSON.**
-- `translate_prompt` = `run_instruct` + `TRANSLATION_SYSTEM_PROMPT` (`:984-986`, prompt at `:844-850`).
-- Wire dispatch: `translate` (`:3226-3238`), `interpret` (caller supplies `system_prompt`, `:3245-3260`),
-  `analyze` (CLAP "ear", `:3269-3271`) — all intercepted BEFORE audio-model routing, all reply via
-  `send_text` (`\x03`).
-- C++ side: `interpret(systemPrompt, userText, maxNewTokens, device, modelPath)` — `PipeInference.h:163-167`,
-  impl `PipeInference.cpp:1113` (sets `"mode":"interpret"` at `:1148`). **The DCO's recipe-author step
-  mirrors or extends `interpret()`.** Model qualifier: memory `project_translator_qwen_upgrade` — translator
-  is Qwen2.5-1.5B; a 2B upgrade is gated by a `transformers<5` pin; kill-check before swapping.
+- Model resolution: `_resolve_coder_model_dir(request)` (`:938-990`) — `request["coder_model_path"]`, then
+  `$T5YNTH_CODER_MODEL`/`$LCO_MODEL_DIR`, then `<model root>/coder/gemma-4-12b-it-qat-q4_0` by exact name,
+  then a scan of `coder/`, `lco-coder/`. No fallback: no model → the request is refused (LLM-first).
+  *(The old `_resolve_translation_model_dir` no longer exists; stale callers survive in `tools/`.)*
+- **`run_author_instruct(request, text, system_prompt, device, max_new_tokens=None)`** — `:1205-1233`. The
+  entry **for `translate` and `interpret`**: resolves the model, then dispatches on install shape — a `.gguf` goes to `run_gguf_instruct`
+  (`:1018-1036`, llama.cpp, cached by `_get_gguf` `:996-1015`, all layers on GPU), a transformers directory
+  (dev drop / pre-GGUF install) falls through to the older `run_instruct` (`:1101-1202`). Both build a
+  `[{system},{user}]` chat-template list and decode **greedy/deterministic** (GGUF: `temperature=0.0`;
+  transformers: `do_sample=False, num_beams=1`). **This is the exact primitive for "LLM authors a recipe":
+  supply a DCO system prompt, feed the user's text, parse the reply.**
+- **No output cap** on either path: the GGUF passes `max_tokens=-1` (run to EOS), the transformers path
+  derives the ceiling from the model's own context window. A caller-supplied `max_new_tokens` is honoured;
+  nothing on the Csound path sets one.
+- `translate_prompt` = `run_instruct` + `TRANSLATION_SYSTEM_PROMPT` (`:1236-1238`, prompt at `:889-895`) —
+  but the `translate` **wire mode** calls `run_author_instruct`, not this helper.
+- Wire dispatch: `translate` (`:3548-3555`), `interpret` (caller supplies `system_prompt`, `:3562-3593`),
+  `csound` (`:3605-3649`), `analyze` (CLAP "ear") — all intercepted BEFORE audio-model routing, all reply
+  via `send_text` (`\x03`). **`csound` does not go through `run_author_instruct`**: it resolves the model
+  itself (`:3611`) and calls `run_gguf_instruct`/`run_instruct` through its `csound_llm` closure
+  (`:3618-3628`) — same model, second route. Spec: `docs/IPC_PROTOCOL.md` §3.3 covers `translate`/
+  `interpret`/`analyze`; `csound` has no §3.3 entry, only the `coder_model_path` row in §3.1 (`:223`).
+- C++ side: `interpret(systemPrompt, userText, maxNewTokens, device)` — `PipeInference.h:189-192`, impl
+  `PipeInference.cpp:1165` (sets `"mode":"interpret"` at `:1199`). **The DCO's recipe-author step mirrors or
+  extends `interpret()`.** The trailing `modelPath` argument (wire key `model_path`) is gone with the second
+  model; the one model is named on the wire by `coder_model_path` when it is named at all.
+- **Model qualifier (rewritten 2026-07-22).** There is no longer a small translator to upgrade. The one
+  model is `google/gemma-4-12B-it-qat-q4_0-gguf`, run as a 4-bit GGUF through **llama.cpp**
+  (`llama-cpp-python>=0.3.34`), not through transformers: 6.98 GB fits a 16 GB Mac where the same model in
+  bf16 is 23.9 GB, and transformers has no working 4-bit path on MPS (`backend/requirements.txt:36-43`,
+  `pipe_inference.py:900-904`). **The `transformers>=4.53,<5` pin still binds** — but it now constrains only
+  the *audio* stack (SA3/t5gemma, diffusers, audioldm2 — `requirements.txt:1-10`); it is no longer a
+  language-model blocker, because the shipped author is a GGUF and never touches transformers. (The
+  transformers loader survives only for the dev-drop/pre-GGUF directory shape above — a fallback, not the
+  install path, so the pin does not gate which author model can ship.) Memory
+  `project_translator_qwen_upgrade` is obsolete; see `project_lco_author_model_gemma4_gguf`.
 
 ### 5.5 The full orchestration to copy
 `PromptPanel::runSemanticLoopStep(const PipeInference::Result&)` — `PromptPanel.cpp:3055-3302` — is the
@@ -437,15 +470,16 @@ the DCO** (author-recipe → bake → deliver).
 
 ### 5.6 Where a NON-neural generator hooks in (two independent seams)
 Both in `backend/pipe_inference.py`; canonical guide `docs/ADDING_A_MODEL.md` (structure accurate, its
-inline line numbers are STALE — `_model_format` is at `267-285`, `load_pipeline` at `1275-1284`).
+inline line numbers are STALE — `_model_format` is at `296`, `load_pipeline` at `1527`).
 - **Seam A — model-format registry + loader dispatch** (for a persistent "engine"): `_model_format`
-  (`:267-285`) returns `"diffusers"|"audioldm2"|"native"|None`; `load_pipeline` (`:1275-1284`) dispatches on
+  (`:296`) returns `"diffusers"|"audioldm2"|"native"|None`; `load_pipeline` (`:1527`) dispatches on
   it. Add `if fmt == "dco": return _load_dco_pipeline(...)`. The LRU cache `_loaded_pipelines` +
   `get_pipeline()` then manage it for free.
 - **Seam B — request `mode` dispatch** (for a stateless op, like translate/interpret): main loop
-  `for line in sys.stdin:` (`:3216`); modes handled top-down, then `mode = request.get("mode","generate")`
-  (`:3294`). A `"dco"` mode slots in as `if request.get("mode")=="dco":` **before** audio-model routing
-  (like `interpret`), since the recipe author reuses Qwen `run_instruct` and needs no audio model.
+  `for line in sys.stdin:` (`:3538`); modes handled top-down, then `mode = request.get("mode","generate")`
+  (`:3683`). A `"dco"` mode slots in as `if request.get("mode")=="dco":` **before** audio-model routing
+  (like `interpret`), since the recipe author reuses the on-board LLM (`run_author_instruct`) and needs no
+  audio model.
 - C++ request side: `req.model = getSelectedModel()` (`PromptPanel.cpp:2189`, slots `kNumModelSlots=5`,
   `PromptPanel.h:273`). A DCO can be a new **model slot** (Seam A) or a new **op** (Seam B). Backend fails
   loud on an unknown requested model (`:3283-3290`), so a DCO model dir must be discoverable by
@@ -453,7 +487,7 @@ inline line numbers are STALE — `_model_format` is at `267-285`, `load_pipelin
 
 ### 5.7 The payload boundary — a recipe needs NO new wire type
 - **Recipe-as-JSON rides the existing `\x03` text channel.** `send_text(message)`
-  (`pipe_inference.py:3160-3173`) already carries arbitrary JSON — this is exactly how `analyze` returns
+  (`pipe_inference.py:3430-3443`) already carries arbitrary JSON — this is exactly how `analyze` returns
   `{"tags":...,"spectral":...}`. So: backend authors the JSON recipe with `run_instruct` and returns it via
   `send_text`; C++ receives it in an `interpret`-style method (parse with `juce::JSON::parse`, cf.
   `PipeInference.cpp:1304-1320`), then **bakes frames plugin-side** and feeds the `loadGeneratedAudio` spine.
@@ -695,9 +729,9 @@ if DSP → check JUCE destruction order / audio-thread safety / the held-note-fo
   `src/dsp/VoiceManager.{h,cpp}` (`distributeWavetableFrames` `:736-746`).
 - Processor: `src/PluginProcessor.{h,cpp}` (`masterOsc` `:352`; `loadGeneratedAudio` `:4381`, core
   `:4630-4662`; `samplerReprepareThread` `:355`; engine-mode map `:2646-2665`).
-- IPC: `src/inference/PipeInference.{h,cpp}` (`Result` `:106-117`; `generate` `:805`; `interpret` `:1113`).
-- Backend: `backend/pipe_inference.py` (`run_instruct` `:940-981`; `load_pipeline` `:1275-1284`; `mode`
-  dispatch `:3216+`; `send_text` `:3160-3173`).
+- IPC: `src/inference/PipeInference.{h,cpp}` (`Result` `:106-117`; `generate` `:865`; `interpret` `:1165`).
+- Backend: `backend/pipe_inference.py` (`run_author_instruct` `:1205-1233`, `run_instruct` `:1101-1202`; `load_pipeline` `:1527`; `mode`
+  dispatch `:3538+`; `send_text` `:3430-3443`).
 - UI: `src/gui/PromptPanel.{h,cpp}` (Advanced surface; `defaultParamsFor` `:1848-1857`; font-scale
   `:51-88`), `src/gui/MainPanel.{h,cpp}` (T5 OSCILLATOR card, `oscModeToggle`), `src/gui/GuiHelpers.h`
   (`SliderRow` `:858`, switchbox `:225-266`).
@@ -708,5 +742,5 @@ if DSP → check JUCE destruction order / audio-thread safety / the held-note-fo
 `docs/HANDOVER_OSC_EASY_MIGRATION.md` (the UI-migration companion — §4.3 there == Slice 0 here).
 
 **Relevant memories:** `project_osc_easy_migration`, `project_easy_migration`, `project_held_note_live_follow`,
-`project_critical_aesthetic_mission`, `project_philosophy_a_b_equality`, `project_translator_qwen_upgrade`,
+`project_critical_aesthetic_mission`, `project_philosophy_a_b_equality`, `project_lco_author_model_gemma4_gguf`,
 `project_inference_architecture`, plus the working-style `feedback_*` set (§9).

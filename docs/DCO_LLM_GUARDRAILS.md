@@ -1,16 +1,34 @@
-# DCO — Semantics→Sound with the on-board 1.5B LLM: lexicons, guardrails, composer
+# DCO — Semantics→Sound with the on-board LLM: lexicons, guardrails, composer
 
 Status: design, authoritative for the Slice-3 implementation.
-Companion docs: `docs/HANDOVER_DCO_OSCILLATOR.md` (§2 recipe DSL, §5.4 `run_instruct`),
-`backend/pipe_inference.py` (the Qwen2.5-1.5B translator this design constrains).
+
+**Model premise corrected 2026-07-22.** This document was written against the
+separately-installed Qwen2.5-1.5B translator, and several constraints below are
+derived from what *that* model could not do. That model is gone (`dd2e0373`,
+`9ece63b3`). The product now has **one** language model —
+`google/gemma-4-12B-it-qat-q4_0-gguf`, a 4-bit GGUF run through llama.cpp
+(`backend/pipe_inference.py:900-915`, install slot `gemma-4-12b-it-qat-q4_0`) — and
+that one model serves translate, Re-Prompt/`interpret` *and* the Csound author
+alike. It is reached by two routes, not one: `translate`/`interpret` go through
+`run_author_instruct` → `_resolve_coder_model_dir` (`:1205-1233`), while `csound`
+resolves the model itself (`:3611`) and calls `run_gguf_instruct`/`run_instruct`
+directly through its `csound_llm` closure (`:3618-3628`). §1a sorts the constraints
+below into the ones that were size-specific and the ones that were never about size.
+The design itself is untouched here — §1a only re-derives its premise.
+
+Companion docs: `docs/HANDOVER_DCO_OSCILLATOR.md` (§2 recipe DSL, §5.4 the instruct
+call), `docs/IPC_PROTOCOL.md` §3.3 (`translate`/`interpret`; the `csound` mode has no
+§3.3 entry — its only wire spec is the `coder_model_path` row in §3.1, `:223`),
+`backend/pipe_inference.py` (`run_author_instruct`, `run_gguf_instruct`).
 
 ---
 
 ## 1. The problem, stated precisely
 
 The DCO's authoring input is free natural language ("a hollow reedy tone that slowly
-opens up", "fetter Moog-Bass", "glassy bell"). The only LLM on board is the
-Qwen2.5-1.5B instruct translator (`run_instruct`, greedy decode). At 1.5B:
+opens up", "fetter Moog-Bass", "glassy bell"). When this was written, the only LLM
+on board was the Qwen2.5-1.5B instruct translator (`run_instruct`, greedy decode),
+and the three findings below were measured against *that* model. At 1.5B:
 
 - It **cannot** reliably emit well-formed nested JSON to a schema (missing fields,
   invented fields, out-of-range numbers, truncation).
@@ -35,6 +53,87 @@ refused — it gets a *published convention* (`warm := tilt −3 dB/oct above h4
 harmonic`) that a user can read, question, and edit. The lexicon is the glass-box
 counterpart of the T5 embedding. What the lexicon does NOT cover is **flagged, not
 invented** — the honesty channel survives from the original concept.
+
+### 1a. Which of these were about the 1.5B (added 2026-07-22)
+
+Sorted against the model that actually runs now (header). Five guardrails, of which
+**two** were size accommodations (schema fragility, the small token cap) and **three**
+never rested on model size at all.
+
+- **Schema fragility → 1.5B-specific.** The line-based fill format was chosen
+  because a 1.5B mangled nested JSON. The 12B holds a longer and stricter format
+  than §2's: the shipped Csound prompt asks for eight labelled lines
+  (OSC1/VOL1…OSC3/VOL3, ADJECTIVES, MOTION) carrying morph chains and organ
+  registers (`_CS_SYSTEM_PROMPT_HEAD`, `backend/csound_orch.py:1049`), and 10 of 11
+  corpus prompts came back compiling and hitting their signature on this model
+  (`294f49fb`, median 12.2 s). Note the parser is deliberately *tolerant* of a model
+  that drifts from the format (legacy `TECHNIQUE:` line, missing `VOLn`, last label
+  wins — `_parse_csound_reply`, `:1161`), so "the prompt asks for it" would not by
+  itself be evidence; the corpus run is. Stronger evidence still: the whole anti-cycling
+  apparatus the 1.5B needed to get through a long "recombine these freely" palette
+  — `repetition_penalty`, `no_repeat_ngram_size` — was re-measured on the author
+  model and deleted, because it was the small model's crutch and cost real output
+  ("butthe sound measuresbrightandthin"); `run_author_instruct` now drops both on
+  the GGUF path (`pipe_inference.py:1216-1224`, `9ece63b3`). **Not re-tested:**
+  nobody has asked the 12B for nested JSON, because nothing on the shipping path
+  does. §7's first bullet is therefore *unproven* now, not disproven.
+- **"Warm" must not be hallucinated → never a capacity argument.** The reason is in
+  the paragraph above this one: the DCO is the *transparent* engine, so its
+  word→sound conventions have to be readable and editable (`dco_lexicon.json`), not
+  merely correct. A 12B that hallucinates a *better* partial list still hallucinates
+  an opaque one. Unchanged.
+- **Enum-as-sandbox (§2, S2) → structural, not a capacity mitigation.** "A returned
+  KEY not in the allowed set == NONE" is a prompt-injection defence, and a bigger
+  model is at least as willing to follow instructions smuggled in the prompt body.
+  Still enforced in code (`dco_llm_map._validate_keys`, `backend/dco_llm_map.py:234`;
+  `_validate_osc_chain`, `backend/csound_orch.py:1326`). Unchanged.
+- **Greedy determinism (§4) → survives the model swap verbatim.** The GGUF path
+  decodes at `temperature=0.0` (`run_gguf_instruct`, `pipe_inference.py:1030-1035`),
+  so "same text in, same recipe out" still holds.
+- **Small `max_new_tokens` (§2, S2: "≈ 8 × word count") → retired.** It was a
+  truncation *mitigation* that truncates. The shipped path passes no cap at all:
+  `max_tokens=-1`, i.e. run to EOS (`run_gguf_instruct`, `:1018-1035`).
+
+**Two caveats bigger than the model swap, and unrelated to it.**
+
+*What of this document still runs.* Less than it looks, and not evenly.
+
+- **§2's pipeline: no.** The live entry is `build_csound_response`
+  (`csound_orch.py:4094`), which sends the WHOLE prompt to the model in one call under
+  its own multi-oscillator schema — explicitly *not* `dco_llm_map._SYSTEM_PROMPT_HEAD`
+  (`:1004-1009`). S0/S1's deterministic keyword scan, S2's `word -> KEY` residue format
+  and S3/S4's composer/repair chain are not what runs.
+- **§3's lexicon: the file, not all of its semantics.** `dco_lexicon.json` is read on
+  every request (`dco_recipe.load_lexicon`), but the Csound path consumes only the
+  `key` / `surface_forms` / `why` columns, plus the later `params` column that three
+  techniques carry (`fm_ep`, `drum_head`, `analog_osc` — `dco_llm_map._params_line`,
+  reached from `csound_orch.py:4157`). §3.1's Template column and §3.2's delta
+  programs have **no reader on this path** (`grep '"template"' backend/csound_orch.py`
+  is empty). They are still read elsewhere — `dco_llm_map.py:478`, `dco_recipe.py:2073`
+  and neighbours — but only from functions `mode:"csound"` never calls.
+- **§5's request: dead.** `mode:"dco"` was deleted in `40600a0e`. The live success
+  frame is `{ok, orchestra, reading, params_text, oscillators, register_authored,
+  technique, adjectives, motion, flags}` (`csound_orch.py:4373-4395`), plus
+  `author_model` stamped on by the server (`pipe_inference.py:3647`); `error` appears
+  only in the failure frame (`:4397`). `recipe` and `lexicon_version` are gone.
+- **§5's honesty channel: the shape survives, the derivation does not.** `flags[]`
+  still rides the response in the `{word, reason, tier}` shape described here
+  (`dco_llm_map._validate_keys`, `dco_llm_map.py:234-267`; `csound_orch.py:4216-4223`
+  mirrors it deliberately). But `tier` is **no longer a pure function of `reason`** on
+  this path: `dco_recipe._flag_tier` is never called from `csound_orch.py`, and every
+  flag site writes a literal instead (`:4225`, `:4247`, `:4270`, `:4277`, `:4324`,
+  `:4336`). One of those literals, `"dropped"` (`:4336`, the post-mix spectral-motion
+  flag), is a **third** tier value this section's two-value vocabulary
+  (`unresolved`/`adapted`) does not define. `resolved{}`'s content survives as the
+  frame's explicitly-labelled legacy `technique`/`adjectives`/`motion` fields
+  (`:4389-4393`).
+- **The enum guard: intact** (previous bullet).
+
+*And that survivor is itself parked.* `67e03f98` (2026-07-21) freezes the closed-enum
+keys → deterministic-emitter architecture for removal, recording that it "was never
+authorised; the founding instruction is that the LLM AUTHORS the Csound code (keys =
+idiom suggestions, not a fixed menu)". So the design principle at the head of §1 is
+not merely re-premised by a bigger model — it is under order to be replaced.
 
 ---
 
@@ -81,7 +180,8 @@ LLM is never consulted. Every S1 hit has confidence "exact".
 Only tokens S1 could not match (content words; stopwords dropped by a small list)
 go to `run_instruct` with a **closed-choice routing prompt**. Not JSON — a
 line-based fill format, which tiny models handle far more reliably and which is
-trivially validated:
+trivially validated *(the "tiny models" premise is the 1.5B's — §1a; the format was
+kept, and the shipping Csound prompt uses a wider one of the same shape)*:
 
 ```
 System: You map sound-descriptor words to a fixed vocabulary. Reply with one
@@ -99,7 +199,8 @@ Parsing and guardrails:
   injection structurally: nothing an attacker writes can make S2 emit anything
   but a key from our list — the enum IS the sandbox.)
 - Missing lines == NONE. Duplicate/extra lines ignored.
-- `max_new_tokens` small (≈ 8 × word count), greedy (deterministic).
+- `max_new_tokens` small (≈ 8 × word count), greedy (deterministic). *(The small cap
+  was a 1.5B accommodation and is retired — see §1a. Greedy stands.)*
 - Words resolved to NONE go to `flags[]` verbatim (§5).
 
 S2 exists so "shimmery", "screamy", "growling" land on the *nearest curated
@@ -271,7 +372,8 @@ The test harness (real stdin/stdout subprocess path, per project rule) asserts a
 
 ## 7. What we explicitly do NOT do
 
-- No free-form JSON generation by the LLM (schema violations are unfixable at 1.5B).
+- No free-form JSON generation by the LLM (schema violations were unfixable at 1.5B
+  — the rationale, not the rule, expired with that model; §1a).
 - No constrained-decoding machinery (`prefix_allowed_tokens_fn` grammars): the
   enum-validated line format achieves the same safety with zero new dependencies.
 - No numeric authority for the LLM — not even "pick a width": numbers come only
