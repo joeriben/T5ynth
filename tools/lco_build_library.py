@@ -69,9 +69,25 @@ def load_parked_emitter():
 # variable names as the prompt's contract.
 _LAYER_FREQ = re.compile(r"\bkfr([123])\b")
 
+# The multi-osc emitter names each oscillator's OUTPUT `aosc<tag>` (tag 0 for the
+# single-osc harvest), because the mix scaffold — which this script strips —
+# reads `asig = kvol*aosc0`. A harvested EXAMPLE therefore ended in `aosc0`, not
+# `asig`, contradicting the one rule the author must follow ("write your final
+# audio into `asig`"). The author copied an idiom ending in `aosc0`, then wrote
+# `... = asig * ...` on the next line — `asig` used before defined — and failed
+# to compile. It bit compound prompts hardest, where a second layer is stacked
+# after the copied idiom (observed: "a bright shimmering fm bell with a long
+# metallic ring", three straight failures). `aosc0` occurs exactly once per body,
+# as the final output, so renaming it to `asig` makes every example model the
+# exact contract the author is held to. Only the output is touched: the internal
+# tagged names (abl0, kbtp0) keep their tag — stripping it would collide names
+# like `abs0` onto the built-in `abs`.
+_OSC_OUT = re.compile(r"\baosc0\b")
+
 
 def body_of(orchestra):
-    """The oscillator lines only — scaffold and mix law removed."""
+    """The oscillator lines only — scaffold and mix law removed, output renamed
+    to `asig` so the example ends exactly as the author is told to end."""
     m = _BODY.search(orchestra)
     if not m:
         return ""
@@ -81,7 +97,8 @@ def body_of(orchestra):
     if kept:
         pad = min(len(l) - len(l.lstrip()) for l in kept)
         kept = [l[pad:] for l in kept]
-    return _LAYER_FREQ.sub(r"(kfreq * koct\1)", "\n".join(kept))
+    body = _LAYER_FREQ.sub(r"(kfreq * koct\1)", "\n".join(kept))
+    return _OSC_OUT.sub("asig", body)
 
 
 def emit(P, **kw):
