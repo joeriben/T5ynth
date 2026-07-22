@@ -1,6 +1,7 @@
 #pragma once
 
 #include <algorithm>
+#include <cmath>
 
 // ── Choice-parameter single-source-of-truth tables ──
 //
@@ -697,6 +698,117 @@ namespace ReverbType {
     };
     static constexpr int kCount = sizeof(kEntries) / sizeof(kEntries[0]);
     static_assert(Algo + 1 == kCount, "ReverbType out of sync.");
+}
+
+// ── FX Mix: wet-path normalisation + the dry/wet law ─────────────────────────
+//
+// TWO separate things decide what the Delay/Reverb "Mix" knob does, and BOTH
+// were wrong (measured, tools/measure_fx_mix.cpp):
+//
+//  1. The WET PATH GAIN. Each effect returned a different level at Mix=1.0 —
+//     Digital/Ping-Pong unity, Tape +4.7 dB (three heads summed), BBD -2.5 dB,
+//     Freeverb +5.5 dB, and the EMT-140 plate was pushed to +6.0 dB by an
+//     explicit `kPlateWetGain = 2.0` comp whose only job was to MATCH the
+//     already-hot Freeverb. So the same knob position meant a different amount
+//     of effect per effect and per delay mode, and mid-travel on the plate put
+//     the wet 6 dB ABOVE the dry. Every path is now trimmed to unity: Mix=1.0
+//     returns the wet at the level the dry had.
+//
+//  2. The LAW. `wet = m, dry = 1-m` on top of those hot paths crammed the whole
+//     musical range into the bottom third of the travel (plate: wet already
+//     equalled dry at m=0.33) while pulling the direct signal down 6 dB at
+//     mid-travel — the attack transient dropped out of the mix. The Freeverb's
+//     `wet = m*m` was a second band-aid on the same hot path, which then made
+//     ITS bottom end useless (-33.6 dB at m=0.10).
+//
+// The law is constant power BY CONSTRUCTION — dry² + wet² = 1 at every m — with
+// the wet on a 1.5 power so the useful range spreads over the WHOLE slider:
+//
+//     m     0.10    0.20    0.30    0.40    0.50    0.60    0.75    0.90   1.00
+//     W/D  -30.0   -20.9   -15.6   -11.7    -8.5    -5.6    -1.4    +4.3   pure
+//     dry   -0.0    -0.0    -0.1    -0.3    -0.6    -1.1    -2.4    -5.7   -inf
+//
+// ~5 dB per 10 % of travel, the direct sound still essentially intact at
+// mid-travel (-0.6 dB) where the effect is already clearly present, and m=1.0
+// still reaches 100 % wet. Do NOT "fix" a hot effect by curving this law — trim
+// its wet path to unity instead, which is what the trims below are for.
+namespace FxMixLaw {
+    inline float wetGain(float m)
+    {
+        const float c = m < 0.0f ? 0.0f : (m > 1.0f ? 1.0f : m);
+        return c * std::sqrt(c);                                   // m^1.5
+    }
+    inline float dryGain(float m)
+    {
+        const float c = m < 0.0f ? 0.0f : (m > 1.0f ? 1.0f : m);
+        return std::sqrt(std::max(0.0f, 1.0f - c * c * c));         // sqrt(1 - m^3)
+    }
+
+    // Wet-path trims. Measured pure-wet (feedback 0, internal mix 1.0) against a
+    // steady 220 Hz saw, RMS over t=3..5 s. The tape/BBD characters spread ±0.6 dB
+    // around their family mean; one trim per family, the residual is inaudible.
+    //
+    // ONE path is not flat across its own controls: the Freeverb's wet gain tracks
+    // Room, because roomSize feeds the comb feedback (+1.31 dB at Room 0.0, +5.46
+    // at 0.7, +7.30 at 1.0 — juce_Reverb.h sets no delay lengths from it). The trim
+    // below is measured at the DEFAULT Room 0.7, so Algo still drifts -4.2 dB at
+    // Room 0.0 and +1.8 dB at Room 1.0. Making the trim Room-dependent would stop
+    // Room being a level control as well as a decay control — a change to what Room
+    // MEANS, so it is not made here silently.
+    static constexpr float kDelayTrimClean  = 1.000f;  // Digital / Ping-Pong: +0.00 dB
+    static constexpr float kDelayTrimTape   = 0.579f;  // Tape family:  +4.74 dB (3 heads)
+    static constexpr float kDelayTrimBbd    = 1.338f;  // BBD family:   -2.53 dB (recon + HP loss)
+    static constexpr float kReverbTrimAlgo  = 0.533f;  // Freeverb wetLevel=1.0: +5.46 dB @ Room 0.7
+    static constexpr float kReverbTrimPlate = 1.000f;  // EMT-140 IRs are already unity
+                                                          // Quieter than bare Freeverb because the
+                                                          // combs are fed from the normalised
+                                                          // reflection bank, not the raw input.
+
+    inline float delayTrim(int baseMode)
+    {
+        if (baseMode == DelayType::Tape) return kDelayTrimTape;
+        if (baseMode == DelayType::Bbd)  return kDelayTrimBbd;
+        return kDelayTrimClean;
+    }
+    inline float reverbTrim(int reverbType)
+    {
+        if (reverbType == ReverbType::Algo)     return kReverbTrimAlgo;
+        return kReverbTrimPlate;
+    }
+
+    // ── Migration (calibration epoch 5) ──
+    // The PRE-epoch-5 wet/dry ratio at knob m was
+    //     R = wet_old(m) · pathGain_old / (1 - m),   wet_old(m) = m or m²
+    // and the new law's ratio is R = m^1.5 / sqrt(1 - m³), which inverts exactly:
+    //     m_new = ( R² / (1 + R²) )^(1/3)
+    // so a stored value migrates to the position that keeps the SAME audible
+    // wet/dry balance. pathGain_old is the reciprocal of the trim now applied.
+    inline float migrateMix(float mOld, int oldWetPow, float oldPathGain)
+    {
+        if (mOld <= 0.0f)    return 0.0f;
+        if (mOld >= 0.999f)  return 1.0f;              // was pure wet, stays pure wet
+        const float wetOld = (oldWetPow == 2) ? mOld * mOld : mOld;
+        const float r      = (wetOld * oldPathGain) / (1.0f - mOld);
+        const float r2     = r * r;
+        return std::cbrt(r2 / (1.0f + r2));
+    }
+    inline float migrateDelayMix(float mOld, int delayType)
+    {
+        return migrateMix(mOld, 1, 1.0f / delayTrim(DelayType::baseMode(delayType)));
+    }
+    inline float migrateReverbMix(float mOld, int reverbType)
+    {
+        // Plate's old path gain was the retired kPlateWetGain = 2.0 comp, not the
+        // IR itself; Algo's was the untrimmed Freeverb, and Algo alone was squared.
+        return reverbType == ReverbType::Algo
+            ? migrateMix(mOld, 2, 1.0f / kReverbTrimAlgo)
+            : migrateMix(mOld, 1, 2.0f);
+    }
+    // An effect stored as Off still migrates (against the plate / clean-delay path):
+    // the parked value is a knob position in the OLD law's units, and leaving it
+    // there guarantees it is misread the moment the effect is switched on. That is
+    // NOT the same case as a stored tree with no type param at all — there the
+    // file tells us nothing, so migrateValueTree leaves the mix alone.
 }
 
 // ── Noise oscillator type (namespace name avoids clash with the global

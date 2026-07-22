@@ -54,7 +54,18 @@ namespace Calibration
 //            3: the XML/DAW raw indices migrate via the IndexRemaps below; the
 //            .t5p JSON's now-unknown "osc_mix" key falls back to None via
 //            choiceFromKey.
-inline constexpr int kEpoch = 4;
+//   Epoch 5: FX Mix wet/dry law + wet-path normalisation (2026-07-22). Every
+//            wet path was a different level at Mix=1.0 (Tape +4.7 dB, BBD
+//            -2.5 dB, Freeverb +5.5 dB, plate pushed to +6.0 dB by the retired
+//            kPlateWetGain=2.0 comp) and the law was `wet=m, dry=1-m` — so the
+//            usable range sat in the bottom third of the travel and mid-travel
+//            cost 6 dB of direct signal. Now: every path trimmed to unity plus
+//            a constant-power law (wet=m^1.5, dry=sqrt(1-m³)). A stored value
+//            keeps its AUDIBLE wet/dry balance by moving to the knob position
+//            that reproduces it — a closed-form remap, not a factor, and
+//            conditional on the effect type because each type's old path gain
+//            (and, for Algo, its old squared curve) differed. See FxMixLaw.
+inline constexpr int kEpoch = 5;
 
 struct Rescale
 {
@@ -154,6 +165,49 @@ inline const std::array<IndexRemap, 7>& indexRemaps()
     return table;
 }
 
+// A mix control whose LAW changed, not just its full-scale. The remap is a
+// closed-form inversion (FxMixLaw::migrate*Mix), so there is no factor here —
+// only which sibling TYPE parameter selects the old wet path that applied.
+struct MixLawRemap
+{
+    const char* id;         // mix parameter whose dry/wet law changed
+    const char* condId;     // sibling type param selecting the old wet path
+    int         sinceEpoch; // applied when the file's epoch < this
+};
+
+inline const std::array<MixLawRemap, 2>& mixLawRemaps()
+{
+    static const std::array<MixLawRemap, 2> table = { {
+        { PID::delayMix,  PID::delayType,  5 },
+        { PID::reverbMix, PID::reverbType, 5 },
+    } };
+    return table;
+}
+
+// Dispatch a stored mix value onto the new law. `typeIndex` is the sibling type
+// param's stored index, read from the SAME file.
+inline float remapMixValue(const char* id, float stored, int typeIndex)
+{
+    if (juce::String(id) == PID::delayMix)
+        return FxMixLaw::migrateDelayMix(stored, typeIndex);
+    if (juce::String(id) == PID::reverbMix)
+        return FxMixLaw::migrateReverbMix(stored, typeIndex);
+    return stored;
+}
+
+// .t5p JSON surface for the two mix controls: call with the value the file
+// carried and the effect type resolved from the same record. Presence-aware by
+// construction, like migrateScalar.
+inline float migrateMixScalar(const char* id, float value, int fromEpoch, int typeIndex)
+{
+    if (fromEpoch >= kEpoch)
+        return value;
+    for (const auto& m : mixLawRemaps())
+        if (fromEpoch < m.sinceEpoch && juce::String(m.id) == id)
+            return remapMixValue(id, value, typeIndex);
+    return value;
+}
+
 // Rescale a single stored scalar value for `id`. For load paths that apply
 // values one at a time from non-PID-keyed storage (the .t5p JSON), wrap each
 // stored value with this. Presence-aware BY CONSTRUCTION — it is only ever
@@ -249,6 +303,41 @@ inline void migrateValueTree(juce::ValueTree& tree, int fromEpoch)
             if (child.getProperty("id").toString() == c.id && child.hasProperty("value"))
                 child.setProperty("value",
                                   static_cast<float>(child.getProperty("value")) * c.factor,
+                                  nullptr);
+        }
+    }
+
+    // Mix-law remaps: the stored knob position moves to the one that reproduces
+    // the same audible wet/dry balance under the new law. Which old wet path
+    // applied is read from the sibling type param in the SAME tree; a tree that
+    // carries the mix but not its type keeps the mix untouched rather than
+    // guessing a type (an absent type is not "Off" — it is unknown).
+    for (const auto& m : mixLawRemaps())
+    {
+        if (fromEpoch >= m.sinceEpoch)
+            continue;
+
+        int typeIndex = -1;
+        for (int i = 0; i < tree.getNumChildren(); ++i)
+        {
+            auto child = tree.getChild(i);
+            if (child.getProperty("id").toString() == m.condId && child.hasProperty("value"))
+            {
+                typeIndex = juce::roundToInt(static_cast<double>(child.getProperty("value")));
+                break;
+            }
+        }
+        if (typeIndex < 0)
+            continue;
+
+        for (int i = 0; i < tree.getNumChildren(); ++i)
+        {
+            auto child = tree.getChild(i);
+            if (child.getProperty("id").toString() == m.id && child.hasProperty("value"))
+                child.setProperty("value",
+                                  remapMixValue(m.id,
+                                                static_cast<float>(child.getProperty("value")),
+                                                typeIndex),
                                   nullptr);
         }
     }

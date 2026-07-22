@@ -1141,14 +1141,23 @@ juce::AudioProcessorValueTreeState::ParameterLayout T5ynthProcessor::createParam
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{PID::delayFeedback, 1}, "Delay Feedback",
         juce::NormalisableRange<float>(0.0f, 0.95f), 0.35f));
+    // Mix defaults are knob positions, so they mean something different under the
+    // epoch-5 FxMixLaw and CANNOT be migrated (a default is not a stored value).
+    // Both effect TYPES default to Off, so there is no old default sound to
+    // preserve — these are simply where the knob starts when an effect is switched
+    // on, chosen for what they now produce. Under the old law delayMix 0.30 meant
+    // -3.8 dB wet/dry (with the default feedback) and reverbMix 0.25 meant -3.5 dB
+    // on the plate but -12.3 dB on Algo — the same number, two different sounds.
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{PID::delayMix, 1}, "Delay Mix",
-        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.3f));
+        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.3f));   // -12.0 dB W/D
 
     // Reverb
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{PID::reverbMix, 1}, "Reverb Mix",
-        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.25f));
+        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.3f));   // -15.6 dB W/D,
+        // now identical for Algo and Plate. 0.25 would read -18.0 dB — audible but
+        // shy for a starting point.
 
     // Algorithmic reverb parameters (only active when reverb_type == Algo)
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
@@ -4693,7 +4702,7 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
     bool delayEnabled = delayType > 0;
     int reverbType = static_cast<int>(paramCache.reverbType->load());
     bool reverbEnabled = reverbType > 0;
-    bool reverbIsAlgo = reverbType == 4;
+    bool reverbIsAlgo = reverbType == ReverbType::Algo;
 
     if (delayEnabled)
     {
@@ -4750,12 +4759,14 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
         else              reverb.setMix(1.0f);
     }
 
-    // Reverb mix is a true crossfade: out = dry*(1-mix) + wet*mix.
-    // At mix=1.0 the dry path vanishes — industry-standard insert behaviour
-    // (FabFilter/Valhalla) and identical for both Algo and Plate. Plate IRs
-    // are normalised and read ~6 dB quieter than the JUCE algo reverb's
-    // wetLevel=1.0 output, so the convolution send is gain-compensated.
-    constexpr float kPlateWetGain = 2.0f;  // +6 dB IR-normalisation comp
+    // Wet-path normalisation. The retired kPlateWetGain = 2.0 did the opposite of
+    // this: it pushed the (already unity) EMT-140 IRs UP to match the Freeverb,
+    // which is itself +5.5 dB hot — matching to a broken reference. Measured with
+    // tools/measure_fx_mix.cpp; constants and rationale in FxMixLaw. Folded into
+    // the crossfade's wet gain rather than applied as a separate pass over the
+    // send buffer: it is a per-block constant, so a whole extra multiply pass
+    // (which JUCE would skip for the plate's 1.0 but not for Algo) buys nothing.
+    const float reverbWetTrim = FxMixLaw::reverbTrim(reverbType);
 
     auto processReverb = [&](juce::AudioBuffer<float>& buf) {
         if (reverbIsAlgo)
@@ -4766,20 +4777,25 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
 
     auto crossfadeReverbInto = [&](juce::AudioBuffer<float>& dest, float mix)
     {
-        // Algo wet rises faster than the IR plate at mid-mix because the
-        // Schroeder reverb keeps wetLevel=1.0 across the whole sweep. Curve
-        // the algo's wet contribution so it stays restrained until the upper
-        // half of the knob; dry remains linear and mix=1 still hits pure wet.
-        // Plate keeps a linear curve (its IR is the natural taper).
-        const float wetAmt = reverbIsAlgo ? (mix * mix) : mix;
-        const float dryAmt = 1.0f - mix;
+        // Constant-power law on the normalised wet path — identical for Algo and
+        // Plate now that neither is hot. The old `mix*mix` algo curve existed only
+        // to restrain the untrimmed Freeverb and made its bottom end unusable
+        // (-33.6 dB W/D at mix=0.10). mix=1.0 still reaches pure wet.
+        //
+        // RAMPED, not stepped. The dry slope is no longer the old law's constant
+        // -1: it steepens to about -8.5 near mix=1.0, so a per-block step that was
+        // inaudible under `dry = 1-mix` zippers audibly here when an LFO or
+        // envelope rides Reverb Mix high in its travel.
+        const float wetAmt = FxMixLaw::wetGain(mix) * reverbWetTrim;
+        const float dryAmt = FxMixLaw::dryGain(mix);
         for (int ch = 0; ch < numChannels; ++ch)
         {
-            const auto* rev = reverbSendBuffer.getReadPointer(ch);
-            auto* out = dest.getWritePointer(ch);
-            for (int i = 0; i < numSamples; ++i)
-                out[i] = out[i] * dryAmt + rev[i] * wetAmt;
+            dest.applyGainRamp(ch, 0, numSamples, prevReverbDry_, dryAmt);
+            dest.addFromWithRamp(ch, 0, reverbSendBuffer.getReadPointer(ch), numSamples,
+                                 prevReverbWet_, wetAmt);
         }
+        prevReverbDry_ = dryAmt;
+        prevReverbWet_ = wetAmt;
     };
 
     if (delayEnabled && reverbEnabled)
@@ -4797,8 +4813,6 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
             reverbSendBuffer.copyFrom(ch, 0, buffer, ch, 0, numSamples);
 
         processReverb(reverbSendBuffer);
-        if (!reverbIsAlgo)
-            reverbSendBuffer.applyGain(kPlateWetGain);
 
         float revMix = juce::jlimit(0.0f, 1.0f,
             paramCache.reverbMix->load() + modReverbMix);
@@ -4808,6 +4822,8 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
     {
         delay.processBlock(buffer);
         addOneShots(buffer);  // one-shots bypass the delay entirely
+        prevReverbDry_ = 1.0f;   // reverb bypassed: dry passes at unity, no wet
+        prevReverbWet_ = 0.0f;
     }
     else if (reverbEnabled)
     {
@@ -4817,8 +4833,6 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
             reverbSendBuffer.copyFrom(ch, 0, buffer, ch, 0, numSamples);
 
         processReverb(reverbSendBuffer);
-        if (!reverbIsAlgo)
-            reverbSendBuffer.applyGain(kPlateWetGain);
 
         float revMix = juce::jlimit(0.0f, 1.0f,
             paramCache.reverbMix->load() + modReverbMix);
@@ -4827,6 +4841,8 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
     else
     {
         addOneShots(buffer);  // no FX: one-shots still need to reach the output
+        prevReverbDry_ = 1.0f;   // reverb bypassed: dry passes at unity, no wet
+        prevReverbWet_ = 0.0f;
     }
 
     // ── Update modulated values for GUI ghost indicators ────────────────────
@@ -7098,11 +7114,16 @@ bool T5ynthProcessor::importJsonPreset(const juce::String& json)
         // Off (choiceFromKey returns 0 for an unknown key).
         juce::String delayTypeKey = fx->getProperty("delayType").toString();
         if (delayTypeKey == "tape2") delayTypeKey = "tape3";
-        setParam(parameters, PID::delayType,
-                 static_cast<float>(choiceFromKey(delayTypeKey, DelayType::kEntries)));
+        const int delayTypeIdx = choiceFromKey(delayTypeKey, DelayType::kEntries);
+        setParam(parameters, PID::delayType, static_cast<float>(delayTypeIdx));
         setParam(parameters, PID::delayTime, static_cast<float>(fx->getProperty("delayTimeMs")));
         setParam(parameters, PID::delayFeedback, static_cast<float>(fx->getProperty("delayFeedback")));
-        setParam(parameters, PID::delayMix, static_cast<float>(fx->getProperty("delayMix")));
+        // Epoch 5: the mix LAW changed, and how it changed depends on which delay
+        // voicing the file selected — hence the type index rather than a factor.
+        setParam(parameters, PID::delayMix,
+                 Calibration::migrateMixScalar(PID::delayMix,
+                     static_cast<float>(fx->getProperty("delayMix")), fileCalibEpoch,
+                     delayTypeIdx));
         setParam(parameters, PID::delayDamp, static_cast<float>(fx->getProperty("delayDamp")));
         setParam(parameters, PID::delayClockMode, fx->hasProperty("delayClockMode")
             ? static_cast<float>(clockModeFromString(fx->getProperty("delayClockMode").toString()))
@@ -7110,9 +7131,15 @@ bool T5ynthProcessor::importJsonPreset(const juce::String& json)
         setParam(parameters, PID::delayClockDivision, fx->hasProperty("delayClockDivision")
             ? static_cast<float>(clockDivisionFromString(fx->getProperty("delayClockDivision").toString()))
             : static_cast<float>(ClockDivision::D1_4));
-        setParam(parameters, PID::reverbType,
-                 static_cast<float>(choiceFromKey(fx->getProperty("reverbType").toString(), ReverbType::kEntries)));
-        setParam(parameters, PID::reverbMix, static_cast<float>(fx->getProperty("reverbMix")));
+        const int reverbTypeIdx = choiceFromKey(fx->getProperty("reverbType").toString(),
+                                                ReverbType::kEntries);
+        setParam(parameters, PID::reverbType, static_cast<float>(reverbTypeIdx));
+        // Epoch 5: Algo and Plate had DIFFERENT old laws (squared vs linear) and
+        // different old path gains, so the remap needs the reverb type.
+        setParam(parameters, PID::reverbMix,
+                 Calibration::migrateMixScalar(PID::reverbMix,
+                     static_cast<float>(fx->getProperty("reverbMix")), fileCalibEpoch,
+                     reverbTypeIdx));
         setParam(parameters, PID::algoRoom, static_cast<float>(fx->getProperty("algoRoom")));
         setParam(parameters, PID::algoDamping, static_cast<float>(fx->getProperty("algoDamping")));
         setParam(parameters, PID::algoWidth, static_cast<float>(fx->getProperty("algoWidth")));

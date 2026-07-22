@@ -92,7 +92,18 @@ private:
     float currentDelaySamples = 0.0f;    // smoothed current
     float feedback = 0.35f;              // Reference default
     float targetFeedback = 0.35f;        // smoothing target
-    float wetMix = 0.3f;                 // Reference default (send amount)
+    float wetMix = 0.3f;                 // Reference default (raw Mix knob, 0..1)
+    // Per-mode wet-path normalisation, re-derived on EVERY setMode (including the
+    // no-op one) so this never depends on the literal below matching
+    // FxMixLaw::kDelayTrimClean. Without the trim, the same Mix position means
+    // +4.7 dB more effect on Tape and -2.5 dB less on BBD than on Digital.
+    float wetPathTrim = 1.0f;
+    // Previous block's mix gains — the crossfade ramps between blocks rather than
+    // stepping (the FxMixLaw dry curve is steep near mix=1). Primed on the first
+    // block after prepare/reset so a patch change does not fade in from silence.
+    float prevDryGain = 1.0f;
+    float prevWetAmt  = 0.0f;
+    bool  mixRampPrimed = false;
     float dampFreq = 4000.0f;            // resolved feedback-LP cutoff (per-mode top)
     float tapePbFreq = 4000.0f;          // resolved tape playback-LP cutoff
     float dampAmount = -1.0f;            // raw 0..1 Damp param (-1 = force first resolve)

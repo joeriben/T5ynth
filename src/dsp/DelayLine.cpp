@@ -1,4 +1,5 @@
 #include "DelayLine.h"
+#include "BlockParams.h"   // FxMixLaw (the wet/dry law + per-mode wet-path trims)
 
 namespace
 {
@@ -150,6 +151,10 @@ void T5ynthDelayLine::prepare(double sampleRate, int samplesPerBlock)
     bbdHpState = 0.0f;
     bbdLoopState = 0.0f;
     bbdClockPhase = 0.0f;
+    // prepareToPlay calls prepare() but never reset(), so the mix ramp has to be
+    // re-primed here too — a re-prepare (sample-rate change) would otherwise ramp
+    // the first block from gains that belong to the old run.
+    mixRampPrimed = false;
 
     prepared = true;
 }
@@ -157,7 +162,14 @@ void T5ynthDelayLine::prepare(double sampleRate, int samplesPerBlock)
 void T5ynthDelayLine::processBlock(juce::AudioBuffer<float>& buffer)
 {
     if (!prepared || wetMix == 0.0f)
+    {
+        // Bypassed: the dry passed through at unity and no wet was added. Record
+        // exactly that, so bringing Mix back up ramps from the level the listener
+        // actually just heard instead of dipping the dry from a stale pure-wet gain.
+        prevDryGain = 1.0f;
+        prevWetAmt  = 0.0f;
         return;
+    }
 
     const int numSamples = buffer.getNumSamples();
     if (numSamples == 0 || buffer.getNumChannels() < 1)
@@ -199,7 +211,28 @@ void T5ynthDelayLine::processBlock(juce::AudioBuffer<float>& buffer)
     }
 
     const bool stereo = buffer.getNumChannels() >= 2;
-    const float dryGain = 1.0f - wetMix;
+    // Constant-power law (FxMixLaw) on a unity-normalised wet path — NOT the raw
+    // knob as an amplitude. See BlockParams.h for why.
+    //
+    // Both gains RAMP across the block from the previous block's values. The dry
+    // curve's slope steepens to about -8.5 near mix=1.0, ~8x the old `dry = 1-mix`
+    // slope, so a per-block STEP that was inaudible before zippers audibly here
+    // when an envelope or LFO rides Delay Mix high in its travel.
+    const float dryTarget = FxMixLaw::dryGain(wetMix);
+    const float wetTarget = FxMixLaw::wetGain(wetMix) * wetPathTrim;
+    if (! mixRampPrimed)                 // first block after prepare/reset: no jump
+    {
+        prevDryGain = dryTarget;
+        prevWetAmt  = wetTarget;
+        mixRampPrimed = true;
+    }
+    const float invN     = 1.0f / static_cast<float>(numSamples);
+    const float dryStep  = (dryTarget - prevDryGain) * invN;
+    const float wetStep  = (wetTarget - prevWetAmt)  * invN;
+    float dryGain = prevDryGain;
+    float wetAmt  = prevWetAmt;
+    prevDryGain = dryTarget;
+    prevWetAmt  = wetTarget;
     const float smoothCoeff = 1.0f - std::exp(-1.0f / static_cast<float>(sr * 0.005));
 
     const int  heads = (mode == kTape) ? 3 : 1;
@@ -313,9 +346,9 @@ void T5ynthDelayLine::processBlock(juce::AudioBuffer<float>& buffer)
             f = std::tanh(f * kTapeDrive) / kTapeDrive;
             delayLine.pushSample(0, mono + f);
 
-            dataL[i] = dryL * dryGain + wetL * wetMix;
+            dataL[i] = dryL * dryGain + wetL * wetAmt;
             if (stereo)
-                dataR[i] = dryR * dryGain + wetR * wetMix;
+                dataR[i] = dryR * dryGain + wetR * wetAmt;
         }
         else if (isBbd)
         {
@@ -347,9 +380,9 @@ void T5ynthDelayLine::processBlock(juce::AudioBuffer<float>& buffer)
             const float f = std::tanh(bbdLoopState * feedback * bc.drive) / bc.drive;
             delayLine.pushSample(0, mono + f);
 
-            dataL[i] = dryL * dryGain + wet * wetMix;
+            dataL[i] = dryL * dryGain + wet * wetAmt;
             if (stereo)
-                dataR[i] = dryR * dryGain + wet * wetMix;
+                dataR[i] = dryR * dryGain + wet * wetAmt;
         }
         else if (isPingPong)
         {
@@ -364,24 +397,27 @@ void T5ynthDelayLine::processBlock(juce::AudioBuffer<float>& buffer)
             delayLine.pushSample(0, mono + fbToL);
             delayLine.pushSample(1, fbToR);
 
-            dataL[i] = dryL * dryGain + dl * wetMix;
-            dataR[i] = dryR * dryGain + dr * wetMix;
+            dataL[i] = dryL * dryGain + dl * wetAmt;
+            dataR[i] = dryR * dryGain + dr * wetAmt;
         }
         else // Digital (dual-mono); also the mono fallback for PingPong
         {
             const float dl = delayLine.popSample(0, clampedT, true);
             const float fbL = dampFilterL.processSample(dl * feedback);
             delayLine.pushSample(0, dryL + fbL);
-            dataL[i] = dryL * dryGain + dl * wetMix;
+            dataL[i] = dryL * dryGain + dl * wetAmt;
 
             if (stereo)
             {
                 const float dr = delayLine.popSample(1, clampedT, true);
                 const float fbR = dampFilterR.processSample(dr * feedback);
                 delayLine.pushSample(1, dryR + fbR);
-                dataR[i] = dryR * dryGain + dr * wetMix;
+                dataR[i] = dryR * dryGain + dr * wetAmt;
             }
         }
+
+        dryGain += dryStep;   // ramp the mix gains across the block
+        wetAmt  += wetStep;
     }
 
     // Count as silent only when input is also silent.
@@ -406,6 +442,7 @@ void T5ynthDelayLine::reset()
     bbdLoopState = 0.0f;
     bbdClockPhase = 0.0f;
     silentOutputBlocks = 0;
+    mixRampPrimed = false;   // next block starts AT its gains, not ramping from stale ones
 }
 
 void T5ynthDelayLine::setTime(float ms)
@@ -437,6 +474,12 @@ void T5ynthDelayLine::setDamp(float d)
 
 void T5ynthDelayLine::setMode(int delayType)
 {
+    // Tape sums three heads (+4.7 dB) and BBD loses level in its reconstruction
+    // filters (-2.5 dB); normalise both to the Digital/Ping-Pong unity path so a
+    // given Mix position means the same amount of delay in every mode. Resolved
+    // BEFORE the no-op early-out: the member's initial value must never be the
+    // thing that makes Digital correct.
+    wetPathTrim = FxMixLaw::delayTrim(delayType);
     if (delayType == mode)
         return;
     mode = delayType;
