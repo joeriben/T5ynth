@@ -101,6 +101,18 @@ static bool isEssentialDiffusersFile(const juce::String& remotePath)
     if (path == "model_index.json")
         return true;
 
+    // The shard map of a MULTI-FILE transformers checkpoint. It ends in ".json",
+    // so the ".safetensors" rule below does NOT catch it -- and without it
+    // from_pretrained cannot find any weights at all and reports the misleading
+    // "no file named model.safetensors found in directory", even though all four
+    // shards are sitting right there. Measured on Qwen2.5-Coder-7B-Instruct
+    // (4 shards, 15 GB): the download completed, the Model Manager showed
+    // "Installed", and the model could not be loaded. Every sharded repo the
+    // in-app downloader installs is affected.
+    if (path.endsWith(".safetensors.index.json")
+        || path.endsWith(".bin.index.json"))
+        return true;
+
     // Root-level config/tokenizer files for flat transformers repos (t5-base).
     if (path == "config.json"
         || path == "tokenizer.json"

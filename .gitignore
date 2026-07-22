@@ -21,6 +21,7 @@ compile_commands.json
 
 # Python backend venv
 .venv/
+.venv-coder/
 venv/
 .codex
 backend/venv/
