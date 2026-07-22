@@ -165,6 +165,7 @@ target_sources(T5ynth PRIVATE
     src/dsp/DelayLine.cpp
     src/dsp/ConvolutionReverb.cpp
     src/dsp/AlgorithmicReverb.cpp
+    src/dsp/EarlyReflections.cpp
     src/dsp/Limiter.cpp
     src/dsp/SamplePlayer.cpp
     src/dsp/FreezeTextureEngine.cpp

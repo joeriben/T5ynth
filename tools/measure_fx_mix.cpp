@@ -198,9 +198,25 @@ int main()
         { "Medium", BinaryData::emt_140_plate_medium_wav, BinaryData::emt_140_plate_medium_wavSize },
         { "Dark  ", BinaryData::emt_140_plate_dark_wav,   BinaryData::emt_140_plate_dark_wavSize   },
     };
+    // Freeverb+ : the same late field fed from the early-reflection bank.
+    double algoPlusWet = 1.0;
+    {
+        AlgorithmicReverb rv;
+        rv.prepare(SR, BS);
+        rv.setMix(1.0f);
+        rv.setEarlyReflections(true);
+        rv.setRoomSize(0.7f);
+        rv.setDamping(0.4f);
+        rv.setWidth(1.0f);
+        algoPlusWet = wetGain([&](juce::AudioBuffer<float>& b) { rv.processBlock(b); },
+                              dryL, dryR);
+    }
+
     std::printf("\n--- REVERB wet-path gain (pure wet) ---\n");
-    std::printf("  Algo reverb (room 0.7) : %+6.2f dB   -> trim %.3f\n",
+    std::printf("  Freeverb  (room 0.7) : %+6.2f dB   -> trim %.3f\n",
                 db(algoWet), 1.0 / algoWet);
+    std::printf("  Freeverb+ (room 0.7) : %+6.2f dB   -> trim %.3f\n",
+                db(algoPlusWet), 1.0 / algoPlusWet);
     double plateWet = 1.0;
     for (auto& ir : irs)
     {
@@ -224,6 +240,7 @@ int main()
     auto dryLaw = [](double m) { return static_cast<double>(FxMixLaw::dryGain(static_cast<float>(m))); };
     curve("DELAY Digital (fb 0.35)", digitalWet * FxMixLaw::kDelayTrimClean, wetLaw, dryLaw);
     curve("FREEVERB", algoWet * FxMixLaw::kReverbTrimAlgo, wetLaw, dryLaw);
+    curve("FREEVERB+", algoPlusWet * FxMixLaw::kReverbTrimAlgoPlus, wetLaw, dryLaw);
     curve("PLATE REVERB", plateWet, wetLaw, dryLaw);
 
     // ── Migration check: does a stored value keep its audible balance? ───────

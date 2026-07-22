@@ -688,16 +688,31 @@ namespace DelayType {
 
 // ── Reverb type ──
 namespace ReverbType {
-    enum : int { Off = 0, Dark = 1, Medium = 2, Bright = 3, Algo = 4 };
+    // Dark/Medium/Bright are three IRs of the SAME EMT-140 plate — one reverb in
+    // three tone colours, not three reverbs, so they are labelled as such. The keys
+    // are untouched, so every stored preset keeps loading. The two
+    // algorithmic entries are named for their algorithm: JUCE's reverb is Freeverb
+    // ("based on the technique and tunings used in FreeVerb" — juce_Reverb.h), which
+    // implements only the Schroeder-Moorer LATE field. Freeverb+ is the same late
+    // field with Moorer's missing front end: a sparse early-reflection bank whose
+    // tap times scale with Room, so Room finally means geometry and not just decay.
+    // APPENDED, never inserted — every stored index below it keeps its meaning, so
+    // this needs no calibration-epoch remap. The "algo" KEY is unchanged so existing
+    // presets keep loading; only its display label became honest.
+    enum : int { Off = 0, Dark = 1, Medium = 2, Bright = 3, Algo = 4, AlgoPlus = 5 };
     static constexpr ChoiceEntry kEntries[] = {
-        { "off",    "Off"    },
-        { "dark",   "Dark"   },
-        { "medium", "Medium" },
-        { "bright", "Bright" },
-        { "algo",   "Algo"   }
+        { "off",       "Off"       },
+        { "dark",      "Dark"      },
+        { "medium",    "Medium"    },
+        { "bright",    "Bright"    },
+        { "algo",      "Freeverb"  },
+        { "algo_plus", "Freeverb+" }
     };
     static constexpr int kCount = sizeof(kEntries) / sizeof(kEntries[0]);
-    static_assert(Algo + 1 == kCount, "ReverbType out of sync.");
+    static_assert(AlgoPlus + 1 == kCount, "ReverbType out of sync.");
+
+    /** Both algorithmic types; the plate IRs are convolution. */
+    inline bool isAlgorithmic(int t) { return t == Algo || t == AlgoPlus; }
 }
 
 // ── FX Mix: wet-path normalisation + the dry/wet law ─────────────────────────
@@ -760,6 +775,7 @@ namespace FxMixLaw {
     static constexpr float kDelayTrimBbd    = 1.338f;  // BBD family:   -2.53 dB (recon + HP loss)
     static constexpr float kReverbTrimAlgo  = 0.533f;  // Freeverb wetLevel=1.0: +5.46 dB @ Room 0.7
     static constexpr float kReverbTrimPlate = 1.000f;  // EMT-140 IRs are already unity
+    static constexpr float kReverbTrimAlgoPlus = 0.744f;  // Freeverb+ : +2.57 dB @ Room 0.7.
                                                           // Quieter than bare Freeverb because the
                                                           // combs are fed from the normalised
                                                           // reflection bank, not the raw input.
@@ -773,6 +789,7 @@ namespace FxMixLaw {
     inline float reverbTrim(int reverbType)
     {
         if (reverbType == ReverbType::Algo)     return kReverbTrimAlgo;
+        if (reverbType == ReverbType::AlgoPlus) return kReverbTrimAlgoPlus;
         return kReverbTrimPlate;
     }
 

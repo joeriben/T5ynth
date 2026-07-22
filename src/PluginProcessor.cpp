@@ -4702,7 +4702,7 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
     bool delayEnabled = delayType > 0;
     int reverbType = static_cast<int>(paramCache.reverbType->load());
     bool reverbEnabled = reverbType > 0;
-    bool reverbIsAlgo = reverbType == ReverbType::Algo;
+    bool reverbIsAlgo = ReverbType::isAlgorithmic(reverbType);
 
     if (delayEnabled)
     {
@@ -4729,6 +4729,9 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
             algoReverb.setRoomSize(paramCache.algoRoom->load());
             algoReverb.setDamping(paramCache.algoDamping->load());
             algoReverb.setWidth(paramCache.algoWidth->load());
+            // Freeverb+ only: the early-reflection front end. Freeverb stays
+            // byte-for-byte JUCE's reverb, so no existing preset changes voicing.
+            algoReverb.setEarlyReflections(reverbType == ReverbType::AlgoPlus);
         }
         else
         {
