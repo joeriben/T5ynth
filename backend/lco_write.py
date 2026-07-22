@@ -78,12 +78,120 @@ def _indent(code, pad="    "):
     return "\n".join(pad + l for l in (code or "").splitlines() if l.strip())
 
 
-def render_library():
+# A library is LOOKED UP IN, not recited. The lexicon's `surface_forms` are the
+# index built for exactly that — the words that reach an entry. They select what
+# the author gets to READ; they decide nothing about the sound, because the
+# author still writes whatever it writes and may depart from every suggestion.
+# Reciting all 29 instruments, 51 words and 17 motions cost 60,000 characters on
+# every bake, of which a given prompt needs a handful.
+_WORD = re.compile(r"[a-zà-ÿ0-9']+")
+
+# When a prompt matches little or nothing, the author still needs orientation.
+# These span the families (subtractive, FM, additive, modal) so an unmatched
+# prompt is oriented rather than starved.
+_STARTER = ("saw", "pwm", "fm_bell", "additive", "struck_bar")
+_MAX_INSTRUMENTS = 8
+
+
+def _index(lexicon_section):
+    """surface form (and key) -> entry key."""
+    idx = {}
+    for e in lexicon_section:
+        idx[e["key"].lower()] = e["key"]
+        for sf in e.get("surface_forms", []):
+            idx[str(sf).strip().lower()] = e["key"]
+    return idx
+
+
+def _lookup(prompt, index):
+    """Entry keys whose surface forms appear in the prompt. Multi-word forms are
+    matched against the raw text, single words against the tokenised prompt, so
+    "electric piano" hits without "piano" alone dragging in a second entry."""
+    text = " " + (prompt or "").lower() + " "
+    words = set(_WORD.findall(text))
+    hits = []
+    for form, key in index.items():
+        if key in hits:
+            continue
+        if " " in form or "-" in form:
+            if form in text:
+                hits.append(key)
+        elif form in words:
+            hits.append(key)
+    return hits
+
+
+_index_cache = None
+
+
+def _indexes():
+    global _index_cache
+    if _index_cache is None:
+        with open(Path(__file__).resolve().parent / "dco_lexicon.json",
+                  encoding="utf-8") as fh:
+            lex = json.load(fh)
+        _index_cache = tuple(_index(lex[s])
+                             for s in ("techniques", "adjectives", "motions"))
+    return _index_cache
+
+
+def select(prompt):
+    """What this prompt pulls off the shelf, and what stays on it.
+
+    Everything is still LISTED — the author sees the whole catalogue and can ask
+    for nothing it doesn't contain. Only the entries the prompt reached are
+    QUOTED in full, with their code, parameters and anchors."""
+    lib = _load_library()
+    t_idx, a_idx, m_idx = _indexes()
+    t_hits = _lookup(prompt, t_idx)
+    a_hits = set(_lookup(prompt, a_idx))
+    m_hits = set(_lookup(prompt, m_idx))
+
+    # Always give the author something to build from, and never more than a
+    # handful: the matched instruments first, topped up from the starter set.
+    chosen = list(t_hits)
+    for k in _STARTER:
+        if len(chosen) >= _MAX_INSTRUMENTS:
+            break
+        if k not in chosen:
+            chosen.append(k)
+    chosen = set(chosen[:_MAX_INSTRUMENTS])
+
+    def split(entries, hits):
+        return ([e for e in entries if e["key"] in hits],
+                [e for e in entries if e["key"] not in hits])
+
+    full_i, rest_i = split(lib["instruments"], chosen)
+    full_a, rest_a = split(lib["adjectives"], a_hits)
+    full_m, rest_m = split(lib["motions"], m_hits)
+    return {"instruments": full_i, "adjectives": full_a, "motions": full_m,
+            "catalogue": {"instruments": rest_i, "adjectives": rest_a,
+                          "motions": rest_m}}
+
+
+def _catalogue(out, lib, section, intro):
+    """The shelf the author did not pull from — listed, so nothing is invisible.
+
+    This is what makes the prompt a LIBRARY CONSULTATION rather than a recital:
+    the author can see the whole vocabulary and knows what it is expected to be
+    able to write, but only carries the weight of the entries this prompt
+    reached."""
+    rest = (lib.get("catalogue") or {}).get(section) or []
+    if not rest:
+        return
+    out.append("")
+    out.append(intro)
+    for e in rest:
+        why = (e.get("why") or "").strip()
+        out.append(f"  {e['key']}" + (f" — {why}" if why else ""))
+
+
+def render_library(sel=None):
     """The library as the author reads it: instruments with their real Csound,
     their parameters with measured ranges and named anchors, the anchor value
-    shown AS CODE where the generator could emit it, then the shared adjective
-    and motion vocabulary with the lines each word is responsible for."""
-    lib = _load_library()
+    shown AS CODE where the generator could emit it, then the sound words and
+    motions the prompt reached, with the lines each word is responsible for."""
+    lib = sel if sel is not None else _load_library()
     out = []
 
     out.append("## INSTRUMENTS")
@@ -105,6 +213,10 @@ def render_library():
             out.append(f"  # {it['key']} at {label}")
             out.append(_indent(code, "  "))
 
+    _catalogue(out, lib, "instruments",
+               "Also in the library, not quoted here. If one of these is what the "
+               "prompt asks for, write it yourself in the same spirit:")
+
     out.append("")
     out.append("## SOUND WORDS (they belong IN the generation, not after it)")
     out.append("What each word means in code. Fold it into how the tone is MADE —")
@@ -116,6 +228,9 @@ def render_library():
         out.append(f"### {adj['key']} — {adj['why']}")
         out.append(_indent(adj["code"]))
 
+    _catalogue(out, lib, "adjectives",
+               "Other words the library knows, without their code:")
+
     out.append("")
     out.append("## MOTION (movement is code: a free-running oscillator driving a parameter)")
     for mot in lib["motions"]:
@@ -124,6 +239,8 @@ def render_library():
         out.append(f"### {mot['key']} — {mot['why']}{rate}")
         if mot.get("code", "").strip():
             out.append(_indent(mot["code"]))
+
+    _catalogue(out, lib, "motions", "Other movements the library knows:")
     return "\n".join(out)
 
 
@@ -174,17 +291,10 @@ LIBRARY (adapt and combine — do not simply copy one block):
 """
 
 
-_system_cache = None
-
-
-def system_prompt():
-    """Head + the generated library. Built once per process: the library is a
-    few hundred lines of harvested Csound and rendering it per request would be
-    pure repetition."""
-    global _system_cache
-    if _system_cache is None:
-        _system_cache = _SYSTEM_HEAD + "\n" + render_library()
-    return _system_cache
+def system_prompt(prompt=""):
+    """Head + the library entries this prompt reached. The full library stays on
+    disk; what travels is the consultation."""
+    return _SYSTEM_HEAD + "\n" + render_library(select(prompt))
 
 
 _REPAIR_PROMPT = (
@@ -457,13 +567,14 @@ def build_csound_response(text, llm, correction="", previous=""):
         user_turn = (f"{prompt}\n\nThe previous attempt was described as: "
                      f"{previous}\nCorrect it: {correction}")
 
+    sysp = system_prompt(prompt)
     attempts = []
     turn = user_turn
     for attempt in range(1, MAX_TRIES + 1):
         # No token cap: the orchestra is as long as the sound needs. A cap here
         # would cut the body mid-line, and a truncated generation is not an
         # error — it would arrive as a syntax failure with no cause to show.
-        raw = llm(turn, system_prompt(), None)
+        raw = llm(turn, sysp, None)
         body, reading = sanitize(raw)
         if not body.strip():
             attempts.append("the model returned no code")
