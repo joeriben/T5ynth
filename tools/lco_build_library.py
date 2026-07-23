@@ -117,6 +117,32 @@ def emit(P, **kw):
 # the row, which is precisely the silent failure this file already had once.
 # The map is PER INSTRUMENT: `ring` is fm_ep's own emitter name, but the FM
 # family's `ring` is the emitter's `fade`.
+# What a harvested delta may assume rather than define: the host scaffold's own
+# variables and ftables (backend/lco_write.py `wrap`). Everything else a delta
+# reads has to be defined inside it.
+_HOST_VARS = {
+    "kfreq", "koct1", "koct2", "koct3", "kvol1", "kvol2", "kvol3",
+    "knote", "kvel", "kpres", "ktimb", "ktrig", "kgate", "kgateraw", "kfreqraw",
+    "ivoice", "asig", "aout", "giSine", "giCos", "giCheb", "giImp",
+}
+# A Csound statement names its result variable(s) first: `kx opcode a, b`,
+# `kx = expr`, `ax, ay opcode ...`.
+_WRITES = re.compile(r"^\s*([A-Za-z_]\w*(?:\s*,\s*[A-Za-z_]\w*)*)\s+")
+_IDENT = re.compile(r"\b([a-zA-Z_]\w*)\b")
+
+
+def _writes(line):
+    m = _WRITES.match(line.split(";")[0])
+    return {t.strip() for t in m.group(1).split(",")} if m else set()
+
+
+def _reads(line):
+    """Identifiers a line uses. Opcode names come along, harmlessly: a name is
+    only ever acted on when some OTHER line is found to define it, and no line
+    defines `vco2`."""
+    return set(_IDENT.findall(line.split(";")[0])) - _writes(line)
+
+
 _EMITTER_PARAM = {
     "fm":          {"index": "bite", "ring": "fade", "detune": "shimmer"},
     "fm_bell":     {"index": "bite", "ring": "fade", "detune": "shimmer"},
@@ -169,10 +195,42 @@ def harvest(P, lex):
     # Adjectives and motions: what the WORD does, in code. Harvested as the
     # difference a word makes to the same plain carrier, so each entry shows the
     # lines that word is responsible for and nothing else.
+    #
+    # "and nothing else" has to stop short of the lines that DEFINE what the
+    # difference uses. A pure line-set difference dropped them -- they are in the
+    # carrier too -- and left nine adjectives quoting variables nothing declares
+    # (`warm` was a single line reading `adrv0 = tanh(acln0 * 6.7)` with no
+    # `acln0` anywhere). The author is shown these as code to imitate, so a
+    # broken example teaches the exact failure the repair loop then has to
+    # catch: "Variable used before defined". The delta is closed over its own
+    # free variables instead: any carrier line that defines one is pulled back
+    # in, in the carrier's order, until nothing is left dangling.
     def delta_against(carrier, **kw):
         base_lines = set(emit(P, technique_keys=[carrier]).splitlines())
-        code = emit(P, technique_keys=[carrier], **kw)
-        return "\n".join(l for l in code.splitlines() if l not in base_lines)
+        lines = emit(P, technique_keys=[carrier], **kw).splitlines()
+        keep = {i for i, l in enumerate(lines) if l not in base_lines}
+        for _ in range(len(lines)):
+            need = set()
+            for i in sorted(keep):
+                need |= _reads(lines[i])
+            need -= {v for i in keep for v in _writes(lines[i])} | _HOST_VARS
+            grew = False
+            for i, l in enumerate(lines):
+                if i not in keep and _writes(l) & need:
+                    keep.add(i)
+                    grew = True
+            if not grew:
+                break
+        kept = [lines[i] for i in sorted(keep)]
+        # End where the author must end. A delta that builds audio but leaves it
+        # in the emitter's own tagged name (`adrv0`, `acln0`) models the contract
+        # being broken -- the same trap that made the harvested instruments end
+        # in `aosc0` (4cb92441). Deltas that only build control signals have no
+        # audio to hand over and correctly end where they end.
+        audio = [w for l in kept for w in _writes(l) if w.startswith("a")]
+        if audio and audio[-1] != "asig":
+            kept.append(f"asig    = {audio[-1]}")
+        return "\n".join(kept)
 
     adjectives = []
     for entry in lex["adjectives"]:
