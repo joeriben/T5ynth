@@ -37,6 +37,14 @@ public:
         juce::File   file;
         juce::String name;
         juce::String model;        // shortened display name (SA1 Open, SA3 Music, …)
+        /** What the MODEL section of the sidebar files this preset under: the
+         *  same label as `model` for a neural preset, "LCO" for one whose
+         *  engine is the language oscillator. Separate from `model` because
+         *  the two answer different questions — the Detail card's MODEL row
+         *  reports what the FILE says (an LCO preset can still carry a neural
+         *  id + audio buffer from before the bake, and that must not be
+         *  overwritten), while this reports what actually SOUNDS. */
+        juce::String sourceLabel;
         juce::String device;       // "mps"/"cuda"/"cpu" the audio was rendered on; empty = legacy
         juce::String engineMode;   // "Sampler" / "Wavetable" / "Granular"
         juce::String seqMode;      // "Off" / "Step" / "Gen" / "Step + Gen"
@@ -707,7 +715,7 @@ private:
         for (auto& e : allEntries)
         {
             if (e.bank.isNotEmpty())  banks.insert(e.bank);
-            if (e.model.isNotEmpty()) models.insert(e.model);
+            if (e.sourceLabel.isNotEmpty()) models.insert(e.sourceLabel);
             for (auto& t : e.tags)    tags.insert(t);
         }
 
@@ -812,12 +820,38 @@ private:
         if (auto* eng = root->getProperty("engine").getDynamicObject())
         {
             const auto m = eng->getProperty("mode").toString();
+            // "csound" is what the live language oscillator writes today,
+            // "lco" what the retired wavetable-bake path wrote; both are the
+            // LCO to the user, who never sees either token.
+            const bool isLco = (m == "lco" || m == "csound");
             if (m == "wavetable")    e.engineMode = "Wavetable";
             else if (m == "freeze")  e.engineMode = "Granular";
             else if (m == "sampler") e.engineMode = "Sampler";
-            else if (m == "lco")     e.engineMode = "LCO";
+            else if (isLco)          e.engineMode = "LCO";
             else if (m.isNotEmpty()) e.engineMode = m;
+
+            // The MODEL section of the sidebar files a preset by what MADE its
+            // sound, and for an LCO preset that is the oscillator, not an
+            // inference model — the voices render the orchestra whatever
+            // `synth.model` says. A bake runs no model of its own, so that
+            // field is empty in every LCO preset saved without a preceding
+            // generation, and the entire LCO half of a library had no sidebar
+            // row at all. Derived on READ, so presets already on disk get
+            // their row without being re-saved, and derived into a field of
+            // its own so the Detail card keeps reporting the id the file
+            // actually carries.
+            if (isLco) e.sourceLabel = "LCO";
         }
+
+        // Non-LCO presets never claim the LCO row. `lastModel` — which is what
+        // lands in `synth.model` — is left holding "LCO" after an LCO preset is
+        // loaded (MainPanel::loadPresetFromFile) and nothing clears it when the
+        // engine is switched back, so a neural preset saved in that state would
+        // otherwise walk into the row as a lookalike. It keeps its file-level
+        // claim in the Detail card; it just doesn't get filed under an
+        // oscillator it doesn't use.
+        if (e.sourceLabel.isEmpty() && e.model != "LCO")
+            e.sourceLabel = e.model;
 
         // Sequencer mode = combination of step seq + generative seq enables.
         // The fields land in two different JSON blocks, so we derive a
@@ -926,7 +960,7 @@ private:
                 continue;
 
             // Model filter (XOR — empty active = show all)
-            if (currentMode != Mode::Save && ! sidebar.activeModel.isEmpty() && e.model != sidebar.activeModel)
+            if (currentMode != Mode::Save && ! sidebar.activeModel.isEmpty() && e.sourceLabel != sidebar.activeModel)
                 continue;
 
             // Tag filter (empty → all; otherwise need any-of-match)
@@ -1457,6 +1491,7 @@ private:
             numSamples  = e.numSamples;
             inferenceMs = e.inferenceMs;
             model       = e.model;
+            sourceLabel = e.sourceLabel;
             device      = e.device;
             engineMode  = e.engineMode;
             seqMode     = e.seqMode;
@@ -1525,7 +1560,7 @@ private:
             //    detail card has a stable shape regardless of which fields a
             //    given preset happens to expose. ──
             const std::pair<const char*, juce::String> metaRows[] = {
-                { "MODEL",  model.isNotEmpty() ? model : juce::String() },
+                { "MODEL",  modelRowText() },
                 { "ENGINE", engineMode },
                 { "SEQ",    seqMode },
                 { "AUDIO",  audioInfoString() },
@@ -1735,6 +1770,24 @@ private:
                                     ? juce::String::fromUTF8("\xe2\x80\x94")
                                     : value;
             g.drawText(display, r, juce::Justification::centredLeft, true);
+        }
+
+        /** MODEL row. It must open with the label the sidebar's MODEL section
+         *  files this preset under — the two carry the same word in the same
+         *  panel, and a card naming a model whose sidebar row hides the preset
+         *  is a contradiction the user cannot resolve. An LCO preset saved
+         *  after a generation carries BOTH (its voices sound the orchestra, its
+         *  buffer is still the neural sample), so the stored id follows the
+         *  oscillator rather than being dropped. Empty when nothing files it:
+         *  a legacy preset with no model, or one whose stored id is the stale
+         *  "LCO" token left in lastModel by a preset load — paintMetaRow draws
+         *  the em-dash for both, which is the honest claim. */
+        juce::String modelRowText() const
+        {
+            if (sourceLabel.isEmpty()) return {};
+            return (model.isNotEmpty() && model != sourceLabel)
+                       ? sourceLabel + juce::String::fromUTF8(" \xc2\xb7 ") + model
+                       : sourceLabel;
         }
 
         juce::String audioInfoString() const
@@ -1962,7 +2015,7 @@ private:
         bool entryValid = false;
         bool hasAxes = false;
         juce::String name, bank, promptA, promptB;
-        juce::String model, engineMode, seqMode;
+        juce::String model, sourceLabel, engineMode, seqMode;
         juce::String device;        // device the audio was rendered on; empty = legacy
         juce::String runtimeDevice; // this machine's backend device, for mismatch flag
         juce::Time modified;
