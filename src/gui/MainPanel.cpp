@@ -81,6 +81,40 @@ const char* const kMainSnapshotParamIds[] = {
     PID::filterDriveOs, PID::filterAlgorithm, PID::filterWarpStyle
 };
 
+// The ids above an LCO SNAP deliberately does NOT restore. Everything else in
+// kMainSnapshotParamIds shapes a Csound voice exactly as it shapes a neural one
+// (envelopes, LFOs, drift modulators, filter, aftertouch, noise, voices, tuning),
+// so the LCO slot carries the same sound state rather than a second, divergent
+// list. Excluded here:
+//   - engineMode: the mode toggle and the bake own it (a slot must never move the
+//     instrument between paradigms — CLAUDE.md platform invariants). The recall
+//     forces Csound itself, and only when it actually has an orchestra.
+//   - the neural generation + sample-path settings: they have no meaning for a
+//     live oscillator, and a LCO recall must not silently rewrite the T5osc
+//     session the user returns to (seed, duration, steps, loop points, the
+//     wavetable extraction, the sample regen rate).
+// NOT excluded, despite sitting in the same Drift block as the regen rate:
+// driftCrossfade ("Regen XFade") IS the Csound swap fade — processBlock derives
+// csoundFadeLen_ from it — so it is the shape of the very transition a recall
+// performs, and belongs to the stored sound.
+const char* const kLcoSnapshotSkipParamIds[] = {
+    PID::engineMode,
+    PID::genAlpha, PID::genMagnitude, PID::genNoise, PID::genDuration,
+    PID::genStart, PID::genCfg, PID::genSeed, PID::genHfBoost, PID::infSteps,
+    PID::resynthAmount,
+    PID::loopMode, PID::crossfadeMs, PID::normalize, PID::loopOptimize,
+    PID::oscScan, PID::wtFrames, PID::wtSmooth, PID::wtAutoScan,
+    PID::driftRegen
+};
+
+bool isLcoSnapshotSkippedParam(const char* id)
+{
+    for (auto* skip : kLcoSnapshotSkipParamIds)
+        if (juce::String(skip) == id)
+            return true;
+    return false;
+}
+
 bool findParameterValue(const juce::ValueTree& state, const juce::String& id, float& value)
 {
     for (int i = 0; i < state.getNumChildren(); ++i)
@@ -1041,6 +1075,10 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
     // LCO: the reused GENERATE button drives the bake/re-prompt; disable it while an
     // LCO authoring pass runs (the neural glow/cache path never fires in LCO).
     promptPanel.onLcoBusyChanged = [this](bool busy) {
+        // Tracked in BOTH modes (the bake keeps running when the user leaves the
+        // LCO): a SNAP recall must not hand an orchestra to the engine that the
+        // in-flight bake would then silently replace seconds later.
+        lcoBakeBusy_ = busy;
         if (!oscEasyMode)
             mainGenerateBtn.setEnabled(!busy);
     };
@@ -1530,16 +1568,16 @@ void MainPanel::setOscEasyMode(bool easy, bool persist)
     // The GENERATE control block stays in BOTH modes — RUHE on switch, and GENERATE
     // is reused for the LCO bake. Controls with no meaning for a deterministic
     // language bake are shown DISABLED (dimmed) rather than removed: CACHE (no
-    // inference cache) and RESYNTH (no init-audio). SNAP is disabled here too until
-    // it learns to store LCO prompts (follow-up); GENERATE + row labels stay live.
+    // inference cache) and RESYNTH (no init-audio). GENERATE + row labels stay live.
     const float dimA = neural ? 1.0f : 0.4f;
     mainGenerateBtn.setVisible(true);
     snapLabel.setVisible(true);
     cacheLabel.setVisible(true);
-    snapLabel.setAlpha(1.0f);       // SNAP is live in both modes (LCO parks prompts)
+    snapLabel.setAlpha(1.0f);       // SNAP is live in both modes
     cacheLabel.setAlpha(dimA);
-    // SNAP stays live in BOTH modes: neural recalls audio snapshots, LCO parks the
-    // prompt text (lcoPromptSlots). Only CACHE/RESYNTH go disabled+dimmed in LCO.
+    // SNAP stays live in BOTH modes: neural recalls audio snapshots, LCO recalls the
+    // authored orchestra + its sound (lcoSnapshots). Only CACHE/RESYNTH go
+    // disabled+dimmed in LCO.
     for (auto& bSnap : snapshotButtons)
     {
         bSnap.setVisible(true);
@@ -1582,8 +1620,8 @@ void MainPanel::setOscEasyMode(bool easy, bool persist)
     // them un-pulsing after returning to neural mid-fill).
     lastInfCacheUiCapacity = -1;
 
-    // The SNAP store is mode-specific (audio snapshots vs LCO prompts), so clear the
-    // active highlight and refresh the filled dots for the mode we just entered.
+    // The SNAP store is mode-specific (audio snapshots vs LCO orchestras), so clear
+    // the active highlight and refresh the filled dots for the mode we just entered.
     activeSnapshotIndex = 0;
     syncSnapshotUi();
 
@@ -2443,7 +2481,7 @@ bool MainPanel::keyPressed(const juce::KeyPress& key)
             const int slot = static_cast<int>(c - '0');
             if (mods.isShiftDown())
             {
-                captureSnapshotPress(slot);   // no-ops in LCO (nothing to pre-capture)
+                captureSnapshotPress(slot);   // neural audio, or the LCO orchestra
                 storeSnapshotFromPress(slot);
             }
             else
@@ -2979,6 +3017,87 @@ void MainPanel::restoreMainSnapshot(const MainSnapshot& snapshot)
     }
 }
 
+// ── LCO SNAP: the authored orchestra IS the sound ────────────────────────────
+// The neural side snapshots rendered audio; the LCO has none — its sound is the
+// Csound source the LLM wrote plus the parameter chain around it. So a slot
+// stores the orchestra text, the disclosure that explains it, and the same
+// sound-shaping parameters the neural slots restore (minus the neural-only ids,
+// see kLcoSnapshotSkipParamIds). A recall then sounds within one compile, with
+// no LLM pass — where parking the prompt alone meant re-authoring minutes of
+// work for a sound the author never reproduces exactly.
+MainPanel::LcoSnapshot MainPanel::captureLcoSnapshot()
+{
+    LcoSnapshot snapshot;
+    snapshot.prompt      = promptPanel.getLcoPrompt().trim();
+    snapshot.orchestra   = processorRef.getCsoundOrchestraText();
+    snapshot.reading     = processorRef.getCsoundReading();
+    snapshot.paramsText  = processorRef.getCsoundParamsText();
+    snapshot.authorModel = promptPanel.getLcoAuthorModel();
+    snapshot.parameters  = processorRef.getValueTreeState().copyState();
+    // Prompt-only slots stay possible (nothing baked yet) — that was the whole
+    // of the old behaviour and it is kept, not replaced. Neither prompt nor
+    // orchestra means there is nothing to bring back.
+    snapshot.valid = snapshot.prompt.isNotEmpty() || snapshot.orchestra.isNotEmpty();
+    return snapshot;
+}
+
+void MainPanel::restoreLcoSnapshot(const LcoSnapshot& snapshot)
+{
+    if (!snapshot.valid)
+        return;
+
+    // A slot restores what it actually holds and touches nothing else. Empty
+    // prompt = the user had cleared the editor when the slot was taken; that is
+    // not an instruction to clear what they have typed since. The Re-Prompt chain
+    // follows the recalled words either way — with a stance engaged, GENERATE
+    // rewrites dcoLoopLast_, not the editor, so a prompt recalled but not adopted
+    // would be silently replaced by the previous one instead of being baked.
+    if (snapshot.prompt.isNotEmpty())
+    {
+        promptPanel.setLcoPrompt(snapshot.prompt);
+        promptPanel.adoptRecalledPrompt(snapshot.prompt);
+    }
+
+    // Stored before the first bake: the prompt is ALL there is. No orchestra, and
+    // therefore no parameters either — the patch around a sound this slot never
+    // captured belongs to the sound that is playing now. Leave the engine, the
+    // current orchestra, the HEARD AS card and every knob exactly where they are.
+    if (snapshot.orchestra.isEmpty())
+        return;
+
+    auto& apvts = processorRef.getValueTreeState();
+    if (snapshot.parameters.isValid())
+        for (auto* id : kMainSnapshotParamIds)
+            if (!isLcoSnapshotSkippedParam(id))
+                restoreParameterFromState(apvts, snapshot.parameters, id);
+
+    // The disclosure travels with the code, so the card explains the orchestra
+    // that is actually sounding — and a Save right after a recall round-trips the
+    // recalled sound rather than the last bake's (exportJsonPreset reads these).
+    processorRef.setCsoundReading(snapshot.reading);
+    processorRef.setCsoundParamsText(snapshot.paramsText);
+    promptPanel.setLcoReadingA(PromptPanel::formatLcoDisclosure(snapshot.reading,
+                                                               snapshot.paramsText));
+    // Whoever wrote THIS orchestra — including "not known", which must clear the
+    // previous bake's name rather than let it stand over a different sound.
+    if (snapshot.authorModel.isNotEmpty())
+        promptPanel.setLcoAuthorModel(snapshot.authorModel);
+    else
+        promptPanel.resetLcoAuthorModel();
+    // Re-Prompt reads the panel's own last reading and prompt to build its next
+    // turn; without this a stance press would rewrite the bake the recall just
+    // replaced (docs/DCO_REPROMPT_CONCEPT.md).
+    promptPanel.adoptRecalledOrchestra(snapshot.prompt, snapshot.reading);
+
+    // Same hand-off as a fresh bake (PromptPanel::triggerDcoBake): force Csound —
+    // a slot can be recalled in the LCO before anything was ever authored this
+    // session — then queue the orchestra. requestCsoundOrchestra() compiles on the
+    // processor's own background thread and crossfades the swap in.
+    processorRef.forceCsoundEngineMode();
+    processorRef.requestCsoundOrchestra(snapshot.orchestra);
+    promptPanel.beginCsoundCompileWatch();
+}
+
 std::vector<PresetFormat::SnapshotState> MainPanel::buildSnapshotsForSave() const
 {
     std::vector<PresetFormat::SnapshotState> out;
@@ -3039,6 +3158,15 @@ void MainPanel::applySnapshotsFromLoad(const std::vector<PresetFormat::SnapshotS
     // preset are populated. Slot index from JSON is authoritative; values
     // outside [0, kNumSnapshotSlots) are ignored defensively.
     for (auto& s : mainSnapshots) s = {};
+    // The LCO slots go too, and for a sharper reason than symmetry: a preset
+    // brings its own orchestra, and a slot left over from before the load still
+    // reads as filled while holding the PREVIOUS session's orchestra and its
+    // whole parameter set. Pressing it would bury the just-loaded preset under a
+    // sound the user did not load. (Preset files carry no LCO slots of their own
+    // yet, so there is nothing to repopulate them with — they simply start empty
+    // with the preset.)
+    for (auto& s : lcoSnapshots)     s = {};
+    for (auto& s : lcoPressCaptures) s = {};
 
     for (const auto& src : snapshots)
     {
@@ -3099,8 +3227,14 @@ void MainPanel::captureSnapshotPress(int slot)
 {
     if (slot < 1 || slot > kNumSnapshotSlots)
         return;
+    // Both paradigms pre-capture at press time, so a store always keeps the state
+    // that was sounding when the finger went down — a bake or a drift regen that
+    // completes during the long-press must not end up in the slot instead.
     if (!oscEasyMode)
-        return;   // LCO parks prompt TEXT at store-time — no audio to pre-capture
+    {
+        lcoPressCaptures[static_cast<size_t>(slot - 1)] = captureLcoSnapshot();
+        return;
+    }
     snapshotPressCaptures[static_cast<size_t>(slot - 1)] = captureMainSnapshot();
 }
 
@@ -3111,18 +3245,25 @@ void MainPanel::storeSnapshotFromPress(int slot)
 
     if (!oscEasyMode)
     {
-        // LCO: park the current LCO prompt TEXT into this slot (no audio/params).
-        const juce::String prompt = promptPanel.getLcoPrompt().trim();
-        if (prompt.isEmpty())
+        // LCO: store the authored orchestra + its sound parameters (and, before a
+        // first bake, the prompt alone). The status names which of the two the slot
+        // actually holds — "saved" without that distinction would let a prompt-only
+        // slot pass for a stored sound.
+        auto& pendingLco = lcoPressCaptures[static_cast<size_t>(slot - 1)];
+        if (!pendingLco.valid)
         {
-            statusBar.setStatusText("No LCO prompt to snapshot");
+            statusBar.setStatusText("No LCO sound or prompt to snapshot");
             return;
         }
-        lcoPromptSlots[static_cast<size_t>(slot - 1)] = prompt;
+        const bool hasSound = pendingLco.orchestra.isNotEmpty();
+        lcoSnapshots[static_cast<size_t>(slot - 1)] = std::move(pendingLco);
+        pendingLco = {};
         activeSnapshotIndex = slot;
         syncSnapshotUi();
         snapshotButtons[slot].flashStored();
-        statusBar.setStatusText("LCO prompt " + juce::String(slot) + " saved");
+        statusBar.setStatusText(hasSound
+            ? "LCO snapshot " + juce::String(slot) + " saved (orchestra + sound)"
+            : "LCO prompt " + juce::String(slot) + " saved (no orchestra yet)");
         return;
     }
 
@@ -3152,18 +3293,33 @@ void MainPanel::activateSnapshot(int slot)
 
     if (!oscEasyMode)
     {
-        // LCO: recall the parked prompt TEXT into the editor (no auto-bake — the
-        // user bakes via GENERATE when ready).
-        if (slot > kNumSnapshotSlots || lcoPromptSlots[static_cast<size_t>(slot - 1)].isEmpty())
+        // LCO: bring the stored orchestra back — it compiles and sounds, no LLM
+        // pass, no re-authoring. A slot stored before any bake still only parks the
+        // prompt (the user bakes via GENERATE when ready).
+        if (slot > kNumSnapshotSlots || !lcoSnapshots[static_cast<size_t>(slot - 1)].valid)
         {
-            statusBar.setStatusText("LCO prompt " + juce::String(slot) + " empty");
+            statusBar.setStatusText("LCO snapshot " + juce::String(slot) + " empty");
             syncSnapshotUi();
             return;
         }
-        promptPanel.setLcoPrompt(lcoPromptSlots[static_cast<size_t>(slot - 1)]);
+        const auto& lcoSnap = lcoSnapshots[static_cast<size_t>(slot - 1)];
+        const bool hasSound = lcoSnap.orchestra.isNotEmpty();
+        if (hasSound && lcoBakeBusy_)
+        {
+            // The running bake publishes its orchestra when it lands; handing this
+            // one over now would sound for a few seconds and then be replaced by a
+            // sound the user did not ask for. Say so instead of half-doing it. A
+            // prompt-only slot is unaffected — it touches no sound at all.
+            statusBar.setStatusText("LCO is authoring — recall when the bake lands");
+            syncSnapshotUi();
+            return;
+        }
+        restoreLcoSnapshot(lcoSnap);
         activeSnapshotIndex = slot;
         syncSnapshotUi();
-        statusBar.setStatusText("LCO prompt " + juce::String(slot) + " recalled");
+        statusBar.setStatusText(hasSound
+            ? "LCO snapshot " + juce::String(slot) + " recalled"
+            : "LCO prompt " + juce::String(slot) + " recalled (no orchestra stored)");
         return;
     }
 
@@ -3186,10 +3342,10 @@ void MainPanel::syncSnapshotUi()
     {
         snapshotButtons[i].setToggleState(activeSnapshotIndex == i, juce::dontSendNotification);
         // Filled dot reflects the store for the CURRENT mode: neural audio snapshots
-        // vs LCO parked prompts.
+        // vs LCO orchestras.
         const bool filled = i > 0 && (oscEasyMode
             ? mainSnapshots[static_cast<size_t>(i - 1)].valid
-            : !lcoPromptSlots[static_cast<size_t>(i - 1)].isEmpty());
+            : lcoSnapshots[static_cast<size_t>(i - 1)].valid);
         snapshotButtons[i].setSnapshotFilled(filled);
     }
 }

@@ -92,6 +92,10 @@ private:
     {
     public:
         SnapshotButton() = default;
+        // JUCE rule 1 (CLAUDE.md): a Timer subclass stops its timer before any
+        // member of it is gone — the long-press timer here would otherwise be
+        // free to fire into a half-destroyed button on window close.
+        ~SnapshotButton() override { stopTimer(); }
         void setSnapshotIndex(int index);
         void setSnapshotFilled(bool filled);
         void flashStored();
@@ -136,10 +140,34 @@ private:
     juce::Rectangle<int> cacheSwitchBounds;
     std::array<MainSnapshot, kNumSnapshotSlots> mainSnapshots;
     std::array<MainSnapshot, kNumSnapshotSlots> snapshotPressCaptures;
-    // LCO SNAP slots: in LCO mode the SNAP buttons park/recall the LCO prompt TEXT
-    // here (the neural mainSnapshots capture audio+params, which an LCO bake has
-    // none of — a separate, deliberately lightweight store). Slot i ↔ button i+1.
-    std::array<juce::String, kNumSnapshotSlots> lcoPromptSlots;
+    // LCO SNAP slots: what a neural snapshot's audio buffer is to the T5osc, the
+    // authored ORCHESTRA is to the LCO — the code IS the sound, so a slot stores
+    // the Csound source plus the sound-shaping parameter set around it (the same
+    // kMainSnapshotParamIds the neural side restores) and the disclosure that
+    // explains it. A recall therefore sounds immediately, with no LLM pass: the
+    // orchestra goes straight back to requestCsoundOrchestra(). Storing only the
+    // prompt (the earlier behaviour) recalled a piece of text and left the user to
+    // re-author minutes of LLM work for a sound that was never the same twice.
+    // A slot taken BEFORE any bake still parks the prompt alone (orchestra empty)
+    // — that capability is kept, not replaced. Slot i ↔ button i+1.
+    struct LcoSnapshot
+    {
+        bool valid = false;
+        juce::String prompt;        // the LCO prompt editor's text
+        juce::String orchestra;     // authored Csound source ("" = nothing baked yet)
+        juce::String reading;       // "how it was heard" gloss
+        juce::String paramsText;    // the parametrisation behind that reading
+        juce::String authorModel;   // which model wrote the orchestra
+        juce::ValueTree parameters; // APVTS state (kMainSnapshotParamIds subset applies)
+    };
+    std::array<LcoSnapshot, kNumSnapshotSlots> lcoSnapshots;
+    std::array<LcoSnapshot, kNumSnapshotSlots> lcoPressCaptures;
+    // True while an LCO authoring pass is in flight (PromptPanel::onLcoBusyChanged).
+    // A recall is refused for its duration — the bake publishes its own orchestra
+    // when it lands and would otherwise overwrite the recalled sound behind the
+    // user's back. Storing stays allowed: a slot taken meanwhile keeps what is
+    // sounding now, which is exactly what the press asked for.
+    bool lcoBakeBusy_ = false;
     int activeSnapshotIndex = 0;  // 0=OFF, 1..4=session snapshot selected
 
     // Resynth (init_audio / i2i): SA3-gated, house-standard inline-bar SliderRow
@@ -207,6 +235,8 @@ private:
     void updateOscModeToggleVisual();
     MainSnapshot captureMainSnapshot();
     void restoreMainSnapshot(const MainSnapshot& snapshot);
+    LcoSnapshot captureLcoSnapshot();
+    void restoreLcoSnapshot(const LcoSnapshot& snapshot);
     void captureSnapshotPress(int slot);
     void storeSnapshotFromPress(int slot);
     void activateSnapshot(int slot);

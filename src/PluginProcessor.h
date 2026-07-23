@@ -133,6 +133,19 @@ public:
      *  for "was in Csound mode": that is restoreLanguageEngineMode()'s job. */
     bool hasCsoundOrchestra() const;
 
+    /** The orchestra text that is authoritative RIGHT NOW — what a fresh
+     *  requestCsoundOrchestra() would have to be handed to make the instrument
+     *  sound exactly as it sounds at this moment. Same value and same reason as
+     *  exportJsonPreset's csound_orchestra field (what requestCsoundOrchestra
+     *  last queued, NOT the active engine's orchestraText(), which lags a
+     *  post-bake crossfade): a SNAP taken inside that fade window would
+     *  otherwise store the orchestra the bake replaced. Reads a mirror kept
+     *  under its own short-lived mutex rather than csoundLifecycleMutex_, which
+     *  the compile thread holds across a full Csound prepare + warmup — a GUI
+     *  caller (every SNAP press in LCO mode) must not stall behind that.
+     *  Empty = the built-in orchestra, i.e. nothing was ever authored. */
+    juce::String getCsoundOrchestraText() const;
+
     // Inference cache: raw inference audio only, no duplicate prompt/model metadata.
     struct InferenceCacheEntry
     {
@@ -597,6 +610,13 @@ private:
     // Pending request state: compile-thread-only data, guarded by
     // csoundLifecycleMutex_ above, NEVER touched by the audio thread.
     juce::String csoundPendingOrchestraText_;
+    // Mirror of the line above for GUI readers (getCsoundOrchestraText), with a
+    // mutex of its own that is never held across anything slow. The lifecycle
+    // mutex is held by the compile thread for the whole prepare + warmup, and a
+    // SNAP press must not wait that out on the message thread. Written in
+    // lockstep with csoundPendingOrchestraText_ inside requestCsoundOrchestra.
+    juce::String csoundOrchestraTextForUi_;
+    mutable std::mutex csoundOrchestraTextMutex_;
     float csoundPendingEpochs_[CsoundEngine::kMaxVoices] {};
     float csoundPendingFreqs_[CsoundEngine::kMaxVoices] {};
     // Bumped by requestCsoundOrchestra() on every call ("latest wins", S4);

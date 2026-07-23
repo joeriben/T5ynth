@@ -2096,6 +2096,17 @@ bool T5ynthProcessor::requestCsoundOrchestra(const juce::String& orchestraText)
     }
 
     {
+        // UI mirror of the pending text, under its OWN short-lived lock (see
+        // getCsoundOrchestraText): csoundLifecycleMutex_ below is held by the
+        // compile thread across prepare() + primeForTakeover — over a second of
+        // Csound warmup — so a GUI reader that took it would freeze the message
+        // thread for the rest of every swap. Written here, in the same call that
+        // writes csoundPendingOrchestraText_, so the two never disagree.
+        std::lock_guard<std::mutex> textLock(csoundOrchestraTextMutex_);
+        csoundOrchestraTextForUi_ = orchestraText;
+    }
+
+    {
         std::lock_guard<std::mutex> lock(csoundLifecycleMutex_);
         csoundPendingOrchestraText_ = orchestraText;
         std::memcpy(csoundPendingEpochs_, epochs, sizeof(csoundPendingEpochs_));
@@ -2184,8 +2195,19 @@ bool T5ynthProcessor::restoreLanguageEngineMode()
 
 bool T5ynthProcessor::hasCsoundOrchestra() const
 {
-    std::lock_guard<std::mutex> lock(csoundLifecycleMutex_);
-    return csoundPendingOrchestraText_.isNotEmpty();
+    // Reads the UI mirror, not csoundPendingOrchestraText_: same value (both are
+    // written by the same requestCsoundOrchestra call), but this one is asked on
+    // the message thread by the T5osc/LCO toggle, and csoundLifecycleMutex_ is
+    // held by the compile thread across a full Csound prepare + warmup — the
+    // toggle would freeze for the rest of the swap.
+    std::lock_guard<std::mutex> lock(csoundOrchestraTextMutex_);
+    return csoundOrchestraTextForUi_.isNotEmpty();
+}
+
+juce::String T5ynthProcessor::getCsoundOrchestraText() const
+{
+    std::lock_guard<std::mutex> lock(csoundOrchestraTextMutex_);
+    return csoundOrchestraTextForUi_;
 }
 
 void T5ynthProcessor::releaseResources()

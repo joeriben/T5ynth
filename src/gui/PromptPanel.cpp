@@ -3116,6 +3116,16 @@ void PromptPanel::setLlmAvailable(bool available)
     updateLcoModelTabs();          // the LCO model tab lights/dims with the same flag
 }
 
+void PromptPanel::beginCsoundCompileWatch()
+{
+    csoundCompileWatching_ = true;
+    csoundCompileSeenBusy_ = false;
+    csoundCompileWatchStartMs_ = juce::Time::getMillisecondCounterHiRes();
+    dcoFlagsLabel.setText("compiling...", juce::dontSendNotification);
+    dcoFlagsLabel.setTooltip({});
+    resized();   // flag-area content changed
+}
+
 // Name the model that ACTUALLY wrote the orchestra. The backend puts its
 // resolver's answer on the wire (`author_model`); the tab shows that and nothing
 // else, so a resolver that walked past the intended slot is visible on the panel
@@ -3128,6 +3138,13 @@ void PromptPanel::setLcoAuthorModel(const juce::String& modelDirName)
         return;                       // no claim beats a wrong claim
     dcoModelBtns[0].setButtonText(name);
     dcoModelBtns[0].setTooltip("Wrote this orchestra: " + name);
+    dcoModelBtns[0].repaint();
+}
+
+void PromptPanel::resetLcoAuthorModel()
+{
+    dcoModelBtns[0].setButtonText(kLcoAuthorUnknownLabel);
+    dcoModelBtns[0].setTooltip({});
     dcoModelBtns[0].repaint();
 }
 

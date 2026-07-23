@@ -114,6 +114,15 @@ public:
      *  the backend resolver (`author_model` on the csound response). Empty leaves
      *  the placeholder standing. Call from the message thread. */
     void setLcoAuthorModel(const juce::String& modelDirName);
+    /** The model name currently claimed on the LCO author tab, or empty while
+     *  the placeholder is still standing (no orchestra authored yet). A SNAP
+     *  stores it so a recall re-states who wrote the orchestra it brings back
+     *  instead of leaving the previous bake's author on screen. */
+    juce::String getLcoAuthorModel() const
+    {
+        const auto name = dcoModelBtns[0].getButtonText().trim();
+        return name == kLcoAuthorUnknownLabel ? juce::String() : name;
+    }
     bool isEasyMode() const { return easyMode_; }
     bool hasHiddenActiveState() const;
 
@@ -137,9 +146,11 @@ public:
     juce::String getPromptA() const { return promptAEditor.getText().trim(); }
     juce::String getPromptB() const { return promptBEditor.getText().trim(); }
 
-    /** LCO (Advanced) prompt text — the SNAP slots park/recall it in LCO mode. get
-     *  returns the raw editor text; set replaces it without notifying (no auto-bake —
-     *  recall parks the prompt; the user bakes via GENERATE when ready). */
+    /** LCO (Advanced) prompt text — a SNAP slot carries it alongside the orchestra
+     *  it stored, so a recall shows the words the sound came from. get returns the
+     *  raw editor text; set replaces it without notifying (never auto-bakes: the
+     *  recall brings the stored orchestra back directly, and a slot taken before any
+     *  bake parks the prompt for the user to bake via GENERATE when ready). */
     juce::String getLcoPrompt() const { return dcoPromptEditor.getText(); }
     void setLcoPrompt(const juce::String& t) { dcoPromptEditor.setText(t, juce::dontSendNotification); }
 
@@ -155,8 +166,55 @@ public:
     {
         ++dcoBakeSeq_;
         dcoSelfCheck_.clear();
+        // Re-assert the reading ink: setLcoStatus leaves the box in kDim, the
+        // colour reserved for "this is a status line, not a reading". Without
+        // this, a reading restored after a failed bake (preset load, SNAP recall)
+        // renders in the failure colour and reads as one.
+        dcoReadingEditorA.setColour(juce::TextEditor::textColourId, kImpulseAText);
         dcoReadingEditorA.setText(t, juce::dontSendNotification);
     }
+
+    /** Point the Re-Prompt chain at a prompt that was RECALLED into the editor
+     *  rather than typed or baked. With a stance engaged, GENERATE re-reads
+     *  `dcoLoopLast_` — not the editor — so without this a recalled prompt is
+     *  never the one that gets rewritten and baked; the previous prompt is,
+     *  and the recalled text is then overwritten by the rewrite. Recency
+     *  handling mirrors the bake (an unchanged prompt keeps the avoid-list).
+     *  Message thread. */
+    void adoptRecalledPrompt(const juce::String& prompt)
+    {
+        if (prompt == dcoLoopLast_)
+            return;
+        dcoLoopLast_ = prompt;
+        dcoLoopRecent_.clearQuick();
+        if (prompt.isNotEmpty())
+            dcoLoopRecent_.add(prompt);
+    }
+
+    /** Take over the Re-Prompt chain's bookkeeping for an orchestra that was
+     *  RECALLED rather than authored (MainPanel's SNAP recall): the stance turns
+     *  read the panel's last machine reading and last prompt, so leaving them on
+     *  the bake the recall just replaced would make GENERATE rewrite a sound that
+     *  is no longer loaded. Mirrors what triggerDcoBake's completion lambda sets.
+     *  Message thread. */
+    void adoptRecalledOrchestra(const juce::String& prompt, const juce::String& reading)
+    {
+        dcoLastMachineReading_ = reading;
+        dcoLastFlagsLine_ = {};
+        adoptRecalledPrompt(prompt);
+    }
+
+    /** Put the LCO author tab back to its placeholder — the orchestra now loaded
+     *  has no known author (a preset, or a bake whose backend reported none), and
+     *  a stale name claiming otherwise is worse than no claim. */
+    void resetLcoAuthorModel();
+
+    /** Open the compile-window poll (pollCsoundCompile) for an orchestra that was
+     *  just handed to requestCsoundOrchestra(): the flags line reports
+     *  compiling -> ok/error until the swap resolves. Called by the bake's own
+     *  completion lambda and by MainPanel's SNAP recall, so a recalled orchestra
+     *  reports its compile exactly like a freshly authored one. Message thread. */
+    void beginCsoundCompileWatch();
 
     /** Compose the HEARD AS box's full disclosure text: the short human
      *  reading followed by its parametrisation — one "<key>: <why>" /
