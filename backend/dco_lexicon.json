@@ -8,7 +8,9 @@
     "sawtooth",
     "saw wave",
     "säge",
-    "sägezahn"
+    "sägezahn",
+    "ramp",
+    "saw tooth"
    ],
    "template": {
     "keyframes": [
@@ -28,7 +30,7 @@
     "motion_rate_hz": 0.25
    },
    "priority": 5,
-   "why": "the canonical bright analogue waveform; full harmonic series decaying 1/h",
+   "why": "sawtooth wave -- the canonical bright analogue waveform: every harmonic present, decaying 1/h; the raw material of brass-like, string-like and lead sounds",
    "code": "ivph0   = frac(ivoice * 0.6180339887)   ; per-voice phase\nkvdr0   poscil 0.00245, 0.043 + 0.0037 * ivoice, giSine, ivph0\nkdty0   poscil 0.0042, 0.057     ; age: shape/duty wobble on kpw\nkpw0s0   = 0.02 + kdty0\naao0s0u0  vco2 0.6, (kfreq * koct1) * (1 + kvdr0), 4, kpw0s0, 0   ; wave seg0 imode4 copy 0\nacln0   = aao0s0u0 * 1.000000    ; clean oscillator (pre-drive)\nadrv0   = acln0                     ; drive 0: clean, no saturator stage\nkagw0   oscili 0.0105, 0.7        ; age: amplitude wobble\nasig    = adrv0 * (1 + kagw0)"
   },
   {
@@ -37,7 +39,9 @@
     "square",
     "square wave",
     "rechteck",
-    "rechteckwelle"
+    "rechteckwelle",
+    "squarewave",
+    "hollow wave"
    ],
    "template": {
     "keyframes": [
@@ -57,7 +61,7 @@
     "motion_rate_hz": 0.25
    },
    "priority": 5,
-   "why": "odd-only harmonic series; hollow, clarinet-adjacent character by construction",
+   "why": "square wave -- odd harmonics only, decaying 1/h: hollow and woody, the clarinet and stopped-organ-pipe family of colour",
    "code": "ivph0   = frac(ivoice * 0.6180339887)   ; per-voice phase\nkvdr0   poscil 0.00245, 0.043 + 0.0037 * ivoice, giSine, ivph0\nkdty0   poscil 0.0042, 0.057     ; age: shape/duty wobble on kpw\nkpw0s0   = 0.5 + kdty0\naao0s0u0  vco2 0.6, (kfreq * koct1) * (1 + kvdr0), 2, kpw0s0, 0   ; wave seg0 imode2 copy 0\nacln0   = aao0s0u0 * 0.578000    ; clean oscillator (pre-drive)\nadrv0   = acln0                     ; drive 0: clean, no saturator stage\nkagw0   oscili 0.0105, 0.7        ; age: amplitude wobble\nasig    = adrv0 * (1 + kagw0)"
   },
   {
@@ -66,7 +70,10 @@
     "pulse",
     "puls",
     "rectangle",
-    "pulse wave"
+    "pulse wave",
+    "narrow pulse",
+    "rectangular wave",
+    "nasal wave"
    ],
    "template": {
     "keyframes": [
@@ -87,7 +94,7 @@
     "motion_rate_hz": 0.25
    },
    "priority": 5,
-   "why": "narrow rectangular wave (~10% width), the thin nasal end of the analogue waveform axis",
+   "why": "narrow rectangular wave (~10% duty) -- the thin, nasal, reedy end of the analogue waveform axis; oboe- and harpsichord-adjacent thinness",
    "code": "ivph0   = frac(ivoice * 0.6180339887)   ; per-voice phase\nkvdr0   poscil 0.00245, 0.043 + 0.0037 * ivoice, giSine, ivph0\nkdty0   poscil 0.0042, 0.057     ; age: shape/duty wobble on kpw\nkpw0s0   = 0.1 + kdty0\naao0s0u0  vco2 0.6, (kfreq * koct1) * (1 + kvdr0), 2, kpw0s0, 0   ; wave seg0 imode2 copy 0\nacln0   = aao0s0u0 * 0.578000    ; clean oscillator (pre-drive)\nadrv0   = acln0                     ; drive 0: clean, no saturator stage\nkagw0   oscili 0.0105, 0.7        ; age: amplitude wobble\nasig    = adrv0 * (1 + kagw0)"
   },
   {
@@ -97,7 +104,10 @@
     "pulse width modulation",
     "pulsbreite",
     "pulsbreitenmodulation",
-    "pulsweitenmodulation"
+    "pulsweitenmodulation",
+    "pw",
+    "duty sweep",
+    "pulsweite"
    ],
    "template": {
     "keyframes": [
@@ -132,7 +142,7 @@
     "motion_rate_hz": 0.35
    },
    "priority": 10,
-   "why": "classic PWM: the duty cycle sweeps continuously from 80% down to 20% and back, ~2 s per round trip by default (1 s per half-cycle); slow/fast stretch or compress it to 4 s / 1 s, so the tone hollows out and fills back in",
+   "why": "pulse-width modulation -- classic PWM: the duty cycle sweeps continuously from 80% down to 20% and back, ~2 s per round trip by default (1 s per half-cycle); slow/fast stretch or compress it to 4 s / 1 s, so the tone hollows out and fills back in",
    "code": "klfo0    oscili 0.5, 0.5            ; -0.5..0.5, 1s per half-cycle\nkpw0     = 0.5 + 0.6 * klfo0     ; duty 0.20..0.80, square at centre\nivph0   = frac(ivoice * 0.6180339887)   ; per-voice phase\nkvdr0   poscil 0.0007, 0.043 + 0.0037 * ivoice, giSine, ivph0\napw0     vco2 0.6, (kfreq * koct1) * (1 + kvdr0), 2, kpw0 ; imode 2 = pulse, kpw = width\nasig    = apw0 - 0.6 * (2 * kpw0 - 1) ; remove the duty's DC offset, A*(2d-1)"
   },
   {
@@ -141,7 +151,8 @@
     "triangle",
     "triangle wave",
     "dreieck",
-    "dreieckwelle"
+    "dreieckwelle",
+    "dreieckswelle"
    ],
    "template": {
     "keyframes": [
@@ -161,7 +172,7 @@
     "motion_rate_hz": 0.25
    },
    "priority": 5,
-   "why": "odd harmonics decaying 1/h^2; the softest of the classic analogue waves",
+   "why": "triangle wave -- odd harmonics decaying 1/h^2: the softest of the classic analogue waves, nearest to a flute or a soft whistle",
    "code": "ivph0   = frac(ivoice * 0.6180339887)   ; per-voice phase\nkvdr0   poscil 0.00245, 0.043 + 0.0037 * ivoice, giSine, ivph0\nkdty0   poscil 0.0042, 0.057     ; age: shape/duty wobble on kpw\nkpw0s0   = 0.5 + kdty0\naao0s0u0  vco2 0.6, (kfreq * koct1) * (1 + kvdr0), 4, kpw0s0, 0   ; wave seg0 imode4 copy 0\nacln0   = aao0s0u0 * 1.000000    ; clean oscillator (pre-drive)\nadrv0   = acln0                     ; drive 0: clean, no saturator stage\nkagw0   oscili 0.0105, 0.7        ; age: amplitude wobble\nasig    = adrv0 * (1 + kagw0)"
   },
   {
@@ -170,7 +181,10 @@
     "sine",
     "sine wave",
     "sinus",
-    "sinuswelle"
+    "sinuswelle",
+    "pure tone",
+    "grundton",
+    "reiner ton"
    ],
    "template": {
     "keyframes": [
@@ -197,7 +211,7 @@
     "motion_rate_hz": 0.25
    },
    "priority": 5,
-   "why": "a single partial; the reference tone with no harmonic content to shape",
+   "why": "pure sine -- a single partial and no harmonic content at all: the reference tone, and the body of a whistle, a tuning fork or a sub-bass",
    "code": "asig    poscil 0.6, (kfreq * koct1)            ; pure tone"
   },
   {
@@ -207,7 +221,11 @@
     "additiv",
     "partials",
     "harmonics only",
-    "obertöne"
+    "obertöne",
+    "additive synthesis",
+    "harmonic stack",
+    "obertonstapel",
+    "additive synthese"
    ],
    "template": {
     "keyframes": [
@@ -244,7 +262,7 @@
     "motion_rate_hz": 0.25
    },
    "priority": 3,
-   "why": "a seven-harmonic gbuzz stack doubled by a twin three cents above, so the pair beats slowly; knh sets how many partials, kmul how fast they fall away",
+   "why": "additive harmonic stack -- the general-purpose way to build any harmonic instrument colour: a seven-harmonic gbuzz stack doubled by a twin three cents above, so the pair beats slowly; knh sets how many partials, kmul how fast they fall away",
    "code": "kad0    poscil 0.0004, 0.053         ; slow drift, upper stack\naa10    gbuzz 0.52, (kfreq * koct1), 7, 1, 0.68, giCos          ; harmonic stack\naa20    gbuzz 0.34, (kfreq * koct1) * (1.0018 + kad0), 7, 1, 0.64, giCos ; twin, +3 cents\nasig    = aa10 + aa20"
   },
   {
@@ -255,7 +273,10 @@
     "2 op fm",
     "2 operator fm",
     "frequency modulation",
-    "operator"
+    "operator",
+    "phase modulation",
+    "phasenmodulation",
+    "fm synthese"
    ],
    "template": {
     "keyframes": [
@@ -277,7 +298,7 @@
     "motion_rate_hz": 0.25
    },
    "priority": 3,
-   "why": "plain 2-operator FM (ratio 2, index 1.5); a neutral starting sideband spread",
+   "why": "plain 2-operator FM (ratio 2, index 1.5) -- a carrier and one modulator, sidebands spreading as the index rises: the neutral FM starting point and the root of every DX-family timbre",
    "params": {
     "index": {
      "range": [
@@ -371,7 +392,16 @@
     "dx",
     "dx7",
     "fm bell",
-    "bell tone"
+    "bell tone",
+    "church bell",
+    "kirchenglocke",
+    "chime",
+    "chimes",
+    "carillon",
+    "tubular bell",
+    "hand bell",
+    "handglocke",
+    "glockenklang"
    ],
    "template": {
     "keyframes": [
@@ -413,7 +443,7 @@
     "motion_rate_hz": 0.25
    },
    "priority": 10,
-   "why": "true inharmonic bell partials (h 2.76/5.4/8.93) synthesized directly by the additive engine, no longer projected onto the harmonic grid",
+   "why": "bell / church bell / chime / carillon / tubular bell: true inharmonic bell partials (h 2.76/5.4/8.93) written as 2-operator FM at a 1.41 ratio, so the partials sit off the harmonic grid instead of being projected onto it",
    "params": {
     "index": {
      "range": [
@@ -515,7 +545,11 @@
     "wurlitzer",
     "wurli",
     "tine piano",
-    "reed piano"
+    "reed piano",
+    "e-piano",
+    "rhodes piano",
+    "elektrisches klavier",
+    "tine"
    ],
    "template": {
     "keyframes": [
@@ -675,7 +709,12 @@
     "frame drum",
     "hand drum",
     "trommel",
-    "pauke"
+    "pauke",
+    "conga",
+    "bongo",
+    "djembe",
+    "tabla",
+    "trommelfell"
    ],
    "template": {
     "keyframes": [
@@ -695,7 +734,7 @@
     "motion_rate_hz": 0.25
    },
    "priority": 10,
-   "why": "drum head / tom / timpani / taiko: a stretched membrane resonating, whose partials are NOT a harmonic series -- that is what makes a drum a drum; pitched = indefinite tom to definite kettledrum, spot = struck in the centre or at the rim, tension = slack and dull to tight and bright, damping = ringing open or muffled to a thud",
+   "why": "drum head / tom / timpani / taiko / conga / djembe: a stretched membrane resonating, whose partials are NOT a harmonic series -- that is what makes a drum a drum; pitched = indefinite tom to definite kettledrum, spot = struck in the centre or at the rim, tension = slack and dull to tight and bright, damping = ringing open or muffled to a thud",
    "params": {
     "pitched": {
      "range": [
@@ -798,7 +837,14 @@
    "surface_forms": [
     "metal",
     "bell metal",
-    "metall"
+    "metall",
+    "gong",
+    "tam tam",
+    "tamtam",
+    "anvil",
+    "amboss",
+    "singing bowl",
+    "klangschale"
    ],
    "template": {
     "keyframes": [
@@ -840,7 +886,7 @@
     "motion_rate_hz": 0.25
    },
    "priority": 10,
-   "why": "true inharmonic metal partials (h 1.73/3.19/4.51) synthesized directly by the additive engine",
+   "why": "gong / tam-tam / anvil / singing bowl / metallic percussion: true inharmonic metal partials (h 1.73/3.19/4.51) written as 2-operator FM at a 2.41 ratio",
    "params": {
     "index": {
      "range": [
@@ -935,7 +981,10 @@
     "celesta",
     "kalimba",
     "mbira",
-    "spieluhr"
+    "spieluhr",
+    "metallophone",
+    "tuned bar",
+    "stabspiel"
    ],
    "template": {
     "keyframes": [
@@ -982,7 +1031,7 @@
     "motion_rate_hz": 0.25
    },
    "priority": 10,
-   "why": "tuned struck metal bar (music box / glockenspiel / celesta / kalimba) — ideal free-free bar partials (h 2.76/5.4/8.93/13.34), brighter and thinner than a big bell, synthesized directly by the additive engine",
+   "why": "tuned struck metal bar -- glockenspiel / music box / celesta / kalimba: ideal free-free bar partials (h 2.76/5.4/8.93/13.34), brighter and thinner than a big bell, rung by a continuous noise exciter through a bank of high-Q resonators",
    "code": "aexq0   rand 0.06, 0.5, 1          ; continuous exciter -> the metal is driven, a held note stands (31-bit: no 1.365 s loop)\nk0qf0   limit (kfreq * koct1) * 1.0000, 20, 15000\nk0qg0   = ((kfreq * koct1) * 1.0000 < 15000 ? 0.850 : 0)\na0q0   mode aexq0, k0qf0, 900      ; mode 1 @ x1.00, Q 900\nk0qf1   limit (kfreq * koct1) * 2.7600, 20, 15000\nk0qg1   = ((kfreq * koct1) * 2.7600 < 15000 ? 0.700 : 0)\na0q1   mode aexq0, k0qf1, 1025      ; mode 2 @ x2.76, Q 1025\nk0qf2   limit (kfreq * koct1) * 5.4000, 20, 15000\nk0qg2   = ((kfreq * koct1) * 5.4000 < 15000 ? 0.500 : 0)\na0q2   mode aexq0, k0qf2, 1150      ; mode 3 @ x5.40, Q 1150\nk0qf3   limit (kfreq * koct1) * 8.9300, 20, 15000\nk0qg3   = ((kfreq * koct1) * 8.9300 < 15000 ? 0.320 : 0)\na0q3   mode aexq0, k0qf3, 1275      ; mode 4 @ x8.93, Q 1275\nk0qf4   limit (kfreq * koct1) * 13.3400, 20, 15000\nk0qg4   = ((kfreq * koct1) * 13.3400 < 15000 ? 0.180 : 0)\na0q4   mode aexq0, k0qf4, 1400      ; mode 5 @ x13.34, Q 1400\nasig    = (a0q0 * k0qg0 + a0q1 * k0qg1 + a0q2 * k0qg2 + a0q3 * k0qg3 + a0q4 * k0qg4) * 0.150"
   },
   {
@@ -993,7 +1042,9 @@
     "ride cymbal",
     "hi hat",
     "hihat",
-    "becken"
+    "becken",
+    "splash cymbal",
+    "china cymbal"
    ],
    "template": {
     "keyframes": [
@@ -1075,7 +1126,7 @@
     "motion_rate_hz": 0.25
    },
    "priority": 10,
-   "why": "cymbal / crash / ride / hi-hat: a struck metal plate — a dense bank of high-Q resonators, all off the harmonic grid, rung by a noise exciter; weak fundamental, energy piled into the top",
+   "why": "cymbal / crash / ride / hi-hat / splash: a struck metal plate -- a dense bank of high-Q resonators, all off the harmonic grid, rung by a noise exciter; weak fundamental, energy piled into the top",
    "code": "aexq0   rand 0.09, 0.5, 1          ; continuous exciter -> the metal is driven, a held note stands (31-bit: no 1.365 s loop)\nk0qf0   limit (kfreq * koct1) * 1.0000, 20, 15000\nk0qg0   = ((kfreq * koct1) * 1.0000 < 15000 ? 0.220 : 0)\na0q0   mode aexq0, k0qf0, 260      ; mode 1 @ x1.00, Q 260\nk0qf1   limit (kfreq * koct1) * 2.1900, 20, 15000\nk0qg1   = ((kfreq * koct1) * 2.1900 < 15000 ? 0.380 : 0)\na0q1   mode aexq0, k0qf1, 285      ; mode 2 @ x2.19, Q 285\nk0qf2   limit (kfreq * koct1) * 3.4100, 20, 15000\nk0qg2   = ((kfreq * koct1) * 3.4100 < 15000 ? 0.550 : 0)\na0q2   mode aexq0, k0qf2, 310      ; mode 3 @ x3.41, Q 310\nk0qf3   limit (kfreq * koct1) * 4.8300, 20, 15000\nk0qg3   = ((kfreq * koct1) * 4.8300 < 15000 ? 0.720 : 0)\na0q3   mode aexq0, k0qf3, 335      ; mode 4 @ x4.83, Q 335\nk0qf4   limit (kfreq * koct1) * 6.3700, 20, 15000\nk0qg4   = ((kfreq * koct1) * 6.3700 < 15000 ? 0.880 : 0)\na0q4   mode aexq0, k0qf4, 360      ; mode 5 @ x6.37, Q 360\nk0qf5   limit (kfreq * koct1) * 8.0900, 20, 15000\nk0qg5   = ((kfreq * koct1) * 8.0900 < 15000 ? 1.000 : 0)\na0q5   mode aexq0, k0qf5, 385      ; mode 6 @ x8.09, Q 385\nk0qf6   limit (kfreq * koct1) * 10.2400, 20, 15000\nk0qg6   = ((kfreq * koct1) * 10.2400 < 15000 ? 0.860 : 0)\na0q6   mode aexq0, k0qf6, 410      ; mode 7 @ x10.24, Q 410\nk0qf7   limit (kfreq * koct1) * 12.7100, 20, 15000\nk0qg7   = ((kfreq * koct1) * 12.7100 < 15000 ? 0.640 : 0)\na0q7   mode aexq0, k0qf7, 435      ; mode 8 @ x12.71, Q 435\nk0qf8   limit (kfreq * koct1) * 15.8300, 20, 15000\nk0qg8   = ((kfreq * koct1) * 15.8300 < 15000 ? 0.420 : 0)\na0q8   mode aexq0, k0qf8, 460      ; mode 9 @ x15.83, Q 460\nasig    = (a0q0 * k0qg0 + a0q1 * k0qg1 + a0q2 * k0qg2 + a0q3 * k0qg3 + a0q4 * k0qg4 + a0q5 * k0qg5 + a0q6 * k0qg6 + a0q7 * k0qg7 + a0q8 * k0qg8) * 0.150"
   },
   {
@@ -1085,7 +1136,9 @@
     "ring modulation",
     "ringmod",
     "amplitude modulation",
-    "ringmodulation"
+    "ringmodulation",
+    "robot tone",
+    "roboterklang"
    ],
    "template": {
     "keyframes": [
@@ -1107,7 +1160,7 @@
     "motion_rate_hz": 0.25
    },
    "priority": 10,
-   "why": "two-operand sidebands at a 2:1 ratio; closed-form ring/AM spectrum",
+   "why": "ring modulation / AM at a 2:1 ratio -- carrier f times modulator 2f, so sum and difference land on f and 3f: a hollow ODD-harmonic tone (square-adjacent), with a drifting diode imbalance and carrier leak for the metallic edge",
    "code": "krmw0   poscil 0.004, 0.091          ; modulator drift, ~7 cents\nkrlk0   poscil 0.03, 0.037           ; diode imbalance, drifting\nacar0   poscil 0.8, (kfreq * koct1)\namod0   poscil 1.0, (kfreq * koct1) * (2.0 + krmw0)\nasig    = acar0 * (amod0 * 0.88 + 0.10 + krlk0) ; ring mod + carrier leak"
   },
   {
@@ -1118,7 +1171,11 @@
     "chebyshev",
     "waveshaping",
     "verzerrer",
-    "wellenformer"
+    "wellenformer",
+    "shaper",
+    "transfer curve",
+    "distortion curve",
+    "verzerrung"
    ],
    "template": {
     "keyframes": [
@@ -1140,7 +1197,7 @@
     "motion_rate_hz": 0.25
    },
    "priority": 10,
-   "why": "3rd-order Chebyshev waveshaper; exact polynomial-to-harmonic mapping",
+   "why": "Chebyshev waveshaper -- a fixed transfer table (GEN13) holding odd Chebyshev terms up to the 11th, which map exactly onto odd harmonics: the controlled way to add drive, dirt and distortion colour",
    "code": "kdrv0   poscil 0.12, 0.074           ; drive wander\nkdrb0   poscil 0.05, 0.119           ; second, incommensurate\nadrv0   poscil 0.30 + kdrv0 + kdrb0, (kfreq * koct1)\nash0    tablei adrv0, giCheb, 1, 0.5 ; Chebyshev transfer curve\nasig    = ash0 * 0.55           ; level-match the family"
   },
   {
@@ -1150,7 +1207,15 @@
     "orgel",
     "drawbar",
     "hammond",
-    "zugriegel"
+    "zugriegel",
+    "church organ",
+    "kirchenorgel",
+    "pipe organ",
+    "pfeifenorgel",
+    "tonewheel",
+    "b3",
+    "hammond organ",
+    "orgelklang"
    ],
    "template": {
     "keyframes": [
@@ -1202,7 +1267,7 @@
     "motion_rate_hz": 0.25
    },
    "priority": 10,
-   "why": "three drawbar ranks at typical registration — an 8' principal, a 4' octave and a 5 1/3' quint, each its own gbuzz stack, each drifting at its own rate",
+   "why": "pipe / drawbar organ -- hammond, tonewheel, church organ: three ranks at typical registration, an 8' principal, a 4' octave and a 5 1/3' quint, each its own gbuzz stack, each drifting at its own rate",
    "code": "kw80    poscil 0.00035, 0.061        ; rank 8' tuning wander\nkw40    poscil 0.00045, 0.083        ; rank 4', incommensurate\nkwq0    poscil 0.00030, 0.107        ; quint rank, incommensurate\na80     gbuzz 0.46, (kfreq * koct1) * (1 + kw80), 6, 1, 0.72, giCos ; 8' principal\na40     gbuzz 0.24, (kfreq * koct1) * 2.0023 * (1 + kw40), 4, 1, 0.66, giCos ; 4' octave, +4 cents\naq0     gbuzz 0.16, (kfreq * koct1) * 1.4987 * (1 + kwq0), 3, 1, 0.60, giCos ; 5 1/3' quint, -1.5 cents\nasig    = a80 + a40 + aq0"
   },
   {
@@ -1212,7 +1277,13 @@
     "klarinette",
     "hollow reed",
     "klarinettenton",
-    "klarinettenklang"
+    "klarinettenklang",
+    "chalumeau",
+    "bass clarinet",
+    "bassklarinette",
+    "reed instrument",
+    "cylindrical reed",
+    "holzblasinstrument"
    ],
    "template": {
     "keyframes": [
@@ -1264,7 +1335,7 @@
     "motion_rate_hz": 0.25
    },
    "priority": 10,
-   "why": "odd-only series (square-family) is the textbook cylindrical-reed approximation",
+   "why": "clarinet / chalumeau / bass clarinet -- a cylindrical reed: odd-only series (square-family) is the textbook cylindrical-reed approximation, hollow and woody",
    "code": "kbrc0   poscil 0.5, 0.19             ; breath pressure, slow\nkndmx0  limit (sr * 0.45 / (kfreq * koct1) - 1) / 2 - 1, 0, 40 ; sideband room\nkntp0   min 1.425, kndmx0        ; brightest the band allows\nkndc0   = kntp0 * (0.807 + 0.386 * kbrc0) ; the reed opens the series\nasig    foscili 0.55, (kfreq * koct1), 1, 2, kndc0, giSine ; cylindrical bore"
   },
   {
@@ -1273,7 +1344,16 @@
     "flute",
     "flöte",
     "whistle",
-    "querflöte"
+    "querflöte",
+    "recorder",
+    "blockflöte",
+    "piccolo",
+    "pan flute",
+    "panflöte",
+    "ocarina",
+    "shakuhachi",
+    "breathy tone",
+    "atemton"
    ],
    "template": {
     "keyframes": [
@@ -1310,7 +1390,7 @@
     "motion_rate_hz": 0.25
    },
    "priority": 10,
-   "why": "a hollow four-harmonic stack whose rolloff breathes on a three-second pressure cycle, with an octave layer beating against its own second harmonic — the blown character, not a physical bore model",
+   "why": "flute / recorder / piccolo / whistle / pan flute -- a blown air column: a hollow four-harmonic stack whose rolloff breathes on a three-second pressure cycle, with an octave layer beating against its own second harmonic; the blown character, not a physical bore model",
    "code": "kbr0    poscil 0.5, 0.31             ; breath-pressure cycle, ~3 s\nkfm0    = 0.24 + 0.16 * kbr0      ; pressure opens the harmonics\nabd0    gbuzz 0.34, (kfreq * koct1), 4, 1, kfm0, giCos ; blown harmonic stack\nkwo0    poscil 0.0009, 0.077         ; air-column wander, own rate\naoc0    poscil 0.05, (kfreq * koct1) * 2 * (1 + kwo0)  ; octave, beats with the body's 2nd\nasig    = abd0 + aoc0"
   },
   {
@@ -1320,7 +1400,18 @@
     "trumpet",
     "trompete",
     "blech",
-    "blechbläser"
+    "blechbläser",
+    "horn",
+    "french horn",
+    "waldhorn",
+    "trombone",
+    "posaune",
+    "tuba",
+    "cornet",
+    "flugelhorn",
+    "flügelhorn",
+    "brass section",
+    "fanfare"
    ],
    "template": {
     "keyframes": [
@@ -1447,7 +1538,7 @@
     "motion_rate_hz": 0.25
    },
    "priority": 10,
-   "why": "a twelve-harmonic stack whose rolloff opens once from dark to bright over the attack and then holds, voiced through a fixed 1200 Hz bell formant",
+   "why": "brass -- trumpet / french horn / trombone / tuba / brass section: a twelve-harmonic stack whose rolloff opens once from dark to bright over the attack and then holds, voiced through a fixed 1200 Hz bell formant",
    "code": "kop0    = 1 - exp(-knote * 2.2)       ; attack opens the series ONCE\nkbm0    = 0.30 + kop0 * 0.42       ; dark at onset -> bright, then holds\nklw0    poscil 0.0006, 0.083         ; lip instability, own rate\nabz0    gbuzz 0.5, (kfreq * koct1) * (1 + klw0), 12, 1, kbm0, giCos ; lip + bore\nabl0    reson abz0, 1200, 900, 1   ; bell formant, FIXED in Hz\nasig    = abz0 * 0.95 + abl0 * 0.40"
   },
   {
@@ -1457,7 +1548,16 @@
     "streicher",
     "violin",
     "violine",
-    "ensemble strings"
+    "ensemble strings",
+    "string section",
+    "string ensemble",
+    "orchestral strings",
+    "streichorchester",
+    "streichquartett",
+    "string quartet",
+    "streichersatz",
+    "celli",
+    "massed strings"
    ],
    "template": {
     "keyframes": [
@@ -1559,7 +1659,7 @@
     "motion_rate_hz": 0.18
    },
    "priority": 10,
-   "why": "bright saw-family spectrum with a slow, gentle harmonic-count breathing motion",
+   "why": "bowed string SECTION -- orchestral strings, a string ensemble, massed players (a single bowed instrument is `string`): three players sounding together, each with its own slow intonation drift and its own bow-pressure cycle, detuned against each other; a bright saw-family spectrum with a gentle harmonic-count breathing",
    "mandatory_flags": [
     "ensemble/detune is a voice-level effect, not a cycle property"
    ],
@@ -1683,7 +1783,12 @@
     "303",
     "moog bass",
     "bassline",
-    "bass synth"
+    "bass synth",
+    "acid",
+    "acid bass",
+    "tb 303",
+    "synthbass",
+    "bass lead"
    ],
    "template": {
     "keyframes": [
@@ -1825,7 +1930,7 @@
     "motion_rate_hz": 0.25
    },
    "priority": 10,
-   "why": "dark saw-family spectrum, harmonic count ceilinged near 24 for a rolled-off low end",
+   "why": "synth bass -- moog bass / tb-303 / acid bassline: a dark saw-family spectrum, harmonic count ceilinged near 24 for a rolled-off low end",
    "code": "ivph0   = frac(ivoice * 0.6180339887)   ; per-voice phase\nkvdr0   poscil 0.0007, 0.043 + 0.0037 * ivoice, giSine, ivph0\nabs0    vco2 0.6, (kfreq * koct1) * (1 + kvdr0), 0 ; saw source\nkcut0   limit (kfreq * koct1) * 24, 100, 15000 ; 24-harmonic ceiling\nadk0    butterlp abs0, kcut0\nasb0    oscili 0.30, (kfreq * koct1) * 0.5    ; sub-octave weight\nasig    = adk0 * 0.72 + asb0"
   },
   {
@@ -1835,7 +1940,12 @@
     "super saw",
     "detuned",
     "unison",
-    "detune"
+    "detune",
+    "hypersaw",
+    "saw stack",
+    "jp8000",
+    "trance lead",
+    "unisono"
    ],
    "template": {
     "keyframes": [
@@ -1937,7 +2047,7 @@
     "motion_rate_hz": 0.25
    },
    "priority": 10,
-   "why": "a stack of seven saws detuned a few cents apart -- the beating between them IS the sound",
+   "why": "supersaw / hypersaw -- the trance and rave lead: a stack of seven saws detuned a few cents apart, and the beating between them IS the sound",
    "mandatory_flags": [
     "detune/unison is a voice-level effect, not a cycle property"
    ],
@@ -1951,7 +2061,11 @@
     "hardsync",
     "sync sweep",
     "synchronisation",
-    "oszillatorsync"
+    "oszillatorsync",
+    "sync lead",
+    "oscillator sync",
+    "syncsweep",
+    "tearing sweep"
    ],
    "template": {
     "keyframes": [
@@ -1973,7 +2087,7 @@
     "motion_rate_hz": 0.25
    },
    "priority": 10,
-   "why": "true hard sync: a slave saw restarted by the master every cycle, its ratio sweeping 1.5x..3.7x for the classic tearing sweep",
+   "why": "hard sync / oscillator sync -- the classic tearing sync lead: a slave saw restarted by the master every cycle, its ratio sweeping 1.5x..3.7x",
    "mandatory_flags": [
     "true hard sync is not yet a supported kind; approximated with FM"
    ],
@@ -1983,7 +2097,13 @@
    "key": "harpsichord",
    "surface_forms": [
     "harpsichord",
-    "cembalo"
+    "cembalo",
+    "spinet",
+    "spinett",
+    "virginal",
+    "clavecin",
+    "kielflügel",
+    "plucked keyboard"
    ],
    "template": {
     "keyframes": [
@@ -2040,7 +2160,7 @@
     "motion_rate_hz": 0.25
    },
    "priority": 10,
-   "why": "two bright gbuzz choirs, an 8' and a 4' a hair sharp, drifting against each other — the plucked-string spectrum without the pluck",
+   "why": "harpsichord / cembalo / spinet / virginal -- a plucked keyboard: two bright gbuzz choirs, an 8' and a 4' a hair sharp, drifting against each other; the plucked-string spectrum without the pluck (a real plucked string is `string`)",
    "mandatory_flags": [
     "pluck transient/decay is not modeled; only the sustained spectral character is approximated"
    ],
@@ -2054,7 +2174,14 @@
     "8bit",
     "nes",
     "gameboy",
-    "chip tune"
+    "chip tune",
+    "c64",
+    "sid",
+    "game boy",
+    "nintendo",
+    "retro game",
+    "videospiel",
+    "arcade"
    ],
    "template": {
     "keyframes": [
@@ -2074,13 +2201,18 @@
     "motion_rate_hz": 0.25
    },
    "priority": 10,
-   "why": "the NES/Game Boy voice: the duty cycle STEPS between three fixed settings (12.5%, 25%, 50%) instead of gliding, giving the hard retro timbre switches",
+   "why": "chiptune -- the NES / Game Boy / C64 voice: the duty cycle STEPS between three fixed settings (12.5%, 25%, 50%) instead of gliding, giving the hard retro timbre switches",
    "code": "kst0    oscili 1.49, 0.9            ; slow 3-zone selector\nkdt0    = (kst0 > 0.5 ? 0.125 : (kst0 > -0.5 ? 0.25 : 0.5))\nkdw0    tonek kdt0, 30          ; de-click the duty step\nach0    vco2 0.6, (kfreq * koct1), 2, kdw0     ; stepped chip duty\nasig    = ach0 - 0.6 * (2 * kdw0 - 1) ; remove the duty's DC offset, A*(2d-1)"
   },
   {
    "key": "theremin",
    "surface_forms": [
-    "theremin"
+    "theremin",
+    "ondes martenot",
+    "ondes",
+    "musical saw",
+    "singende säge",
+    "heterodyne"
    ],
    "template": {
     "keyframes": [
@@ -2107,7 +2239,7 @@
     "motion_rate_hz": 0.25
    },
    "priority": 10,
-   "why": "an almost pure tone whose odd harmonics waver slowly under a heterodyne nonlinearity -- the breathing, near-vocal purity of the instrument",
+   "why": "theremin / ondes martenot / musical saw -- the breathing, near-vocal purity of a swept heterodyne tone: an almost pure tone whose odd harmonics waver slowly under a heterodyne nonlinearity",
    "mandatory_flags": [
     "theremin's character is continuous pitch/amplitude glide, not a fixed spectrum; approximated as a pure tone"
    ],
@@ -2118,7 +2250,13 @@
    "surface_forms": [
     "sub bass",
     "subbass",
-    "sub"
+    "sub",
+    "808",
+    "sine bass",
+    "sub oscillator",
+    "subosc",
+    "tiefbass",
+    "unterbass"
    ],
    "template": {
     "keyframes": [
@@ -2145,7 +2283,7 @@
     "motion_rate_hz": 0.25
    },
    "priority": 10,
-   "why": "a pure fundamental with a divider octave beneath it -- the standard sub-bass pair",
+   "why": "sub bass -- the 808-style low pair: a pure fundamental with a divider octave beneath it",
    "mandatory_flags": [
     "'sub' is a register/mix role, not a distinct spectrum; approximated as a pure sine"
    ],
@@ -2162,7 +2300,13 @@
     "minimoog",
     "sub 37",
     "analog synth",
-    "analogue synth"
+    "analogue synth",
+    "juno",
+    "prophet",
+    "oberheim",
+    "analogoszillator",
+    "analoger oszillator",
+    "vintage synth"
    ],
    "template": {
     "keyframes": [
@@ -2182,7 +2326,7 @@
     "motion_rate_hz": 0.25
    },
    "priority": 10,
-   "why": "analogue oscillator / vco / minimoog / analogue synth: wave morphs continuously triangle to saw to square to pulse; drive is the mixer pushed past unity into a soft limiter (careful: it makes a saw ROUNDER and darker, only a triangle brighter); fat = detuned unison, age = analogue instability",
+   "why": "analogue oscillator / vco / minimoog / juno / prophet / analogue synth: wave morphs continuously triangle to saw to square to pulse; drive is the mixer pushed past unity into a soft limiter (careful: it makes a saw ROUNDER and darker, only a triangle brighter); fat = detuned unison, age = analogue instability",
    "params": {
     "wave": {
      "range": [
