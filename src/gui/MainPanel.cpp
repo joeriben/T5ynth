@@ -2189,9 +2189,19 @@ void MainPanel::applyLoadedPreset(const PresetFormat::LoadResult& result, const 
             setOscEasyMode(wantNeural, /*persist=*/false);
     }
 
-    processorRef.setLastPresetName(result.presetName);
+    // The standalone's session restore ("_buffer.t5p") carries a real preset
+    // name whenever one was live at quit — that one is restored as before. But
+    // when nothing was, PresetFormat falls back to the FILENAME (saveToFile),
+    // and the session came back calling itself "_buffer": in the status bar, and
+    // pre-filled as the Save name (it is not a recognised placeholder, so the
+    // drawer's auto-title never kicks in) — one Return away from writing
+    // _buffer.t5p into the preset library. Drop only that literal.
+    const auto restoredName = (sourceFile.getFileName() == "_buffer.t5p"
+                               && result.presetName.trim() == "_buffer")
+                                  ? juce::String() : result.presetName;
+    processorRef.setLastPresetName(restoredName);
     processorRef.setLastTags(result.tags);
-    statusBar.setPresetName(result.presetName);
+    statusBar.setPresetName(restoredName);
 
     if (sourceFile.existsAsFile()
         && sourceFile.getFileName() != "_buffer.t5p"
@@ -2213,8 +2223,10 @@ void MainPanel::applyLoadedPreset(const PresetFormat::LoadResult& result, const 
         if (auto* stanceParam = processorRef.getValueTreeState().getParameter(PID::repromptStance))
             stanceParam->setValueNotifyingHost(0.0f);
 
-    presetManager.setCurrentPreset(currentPresetFile, result.presetName);
+    presetManager.setCurrentPreset(currentPresetFile, restoredName);
 
+    // The event log still records what was actually loaded, buffer included —
+    // that line is a session-restore marker, not the save identity.
     processorRef.endBulkParamLoad(result.presetName);
 }
 
