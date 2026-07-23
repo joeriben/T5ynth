@@ -706,8 +706,13 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
         // Bank label shown in the Replace confirmation below. Normally the
         // user-chosen target bank; on the maintainer redirect (see below) it
         // becomes the bank that actually owns the colliding file.
-        juce::String replaceBankLabel = bank.isEmpty()
+        const juce::String chosenBankLabel = bank.isEmpty()
                                             ? PresetManagerPanel::kRootUserBank() : bank;
+        juce::String replaceBankLabel = chosenBankLabel;
+        // True once the redirect has moved the save off the bank the drawer
+        // shows — the confirmation has to say so instead of pretending the
+        // chosen bank already held this preset.
+        bool retargetedToOtherBank = false;
 
         if (collidingFile.existsAsFile())
         {
@@ -729,8 +734,9 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
                 // dialog below, which overwrites the chosen file directly.
                 if (! target.existsAsFile())
                 {
-                    target           = collidingFile;
-                    replaceBankLabel = collidingBank;
+                    target                = collidingFile;
+                    replaceBankLabel      = collidingBank;
+                    retargetedToOtherBank = true;
                 }
             }
             else
@@ -777,12 +783,25 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
             return;
         }
 
+        // Two different confirmations. The plain one is an ordinary overwrite of
+        // the file the drawer points at. The redirect one has to name the file
+        // it is REALLY about to overwrite and say the chosen bank is not it —
+        // borrowing the plain wording read as a lie ("Replace X in bank Y?" for
+        // a preset that does not exist in the bank being saved to).
+        const juce::String replaceMessage =
+            retargetedToOtherBank
+                ? ("\"" + presetName + "\" already exists in bank \"" + replaceBankLabel
+                   + "\".\n\nSaving replaces THAT file, in \"" + replaceBankLabel
+                   + "\" — not in the selected bank \"" + chosenBankLabel
+                   + "\". Two banks cannot share a preset name.")
+                : ("Replace \"" + target.getFileNameWithoutExtension()
+                   + "\" in bank \"" + replaceBankLabel + "\"?");
+
         juce::AlertWindow::showAsync(
             juce::MessageBoxOptions()
                 .withIconType(juce::MessageBoxIconType::WarningIcon)
                 .withTitle("Replace Preset")
-                .withMessage("Replace \"" + target.getFileNameWithoutExtension()
-                             + "\" in bank \"" + replaceBankLabel + "\"?")
+                .withMessage(replaceMessage)
                 .withButton("Replace")
                 .withButton("Cancel")
                 .withParentComponent(this),
