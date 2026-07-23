@@ -3085,12 +3085,33 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
     // hasActiveVoices() already covers it (a zero-sustain patch would otherwise
     // keep the block awake for the whole time the key stays down).
     bool arpHoldingKeys = arpEnabled && arpeggiator.hasHeldKeys();
+    // A Csound orchestra swap is serviced ONLY inside the synthesis path: the
+    // pending→fade transition at the consume site (~:4109) and the fade advance
+    // that flips csoundActiveIdx_ (~:4339) both sit inside `if (!skipSynthesis)`,
+    // below the deep-idle early return. So a swap that lands while the instrument
+    // is silent — a recall/bake with no key held, or a note released before the
+    // Regen-XFade crossfade finishes — is never consumed: csoundSwapPending_/
+    // csoundSwapFading_ stay set, freeToStartSwap (handleAsyncUpdate) stays false,
+    // and every later requestCsoundOrchestra() bumps the generation without ever
+    // compiling — the panel latches "compiling..." forever with no internal exit.
+    // An outstanding swap therefore counts as activity and keeps the block awake
+    // until the EXISTING machinery completes it (a note-free fade mixes silence
+    // with silence and is inaudible; it just flips the active engine). Bounded by
+    // the crossfade, then the instrument idles again. Gated on Csound mode: a swap
+    // requested while another engine is live stays inert until the user switches
+    // back (the S-spec's own "inert until switched back" rule) and must never keep
+    // a non-Csound session awake — that would be an idle-CPU regression.
+    const bool csoundSwapOutstanding =
+        static_cast<int>(paramCache.engineMode->load()) == static_cast<int>(EngineMode::Csound)
+        && (csoundSwapPending_.load(std::memory_order_acquire)
+            || csoundSwapFading_.load(std::memory_order_acquire));
     bool hasActivity = voiceManager.hasActiveVoices()
                        || hasActiveSequencerOneShots()
                        || !midiMessages.isEmpty()
                        || seqRunning
                        || seqPresetPending
                        || arpHoldingKeys
+                       || csoundSwapOutstanding
                        || replayActive;   // the tape must never idle out mid-playback
 
     if (hasActivity)
