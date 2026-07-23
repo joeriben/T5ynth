@@ -109,6 +109,23 @@ def emit(P, **kw):
         return f"; (not harvestable: {exc})"
 
 
+# The lexicon carries the PUBLIC parameter names -- the words the author reads.
+# The parked emitter knows only its own internal ones. When a parameter is renamed
+# for clarity (2026-07-23: bite->index, fade->ring, shimmer->detune, reed->
+# hollowness, spot->strikepos), the harvest must translate back, or the emitter
+# drops the unknown name and every anchor harvests the DEFAULT -- identical across
+# the row, which is precisely the silent failure this file already had once.
+# The map is PER INSTRUMENT: `ring` is fm_ep's own emitter name, but the FM
+# family's `ring` is the emitter's `fade`.
+_EMITTER_PARAM = {
+    "fm":          {"index": "bite", "ring": "fade", "detune": "shimmer"},
+    "fm_bell":     {"index": "bite", "ring": "fade", "detune": "shimmer"},
+    "metallic_fm": {"index": "bite", "ring": "fade", "detune": "shimmer"},
+    "fm_ep":       {"hollowness": "reed"},
+    "drum_head":   {"strikepos": "spot"},
+}
+
+
 def harvest(P, lex):
     instruments = []
     for entry in lex["techniques"]:
@@ -131,6 +148,7 @@ def harvest(P, lex):
             # emitted at each anchor of its character axis, so the model can see
             # which numbers move with the word. First param = character axis.
             first = next(iter(params))
+            emit_name = _EMITTER_PARAM.get(key, {}).get(first, first)
             variants = {}
             for aname, aspec in (params[first].get("anchors") or {}).items():
                 # The emitter reads params as {technique_key: {name: value}}
@@ -138,7 +156,7 @@ def harvest(P, lex):
                 # name lands nowhere: the value is silently dropped and every
                 # anchor harvests the DEFAULT emission, identical across the row.
                 code = emit(P, oscs=[{"chain": [key], "vol": 1.0,
-                                      "params": {key: {first: aspec["value"]}}}])
+                                      "params": {key: {emit_name: aspec["value"]}}}])
                 if code and not code.startswith(";"):
                     variants[f"{first}={aspec['value']}  ({aname}: {aspec.get('gloss','')})"] = code
             # Only keep the anchor_code if it actually MOVES across anchors -- a
