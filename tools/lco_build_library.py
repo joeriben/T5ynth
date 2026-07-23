@@ -185,11 +185,22 @@ def harvest(P, lex):
     # live inside the instrument. Under the write-path the author writes it into
     # the instrument, which is where it belongs; the entries that harvest empty
     # still carry their meaning and their rate, which is what the author needs.
+    # Motions are AUTHORED in the lexicon where the parked emitter had nothing to
+    # harvest that matched the word. The old harvest emitted ONE identical LFO for
+    # five different words (open_up, close, sweep, breathe, evolve) and a second
+    # identical one for four more -- so "open_up" and its stated opposite "close"
+    # came out byte-for-byte the same. That is not a capability being preserved,
+    # it is a distinction that never existed; authoring it ADDS what the emitter
+    # could not express. Entries without authored code still harvest.
     motions = []
     for entry in lex["motions"]:
+        code = entry.get("code")
+        if code is None:
+            code = delta_against("sine", motion_key=entry["key"])
         motions.append({"key": entry["key"], "why": entry.get("why", ""),
+                        "kind": entry.get("kind"),
                         "rate_hz": entry.get("motion_rate_hz"),
-                        "code": delta_against("sine", motion_key=entry["key"])})
+                        "code": code})
 
     return {
         "generated_from": {"lexicon_version": lex.get("lexicon_version"),

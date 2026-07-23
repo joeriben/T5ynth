@@ -1,5 +1,5 @@
 {
-  "lexicon_version": 8,
+  "lexicon_version": 9,
   "techniques": [
     {
       "key": "saw",
@@ -3365,8 +3365,9 @@
       ],
       "category": "intent",
       "priority": 8,
-      "why": "dark to bright trajectory, slow build then a fast close back to start",
-      "motion_rate_hz": 0.2
+      "why": "dark to bright, ONCE: the spectrum opens over the note and stays open. A one-way gesture — it never travels back. Stands on its own (a filter opening) and is also the opening half of the larger movements.",
+      "kind": "gesture",
+      "code": "kpos    = min(knote / 2.5, 1)           ; one-way ramp, holds at the top\nkdrv    = 1.0 + 3.4 * kpos\nalvl    = asig                          ; the level BEFORE the colour moves ...\nasig    = tanh(asig * kdrv)\nasig    balance asig, alvl, 200         ; ... held: the colour travels, the loudness does not"
     },
     {
       "key": "close",
@@ -3386,8 +3387,9 @@
       ],
       "category": "intent",
       "priority": 8,
-      "why": "the inverse of open_up: starts bright, settles dark",
-      "motion_rate_hz": 0.15
+      "why": "bright to dark, ONCE: the spectrum closes over the note and stays closed. The mirror of open_up, and equally a gesture in its own right — not a phase of a cycle.",
+      "kind": "gesture",
+      "code": "kpos    = 1 - min(knote / 2.5, 1)       ; one-way ramp, holds at the bottom\nkdrv    = 1.0 + 3.4 * kpos\nalvl    = asig                          ; the level BEFORE the colour moves ...\nasig    = tanh(asig * kdrv)\nasig    balance asig, alvl, 200         ; ... held: the colour travels, the loudness does not"
     },
     {
       "key": "sweep",
@@ -3399,8 +3401,9 @@
       ],
       "category": "intent",
       "priority": 8,
-      "why": "one gentle there-and-back pass per loop",
-      "motion_rate_hz": 0.3
+      "why": "one pass across the spectrum. The SPEED is not fixed — `slow`, `fast` and `snap` set it; on its own it is a single unhurried traversal.",
+      "kind": "gesture",
+      "code": "kpos    = sin(min(knote / 2.0, 1) * 3.14159)  ; one pass out and back, then rests\nkdrv    = 1.0 + 3.4 * kpos\nalvl    = asig                          ; the level BEFORE the colour moves ...\nasig    = tanh(asig * kdrv)\nasig    balance asig, alvl, 200         ; ... held: the colour travels, the loudness does not"
     },
     {
       "key": "wobble",
@@ -3414,8 +3417,14 @@
       ],
       "category": "texture",
       "priority": 8,
-      "why": "wobbling, warping — the timbre rocks between dark and bright fast enough to hear as a wobble (~2.2 Hz); a timbral rock, not a pitch bend",
-      "texture": {"n_cycles": 2, "depth": 0.55}
+      "why": "wobbling, warping — around 2.2 Hz but NOT a clean oscillation: the rate itself wavers, which is what makes it a wobble rather than a vibrato.",
+      "texture": {
+        "n_cycles": 2,
+        "depth": 0.55
+      },
+      "kind": "unsteady",
+      "code": "kjit    randi  0.7, 3.1                 ; the RATE wavers -- that is the wobble\nkmot    oscili 0.5, 2.2 + kjit\nkdrv    = 1.0 + 3.4 * (kmot + 0.5)\nalvl    = asig                          ; the level BEFORE the colour moves ...\nasig    = tanh(asig * kdrv)\nasig    balance asig, alvl, 200         ; ... held: the colour travels, the loudness does not",
+      "motion_rate_hz": 2.2
     },
     {
       "key": "pingpong",
@@ -3427,8 +3436,10 @@
       ],
       "category": "intent",
       "priority": 8,
-      "why": "the timbre travels out and back, out and back, at a leisurely rate (~0.25 Hz) — a to-and-fro movement",
-      "motion_rate_hz": 0.5
+      "why": "out and back, out and back at a leisurely ~0.25 Hz — mechanically regular, like a ball between two walls.",
+      "motion_rate_hz": 0.25,
+      "kind": "periodic",
+      "code": "kmot    oscili 0.5, 0.25                ; regular there-and-back\nkdrv    = 1.0 + 3.4 * (kmot + 0.5)\nalvl    = asig                          ; the level BEFORE the colour moves ...\nasig    = tanh(asig * kdrv)\nasig    balance asig, alvl, 200         ; ... held: the colour travels, the loudness does not"
     },
     {
       "key": "breathe",
@@ -3439,8 +3450,10 @@
       ],
       "category": "intent",
       "priority": 8,
-      "why": "a slow, uneven there-and-back pass, gentler than sweep",
-      "motion_rate_hz": 0.12
+      "why": "a slow there-and-back at about 0.16 Hz. The RATE is steady -- breathing is -- but no two passes are shaped alike: a second rate in an irrational ratio keeps each pass uneven. That unevenness is what separates it from `cycle`.",
+      "motion_rate_hz": 0.16,
+      "kind": "periodic",
+      "code": "kb1     oscili 0.32, 0.16               ; two rates in an irrational ratio,\nkb2     oscili 0.18, 0.259              ; so no two passes are shaped alike\nkdrv    = 1.0 + 3.4 * (0.5 + kb1 + kb2)\nalvl    = asig                          ; the level BEFORE the colour moves ...\nasig    = tanh(asig * kdrv)\nasig    balance asig, alvl, 200         ; ... held: the colour travels, the loudness does not"
     },
     {
       "key": "evolve",
@@ -3459,8 +3472,10 @@
       ],
       "category": "intent",
       "priority": 8,
-      "why": "the timbre travels slowly and keeps travelling — the spectrum opens and closes over the note at about 0.16 Hz; the undirected 'it should not stand still' movement",
-      "motion_rate_hz": 0.1
+      "why": "the timbre keeps travelling and NEVER comes back to where it was. Not a cycle: two rates with no common multiple, so no state repeats for the length of any note.",
+      "motion_rate_hz": 0.16,
+      "kind": "wandering",
+      "code": "ke1     oscili 0.22, 0.037              ; a very slow drift ...\nke2     randi  0.26, 0.061              ; ... plus a slow RANDOM walk: no period at all\nkdrv    = 1.0 + 3.4 * (0.5 + ke1 + ke2)\nalvl    = asig                          ; the level BEFORE the colour moves ...\nasig    = tanh(asig * kdrv)\nasig    balance asig, alvl, 200         ; ... held: the colour travels, the loudness does not"
     },
     {
       "key": "static",
@@ -3474,7 +3489,9 @@
       ],
       "category": "intent",
       "priority": 8,
-      "why": "still, steady, held — no movement is added at all; the escape hatch for a tone that must stand perfectly still"
+      "why": "still, steady, held — no movement is added at all; the escape hatch for a tone that must stand perfectly still.",
+      "kind": "none",
+      "code": ""
     },
     {
       "key": "cycle",
@@ -3488,7 +3505,10 @@
       ],
       "category": "intent",
       "priority": 8,
-      "why": "the timbre travels round and back at a steady, clearly audible rate (~1.1 Hz) — a cycling, circling movement"
+      "why": "the timbre travels round and back at a steady, clearly audible rate (~1.1 Hz). Genuinely regular — a circling movement you can count.",
+      "kind": "periodic",
+      "code": "kmot    oscili 0.5, 1.1                 ; regular, returns exactly\nkdrv    = 1.0 + 3.4 * (kmot + 0.5)\nalvl    = asig                          ; the level BEFORE the colour moves ...\nasig    = tanh(asig * kdrv)\nasig    balance asig, alvl, 200         ; ... held: the colour travels, the loudness does not",
+      "motion_rate_hz": 1.1
     },
     {
       "key": "flutter",
@@ -3503,7 +3523,10 @@
       "category": "texture",
       "priority": 8,
       "why": "fluttering, quivering — a brisk shallow tremolo that makes the sound quiver; an amplitude flutter, not a timbre journey",
-      "texture": {"n_cycles": 4, "depth": 0.5}
+      "texture": {
+        "n_cycles": 4,
+        "depth": 0.5
+      }
     },
     {
       "key": "vibrate",
@@ -3518,7 +3541,10 @@
       "category": "texture",
       "priority": 8,
       "why": "vibrating, trembling — a fast shallow tremolo; note that PITCH vibrato belongs to the synth's own expression controls, so this is realized as amplitude trembling",
-      "texture": {"n_cycles": 6, "depth": 0.5}
+      "texture": {
+        "n_cycles": 6,
+        "depth": 0.5
+      }
     },
     {
       "key": "tremolo",
@@ -3531,7 +3557,10 @@
       "category": "texture",
       "priority": 8,
       "why": "tremolo, pulsing, throbbing — a periodic amplitude modulation (~5.5 Hz): the loudness itself pulses, the timbre does not travel",
-      "texture": {"n_cycles": 4, "depth": 0.4}
+      "texture": {
+        "n_cycles": 4,
+        "depth": 0.4
+      }
     },
     {
       "key": "shimmer",
@@ -3547,7 +3576,10 @@
       "category": "texture",
       "priority": 8,
       "why": "sparkle, glitter, twinkle — a fast, shallow tremolo (~5.5 Hz) that makes the sound flicker; an amplitude shimmer, not a timbre journey",
-      "texture": {"n_cycles": 3, "depth": 0.5}
+      "texture": {
+        "n_cycles": 3,
+        "depth": 0.5
+      }
     },
     {
       "key": "settle",
@@ -3559,7 +3591,9 @@
       ],
       "category": "intent",
       "priority": 8,
-      "why": "the timbre drifts very slowly (~0.12 Hz), as if settling into place — barely-there movement rather than an effect"
+      "why": "the movement dies away: it stirs at the start and comes to rest, and does not start again. A gesture that decelerates into stillness.",
+      "kind": "gesture",
+      "code": "kpos    = exp(-knote * 0.35)            ; the movement decays to rest and stays there\nkmot    oscili 0.5, 0.5\nkdrv    = 1.0 + 3.4 * (0.5 + kmot * kpos)\nalvl    = asig                          ; the level BEFORE the colour moves ...\nasig    = tanh(asig * kdrv)\nasig    balance asig, alvl, 200         ; ... held: the colour travels, the loudness does not"
     },
     {
       "key": "slow",
@@ -3570,7 +3604,9 @@
       ],
       "category": "speed",
       "priority": 8,
-      "why": "stretches the transition segment(s), scale 0.5"
+      "why": "not a movement of its own: it STRETCHES whatever movement is present — multiply that movement's rate by 0.5.",
+      "kind": "modifier",
+      "code": ""
     },
     {
       "key": "fast",
@@ -3583,7 +3619,9 @@
       ],
       "category": "speed",
       "priority": 8,
-      "why": "compresses the transition segment(s), scale 1.7"
+      "why": "not a movement of its own: it COMPRESSES whatever movement is present — multiply that movement's rate by 1.7.",
+      "kind": "modifier",
+      "code": ""
     },
     {
       "key": "snap",
@@ -3597,7 +3635,9 @@
       ],
       "category": "speed",
       "priority": 8,
-      "why": "sharply compresses the transition segment(s), scale 3.0"
+      "why": "not a movement of its own: it sharply compresses whatever movement is present — multiply that movement's rate by 3.0.",
+      "kind": "modifier",
+      "code": ""
     }
   ],
   "connectors": [
