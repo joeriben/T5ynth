@@ -759,7 +759,7 @@
   },
   {
    "key": "shimmering",
-   "why": "slow, wide morph",
+   "why": "a bright SHEEN, standing still: a tilt toward the highs plus bred air above them. This is the static half of the word — the GLINTING half is the `shimmer` movement, and the same prompt reaches both.",
    "code": "aprea    = asig                       ; exciter source, pre-tilt\nabrt     atone asig, 2200\nasig     = asig + abrt * 0.35       ; bright tilt (add highs)\naexc     atone aprea, 3500             ; the band that carries air\naexc     = tanh(aexc * 3.0) * 0.5      ; breed partials ABOVE it\nasig     = asig + aexc * 0.12       ; air / sheen (no noise)"
   },
   {
@@ -969,6 +969,7 @@
    "why": "dark to bright, ONCE: the spectrum opens over the note and stays open. A one-way gesture — it never travels back. Stands on its own (a filter opening) and is also the opening half of the larger movements.",
    "kind": "gesture",
    "moves": "colour",
+   "alt": null,
    "rate_hz": null,
    "code": "ivph    = frac(ivoice * 0.6180339887)   ; each voice starts its movement\n                                        ; elsewhere -- a chord must not move in lockstep\nkpos    = min(knote / 2.5, 1)           ; one-way ramp, holds at the top\nadrv    = tanh(asig * 4.4)              ; a fixed BRIGHT copy of the same tone\nadrv    balance adrv, asig, 1           ; matched to the clean level ONCE ...\nasig    = asig * (1 - kpos) + adrv * kpos   ; ... so this can only move COLOUR"
   },
@@ -977,6 +978,7 @@
    "why": "bright to dark, ONCE: the spectrum closes over the note and stays closed. The mirror of open_up, and equally a gesture in its own right — not a phase of a cycle.",
    "kind": "gesture",
    "moves": "colour",
+   "alt": null,
    "rate_hz": null,
    "code": "ivph    = frac(ivoice * 0.6180339887)   ; each voice starts its movement\n                                        ; elsewhere -- a chord must not move in lockstep\nkpos    = 1 - min(knote / 2.5, 1)       ; one-way ramp, holds at the bottom\nadrv    = tanh(asig * 4.4)              ; a fixed BRIGHT copy of the same tone\nadrv    balance adrv, asig, 1           ; matched to the clean level ONCE ...\nasig    = asig * (1 - kpos) + adrv * kpos   ; ... so this can only move COLOUR"
   },
@@ -985,6 +987,7 @@
    "why": "one pass across the spectrum. The SPEED is not fixed — `slow`, `fast` and `snap` set it; on its own it is a single unhurried traversal.",
    "kind": "gesture",
    "moves": "colour",
+   "alt": null,
    "rate_hz": null,
    "code": "ivph    = frac(ivoice * 0.6180339887)   ; each voice starts its movement\n                                        ; elsewhere -- a chord must not move in lockstep\nkpos    = sin(min(knote / 2.0, 1) * 3.14159)  ; one pass out and back, then rests\nadrv    = tanh(asig * 4.4)              ; a fixed BRIGHT copy of the same tone\nadrv    balance adrv, asig, 1           ; matched to the clean level ONCE ...\nasig    = asig * (1 - kpos) + adrv * kpos   ; ... so this can only move COLOUR"
   },
@@ -993,6 +996,7 @@
    "why": "wobbling, warping — around 2.2 Hz but NOT a clean oscillation: the rate itself wavers, which is what makes it a wobble rather than a vibrato.",
    "kind": "unsteady",
    "moves": "colour",
+   "alt": null,
    "rate_hz": 2.2,
    "code": "ivph    = frac(ivoice * 0.6180339887)   ; each voice starts its movement\n                                        ; elsewhere -- a chord must not move in lockstep\nkjit    randi  0.7, 3.1, ivoice         ; the RATE wavers -- that is the wobble\nkmot    oscili 0.5, 2.2 + kjit, giSine, ivph\nkpos    = kmot + 0.5\nadrv    = tanh(asig * 4.4)              ; a fixed BRIGHT copy of the same tone\nadrv    balance adrv, asig, 1           ; matched to the clean level ONCE ...\nasig    = asig * (1 - kpos) + adrv * kpos   ; ... so this can only move COLOUR"
   },
@@ -1001,6 +1005,7 @@
    "why": "out and back, out and back at a leisurely ~0.25 Hz — mechanically regular, like a ball between two walls.",
    "kind": "periodic",
    "moves": "colour",
+   "alt": null,
    "rate_hz": 0.25,
    "code": "ivph    = frac(ivoice * 0.6180339887)   ; each voice starts its movement\n                                        ; elsewhere -- a chord must not move in lockstep\nkmot    oscili 0.5, 0.25, giSine, ivph  ; regular there-and-back\nkpos    = kmot + 0.5\nadrv    = tanh(asig * 4.4)              ; a fixed BRIGHT copy of the same tone\nadrv    balance adrv, asig, 1           ; matched to the clean level ONCE ...\nasig    = asig * (1 - kpos) + adrv * kpos   ; ... so this can only move COLOUR"
   },
@@ -1009,6 +1014,7 @@
    "why": "a slow there-and-back at about 0.16 Hz. The RATE is steady -- breathing is -- but no two passes are shaped alike: a second rate in an irrational ratio keeps each pass uneven. That unevenness is what separates it from `cycle`.",
    "kind": "periodic",
    "moves": "colour",
+   "alt": null,
    "rate_hz": 0.16,
    "code": "ivph    = frac(ivoice * 0.6180339887)   ; each voice starts its movement\n                                        ; elsewhere -- a chord must not move in lockstep\nkb1     oscili 0.32, 0.16, giSine, ivph ; two rates in an irrational ratio,\nkb2     oscili 0.18, 0.259, giSine, ivph ; so no two passes are shaped alike\nkpos    = 0.5 + kb1 + kb2\nadrv    = tanh(asig * 4.4)              ; a fixed BRIGHT copy of the same tone\nadrv    balance adrv, asig, 1           ; matched to the clean level ONCE ...\nasig    = asig * (1 - kpos) + adrv * kpos   ; ... so this can only move COLOUR"
   },
@@ -1017,6 +1023,7 @@
    "why": "the timbre keeps travelling and NEVER comes back to where it was. Not a cycle and not a rate: random steps at two speeds, so no state recurs for the length of any note. It must be moving within the first seconds — a note is short.",
    "kind": "wandering",
    "moves": "colour",
+   "alt": null,
    "rate_hz": null,
    "code": "ke1     randi  0.30, 0.37, ivoice       ; seeded per voice -- a chord must not move\nke2     randi  0.20, 0.83, ivoice + 7   ; in lockstep. Random steps at two rates:\nkpos    = 0.5 + ke1 + ke2               ; no period at all, so no state ever recurs\nadrv    = tanh(asig * 4.4)              ; a fixed BRIGHT copy of the same tone\nadrv    balance adrv, asig, 1           ; matched to the clean level ONCE ...\nasig    = asig * (1 - kpos) + adrv * kpos   ; ... so this can only move COLOUR"
   },
@@ -1025,6 +1032,7 @@
    "why": "still, steady, held — no movement is added at all; the escape hatch for a tone that must stand perfectly still.",
    "kind": "none",
    "moves": "nothing",
+   "alt": null,
    "rate_hz": null,
    "code": ""
   },
@@ -1033,6 +1041,7 @@
    "why": "the timbre travels round and back at a steady, clearly audible rate (~1.1 Hz). Genuinely regular — a circling movement you can count.",
    "kind": "periodic",
    "moves": "colour",
+   "alt": null,
    "rate_hz": 1.1,
    "code": "ivph    = frac(ivoice * 0.6180339887)   ; each voice starts its movement\n                                        ; elsewhere -- a chord must not move in lockstep\nkmot    oscili 0.5, 1.1, giSine, ivph   ; regular, returns exactly\nkpos    = kmot + 0.5\nadrv    = tanh(asig * 4.4)              ; a fixed BRIGHT copy of the same tone\nadrv    balance adrv, asig, 1           ; matched to the clean level ONCE ...\nasig    = asig * (1 - kpos) + adrv * kpos   ; ... so this can only move COLOUR"
   },
@@ -1041,6 +1050,7 @@
    "why": "a fast, restless flutter of the whole colour -- faster than a wobble and never even: the rate itself will not settle. Tape flutter, flutter-tonguing.",
    "kind": "unsteady",
    "moves": "colour",
+   "alt": null,
    "rate_hz": 6.5,
    "code": "ivph    = frac(ivoice * 0.6180339887)   ; each voice moves on its own -- a chord\n                                        ; must not move in lockstep\nkfj     randi  2.6, 11.0, ivoice        ; the rate itself never settles -- that is flutter\nkmot    oscili 0.5, 6.5 + kfj, giSine, ivph\nkpos    = kmot + 0.5\nadrv    = tanh(asig * 4.4)              ; a fixed BRIGHT copy of the same tone\nadrv    balance adrv, asig, 1           ; matched to the clean level ONCE ...\nasig    = asig * (1 - kpos) + adrv * kpos   ; ... so this can only move COLOUR"
   },
@@ -1049,6 +1059,7 @@
    "why": "a regular tremor in the PITCH, about a sixth of a semitone wide -- vibrato. Not a colour movement and not a loudness one: the tone itself wavers, evenly, the way a played note does.",
    "kind": "periodic",
    "moves": "pitch",
+   "alt": null,
    "rate_hz": 5.5,
    "code": "ivph    = frac(ivoice * 0.6180339887)   ; each voice moves on its own -- a chord\n                                        ; must not move in lockstep\nkv      oscili 0.3, 5.5, giSine, ivph   ; a regular 5.5 Hz tremor, +-0.3 ms of delay\nasig    vdelay asig, 2 + kv, 10         ; a modulated delay IS a pitch tremor"
   },
@@ -1057,14 +1068,19 @@
    "why": "a regular pulsation of the LOUDNESS, about 4.5 times a second. This is the one movement that touches level rather than colour, because that is what the word means -- but it PULSES and never fades: the note's own envelope still belongs to the player.",
    "kind": "periodic",
    "moves": "loudness",
+   "alt": null,
    "rate_hz": 4.5,
    "code": "ivph    = frac(ivoice * 0.6180339887)   ; each voice moves on its own -- a chord\n                                        ; must not move in lockstep\nktr     oscili 0.18, 4.5, giSine, ivph  ; +-1.4 dB, a steady pulse -- never a fade\nasig    = asig * (1 + ktr)"
   },
   {
    "key": "shimmer",
-   "why": "a glinting in the TOP of the spectrum: the high partials catch the light and let it go again, irregularly. Only the top moves -- the body of the tone stands still.",
+   "why": "a glinting in the TOP of the spectrum: the high partials catch the light and let it go again, irregularly. Only the top moves -- the body of the tone stands still. This form re-weights partials that are ALREADY there, so it needs a tone with a bright tail; on a mellow FM tone there is nothing above the highpass to glint with.",
    "kind": "unsteady",
    "moves": "colour",
+   "alt": {
+    "when": "the tone is FM -- then glint the INDEX, which MAKES and unmakes sidebands instead of re-weighting ones that may not exist",
+    "code": "kg      randi  0.45, 9.0, ivoice        ; irregular glints, never a steady beat\nasig    foscili 0.5, kfreq * koct1, 1, 2, 3.0 + kg * 3.0, giSine\n                                        ; the index itself glints: the\n                                        ; sidebands come and go. foscili\n                                        ; holds its own level, so nothing\n                                        ; has to hold it afterwards."
+   },
    "rate_hz": 9.0,
    "code": "ivph    = frac(ivoice * 0.6180339887)   ; each voice moves on its own -- a chord\n                                        ; must not move in lockstep\nahi     butterhp asig, 2200             ; the top of the spectrum, on its own\nabri    = asig + ahi * 1.2              ; a fixed GLINTING copy of the tone ...\nabri    balance abri, asig, 1           ; ... matched to the clean level ONCE\nkg      randi  0.5, 9.0, ivoice         ; irregular glints, never a steady beat\nkpos    = 0.5 + kg\nasig    = asig * (1 - kpos) + abri * kpos   ; so this can only move COLOUR"
   },
@@ -1073,6 +1089,7 @@
    "why": "the movement dies away: it stirs at the start and comes to rest, and does not start again. A gesture that decelerates into stillness.",
    "kind": "gesture",
    "moves": "colour",
+   "alt": null,
    "rate_hz": null,
    "code": "ivph    = frac(ivoice * 0.6180339887)   ; each voice starts its movement\n                                        ; elsewhere -- a chord must not move in lockstep\nkmot    oscili 0.5, 0.5, giSine, ivph\nkpos    = 0.5 + kmot * exp(-knote * 0.35)  ; the movement decays to rest and stays\nadrv    = tanh(asig * 4.4)              ; a fixed BRIGHT copy of the same tone\nadrv    balance adrv, asig, 1           ; matched to the clean level ONCE ...\nasig    = asig * (1 - kpos) + adrv * kpos   ; ... so this can only move COLOUR"
   },
@@ -1081,6 +1098,7 @@
    "why": "not a movement of its own: it STRETCHES whatever movement is present — halve its rate, or double the time it takes to traverse.",
    "kind": "modifier",
    "moves": "rate",
+   "alt": null,
    "rate_hz": null,
    "code": ""
   },
@@ -1089,6 +1107,7 @@
    "why": "not a movement of its own: it COMPRESSES whatever movement is present — multiply its rate by 1.7, or divide its traversal time by 1.7.",
    "kind": "modifier",
    "moves": "rate",
+   "alt": null,
    "rate_hz": null,
    "code": ""
   },
@@ -1097,6 +1116,7 @@
    "why": "not a movement of its own: it sharply compresses whatever movement is present — triple its rate, or take a third of its traversal time.",
    "kind": "modifier",
    "moves": "rate",
+   "alt": null,
    "rate_hz": null,
    "code": ""
   }

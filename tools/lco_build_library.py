@@ -290,6 +290,13 @@ def harvest(P, lex):
                         # loudness, so the author has to be able to see which of the two
                         # a word asks for instead of inferring it from the code.
                         "moves": entry.get("moves"),
+                        # A word can need a different idiom on a different substrate.
+                        # `shimmer` post-processed re-weights partials that already
+                        # exist; on a mellow FM tone there are none above the
+                        # highpass, so the same word has to reach for the index
+                        # instead. Measured: 16 Hz of centroid travel the first way,
+                        # 199 Hz the second.
+                        "alt": entry.get("alt"),
                         "rate_hz": entry.get("motion_rate_hz"),
                         "code": code})
 

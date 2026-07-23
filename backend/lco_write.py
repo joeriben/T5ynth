@@ -266,6 +266,10 @@ def render_library(sel=None):
         out.append(f"### {mot['key']}{f' ({tag})' if tag else ''} — {mot['why']}")
         if mot.get("code", "").strip():
             out.append(_indent(mot["code"]))
+        alt = mot.get("alt")
+        if alt and (alt.get("code") or "").strip():
+            out.append(f"  or, when {alt['when']}:")
+            out.append(_indent(alt["code"]))
 
     _catalogue(out, lib, "motions", "Other movements the library knows:")
     return "\n".join(out)

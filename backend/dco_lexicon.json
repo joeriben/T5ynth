@@ -2165,7 +2165,7 @@
         }
       ],
       "priority": 10,
-      "why": "slow, wide morph"
+      "why": "a bright SHEEN, standing still: a tilt toward the highs plus bred air above them. This is the static half of the word — the GLINTING half is the `shimmer` movement, and the same prompt reaches both."
     },
     {
       "key": "airy",
@@ -3585,6 +3585,11 @@
     {
       "key": "shimmer",
       "surface_forms": [
+        "shimmer",
+        "shimmering",
+        "shimmers",
+        "schimmernd",
+        "schimmert",
         "sparkle",
         "sparkling",
         "sparkles",
@@ -3595,7 +3600,7 @@
       ],
       "category": "texture",
       "priority": 8,
-      "why": "a glinting in the TOP of the spectrum: the high partials catch the light and let it go again, irregularly. Only the top moves -- the body of the tone stands still.",
+      "why": "a glinting in the TOP of the spectrum: the high partials catch the light and let it go again, irregularly. Only the top moves -- the body of the tone stands still. This form re-weights partials that are ALREADY there, so it needs a tone with a bright tail; on a mellow FM tone there is nothing above the highpass to glint with.",
       "texture": {
         "n_cycles": 3,
         "depth": 0.5
@@ -3603,7 +3608,11 @@
       "code": "ivph    = frac(ivoice * 0.6180339887)   ; each voice moves on its own -- a chord\n                                        ; must not move in lockstep\nahi     butterhp asig, 2200             ; the top of the spectrum, on its own\nabri    = asig + ahi * 1.2              ; a fixed GLINTING copy of the tone ...\nabri    balance abri, asig, 1           ; ... matched to the clean level ONCE\nkg      randi  0.5, 9.0, ivoice         ; irregular glints, never a steady beat\nkpos    = 0.5 + kg\nasig    = asig * (1 - kpos) + abri * kpos   ; so this can only move COLOUR",
       "kind": "unsteady",
       "motion_rate_hz": 9.0,
-      "moves": "colour"
+      "moves": "colour",
+      "alt": {
+        "when": "the tone is FM -- then glint the INDEX, which MAKES and unmakes sidebands instead of re-weighting ones that may not exist",
+        "code": "kg      randi  0.45, 9.0, ivoice        ; irregular glints, never a steady beat\nasig    foscili 0.5, kfreq * koct1, 1, 2, 3.0 + kg * 3.0, giSine\n                                        ; the index itself glints: the\n                                        ; sidebands come and go. foscili\n                                        ; holds its own level, so nothing\n                                        ; has to hold it afterwards."
+      }
     },
     {
       "key": "settle",
