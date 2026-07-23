@@ -666,6 +666,11 @@ private:
     // allocates. Merged with the external MIDI stream in processBlock.
     std::vector<VoiceEvent> internalNoteEvents_;
 
+    // Scratch buffer for the arp's external-MIDI filter (note-ons/offs consumed,
+    // everything else kept). A member, not a local, so it keeps its storage across
+    // blocks instead of allocating a fresh buffer on the audio thread every block.
+    juce::MidiBuffer arpFilteredMidi_;
+
     struct SequencerOneShotSample
     {
         juce::AudioBuffer<float> audio;

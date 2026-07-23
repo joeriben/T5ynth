@@ -340,7 +340,7 @@ void VoiceManager::noteOn(int note, float velocity, bool isBind, float glideMs,
     updateGainTarget();
 }
 
-void VoiceManager::noteOff(int note, int sourceId)
+void VoiceManager::noteOff(int note, int sourceId, bool forceRelease)
 {
     sourceId = sourceId >= 0 ? juce::jlimit(0, 15, sourceId) : -1;
     for (int i = 0; i < MAX_VOICES; ++i)
@@ -353,13 +353,14 @@ void VoiceManager::noteOff(int note, int sourceId)
         {
             if (hasCurrentBlockParams_)
                 v.configureForBlock(applyPerformanceControllers(currentBlockParams_));
-            const bool heldBySostenuto = sourceId < 0
+            const bool heldBySostenuto = ! forceRelease
+                                      && sourceId < 0
                                       && sostenutoPedalDown
                                       && sostenutoVoice[static_cast<size_t>(i)];
             if (heldBySostenuto)
                 sostenutoReleasedVoice[static_cast<size_t>(i)] = true;
 
-            if (sourceId < 0 && sustainPedalDown)
+            if (! forceRelease && sourceId < 0 && sustainPedalDown)
             {
                 sustainedVoice[static_cast<size_t>(i)] = true;
                 continue;

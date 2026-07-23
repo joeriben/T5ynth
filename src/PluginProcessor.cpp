@@ -498,6 +498,10 @@ void T5ynthProcessor::endStepHoldPreview()
         lastMidiNoteOn.store(false, std::memory_order_relaxed);
 }
 
+// Voice source id for notes played on the computer keyboard. Distinct from
+// external MIDI (-1) so the two can be released independently.
+static constexpr int kComputerKeyboardSourceId = 15;
+
 void T5ynthProcessor::beginComputerKeyboardNote(int midiNote, float velocity)
 {
     // Computer-keyboard notes bypass the MIDI buffer (direct voiceManager call), so
@@ -510,14 +514,25 @@ void T5ynthProcessor::beginComputerKeyboardNote(int midiNote, float velocity)
 
     const int note = juce::jlimit(0, 127, midiNote);
     const float vel = juce::jlimit(0.0f, 1.0f, velocity);
-    const bool lfo1TrigMode = static_cast<int>(paramCache.lfo1Mode->load()) == 1;
-    const bool lfo2TrigMode = static_cast<int>(paramCache.lfo2Mode->load()) == 1;
-    const bool lfo3TrigMode = static_cast<int>(paramCache.lfo3Mode->load()) == 1;
 
-    static constexpr int kComputerKeyboardSourceId = 15;
-    voiceManager.noteOn(note, vel, false, 0.0f,
-                        lfo1TrigMode, lfo2TrigMode, lfo3TrigMode,
-                        kComputerKeyboardSourceId, 0.0f);
+    // The arpeggiator tracks held keys unconditionally (see Arpeggiator.h): this
+    // is what lets the computer keyboard drive the arp at all — it reads the MIDI
+    // buffer, which these notes never enter — and what lets switching the arp on
+    // mid-hold pick up keys that are already down.
+    arpeggiator.noteOn(note, vel, kComputerKeyboardSourceId);
+
+    // With the arp on, the arp's notes sound and the raw key does not, exactly as
+    // for an external keyboard. The arp emits them from processBlock.
+    if (static_cast<int>(paramCache.arpMode->load()) <= 0)
+    {
+        const bool lfo1TrigMode = static_cast<int>(paramCache.lfo1Mode->load()) == 1;
+        const bool lfo2TrigMode = static_cast<int>(paramCache.lfo2Mode->load()) == 1;
+        const bool lfo3TrigMode = static_cast<int>(paramCache.lfo3Mode->load()) == 1;
+
+        voiceManager.noteOn(note, vel, false, 0.0f,
+                            lfo1TrigMode, lfo2TrigMode, lfo3TrigMode,
+                            kComputerKeyboardSourceId, 0.0f);
+    }
 
     lastMidiNote.store(note, std::memory_order_relaxed);
     lastMidiVelocity.store(juce::roundToInt(vel * 127.0f), std::memory_order_relaxed);
@@ -532,8 +547,11 @@ void T5ynthProcessor::endComputerKeyboardNote(int midiNote)
 {
     const juce::ScopedLock sl(getCallbackLock());
 
-    static constexpr int kComputerKeyboardSourceId = 15;
-    voiceManager.noteOff(juce::jlimit(0, 127, midiNote), kComputerKeyboardSourceId);
+    const int note = juce::jlimit(0, 127, midiNote);
+    arpeggiator.noteOff(note);
+    // Unconditional: a no-op unless this key really started a direct voice (arp
+    // off when it went down, or switched off while it was held).
+    voiceManager.noteOff(note, kComputerKeyboardSourceId);
     if (!voiceManager.hasActiveVoices())
         lastMidiNoteOn.store(false, std::memory_order_relaxed);
 }
@@ -542,7 +560,7 @@ void T5ynthProcessor::allComputerKeyboardNotesOff()
 {
     const juce::ScopedLock sl(getCallbackLock());
 
-    static constexpr int kComputerKeyboardSourceId = 15;
+    arpeggiator.allKeysUp();
     for (int note = 0; note < 128; ++note)
         voiceManager.noteOff(note, kComputerKeyboardSourceId);
     if (!voiceManager.hasActiveVoices())
@@ -2945,6 +2963,12 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
     if (midiPanicRequested.exchange(false, std::memory_order_acq_rel))
     {
         voiceManager.allNotesOff();
+        // Panic must drop what the arp believes is held too, or it keeps
+        // arpeggiating into the silence it was just asked to produce. Keys +
+        // lead, NOT reset(): reset() would also clear lastPlayedNote, and the
+        // note-off the arp still owes for it would never be emitted.
+        arpeggiator.allKeysUp();
+        arpeggiator.clearSeqLead();
         lastMidiNoteOn.store(false, std::memory_order_relaxed);
     }
 
@@ -3026,11 +3050,25 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
     // matches and the block idles again on the next cycle.
     bool seqPresetPending =
         static_cast<int>(paramCache.seqPreset->load()) != lastSeqPreset.load(std::memory_order_relaxed);
+    // Read the arp's enable state HERE, above the idle gate, not down at the arp
+    // stage: the deep-idle branch returns before the arp stage ever runs, and
+    // arpWasEnabled has to be kept honest across that return (see below).
+    const int arpModeRaw = static_cast<int>(paramCache.arpMode->load());
+    const bool arpEnabled = arpModeRaw > 0 && ! replayActive;   // see seqRunning above
+    // An arpeggiating held key is activity even when nothing is sounding YET:
+    // computer-keyboard notes never enter midiMessages, and with the arp on they
+    // start no voice of their own — so without this term a key pressed while the
+    // synth sits in deep idle would return below and the arp would never start.
+    // Gated on the arp being on: with it off, a held key sounds a voice, and
+    // hasActiveVoices() already covers it (a zero-sustain patch would otherwise
+    // keep the block awake for the whole time the key stays down).
+    bool arpHoldingKeys = arpEnabled && arpeggiator.hasHeldKeys();
     bool hasActivity = voiceManager.hasActiveVoices()
                        || hasActiveSequencerOneShots()
                        || !midiMessages.isEmpty()
                        || seqRunning
                        || seqPresetPending
+                       || arpHoldingKeys
                        || replayActive;   // the tape must never idle out mid-playback
 
     if (hasActivity)
@@ -3042,6 +3080,12 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
     if (silentBlockCount > tailBlocks)
     {
         audioIdle.store(true, std::memory_order_relaxed);
+        // The arp edges below this return are never evaluated while idle, so the
+        // edge state has to track the parameter here — otherwise switching the arp
+        // off during idle leaves arpWasEnabled true, and the first block after the
+        // next key press fires the off-edge and sounds that key a SECOND time on
+        // top of the voice the key press already started.
+        arpWasEnabled = arpEnabled;
         // Keep free-running modulators phase-accurate.
         lfo1.advancePhase(numSamples);
         lfo2.advancePhase(numSamples);
@@ -3289,8 +3333,7 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
     float seqGate = paramCache.seqGate->load();
     float seqShuffle = paramCache.seqShuffle->load();
     int seqPreset = static_cast<int>(paramCache.seqPreset->load());
-    int arpModeRaw = static_cast<int>(paramCache.arpMode->load());
-    bool arpEnabled = arpModeRaw > 0 && ! replayActive;   // see seqRunning above
+    // (arpModeRaw / arpEnabled already read above for idle detection)
     int arpMode = arpModeRaw > 0 ? arpModeRaw - 1 : 0; // 0=Up,1=Down,2=UpDown,3=Random
     int arpRate = static_cast<int>(paramCache.arpRate->load());
     int arpOctaves = static_cast<int>(paramCache.arpOctaves->load());
@@ -3359,6 +3402,45 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
             generativeSequencer.allNotesOff(internalNoteEvents_);
         else
             stepSequencer.allNotesOff(internalNoteEvents_);
+
+        // Keys already down were sounding as ordinary voices; from this block on
+        // the arp plays them instead. Release those voices or they drone under
+        // the arpeggio — forced, because a plain note-off on an external key with
+        // the sustain pedal down only MARKS the voice sustained and leaves it
+        // ringing, which is exactly the drone this edge exists to prevent.
+        for (const auto& heldKey : arpeggiator.getHeldKeys())
+            voiceManager.noteOff(heldKey.note, heldKey.sourceId, /*forceRelease=*/true);
+    }
+
+    // Arp true→false edge: the mirror image. Keys still down were feeding the arp
+    // and sounding nothing of their own — hand them to the voices now, with the
+    // source id their eventual key-up will use, or they stay silent until released.
+    // NOT on a replay start: replay also clears arpEnabled, and handing the keys
+    // to the voices there would play a held chord on top of the tape for its whole
+    // length — the very thing beginComputerKeyboardNote's replay gate prevents.
+    //
+    // Queued as internal events at offset 0, NOT called on voiceManager directly:
+    // the arp still owes a note-off for its own sounding note, and the arp-off
+    // branch below pushes it at offset 0 too. That note-off carries strandId -1,
+    // which matches a voice of that pitch from ANY source — and with Octaves 1 the
+    // arp's note IS the held key, so a direct hand-back would be killed by it
+    // inside this same block. Going through the stream puts both under the sort's
+    // NoteOff-before-NoteOn tiebreak, which is exactly the order needed. The key's
+    // MPE channel rides along (VoiceEvent::mpeChannel) so an external key keeps its
+    // per-note expression AND stays out of the internal channel-0 bucket that a
+    // step-seq slide may hijack.
+    if (!arpEnabled && arpWasEnabled && !replayActive)
+    {
+        for (const auto& heldKey : arpeggiator.getHeldKeys())
+        {
+            if (internalNoteEvents_.size() >= internalNoteEvents_.capacity())
+                break;   // never allocate on the audio thread
+            internalNoteEvents_.push_back({ 0, VoiceEvent::Type::NoteOn,
+                                            heldKey.note, heldKey.velocity,
+                                            VoiceEvent::Articulation::Normal,
+                                            heldKey.sourceId, /*pan=*/0.0f,
+                                            heldKey.mpeChannel });
+        }
     }
 
     // Preset change detection
@@ -3733,23 +3815,65 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
     // (driftRegenBpm is now stored in updateDriftState() with the resolved
     // sync BPM — no duplicate write needed here.)
 
-    // Stage 2: Arpeggiator. Base note comes from the sequencer when one is
-    // running, else from manual/external play. The "lead" note feeds the arp;
-    // everything else passes through to the voices.
+    // Stage 2: Arpeggiator. The source is what is HELD: computer-keyboard keys
+    // (registered in beginComputerKeyboardNote — they never enter the MIDI buffer)
+    // and external MIDI keys (consumed here). A running sequencer's lead note is
+    // only a stand-in for "nothing is held"; the moment the transport stops that
+    // stand-in is dropped, so a stopped sequencer leaves the arp without a source
+    // and it falls silent instead of cycling the last step forever.
     if (arpEnabled)
     {
         arpeggiator.setBpm(static_cast<double>(seqBpm));
         arpeggiator.setRate(arpRate);
         arpeggiator.setOctaveRange(arpOctaves);
         arpeggiator.setShuffle(seqShuffle);
+        arpeggiator.setGate(seqGate);
         arpeggiator.setMode(static_cast<T5ynthArpeggiator::Mode>(arpMode));
+
+        // External keys feed the arp whether or not the sequencer runs: the arp's
+        // notes sound, the raw key does not. Pitch-bend/CC stay in the buffer so
+        // they still reach the voices. arpFilteredMidi_ is a MEMBER that keeps its
+        // storage across blocks (clear() is clearQuick()), and the survivors are
+        // copied back into midiMessages rather than swapped in — a swap would hand
+        // our high-water storage to the host and leave us with whatever it had.
+        arpFilteredMidi_.clear();
+        for (const auto metadata : midiMessages)
+        {
+            auto msg = metadata.getMessage();
+            const int ch = msg.getChannel();
+            // XL DAW-mode ch16 encoder channel is never musical — on note-OFF
+            // either, or a ch16 note-off evicts a real held key of that number.
+            const bool ch16Encoder = dawModeActive_.load(std::memory_order_relaxed) && ch == 16;
+            if (msg.isNoteOn())
+            {
+                if (ch16Encoder)
+                    continue;
+                arpeggiator.noteOn(msg.getNoteNumber(), msg.getFloatVelocity(),
+                                   /*sourceId=*/-1, ch);
+                if (stepRecordArmed.load(std::memory_order_relaxed))
+                    pushStepRecordCandidate(msg.getNoteNumber(), msg.getFloatVelocity());
+            }
+            else if (msg.isNoteOff())
+            {
+                if (ch16Encoder)
+                    continue;
+                arpeggiator.noteOff(msg.getNoteNumber());
+            }
+            else
+            {
+                arpFilteredMidi_.addEvent(msg, metadata.samplePosition);
+            }
+        }
+        midiMessages.clear();
+        midiMessages.addEvents(arpFilteredMidi_, 0, -1, 0);
 
         if (seqRunning)
         {
-            // The sequencer drives the arp. Lead = step-seq notes (strandId < 0)
-            // or gen-seq strand 0; non-lead gen strands keep sounding alongside
-            // the arp. Pull every lead event out of the internal stream, feeding
-            // the last lead note-on to the arp as its base note.
+            // The running sequencer offers its lead note. Lead = step-seq notes
+            // (strandId < 0) or gen-seq strand 0; non-lead gen strands keep
+            // sounding alongside the arp. Pull every lead event out of the
+            // internal stream — held keys outrank the lead, but either way it
+            // must not sound raw underneath the arp.
             int leadNote = -1;
             float leadVel = 0.0f;
             const bool genMode = genModeActiveInAudio;
@@ -3765,37 +3889,13 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
                     }),
                 internalNoteEvents_.end());
             if (leadNote >= 0)
-                arpeggiator.setBaseNote(leadNote, leadVel);
+                arpeggiator.setSeqLead(leadNote, leadVel);
         }
         else
         {
-            // Manual play drives the arp: consume external note-ons/offs, but keep
-            // pitch-bend/CC so they still reach the voices. The arp's own notes
-            // sound; the raw key does not.
-            juce::MidiBuffer filtered;
-            for (const auto metadata : midiMessages)
-            {
-                auto msg = metadata.getMessage();
-                const int ch = msg.getChannel();
-                if (msg.isNoteOn())
-                {
-                    // XL DAW-mode ch16 encoder channel is never musical.
-                    if (dawModeActive_.load(std::memory_order_relaxed) && ch == 16)
-                        continue;
-                    arpeggiator.setBaseNote(msg.getNoteNumber(), msg.getFloatVelocity());
-                    if (stepRecordArmed.load(std::memory_order_relaxed))
-                        pushStepRecordCandidate(msg.getNoteNumber(), msg.getFloatVelocity());
-                }
-                else if (msg.isNoteOff())
-                {
-                    arpeggiator.stopArp();
-                }
-                else
-                {
-                    filtered.addEvent(msg, metadata.samplePosition);
-                }
-            }
-            midiMessages.swapWith(filtered);
+            // Transport stopped → the stand-in goes away. Without this the arp
+            // kept cycling the sequencer's last note for as long as it was on.
+            arpeggiator.clearSeqLead();
         }
         const size_t eventLogArpBefore_ = internalNoteEvents_.size();
         arpeggiator.processBlock(buffer, internalNoteEvents_);
@@ -3804,12 +3904,42 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
     }
     else
     {
-        // Arp off: flush the arp's own sounding note (if any), then drop state.
+        // Arp off: flush the arp's own sounding note (if any) and drop the
+        // sequencer lead + timing — but KEEP tracking which keys are down, so
+        // switching the arp on mid-hold picks them straight up. External notes
+        // pass through to the voices untouched; we only observe them.
         const size_t eventLogArpOffBefore_ = internalNoteEvents_.size();
         arpeggiator.allNotesOff(internalNoteEvents_);
         if (eventLogRecordingActive())
             logInternalNoteEventsFrom(eventLogArpOffBefore_, NoteEventLogEntry::Source::Arpeggiator);
-        arpeggiator.reset();
+        arpeggiator.suspend();
+
+        // Replay clears midiMessages before this point, so no external note-OFF can
+        // reach the arp for the length of the tape. A key released mid-replay would
+        // stay "held" forever: the arp would arpeggiate a key that is not down, and
+        // arpHoldingKeys would pin the block permanently awake. Hold nothing during
+        // replay — the transport owns the notes, exactly as in beginComputerKeyboardNote.
+        if (replayActive)
+        {
+            arpeggiator.allKeysUp();
+        }
+        else
+        {
+            for (const auto metadata : midiMessages)
+            {
+                const auto msg = metadata.getMessage();
+                const int ch = msg.getChannel();
+                // XL DAW-mode ch16 is the encoder channel, on note-OFF too: without
+                // this guard a ch16 note-off evicts a real held key of that number.
+                if (dawModeActive_.load(std::memory_order_relaxed) && ch == 16)
+                    continue;
+                if (msg.isNoteOn())
+                    arpeggiator.noteOn(msg.getNoteNumber(), msg.getFloatVelocity(),
+                                       /*sourceId=*/-1, ch);
+                else if (msg.isNoteOff())
+                    arpeggiator.noteOff(msg.getNoteNumber());
+            }
+        }
     }
 
     // The sequencers schedule per-strand and the arp appends after them, so the
@@ -4240,7 +4370,7 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
                             lastMidiNoteOn.store(true, std::memory_order_relaxed);
                             voiceManager.noteOn(ev.note, ev.velocity, isBind, glideMs,
                                 lfo1TrigMode, lfo2TrigMode, lfo3TrigMode,
-                                ev.strandId, ev.pan, /*mpeChannel=*/0);
+                                ev.strandId, ev.pan, ev.mpeChannel);
                         }
                         else
                         {
@@ -4329,6 +4459,12 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
                     else if (msg.isAllNotesOff() || msg.isAllSoundOff())
                     {
                         voiceManager.allNotesOff();
+                        // Keys + lead only. reset() here would clear lastPlayedNote
+                        // while this block's already-queued arp NoteOn is still
+                        // ahead of us in internalNoteEvents_ — that voice would
+                        // start after the panic and never receive its note-off.
+                        arpeggiator.allKeysUp();
+                        arpeggiator.clearSeqLead();
                         lastMidiNoteOn.store(false, std::memory_order_relaxed);
                     }
                     else if (msg.isController())
@@ -4556,6 +4692,8 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
                                 }
                                 else if (cc == 120 || cc == 123)
                                 {
+                                    // Unreachable: CC120/123 ARE isAllSoundOff/
+                                    // isAllNotesOff and were consumed above.
                                     voiceManager.allNotesOff();
                                     lastMidiNoteOn.store(false, std::memory_order_relaxed);
                                 }

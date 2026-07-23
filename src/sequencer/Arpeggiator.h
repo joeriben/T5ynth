@@ -5,13 +5,23 @@
 #include <array>
 
 /**
- * Arpeggiator — port of useArpeggiator.ts.
+ * Arpeggiator — a held-note arpeggiator.
  *
- * Takes a base note, repeats it across the selected octave range,
- * then applies pattern ordering.
+ * The source is the set of keys currently DOWN (computer keyboard or external
+ * MIDI): they are cycled, across the selected octave range, in the selected
+ * pattern order. Hold a chord and it arpeggiates the chord; hold one key and it
+ * arpeggiates that key across the octaves. When the last key lifts, the arp
+ * falls silent — an arpeggiator with nothing held plays nothing.
  *
- * This is NOT a held-note arpeggiator — it receives a single base note
- * and generates an octave pattern from that note.
+ * The running sequencer may ALSO feed the arp, as a stand-in for "nothing is
+ * held": its lead note becomes a single-note source (setSeqLead). Held keys
+ * always win over it, and clearSeqLead() — which the processor calls whenever
+ * the transport is not running — removes it again. That, not the arp's own
+ * state, is what makes stopping the sequencer stop the arp.
+ *
+ * Key tracking is unconditional: noteOn/noteOff are called whether or not the
+ * arp is switched on, so switching it on mid-hold arpeggiates what is already
+ * down instead of waiting for the next key press.
  *
  * Musical rate divisions: 1/4, 1/8, 1/16, 1/32, 1/4T, 1/8T, 1/16T.
  */
@@ -34,19 +44,51 @@ public:
 
     void setMode(Mode m);
     void setRate(int rateIndex) { rate = juce::jlimit(0, NUM_RATES - 1, rateIndex); }
-    void setOctaveRange(int octaves) { octaveRange = juce::jlimit(1, 4, octaves); rebuildIntervals(); }
+    void setOctaveRange(int octaves);
     void setBpm(double b) { bpm = b; }
     void setGate(float g) { gate = juce::jlimit(0.1f, 1.0f, g); }
     void setShuffle(float amount) { shuffle = juce::jlimit(0.0f, 0.75f, amount); }
 
-    /** Set base note and start arpeggiating. */
-    void setBaseNote(int midiNote, float velocity);
+    // ── Held keys: the arpeggiator's source ────────────────────────────────
+    /** One key that is physically down. `sourceId`/`mpeChannel` are carried
+        verbatim so the processor can hand the key back to the voices — with the
+        id its eventual note-off will use — when the arp is switched off while it
+        is still held. */
+    struct HeldKey
+    {
+        int note = 60;
+        float velocity = 0.8f;
+        int sourceId = -1;      // -1 = external MIDI, else the caller's voice source id
+        int mpeChannel = 0;     // external MIDI channel (0 for internal sources)
+    };
 
-    /** Stop arpeggiator. */
-    void stopArp();
+    /** A key went down. Re-pressing a key that is already down only refreshes
+        its velocity — the pattern (and the running clock) stay put. */
+    void noteOn(int midiNote, float velocity, int sourceId, int mpeChannel = 0);
+    /** A key came up. The arp stops when the last one lifts. */
+    void noteOff(int midiNote);
+    /** Every key up — panic, editor focus loss, replay takeover. */
+    void allKeysUp();
+    bool hasHeldKeys() const { return ! heldNotes.empty(); }
+    /** Held keys in ascending pitch order. The processor needs them at the arp's
+        on/off edges: switching on, to release the voices they were sounding;
+        switching off, to hand them back to the voices. */
+    const std::vector<HeldKey>& getHeldKeys() const { return heldNotes; }
+
+    // ── Sequencer lead: source of last resort, only while the transport runs ─
+    /** The lead note the running sequencer just emitted. Used only while no key
+        is held. */
+    void setSeqLead(int midiNote, float velocity);
+    /** Drop the sequencer lead (transport stopped, or the arp switched off). */
+    void clearSeqLead();
+
+    /** Stop emitting and drop the timing state, but KEEP the held keys — they
+        are physical key state the arpeggiator does not own. Used when the arp is
+        switched off; switching it back on picks the held keys straight up. */
+    void suspend();
 
     /** Append a note-off for any currently-sounding arp note to `out` at
-        `sampleOffset`, then clear lastPlayedNote. Does not alter active/
+        `sampleOffset`, then clear lastPlayedNote. Does not alter source or
         pattern state — safe to call unconditionally at any transition. */
     void allNotesOff(std::vector<VoiceEvent>& out, int sampleOffset = 0);
 
@@ -54,21 +96,26 @@ public:
     int getLastPlayedNote() const { return lastPlayedNote; }
 
 private:
-    // Classic single-note arpeggio: the incoming base note is repeated across
-    // the configured octave range. The previous {0, 4, 7} chord stack
-    // forced a major triad on every base note regardless of context, which
-    // collided with non-tonal Pitch-Field material in the gen sequencer.
-    static constexpr int BASE_INTERVALS[] = { 0 };
-    static constexpr int NUM_BASE_INTERVALS = 1;
+    struct PatternStep { int note = 60; float velocity = 0.8f; };
+
+    // Upper bounds so every rebuild stays inside reserved capacity: the audio
+    // thread rebuilds the pattern and must never allocate.
+    static constexpr int MAX_HELD = 128;                 // one per MIDI note
+    static constexpr int MAX_PATTERN = MAX_HELD * 4 * 2; // × octave range, × UpDown
 
     Mode mode = Mode::Up;
     int rate = 2; // default 1/16
     int octaveRange = 1;
-    int baseNote = 60;
-    float baseVelocity = 0.8f;
     bool active = false;
 
-    std::vector<int> intervals;
+    // Held keys, kept sorted ascending — pattern order is derived from them.
+    std::vector<HeldKey> heldNotes;
+    int seqLeadNote = -1;
+    float seqLeadVelocity = 0.8f;
+
+    std::vector<PatternStep> pattern;
+    bool patternDirty = true;
+
     int currentIndex = 0;
     double sampleRateVal = 44100.0;
     double bpm = 120.0;
@@ -80,7 +127,7 @@ private:
 
     juce::Random rng;
 
-    void rebuildIntervals();
+    void rebuildPattern();
     void fisherYatesShuffle();
     double shuffledStepDurationSamples(double baseStepSamples, int stepIdx, int cycleLength) const;
 };

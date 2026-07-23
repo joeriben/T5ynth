@@ -35,7 +35,11 @@ public:
     void noteOn(int note, float velocity, bool isBind, float glideMs,
                 bool lfo1TrigMode, bool lfo2TrigMode, bool lfo3TrigMode,
                 int sourceId = -1, float pan = 0.0f, int mpeChannel = 0);
-    void noteOff(int note, int sourceId = -1);
+    // forceRelease: bypass the sustain/sostenuto hold. For a note the synth is
+    // TAKING AWAY rather than a key being lifted — the arpeggiator switching on
+    // over a held chord, where "the pedal is down, keep ringing" would leave the
+    // raw chord drone under the arpeggio. Ordinary key-lifts leave it false.
+    void noteOff(int note, int sourceId = -1, bool forceRelease = false);
     void allNotesOff();
     void setSustainPedal(bool down);
     void setSostenutoPedal(bool down);

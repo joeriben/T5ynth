@@ -29,4 +29,11 @@ struct VoiceEvent
     Articulation artic        = Articulation::Normal;
     int          strandId     = -1;                    // gen-seq strand id, else -1
     float        pan          = 0.0f;                  // gen-seq strand pan (-1..1)
+    // 0 for everything a sequencer or the arpeggiator plays — those ARE internal
+    // notes and must never be MPE-tracked. Non-zero only where an EXTERNAL key is
+    // handed back to the voices through this stream (the arpeggiator's off-edge):
+    // dropping its channel there would file that voice under "internal, channel 0",
+    // the exact bucket a step-seq slide is allowed to hijack (VoiceManager's
+    // originMatches guard), which would strand the key's voice until a panic.
+    int          mpeChannel   = 0;                     // 1-16 = external controller channel
 };
