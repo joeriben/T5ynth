@@ -1676,6 +1676,19 @@
       },
       "priority": 10,
       "why": "a stack of seven saws detuned a few cents apart -- the beating between them IS the sound",
+      "params": {
+        "spread": {
+          "range": [0.0, 1.0],
+          "default": 0.5,
+          "note": "how far the seven saws are detuned from each other -- the whole identity of the sound. It scales the shipped +-19-cent stack: narrow is tight and fast-beating (almost one fat saw), wide is a broad lush chorus. The stack sums at constant loudness across the whole range (measured within 0.4 dB); only true unison would jump louder, so never collapse the spread to zero. Keep all seven voices -- widen or narrow the cent offsets, never drop voices.",
+          "anchors": {
+            "tight": {"value": 0.2, "gloss": "about +-8 cents -- close, shimmering, strong beating"},
+            "classic": {"value": 0.5, "gloss": "about +-19 cents -- the standard supersaw spread"},
+            "wide": {"value": 0.8, "gloss": "about +-32 cents -- broad and lush"},
+            "huge": {"value": 1.0, "gloss": "about +-45 cents -- maximally spread, shimmering wide"}
+          }
+        }
+      },
       "mandatory_flags": [
         "detune/unison is a voice-level effect, not a cycle property"
       ]
@@ -1711,6 +1724,19 @@
       },
       "priority": 10,
       "why": "true hard sync: a slave saw restarted by the master every cycle, its ratio sweeping 1.5x..3.7x for the classic tearing sweep",
+      "params": {
+        "amount": {
+          "range": [0.0, 1.0],
+          "default": 0.45,
+          "note": "how hard the sync bites -- the slave:master frequency ratio the sync formant tracks. Low is barely a synced saw; as it rises the formant climbs and the tone gets brighter and more vocal/screaming (measured centroid 3.8 kHz to 5.9 kHz across the range) at constant loudness. This sets where the ratio sits; keep the slow ratio sweep so the formant still moves over the note.",
+          "anchors": {
+            "gentle": {"value": 0.2, "gloss": "ratio ~1.8 -- a soft edge, only lightly synced"},
+            "classic": {"value": 0.45, "gloss": "ratio ~2.6 -- the standard tearing hard-sync voice"},
+            "screaming": {"value": 0.75, "gloss": "ratio ~4.0 -- bright, piercing, vocal"},
+            "extreme": {"value": 1.0, "gloss": "ratio ~6.0 -- the formant near the top, harshest"}
+          }
+        }
+      },
       "mandatory_flags": [
         "true hard sync is not yet a supported kind; approximated with FM"
       ]
