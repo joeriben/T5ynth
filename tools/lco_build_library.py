@@ -109,14 +109,6 @@ def emit(P, **kw):
         return f"; (not harvestable: {exc})"
 
 
-# The lexicon carries the PUBLIC parameter names -- the words the author reads.
-# The parked emitter knows only its own internal ones. When a parameter is renamed
-# for clarity (2026-07-23: bite->index, fade->ring, shimmer->detune, reed->
-# hollowness, spot->strikepos), the harvest must translate back, or the emitter
-# drops the unknown name and every anchor harvests the DEFAULT -- identical across
-# the row, which is precisely the silent failure this file already had once.
-# The map is PER INSTRUMENT: `ring` is fm_ep's own emitter name, but the FM
-# family's `ring` is the emitter's `fade`.
 # What a harvested delta may assume rather than define: the host scaffold's own
 # variables and ftables (backend/lco_write.py `wrap`). Everything else a delta
 # reads has to be defined inside it.
@@ -162,6 +154,14 @@ def _reads(line):
     return set(_IDENT.findall(src[m.end():] if m else src))
 
 
+# The lexicon carries the PUBLIC parameter names -- the words the author reads.
+# The parked emitter knows only its own internal ones. When a parameter is renamed
+# for clarity (2026-07-23: bite->index, fade->ring, shimmer->detune, reed->
+# hollowness, spot->strikepos), the harvest must translate back, or the emitter
+# drops the unknown name and every anchor harvests the DEFAULT -- identical across
+# the row, which is precisely the silent failure this file already had once.
+# The map is PER INSTRUMENT: `ring` is fm_ep's own emitter name, but the FM
+# family's `ring` is the emitter's `fade`.
 _EMITTER_PARAM = {
     "fm":          {"index": "bite", "ring": "fade", "detune": "shimmer"},
     "fm_bell":     {"index": "bite", "ring": "fade", "detune": "shimmer"},
@@ -285,6 +285,11 @@ def harvest(P, lex):
             code = delta_against("sine", motion_key=entry["key"])
         motions.append({"key": entry["key"], "why": entry.get("why", ""),
                         "kind": entry.get("kind"),
+                        # WHICH quantity the word moves -- colour, pitch or loudness.
+                        # The platform lets the colour travel over a note and not the
+                        # loudness, so the author has to be able to see which of the two
+                        # a word asks for instead of inferring it from the code.
+                        "moves": entry.get("moves"),
                         "rate_hz": entry.get("motion_rate_hz"),
                         "code": code})
 
