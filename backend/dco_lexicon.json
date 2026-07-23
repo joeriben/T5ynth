@@ -28,7 +28,39 @@
         "motion_rate_hz": 0.25
       },
       "priority": 5,
-      "why": "the canonical bright analogue waveform; full harmonic series decaying 1/h"
+      "why": "the canonical bright analogue waveform; full harmonic series decaying 1/h",
+      "params": {
+        "drive": {
+          "range": [0.0, 1.0],
+          "default": 0.0,
+          "note": "the oscillator pushed past unity into a soft saturator (tanh). It ADDS harmonics, so the tone gets brighter and grittier as it climbs: a saw's spectral centroid nearly doubles from clean to screaming (measured 1849 to 3447 Hz), a square or narrow pulse brightens the same way, and a triangle warms a touch first and then brightens. The instantaneous peak is held, but a driven tone is genuinely fuller and a few dB louder in RMS -- this is overdrive at the source, not a tone control and not a loudness envelope.",
+          "anchors": {
+            "clean": {"value": 0.0, "gloss": "no saturation, the pure oscillator"},
+            "warm": {"value": 0.3, "gloss": "light saturation, gentle rounding"},
+            "hot": {"value": 0.6, "gloss": "heavy saturation, strongly reshaped"},
+            "screaming": {"value": 1.0, "gloss": "maximum saturation, fully driven"}
+          }
+        },
+        "fat": {
+          "range": [0.0, 1.0],
+          "default": 0.0,
+          "anchors": {
+            "single": {"value": 0.0, "gloss": "one oscillator, no thickening"},
+            "subtle": {"value": 0.15, "gloss": "a whisper of ensemble width"},
+            "thick": {"value": 0.5, "gloss": "clearly layered, wide"},
+            "wide": {"value": 1.0, "gloss": "maximally spread, chorus-like"}
+          }
+        },
+        "age": {
+          "range": [0.0, 1.0],
+          "default": 0.35,
+          "anchors": {
+            "new": {"value": 0.0, "gloss": "pristine, stable, no drift"},
+            "worn": {"value": 0.35, "gloss": "gentle analogue life -- pitch, level and shape all drifting slightly"},
+            "old": {"value": 0.8, "gloss": "unstable, wandering pitch and level, worn-in gear"}
+          }
+        }
+      }
     },
     {
       "key": "square",
@@ -56,7 +88,39 @@
         "motion_rate_hz": 0.25
       },
       "priority": 5,
-      "why": "odd-only harmonic series; hollow, clarinet-adjacent character by construction"
+      "why": "odd-only harmonic series; hollow, clarinet-adjacent character by construction",
+      "params": {
+        "drive": {
+          "range": [0.0, 1.0],
+          "default": 0.0,
+          "note": "the oscillator pushed past unity into a soft saturator (tanh). It ADDS harmonics, so the tone gets brighter and grittier as it climbs: a saw's spectral centroid nearly doubles from clean to screaming (measured 1849 to 3447 Hz), a square or narrow pulse brightens the same way, and a triangle warms a touch first and then brightens. The instantaneous peak is held, but a driven tone is genuinely fuller and a few dB louder in RMS -- this is overdrive at the source, not a tone control and not a loudness envelope.",
+          "anchors": {
+            "clean": {"value": 0.0, "gloss": "no saturation, the pure oscillator"},
+            "warm": {"value": 0.3, "gloss": "light saturation, gentle rounding"},
+            "hot": {"value": 0.6, "gloss": "heavy saturation, strongly reshaped"},
+            "screaming": {"value": 1.0, "gloss": "maximum saturation, fully driven"}
+          }
+        },
+        "fat": {
+          "range": [0.0, 1.0],
+          "default": 0.0,
+          "anchors": {
+            "single": {"value": 0.0, "gloss": "one oscillator, no thickening"},
+            "subtle": {"value": 0.15, "gloss": "a whisper of ensemble width"},
+            "thick": {"value": 0.5, "gloss": "clearly layered, wide"},
+            "wide": {"value": 1.0, "gloss": "maximally spread, chorus-like"}
+          }
+        },
+        "age": {
+          "range": [0.0, 1.0],
+          "default": 0.35,
+          "anchors": {
+            "new": {"value": 0.0, "gloss": "pristine, stable, no drift"},
+            "worn": {"value": 0.35, "gloss": "gentle analogue life -- pitch, level and shape all drifting slightly"},
+            "old": {"value": 0.8, "gloss": "unstable, wandering pitch and level, worn-in gear"}
+          }
+        }
+      }
     },
     {
       "key": "pulse",
@@ -85,7 +149,39 @@
         "motion_rate_hz": 0.25
       },
       "priority": 5,
-      "why": "narrow rectangular wave (~10% width), the thin nasal end of the analogue waveform axis"
+      "why": "narrow rectangular wave (~10% width), the thin nasal end of the analogue waveform axis",
+      "params": {
+        "drive": {
+          "range": [0.0, 1.0],
+          "default": 0.0,
+          "note": "the oscillator pushed past unity into a soft saturator (tanh). It ADDS harmonics, so the tone gets brighter and grittier as it climbs: a saw's spectral centroid nearly doubles from clean to screaming (measured 1849 to 3447 Hz), a square or narrow pulse brightens the same way, and a triangle warms a touch first and then brightens. The instantaneous peak is held, but a driven tone is genuinely fuller and a few dB louder in RMS -- this is overdrive at the source, not a tone control and not a loudness envelope.",
+          "anchors": {
+            "clean": {"value": 0.0, "gloss": "no saturation, the pure oscillator"},
+            "warm": {"value": 0.3, "gloss": "light saturation, gentle rounding"},
+            "hot": {"value": 0.6, "gloss": "heavy saturation, strongly reshaped"},
+            "screaming": {"value": 1.0, "gloss": "maximum saturation, fully driven"}
+          }
+        },
+        "fat": {
+          "range": [0.0, 1.0],
+          "default": 0.0,
+          "anchors": {
+            "single": {"value": 0.0, "gloss": "one oscillator, no thickening"},
+            "subtle": {"value": 0.15, "gloss": "a whisper of ensemble width"},
+            "thick": {"value": 0.5, "gloss": "clearly layered, wide"},
+            "wide": {"value": 1.0, "gloss": "maximally spread, chorus-like"}
+          }
+        },
+        "age": {
+          "range": [0.0, 1.0],
+          "default": 0.35,
+          "anchors": {
+            "new": {"value": 0.0, "gloss": "pristine, stable, no drift"},
+            "worn": {"value": 0.35, "gloss": "gentle analogue life -- pitch, level and shape all drifting slightly"},
+            "old": {"value": 0.8, "gloss": "unstable, wandering pitch and level, worn-in gear"}
+          }
+        }
+      }
     },
     {
       "key": "pwm",
@@ -129,7 +225,19 @@
         "motion_rate_hz": 0.35
       },
       "priority": 10,
-      "why": "classic PWM: the duty cycle sweeps continuously from 80% down to 20% and back, ~2 s per round trip by default (1 s per half-cycle); slow/fast stretch or compress it to 4 s / 1 s, so the tone hollows out and fills back in"
+      "why": "classic PWM: the duty cycle sweeps continuously from 80% down to 20% and back, ~2 s per round trip by default (1 s per half-cycle); slow/fast stretch or compress it to 4 s / 1 s, so the tone hollows out and fills back in",
+      "params": {
+        "rate": {
+          "range": [0.0, 1.0],
+          "default": 0.5,
+          "note": "how fast the duty sweeps, in seconds per half-cycle: slow ~2 s, medium ~1 s, fast ~0.5 s. The duty is always moving; this sets only the speed, never whether it moves.",
+          "anchors": {
+            "slow": {"value": 0.0, "gloss": "a slow ~2 s swell through the duty range and back"},
+            "medium": {"value": 0.5, "gloss": "about 1 s per half-sweep, the default motion"},
+            "fast": {"value": 1.0, "gloss": "a quick ~0.5 s pulsing sweep"}
+          }
+        }
+      }
     },
     {
       "key": "triangle",
@@ -157,7 +265,39 @@
         "motion_rate_hz": 0.25
       },
       "priority": 5,
-      "why": "odd harmonics decaying 1/h^2; the softest of the classic analogue waves"
+      "why": "odd harmonics decaying 1/h^2; the softest of the classic analogue waves",
+      "params": {
+        "drive": {
+          "range": [0.0, 1.0],
+          "default": 0.0,
+          "note": "the oscillator pushed past unity into a soft saturator (tanh). It ADDS harmonics, so the tone gets brighter and grittier as it climbs: a saw's spectral centroid nearly doubles from clean to screaming (measured 1849 to 3447 Hz), a square or narrow pulse brightens the same way, and a triangle warms a touch first and then brightens. The instantaneous peak is held, but a driven tone is genuinely fuller and a few dB louder in RMS -- this is overdrive at the source, not a tone control and not a loudness envelope.",
+          "anchors": {
+            "clean": {"value": 0.0, "gloss": "no saturation, the pure oscillator"},
+            "warm": {"value": 0.3, "gloss": "light saturation, gentle rounding"},
+            "hot": {"value": 0.6, "gloss": "heavy saturation, strongly reshaped"},
+            "screaming": {"value": 1.0, "gloss": "maximum saturation, fully driven"}
+          }
+        },
+        "fat": {
+          "range": [0.0, 1.0],
+          "default": 0.0,
+          "anchors": {
+            "single": {"value": 0.0, "gloss": "one oscillator, no thickening"},
+            "subtle": {"value": 0.15, "gloss": "a whisper of ensemble width"},
+            "thick": {"value": 0.5, "gloss": "clearly layered, wide"},
+            "wide": {"value": 1.0, "gloss": "maximally spread, chorus-like"}
+          }
+        },
+        "age": {
+          "range": [0.0, 1.0],
+          "default": 0.35,
+          "anchors": {
+            "new": {"value": 0.0, "gloss": "pristine, stable, no drift"},
+            "worn": {"value": 0.35, "gloss": "gentle analogue life -- pitch, level and shape all drifting slightly"},
+            "old": {"value": 0.8, "gloss": "unstable, wandering pitch and level, worn-in gear"}
+          }
+        }
+      }
     },
     {
       "key": "sine",
@@ -1774,7 +1914,7 @@
         "motion_rate_hz": 0.25
       },
       "priority": 10,
-      "why": "analogue oscillator / vco / minimoog / analogue synth: wave morphs continuously triangle to saw to square to pulse; drive is the mixer pushed past unity into a soft limiter (careful: it makes a saw ROUNDER and darker, only a triangle brighter); fat = detuned unison, age = analogue instability",
+      "why": "analogue oscillator / vco / minimoog / analogue synth: wave morphs continuously triangle to saw to square to pulse; drive is the mixer pushed past unity into a soft saturator (it ADDS harmonics: a saw, square or pulse brightens and grits up, a triangle warms then brightens); fat = detuned unison, age = analogue instability",
       "params": {
         "wave": {
           "range": [0.0, 1.0],
@@ -1789,7 +1929,7 @@
         "drive": {
           "range": [0.0, 1.0],
           "default": 0.0,
-          "note": "counter-intuitive, and this is the real behaviour of the hardware this models: on a saw or a narrow pulse, drive makes the tone ROUNDER and DARKER (the soft limiter rounds off the sharp edge and takes highs away); on a triangle, drive ADDS harmonics and makes it BRIGHTER. Never describe drive as simply 'brighter'.",
+          "note": "the oscillator pushed past unity into a soft saturator (tanh). It ADDS harmonics, so the tone gets brighter and grittier as it climbs: a saw's spectral centroid nearly doubles from clean to screaming (measured 1849 to 3447 Hz), a square or narrow pulse brightens the same way, and a triangle warms a touch first and then brightens. The instantaneous peak is held, but a driven tone is genuinely fuller and a few dB louder in RMS -- this is overdrive at the source, not a tone control and not a loudness envelope.",
           "anchors": {
             "clean": {"value": 0.0, "gloss": "no saturation, the pure oscillator"},
             "warm": {"value": 0.3, "gloss": "light saturation, gentle rounding"},
