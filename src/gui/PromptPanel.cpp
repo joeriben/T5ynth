@@ -2337,7 +2337,6 @@ void PromptPanel::triggerDcoBake()
 
     dcoBaking_ = true;
     if (onLcoBusyChanged) onLcoBusyChanged(true);   // disable the reused GENERATE button
-    if (onNewGenerationStarted) onNewGenerationStarted();
     setLcoStatus("LCO: authoring...");
 
     // One blocking IPC round-trip (may lazily load the instruct model) on a
@@ -2449,17 +2448,21 @@ void PromptPanel::triggerDcoBake()
             self->processorRef.setCsoundReading(authored.reading);
             self->processorRef.setCsoundParamsText(authored.paramsText);
 
+            // The engine now holds a new, unsaved sound — drop the loaded/
+            // last-saved preset identity (same reason and same siting as the
+            // neural render). Sited at the PUBLISH, not at the trigger where it
+            // used to sit: authoring fails asynchronously (dead subprocess,
+            // backend error, timeout) and that failure branch deliberately
+            // leaves the previously authored orchestra playing — a preset that
+            // is still sounding must keep its name.
+            if (self->onNewGenerationStarted) self->onNewGenerationStarted();
+
             // Open the compile-window poll: pollCsoundCompile (called every
             // tick from the panel's existing 10Hz timerCallback) reports
             // compiling -> ok/error via dcoFlagsLabel until this request
-            // resolves.
-            self->csoundCompileWatching_ = true;
-            self->csoundCompileSeenBusy_ = false;
-            self->csoundCompileWatchStartMs_ = juce::Time::getMillisecondCounterHiRes();
-            self->dcoFlagsLabel.setText("compiling...", juce::dontSendNotification);
-            self->dcoFlagsLabel.setTooltip({});
-
-            self->resized();   // flag-area content changed
+            // resolves. Shared with MainPanel's SNAP recall so a recalled
+            // orchestra reports its compile the same way (beginCsoundCompileWatch).
+            self->beginCsoundCompileWatch();
         });
       };
 
@@ -3259,6 +3262,9 @@ void PromptPanel::triggerGeneration()
 
     if (processorRef.isInferenceCacheFull())
     {
+        // No detach here: a preset saved WITH its inference cache restores the
+        // whole set, so this press auditions that preset's OWN stored variants
+        // — the sound still belongs to the loaded preset and keeps its name.
         playNextCachedInference();
         return;
     }
@@ -3311,6 +3317,15 @@ void PromptPanel::triggerGeneration()
                 {
                     processor.addInferenceCacheEntry(result.audio, result.sampleRate);
                     processor.loadGeneratedAudio(result.audio, result.sampleRate);
+                    // The sound in the engine is now a new, unsaved one — drop the
+                    // loaded/last-saved preset identity so Save stops pre-filling
+                    // that name and warning it will "Replace" a file this sound has
+                    // nothing to do with (the LCO bake detaches for the same reason).
+                    // Sited HERE, not at the request, because the neural path's
+                    // dominant failure mode is asynchronous: a backend error returns
+                    // through result.errorMessage with the loaded preset still
+                    // playing, and that preset must keep its identity.
+                    if (self->onNewGenerationStarted) self->onNewGenerationStarted();
                     processor.setLastDevice(deviceForLabel);
                     // Persist the SFX domain when the bare SA3 id can't encode it (medium backs
                     // both Music/SFX slots). req.trackType is the request-time domain (SA3-only;

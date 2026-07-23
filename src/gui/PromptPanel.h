@@ -238,14 +238,21 @@ public:
      *  authoring pass (the neural glow/cache path never runs in LCO). */
     std::function<void(bool busy)> onLcoBusyChanged;
 
-    /** Fired once, right as a fresh LCO bake commits to producing new audio
-     *  (triggerDcoBake, past all its early-reject guards). The just-baked sound
-     *  is not the loaded/last-saved preset any more, so MainPanel drops the
-     *  stale currentPresetFile/lastPresetName identity here — otherwise the
+    /** Fired once per new sound, on BOTH oscillators, at the AUDIO — the LCO
+     *  bake where it publishes the authored orchestra, the neural render in its
+     *  successful result. Never at the button: both paths fail asynchronously
+     *  (dead backend, timeout, authoring error) and leave the loaded preset
+     *  playing, and a preset that is still sounding must keep its name. The new
+     *  sound is not the loaded/last-saved preset any more, so MainPanel drops
+     *  the stale currentPresetFile/lastPresetName identity here — otherwise the
      *  Save dialog keeps defaulting to that old name and shows a "Replace"
-     *  warning for a file the new sound has nothing to do with. Re-prompt
-     *  corrections don't need their own call: they only run after a bake in
-     *  the same session already fired this once. */
+     *  warning for a file the new sound has nothing to do with. Four paths
+     *  deliberately do NOT fire it: LCO re-prompt corrections (they end in
+     *  triggerDcoBake, which publishes and fires), the cache-replay
+     *  short-circuit (a preset saved with its cache is auditioning its OWN
+     *  stored variants), the drift auto-regen (an unattended background refresh
+     *  of the preset the user is still sitting on), and replay playback
+     *  (fireReplayGeneration — the tape restores the patch it snapshotted). */
     std::function<void()> onNewGenerationStarted;
 
     /** Callback to read AxesPanel values with per-slot drift offsets (wired by MainPanel). */
