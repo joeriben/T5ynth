@@ -629,9 +629,25 @@ def build_csound_response(text, llm, correction="", previous=""):
         attempts.append(err)
         turn = user_turn + _REPAIR_PROMPT.format(error=err)
 
+    # Report every DISTINCT error, not just the last one. The two cases look the
+    # same from outside and need opposite responses: six times the same complaint
+    # is the library orienting the author wrongly and is fixable here; six
+    # different ones is a prompt this author cannot hold together. With only the
+    # last error visible, a systematic gap reads as bad luck.
+    seen, distinct = set(), []
+    for e in attempts:
+        if e not in seen:
+            seen.add(e)
+            distinct.append(e)
+    if not distinct:
+        detail = "unknown"
+    elif len(distinct) == 1:
+        detail = f"the same error every time: {distinct[0]}"
+    else:
+        detail = " | ".join(distinct)
     return {"ok": False,
             "error": "the author could not write a compiling orchestra after "
-                     f"{MAX_TRIES} attempts: {attempts[-1] if attempts else 'unknown'}",
+                     f"{MAX_TRIES} attempts: {detail}",
             "attempts": MAX_TRIES}
 
 
