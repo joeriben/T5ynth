@@ -252,11 +252,17 @@ def render_library(sel=None):
     out.append("")
     out.append("## MOTION (movement is code: a free-running oscillator driving a parameter)")
     for mot in lib["motions"]:
-        # The rate goes in the heading, not after the prose: a `why` now ends in a
-        # full stop, and appending ", around 0.16 Hz" to it reads as a typo.
-        rate = f" (around {mot['rate_hz']} Hz)" if mot.get("rate_hz") else ""
+        # The heading carries the KIND and the rate. The kind is the whole point of
+        # the taxonomy -- does the movement return, is it regular, is it a movement
+        # at all -- and the author is its only reader, so leaving it in the data
+        # file would make the distinction invisible exactly where it must land.
+        # The rate goes here too, not after the prose: a `why` ends in a full stop,
+        # and appending ", around 0.19 Hz" to it reads as a typo.
+        tag = ", ".join(x for x in (mot.get("kind") or "",
+                                    f"around {mot['rate_hz']} Hz" if mot.get("rate_hz") else "")
+                        if x)
         out.append("")
-        out.append(f"### {mot['key']}{rate} — {mot['why']}")
+        out.append(f"### {mot['key']}{f' ({tag})' if tag else ''} — {mot['why']}")
         if mot.get("code", "").strip():
             out.append(_indent(mot["code"]))
 

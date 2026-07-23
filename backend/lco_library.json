@@ -1008,10 +1008,10 @@
   },
   {
    "key": "evolve",
-   "why": "the timbre keeps travelling and NEVER comes back to where it was. Not a cycle: two rates with no common multiple, so no state repeats for the length of any note.",
+   "why": "the timbre keeps travelling and NEVER comes back to where it was. Not a cycle: a slow drift plus a random walk, so no state repeats for the length of any note. It must be moving within the first seconds — a note is short.",
    "kind": "wandering",
-   "rate_hz": 0.16,
-   "code": "ke1     oscili 0.22, 0.037              ; a very slow drift ...\nke2     randi  0.26, 0.061              ; ... plus a slow RANDOM walk: no period at all\nkdrv    = 1.0 + 3.4 * (0.5 + ke1 + ke2)\nalvl    = asig                          ; the level BEFORE the colour moves ...\nasig    = tanh(asig * kdrv)\nasig    balance asig, alvl, 40          ; ... held: the colour travels, the loudness does not"
+   "rate_hz": 0.19,
+   "code": "ke1     oscili 0.22, 0.19               ; travels within the first seconds ...\nke2     randi  0.26, 0.31               ; ... plus a RANDOM walk: no period at all\nkdrv    = 1.0 + 3.4 * (0.5 + ke1 + ke2)\nalvl    = asig                          ; the level BEFORE the colour moves ...\nasig    = tanh(asig * kdrv)\nasig    balance asig, alvl, 40          ; ... held: the colour travels, the loudness does not"
   },
   {
    "key": "static",
@@ -1064,21 +1064,21 @@
   },
   {
    "key": "slow",
-   "why": "not a movement of its own: it STRETCHES whatever movement is present — multiply that movement's rate by 0.5.",
+   "why": "not a movement of its own: it STRETCHES whatever movement is present — halve its rate, or double the time it takes to traverse.",
    "kind": "modifier",
    "rate_hz": null,
    "code": ""
   },
   {
    "key": "fast",
-   "why": "not a movement of its own: it COMPRESSES whatever movement is present — multiply that movement's rate by 1.7.",
+   "why": "not a movement of its own: it COMPRESSES whatever movement is present — multiply its rate by 1.7, or divide its traversal time by 1.7.",
    "kind": "modifier",
    "rate_hz": null,
    "code": ""
   },
   {
    "key": "snap",
-   "why": "not a movement of its own: it sharply compresses whatever movement is present — multiply that movement's rate by 3.0.",
+   "why": "not a movement of its own: it sharply compresses whatever movement is present — triple its rate, or take a third of its traversal time.",
    "kind": "modifier",
    "rate_hz": null,
    "code": ""
