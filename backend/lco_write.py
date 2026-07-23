@@ -283,7 +283,6 @@ HARD RULES
 - Use only real Csound 6.18 opcodes. `vco2`'s imode is an INTEGER (0 saw, 2 pulse, 10 triangle). There is no `vco1`.
 - An opcode call has NO equals sign: write `asig poscil 0.6, kfreq` — never `asig = poscil 0.6, kfreq`. `=` is only for arithmetic (`kx = 0.5 + klfo`).
 - An opcode STATEMENT names its RESULT VARIABLE first, then the opcode: `ahi atone asig, 2200`. Two consequences you must never break: (a) an opcode that returns audio must have that result variable — `atone asig, 2200` on its own, with nothing on its left, does not compile; (b) the opcode NAME is not a value — never write `aprea = atone`, and never pass a bare `atone`/`rand`/`oscili` as another opcode's argument (`mode rand 0.06, kfreq, kQ` is wrong). To use an opcode's result in an expression, give it its own line first (`ahi atone asig, 2200` then `asig = asig + ahi * 0.3`), or use the functional form WITH parentheses around all arguments (`asig = asig * (1 + oscili(0.18, 5.5, giSine))`).
-- `oscili` and `oscil` need a TABLE as their last argument: `oscili kamp, kcps, giSine`. Called with only amplitude and frequency they do not compile (`oscili 1, kfreq * 2.37` is wrong). `poscil` is the exception — it works with just amplitude and frequency.
 - `mode` is a resonant FILTER, not an oscillator: `ares mode aexc, kfreq, kQ`. Its first argument is an audio EXCITATION you must define on its OWN line first — `aexc rand 0.06, 0.5, 1` — never a bare opcode inlined (`mode rand 0.06, kfreq, kQ` is wrong). Build a bell/metal/drum bank by driving several `mode` lines from that SAME `aexc`, exactly as the struck_bar, drum_head and cymbal idioms do.
 - You shape SPECTRUM and TIMBRE only. Do NOT write an amplitude envelope on the output (no linen, adsr, madsr, expon on the way to `asig`) — loudness belongs to the player's envelope. The COLOUR may travel over the note; the LOUDNESS may not. A tone that fades out on its own is wrong.
 - Keep `asig` near +-0.5 peak. The host applies its own headroom and voice gain.
@@ -325,7 +324,7 @@ _REPAIR_PROMPT = (
     "  - an opcode written with `=` — write `kx linseg ...`, never `kx = linseg ...`; `=` is only for arithmetic.\n"
     "  - an opcode with no result variable (`atone asig, 400` alone), or the opcode NAME used as a value (`aprea = atone`) — every opcode names its result first: `aprea atone asig, 400`.\n"
     "  - an opcode sitting bare inside an expression — give it its own line first, or use its functional form with parentheses.\n"
-    "  - `oscili`/`oscil` called without their table argument (`giSine`), or `mode` called without a named `aexc` excitation line before it.\n"
+    "  - `mode` called without a named `aexc` excitation line before it.\n"
     "  - a variable used before it is defined, or your final signal not written into `asig`.\n"
     "Write the WHOLE body again, correctly. Do not explain the error."
 )
