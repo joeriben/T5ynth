@@ -129,18 +129,37 @@ _HOST_VARS = {
 # `kx = expr`, `ax, ay opcode ...`.
 _WRITES = re.compile(r"^\s*([A-Za-z_]\w*(?:\s*,\s*[A-Za-z_]\w*)*)\s+")
 _IDENT = re.compile(r"\b([a-zA-Z_]\w*)\b")
+# Control flow does not define anything, and its first token is not a variable.
+# Without this `if changed2(ktrig) == 1 then` would "define" `if`.
+_CONTROL = re.compile(r"^\s*(if|elseif|else|endif|until|od|do|"
+                      r"[ki]?goto|loop_[lg][et]|reinit|rireturn)\b")
 
 
 def _writes(line):
-    m = _WRITES.match(line.split(";")[0])
-    return {t.strip() for t in m.group(1).split(",")} if m else set()
+    """Result variables, in the order they are written. Order matters: the last
+    audio result decides the example's output line, and a set would iterate
+    differently between runs, making the generated library non-reproducible."""
+    src = line.split(";")[0]
+    if _CONTROL.match(src):
+        return []
+    m = _WRITES.match(src)
+    return [t.strip() for t in m.group(1).split(",")] if m else []
 
 
 def _reads(line):
-    """Identifiers a line uses. Opcode names come along, harmlessly: a name is
-    only ever acted on when some OTHER line is found to define it, and no line
+    """Identifiers a line uses, taken from everything AFTER the result variables.
+
+    Not `all identifiers minus the results`: an accumulator (`ktm0 = ktm0 + 1/kr`)
+    both writes and reads the same name, and subtracting the write would hide
+    the read and leave `ktm0` undefined in a harvested delta -- the very failure
+    this closure exists to prevent. Opcode names come along harmlessly: a name
+    is only acted on when some OTHER line is found to define it, and no line
     defines `vco2`."""
-    return set(_IDENT.findall(line.split(";")[0])) - _writes(line)
+    src = line.split(";")[0]
+    if _CONTROL.match(src):
+        return set(_IDENT.findall(src))
+    m = _WRITES.match(src)
+    return set(_IDENT.findall(src[m.end():] if m else src))
 
 
 _EMITTER_PARAM = {
@@ -210,15 +229,24 @@ def harvest(P, lex):
         lines = emit(P, technique_keys=[carrier], **kw).splitlines()
         keep = {i for i, l in enumerate(lines) if l not in base_lines}
         for _ in range(len(lines)):
-            need = set()
-            for i in sorted(keep):
-                need |= _reads(lines[i])
-            need -= {v for i in keep for v in _writes(lines[i])} | _HOST_VARS
+            written = {v for i in keep for v in _writes(lines[i])}
+            # Backwards: pull in what the kept lines READ but nothing defines.
+            need = set().union(*(_reads(lines[i]) for i in keep)) if keep else set()
+            need -= written | _HOST_VARS
+            # Forwards: pull in what CONSUMES the kept lines. A word's difference
+            # is often only in the constants of a control signal, so the line that
+            # applies it is byte-identical in both versions and drops out of a
+            # pure difference -- which left `old` as three modulators wired to
+            # nothing, rendering bit-identical to the bare carrier. A delta that
+            # never reaches the audio is not an example of anything.
             grew = False
             for i, l in enumerate(lines):
-                if i not in keep and _writes(l) & need:
-                    keep.add(i)
-                    grew = True
+                if i in keep:
+                    continue
+                if _writes(l) and set(_writes(l)) & need:
+                    keep.add(i); grew = True
+                elif _reads(l) & written:
+                    keep.add(i); grew = True
             if not grew:
                 break
         kept = [lines[i] for i in sorted(keep)]

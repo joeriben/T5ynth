@@ -720,27 +720,27 @@
   {
    "key": "warm",
    "why": "dark + 2nd-harmonic glow — a convention, stated, arguable",
-   "code": "ivph0   = frac(ivoice * 0.6180339887)   ; per-voice phase\nkvdr0   poscil 0.00245, 0.043 + 0.0037 * ivoice, giSine, ivph0\nkdty0   poscil 0.0042, 0.057     ; age: shape/duty wobble on kpw\nkpw0s0   = 0.02 + kdty0\naao0s0u0  vco2 0.6, (kfreq * koct1) * (1 + kvdr0), 4, kpw0s0, 0   ; wave seg0 imode4 copy 0\nacln0   = aao0s0u0 * 1.000000    ; clean oscillator (pre-drive)\nadrv0   = tanh(acln0 * 6.7000) * 0.6004  ; drive 0.3: pregain 6.70x into tanh, output-compensated\nasig    = adrv0"
+   "code": "ivph0   = frac(ivoice * 0.6180339887)   ; per-voice phase\nkvdr0   poscil 0.00245, 0.043 + 0.0037 * ivoice, giSine, ivph0\nkdty0   poscil 0.0042, 0.057     ; age: shape/duty wobble on kpw\nkpw0s0   = 0.02 + kdty0\naao0s0u0  vco2 0.6, (kfreq * koct1) * (1 + kvdr0), 4, kpw0s0, 0   ; wave seg0 imode4 copy 0\nacln0   = aao0s0u0 * 1.000000    ; clean oscillator (pre-drive)\nadrv0   = tanh(acln0 * 6.7000) * 0.6004  ; drive 0.3: pregain 6.70x into tanh, output-compensated\nkagw0   oscili 0.0105, 0.7        ; age: amplitude wobble\nasig    = adrv0 * (1 + kagw0)"
   },
   {
    "key": "hollow",
    "why": "odd-dominant = clarinet family",
-   "code": "ivph0   = frac(ivoice * 0.6180339887)   ; per-voice phase\nkvdr0   poscil 0.00245, 0.043 + 0.0037 * ivoice, giSine, ivph0\nkdty0   poscil 0.0042, 0.057     ; age: shape/duty wobble on kpw\nkpw0s0   = 0.5 + kdty0\naao0s0u0  vco2 0.6, (kfreq * koct1) * (1 + kvdr0), 2, kpw0s0, 0   ; wave seg0 imode2 copy 0\nacln0   = aao0s0u0 * 0.578000    ; clean oscillator (pre-drive)\nasig    = acln0"
+   "code": "ivph0   = frac(ivoice * 0.6180339887)   ; per-voice phase\nkvdr0   poscil 0.00245, 0.043 + 0.0037 * ivoice, giSine, ivph0\nkdty0   poscil 0.0042, 0.057     ; age: shape/duty wobble on kpw\nkpw0s0   = 0.5 + kdty0\naao0s0u0  vco2 0.6, (kfreq * koct1) * (1 + kvdr0), 2, kpw0s0, 0   ; wave seg0 imode2 copy 0\nacln0   = aao0s0u0 * 0.578000    ; clean oscillator (pre-drive)\nadrv0   = acln0                     ; drive 0: clean, no saturator stage\nkagw0   oscili 0.0105, 0.7        ; age: amplitude wobble\nasig    = adrv0 * (1 + kagw0)"
   },
   {
    "key": "nasal",
    "why": "mid-harmonic formant-ish bump",
-   "code": "ivph0   = frac(ivoice * 0.6180339887)   ; per-voice phase\nkvdr0   poscil 0.00245, 0.043 + 0.0037 * ivoice, giSine, ivph0\nkdty0   poscil 0.0042, 0.057     ; age: shape/duty wobble on kpw\nkpw0s0   = 0.188889 + kdty0\naao0s0u0  vco2 0.6, (kfreq * koct1) * (1 + kvdr0), 2, kpw0s0, 0   ; wave seg0 imode2 copy 0\nacln0   = aao0s0u0 * 0.578000    ; clean oscillator (pre-drive)\nasig    = acln0"
+   "code": "ivph0   = frac(ivoice * 0.6180339887)   ; per-voice phase\nkvdr0   poscil 0.00245, 0.043 + 0.0037 * ivoice, giSine, ivph0\nkdty0   poscil 0.0042, 0.057     ; age: shape/duty wobble on kpw\nkpw0s0   = 0.188889 + kdty0\naao0s0u0  vco2 0.6, (kfreq * koct1) * (1 + kvdr0), 2, kpw0s0, 0   ; wave seg0 imode2 copy 0\nacln0   = aao0s0u0 * 0.578000    ; clean oscillator (pre-drive)\nadrv0   = acln0                     ; drive 0: clean, no saturator stage\nkagw0   oscili 0.0105, 0.7        ; age: amplitude wobble\nasig    = adrv0 * (1 + kagw0)"
   },
   {
    "key": "fat",
    "why": "weight below; unison part is flagged separately, not modeled here",
-   "code": "ivph0   = frac(ivoice * 0.6180339887)   ; per-voice phase\nkvdr0   poscil 0.00245, 0.043 + 0.0037 * ivoice, giSine, ivph0\nkdty0   poscil 0.0042, 0.057     ; age: shape/duty wobble on kpw\nkpw0s0   = 0.02 + kdty0\naao0s0u0  vco2 0.6, (kfreq * koct1) * 0.988514 * (1 + kvdr0), 4, kpw0s0, 0   ; wave seg0 imode4 copy 0 (-20.0c)\naao0s0u1  vco2 0.6, (kfreq * koct1) * (1 + kvdr0), 4, kpw0s0, 0   ; wave seg0 imode4 copy 1\naao0s0u2  vco2 0.6, (kfreq * koct1) * 1.011619 * (1 + kvdr0), 4, kpw0s0, 0   ; wave seg0 imode4 copy 2 (+20.0c)\nacln0   = aao0s0u0 * 0.578000 + aao0s0u1 * 0.578000 + aao0s0u2 * 0.578000    ; clean oscillator (pre-drive)\nasig    = acln0"
+   "code": "ivph0   = frac(ivoice * 0.6180339887)   ; per-voice phase\nkvdr0   poscil 0.00245, 0.043 + 0.0037 * ivoice, giSine, ivph0\nkdty0   poscil 0.0042, 0.057     ; age: shape/duty wobble on kpw\nkpw0s0   = 0.02 + kdty0\naao0s0u0  vco2 0.6, (kfreq * koct1) * 0.988514 * (1 + kvdr0), 4, kpw0s0, 0   ; wave seg0 imode4 copy 0 (-20.0c)\naao0s0u1  vco2 0.6, (kfreq * koct1) * (1 + kvdr0), 4, kpw0s0, 0   ; wave seg0 imode4 copy 1\naao0s0u2  vco2 0.6, (kfreq * koct1) * 1.011619 * (1 + kvdr0), 4, kpw0s0, 0   ; wave seg0 imode4 copy 2 (+20.0c)\nacln0   = aao0s0u0 * 0.578000 + aao0s0u1 * 0.578000 + aao0s0u2 * 0.578000    ; clean oscillator (pre-drive)\nadrv0   = acln0                     ; drive 0: clean, no saturator stage\nkagw0   oscili 0.0105, 0.7        ; age: amplitude wobble\nasig    = adrv0 * (1 + kagw0)"
   },
   {
    "key": "thin",
    "why": "inverse of fat",
-   "code": "ivph0   = frac(ivoice * 0.6180339887)   ; per-voice phase\nkvdr0   poscil 0.00245, 0.043 + 0.0037 * ivoice, giSine, ivph0\nkdty0   poscil 0.0042, 0.057     ; age: shape/duty wobble on kpw\nkpw0s0   = 0.322222 + kdty0\naao0s0u0  vco2 0.6, (kfreq * koct1) * (1 + kvdr0), 2, kpw0s0, 0   ; wave seg0 imode2 copy 0\nacln0   = aao0s0u0 * 0.578000    ; clean oscillator (pre-drive)\nasig    = acln0"
+   "code": "ivph0   = frac(ivoice * 0.6180339887)   ; per-voice phase\nkvdr0   poscil 0.00245, 0.043 + 0.0037 * ivoice, giSine, ivph0\nkdty0   poscil 0.0042, 0.057     ; age: shape/duty wobble on kpw\nkpw0s0   = 0.322222 + kdty0\naao0s0u0  vco2 0.6, (kfreq * koct1) * (1 + kvdr0), 2, kpw0s0, 0   ; wave seg0 imode2 copy 0\nacln0   = aao0s0u0 * 0.578000    ; clean oscillator (pre-drive)\nadrv0   = acln0                     ; drive 0: clean, no saturator stage\nkagw0   oscili 0.0105, 0.7        ; age: amplitude wobble\nasig    = adrv0 * (1 + kagw0)"
   },
   {
    "key": "buzzy",
@@ -880,7 +880,7 @@
   {
    "key": "thick",
    "why": "weight without narrowing (compare fat, which also narrows width)",
-   "code": "ivph0   = frac(ivoice * 0.6180339887)   ; per-voice phase\nkvdr0   poscil 0.00245, 0.043 + 0.0037 * ivoice, giSine, ivph0\nkdty0   poscil 0.0042, 0.057     ; age: shape/duty wobble on kpw\nkpw0s0   = 0.02 + kdty0\naao0s0u0  vco2 0.6, (kfreq * koct1) * 0.988514 * (1 + kvdr0), 4, kpw0s0, 0   ; wave seg0 imode4 copy 0 (-20.0c)\naao0s0u1  vco2 0.6, (kfreq * koct1) * (1 + kvdr0), 4, kpw0s0, 0   ; wave seg0 imode4 copy 1\naao0s0u2  vco2 0.6, (kfreq * koct1) * 1.011619 * (1 + kvdr0), 4, kpw0s0, 0   ; wave seg0 imode4 copy 2 (+20.0c)\nacln0   = aao0s0u0 * 0.578000 + aao0s0u1 * 0.578000 + aao0s0u2 * 0.578000    ; clean oscillator (pre-drive)\nasig    = acln0"
+   "code": "ivph0   = frac(ivoice * 0.6180339887)   ; per-voice phase\nkvdr0   poscil 0.00245, 0.043 + 0.0037 * ivoice, giSine, ivph0\nkdty0   poscil 0.0042, 0.057     ; age: shape/duty wobble on kpw\nkpw0s0   = 0.02 + kdty0\naao0s0u0  vco2 0.6, (kfreq * koct1) * 0.988514 * (1 + kvdr0), 4, kpw0s0, 0   ; wave seg0 imode4 copy 0 (-20.0c)\naao0s0u1  vco2 0.6, (kfreq * koct1) * (1 + kvdr0), 4, kpw0s0, 0   ; wave seg0 imode4 copy 1\naao0s0u2  vco2 0.6, (kfreq * koct1) * 1.011619 * (1 + kvdr0), 4, kpw0s0, 0   ; wave seg0 imode4 copy 2 (+20.0c)\nacln0   = aao0s0u0 * 0.578000 + aao0s0u1 * 0.578000 + aao0s0u2 * 0.578000    ; clean oscillator (pre-drive)\nadrv0   = acln0                     ; drive 0: clean, no saturator stage\nkagw0   oscili 0.0105, 0.7        ; age: amplitude wobble\nasig    = adrv0 * (1 + kagw0)"
   },
   {
    "key": "raspy",
@@ -910,7 +910,7 @@
   {
    "key": "reedy",
    "why": "odd-leaning with a mid formant-ish bump, reed-instrument-adjacent",
-   "code": "ivph0   = frac(ivoice * 0.6180339887)   ; per-voice phase\nkvdr0   poscil 0.00245, 0.043 + 0.0037 * ivoice, giSine, ivph0\nkdty0   poscil 0.0042, 0.057     ; age: shape/duty wobble on kpw\nkpw0s0   = 0.5 + kdty0\naao0s0u0  vco2 0.6, (kfreq * koct1) * (1 + kvdr0), 2, kpw0s0, 0   ; wave seg0 imode2 copy 0\nacln0   = aao0s0u0 * 0.578000    ; clean oscillator (pre-drive)\nasig    = acln0"
+   "code": "ivph0   = frac(ivoice * 0.6180339887)   ; per-voice phase\nkvdr0   poscil 0.00245, 0.043 + 0.0037 * ivoice, giSine, ivph0\nkdty0   poscil 0.0042, 0.057     ; age: shape/duty wobble on kpw\nkpw0s0   = 0.5 + kdty0\naao0s0u0  vco2 0.6, (kfreq * koct1) * (1 + kvdr0), 2, kpw0s0, 0   ; wave seg0 imode2 copy 0\nacln0   = aao0s0u0 * 0.578000    ; clean oscillator (pre-drive)\nadrv0   = acln0                     ; drive 0: clean, no saturator stage\nkagw0   oscili 0.0105, 0.7        ; age: amplitude wobble\nasig    = adrv0 * (1 + kagw0)"
   },
   {
    "key": "dull",
@@ -945,7 +945,7 @@
   {
    "key": "distorted",
    "why": "overdriven, clipped, fuzzed — a hard tanh waveshaper computes REAL new harmonics into the spectrum, well past the point where the waveform squares off",
-   "code": "ivph0   = frac(ivoice * 0.6180339887)   ; per-voice phase\nkvdr0   poscil 0.00245, 0.043 + 0.0037 * ivoice, giSine, ivph0\nkdty0   poscil 0.0042, 0.057     ; age: shape/duty wobble on kpw\nkpw0s0   = 0.02 + kdty0\naao0s0u0  vco2 0.6, (kfreq * koct1) * (1 + kvdr0), 4, kpw0s0, 0   ; wave seg0 imode4 copy 0\nacln0   = aao0s0u0 * 1.000000    ; clean oscillator (pre-drive)\nadrv0   = tanh(acln0 * 20.0000) * 0.6000  ; drive 1: pregain 20.00x into tanh, output-compensated\nasig    = adrv0"
+   "code": "ivph0   = frac(ivoice * 0.6180339887)   ; per-voice phase\nkvdr0   poscil 0.00245, 0.043 + 0.0037 * ivoice, giSine, ivph0\nkdty0   poscil 0.0042, 0.057     ; age: shape/duty wobble on kpw\nkpw0s0   = 0.02 + kdty0\naao0s0u0  vco2 0.6, (kfreq * koct1) * (1 + kvdr0), 4, kpw0s0, 0   ; wave seg0 imode4 copy 0\nacln0   = aao0s0u0 * 1.000000    ; clean oscillator (pre-drive)\nadrv0   = tanh(acln0 * 20.0000) * 0.6000  ; drive 1: pregain 20.00x into tanh, output-compensated\nkagw0   oscili 0.0105, 0.7        ; age: amplitude wobble\nasig    = adrv0 * (1 + kagw0)"
   },
   {
    "key": "analog",
@@ -955,7 +955,7 @@
   {
    "key": "old",
    "why": "aged, worn, vintage — the top of the spectrum eroded away, as if the highs had been played off tape too many times; purely spectral (for the unsteady tuning of old gear, say analog)",
-   "code": "ivph0   = frac(ivoice * 0.6180339887)   ; per-voice phase\nkvdr0   poscil 0.0056, 0.043 + 0.0037 * ivoice, giSine, ivph0\nkdty0   poscil 0.0096, 0.057     ; age: shape/duty wobble on kpw\nkagw0   oscili 0.024, 0.7        ; age: amplitude wobble"
+   "code": "ivph0   = frac(ivoice * 0.6180339887)   ; per-voice phase\nkvdr0   poscil 0.0056, 0.043 + 0.0037 * ivoice, giSine, ivph0\nkdty0   poscil 0.0096, 0.057     ; age: shape/duty wobble on kpw\nkpw0s0   = 0.02 + kdty0\naao0s0u0  vco2 0.6, (kfreq * koct1) * (1 + kvdr0), 4, kpw0s0, 0   ; wave seg0 imode4 copy 0\nacln0   = aao0s0u0 * 1.000000    ; clean oscillator (pre-drive)\nadrv0   = acln0                     ; drive 0: clean, no saturator stage\nkagw0   oscili 0.024, 0.7        ; age: amplitude wobble\nasig    = adrv0 * (1 + kagw0)"
   },
   {
    "key": "washed_out",
