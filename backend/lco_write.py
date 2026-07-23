@@ -337,18 +337,36 @@ def system_prompt(prompt=""):
     return _SYSTEM_HEAD + "\n" + render_library(select(prompt))
 
 
-_REPAIR_PROMPT = (
-    "\n\nYour previous attempt did not compile. Csound reported:\n"
-    "  {error}\n"
-    "Csound's syntax errors are terse, so check the named line against the most "
+_REPAIR_HEAD = (
+    "\n\nYour attempt did not compile. Csound reported {n_label}, and your next "
+    "body must fix ALL of them AT ONCE without introducing a new one — fixing one "
+    "line and breaking another only trades one error for the next:\n"
+    "{errors}\n"
+)
+_REPAIR_TAIL = (
+    "Csound's syntax errors are terse, so check EACH named line against the most "
     "common mechanical causes before rewriting:\n"
     "  - an opcode written with `=` — write `kx linseg ...`, never `kx = linseg ...`; `=` is only for arithmetic.\n"
-    "  - an opcode with no result variable (`atone asig, 400` alone), or the opcode NAME used as a value (`aprea = atone`) — every opcode names its result first: `aprea atone asig, 400`.\n"
-    "  - an opcode sitting bare inside an expression — give it its own line first, or use its functional form with parentheses.\n"
+    "  - an opcode sitting inside an arithmetic expression (`kpw = 0.02 + poscil 0.0042, 0.057`) — an opcode is NEVER a term in a `+`/`*`/`=`. Give it its OWN line first (`klfo poscil 0.0042, 0.057` then `kpw = 0.02 + klfo`), or use its functional form with parentheses around every argument (`kpw = 0.02 + poscil:k(0.0042, 0.057, giSine)`).\n"
+    "  - an opcode with no result variable (`atone asig, 400` alone), or the opcode NAME used as a value (`asig = asig + atone`) — every opcode names its result first: `ahi atone asig, 400` then `asig = asig + ahi`.\n"
     "  - `mode` called without a named `aexc` excitation line before it.\n"
     "  - a variable used before it is defined, or your final signal not written into `asig`.\n"
     "Write the WHOLE body again, correctly. Do not explain the error."
 )
+
+
+def _repair_turn(seen_errors):
+    """The repair user-turn built from EVERY distinct error seen so far, not just
+    the latest. A single-error view makes the author oscillate: told to fix line
+    A it rewrites and breaks line B, told to fix B it reintroduces A, and at
+    temperature 0 that is a permanent 2-cycle no number of retries escapes
+    (measured on "bright tone -> dark growl": 6/6 attempts alternated between an
+    inline-`poscil` body and a bare-`atone` body). Showing all the constraints at
+    once is a NEW turn the model has not been at, and it is still the model that
+    writes the fix — Python names the compiler's complaints, never the Csound."""
+    lines = "\n".join(f"  - {e}" for e in seen_errors)
+    n_label = "this error" if len(seen_errors) == 1 else f"these {len(seen_errors)} errors"
+    return _REPAIR_HEAD.format(n_label=n_label, errors=lines) + _REPAIR_TAIL
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -815,6 +833,7 @@ def build_csound_response(text, llm, correction="", previous=""):
 
     sysp = system_prompt(prompt)
     attempts = []
+    seen_errors = []   # distinct errors, in first-seen order — the whole repair context
     turn = user_turn
     for attempt in range(1, MAX_TRIES + 1):
         # No token cap: the orchestra is as long as the sound needs. A cap here
@@ -824,7 +843,9 @@ def build_csound_response(text, llm, correction="", previous=""):
         body, reading = sanitize(raw)
         if not body.strip():
             attempts.append("the model returned no code")
-            turn = user_turn + _REPAIR_PROMPT.format(error="you returned no code at all")
+            if "you returned no code at all" not in seen_errors:
+                seen_errors.append("you returned no code at all")
+            turn = user_turn + _repair_turn(seen_errors)
             continue
 
         orchestra = wrap(body)
@@ -845,7 +866,9 @@ def build_csound_response(text, llm, correction="", previous=""):
                     "params_text": body,
                     "attempts": attempt}
         attempts.append(err)
-        turn = user_turn + _REPAIR_PROMPT.format(error=err)
+        if err not in seen_errors:
+            seen_errors.append(err)
+        turn = user_turn + _repair_turn(seen_errors)
 
     # Report every DISTINCT error, not just the last one. The two cases look the
     # same from outside and need opposite responses: six times the same complaint
