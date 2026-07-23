@@ -39,7 +39,12 @@ HEADROOM = 0.32      # bounds a single idiom's peak; the voice VCA/DCA shapes th
 
 # How many times the model may see the compiler's error and try again. Each
 # retry is a full re-authoring with the error in the user turn -- not a patch.
-MAX_TRIES = int(os.environ.get("T5YNTH_LCO_MAX_TRIES", 3))
+# The author is a 12B: most prompts land in one or two attempts, but a marginal
+# tail (compound/modal prompts, and the odd greedy-but-not-deterministic Metal
+# roll) needs the informative repair loop to run longer. With no fallback the
+# alternative to another try is silence, so the ceiling is set where the loop
+# reliably converges rather than as tight as it will usually go.
+MAX_TRIES = int(os.environ.get("T5YNTH_LCO_MAX_TRIES", 6))
 
 
 
@@ -277,7 +282,9 @@ HARD RULES
 - Define every variable before you use it, top to bottom. Give your variables distinct names; do not reuse a name for two things.
 - Use only real Csound 6.18 opcodes. `vco2`'s imode is an INTEGER (0 saw, 2 pulse, 10 triangle). There is no `vco1`.
 - An opcode call has NO equals sign: write `asig poscil 0.6, kfreq` — never `asig = poscil 0.6, kfreq`. `=` is only for arithmetic (`kx = 0.5 + klfo`).
-- An opcode is a STATEMENT on its own line. It cannot sit bare inside an expression: `asig = asig + (atone asig, 2200) * 0.3` is invalid. Give it its own line first (`ahi atone asig, 2200` then `asig = asig + ahi * 0.3`), or use the functional form WITH parentheses around all arguments (`asig = asig * (1 + oscili(0.18, 5.5, giSine))`).
+- An opcode STATEMENT names its RESULT VARIABLE first, then the opcode: `ahi atone asig, 2200`. Two consequences you must never break: (a) an opcode that returns audio must have that result variable — `atone asig, 2200` on its own, with nothing on its left, does not compile; (b) the opcode NAME is not a value — never write `aprea = atone`, and never pass a bare `atone`/`rand`/`oscili` as another opcode's argument (`mode rand 0.06, kfreq, kQ` is wrong). To use an opcode's result in an expression, give it its own line first (`ahi atone asig, 2200` then `asig = asig + ahi * 0.3`), or use the functional form WITH parentheses around all arguments (`asig = asig * (1 + oscili(0.18, 5.5, giSine))`).
+- `oscili` and `oscil` need a TABLE as their last argument: `oscili kamp, kcps, giSine`. Called with only amplitude and frequency they do not compile (`oscili 1, kfreq * 2.37` is wrong). `poscil` is the exception — it works with just amplitude and frequency.
+- `mode` is a resonant FILTER, not an oscillator: `ares mode aexc, kfreq, kQ`. Its first argument is an audio EXCITATION you must define on its OWN line first — `aexc rand 0.06, 0.5, 1` — never a bare opcode inlined (`mode rand 0.06, kfreq, kQ` is wrong). Build a bell/metal/drum bank by driving several `mode` lines from that SAME `aexc`, exactly as the struck_bar, drum_head and cymbal idioms do.
 - You shape SPECTRUM and TIMBRE only. Do NOT write an amplitude envelope on the output (no linen, adsr, madsr, expon on the way to `asig`) — loudness belongs to the player's envelope. The COLOUR may travel over the note; the LOUDNESS may not. A tone that fades out on its own is wrong.
 - Keep `asig` near +-0.5 peak. The host applies its own headroom and voice gain.
 - The sound MOVES by default: a sweep, a beat, a shimmer, a morph. Only write a standing tone if the user explicitly asks for something static or still.
@@ -313,6 +320,13 @@ def system_prompt(prompt=""):
 _REPAIR_PROMPT = (
     "\n\nYour previous attempt did not compile. Csound reported:\n"
     "  {error}\n"
+    "Csound's syntax errors are terse, so check the named line against the most "
+    "common mechanical causes before rewriting:\n"
+    "  - an opcode written with `=` — write `kx linseg ...`, never `kx = linseg ...`; `=` is only for arithmetic.\n"
+    "  - an opcode with no result variable (`atone asig, 400` alone), or the opcode NAME used as a value (`aprea = atone`) — every opcode names its result first: `aprea atone asig, 400`.\n"
+    "  - an opcode sitting bare inside an expression — give it its own line first, or use its functional form with parentheses.\n"
+    "  - `oscili`/`oscil` called without their table argument (`giSine`), or `mode` called without a named `aexc` excitation line before it.\n"
+    "  - a variable used before it is defined, or your final signal not written into `asig`.\n"
     "Write the WHOLE body again, correctly. Do not explain the error."
 )
 
