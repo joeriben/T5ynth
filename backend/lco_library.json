@@ -36,7 +36,7 @@
   },
   {
    "key": "additive",
-   "why": "a generic additive base (light 2nd/3rd harmonic) for adjectives to shape from",
+   "why": "a seven-harmonic gbuzz stack doubled by a twin three cents above, so the pair beats slowly; knh sets how many partials, kmul how fast they fall away",
    "code": "kad0    poscil 0.0004, 0.053         ; slow drift, upper stack\naa10    gbuzz 0.52, (kfreq * koct1), 7, 1, 0.68, giCos          ; harmonic stack\naa20    gbuzz 0.34, (kfreq * koct1) * (1.0018 + kad0), 7, 1, 0.64, giCos ; twin, +3 cents\nasig    = aa10 + aa20"
   },
   {
@@ -534,7 +534,7 @@
   },
   {
    "key": "organ",
-   "why": "classic drawbar harmonic set {1,2,3,4,6,8} at typical registration levels",
+   "why": "three drawbar ranks at typical registration — an 8' principal, a 4' octave and a 5 1/3' quint, each its own gbuzz stack, each drifting at its own rate",
    "code": "kw80    poscil 0.00035, 0.061        ; rank 8' tuning wander\nkw40    poscil 0.00045, 0.083        ; rank 4', incommensurate\nkwq0    poscil 0.00030, 0.107        ; quint rank, incommensurate\na80     gbuzz 0.46, (kfreq * koct1) * (1 + kw80), 6, 1, 0.72, giCos ; 8' principal\na40     gbuzz 0.24, (kfreq * koct1) * 2.0023 * (1 + kw40), 4, 1, 0.66, giCos ; 4' octave, +4 cents\naq0     gbuzz 0.16, (kfreq * koct1) * 1.4987 * (1 + kwq0), 3, 1, 0.60, giCos ; 5 1/3' quint, -1.5 cents\nasig    = a80 + a40 + aq0"
   },
   {
@@ -544,12 +544,12 @@
   },
   {
    "key": "flute",
-   "why": "the blown-pipe waveguide itself — jet, bore and radiation — a hollow near-pure tone that holds while the note is held",
+   "why": "a hollow four-harmonic stack whose rolloff breathes on a three-second pressure cycle, with an octave layer beating against its own second harmonic — the blown character, not a physical bore model",
    "code": "kbr0    poscil 0.5, 0.31             ; breath-pressure cycle, ~3 s\nkfm0    = 0.24 + 0.16 * kbr0      ; pressure opens the harmonics\nabd0    gbuzz 0.34, (kfreq * koct1), 4, 1, kfm0, giCos ; blown harmonic stack\nkwo0    poscil 0.0009, 0.077         ; air-column wander, own rate\naoc0    poscil 0.05, (kfreq * koct1) * 2 * (1 + kwo0)  ; octave, beats with the body's 2nd\nasig    = abd0 + aoc0"
   },
   {
    "key": "brass",
-   "why": "saw-family spectrum that opens from a dark 6-harmonic set to a brighter 12-harmonic set",
+   "why": "a twelve-harmonic stack whose rolloff opens once from dark to bright over the attack and then holds, voiced through a fixed 1200 Hz bell formant",
    "code": "kop0    = 1 - exp(-knote * 2.2)       ; attack opens the series ONCE\nkbm0    = 0.30 + kop0 * 0.42       ; dark at onset -> bright, then holds\nklw0    poscil 0.0006, 0.083         ; lip instability, own rate\nabz0    gbuzz 0.5, (kfreq * koct1) * (1 + klw0), 12, 1, kbm0, giCos ; lip + bore\nabl0    reson abz0, 1200, 900, 1   ; bell formant, FIXED in Hz\nasig    = abz0 * 0.95 + abl0 * 0.40"
   },
   {
@@ -574,7 +574,7 @@
   },
   {
    "key": "harpsichord",
-   "why": "bright, plucky additive spectrum (many odd+even partials)",
+   "why": "two bright gbuzz choirs, an 8' and a 4' a hair sharp, drifting against each other — the plucked-string spectrum without the pluck",
    "code": "khw80   poscil 0.00040, 0.071        ; 8' choir tuning drift\nkhw40   poscil 0.00055, 0.094        ; 4' choir, incommensurate\nah80    gbuzz 0.56, (kfreq * koct1) * (1 + khw80), 9, 1, 0.80, giCos ; 8' choir, bright\nah40    gbuzz 0.24, (kfreq * koct1) * 2.0031 * (1 + khw40), 6, 1, 0.72, giCos ; 4' choir\nasig    = ah80 + ah40"
   },
   {
@@ -584,12 +584,12 @@
   },
   {
    "key": "theremin",
-   "why": "an almost pure tone whose second harmonic wavers slowly -- the breathing, near-vocal purity of the instrument",
+   "why": "an almost pure tone whose odd harmonics waver slowly under a heterodyne nonlinearity -- the breathing, near-vocal purity of the instrument",
    "code": "kwv0    poscil 0.5, 0.9              ; slow timbre waver\nkndx0   = 0.42 + 0.34 * kwv0       ; heterodyne mix depth\nasig    foscili 0.55, (kfreq * koct1), 1, 2, kndx0, giSine ; heterodyne nonlinearity"
   },
   {
    "key": "sub_sine",
-   "why": "a pure sine is the standard sub-bass building block",
+   "why": "a pure fundamental with a divider octave beneath it -- the standard sub-bass pair",
    "code": "ksbw0   poscil 0.0006, 0.067         ; divider drift\nasb0    gbuzz 0.28, (kfreq * koct1) * 0.5 * (1 + ksbw0), 2, 1, 0.55, giCos ; sub octave (divider)\nafn0    poscil 0.50, (kfreq * koct1)          ; fundamental\nasig    = afn0 + asb0"
   },
   {
