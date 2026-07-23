@@ -25,10 +25,14 @@ Python's remaining job, and its whole job:
 LLM-first, no fallback: no model -> no oscillator. A prompt that cannot be
 authored returns an honest ok=false, never a junk tone.
 """
+import ctypes
+import ctypes.util
 import json
 import os
 import re
+import shutil
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 
@@ -497,6 +501,14 @@ def wrap(body):
 # ─────────────────────────────────────────────────────────────────────────────
 
 _ANSI = re.compile(r"\x1b\[[0-9;]*m")
+# The CLI echoes its `>>> … <<<` source line one character at a time, with an SGR
+# escape between each and a raw NUL at the parser's error position. Stripping
+# only the escapes leaves that NUL in the quoted line — which then goes into the
+# repair turn (a stray control byte mid-line for the author) and into the JSON
+# error, where juce::String truncates at it and the user loses the rest of the
+# message. The in-process compiler has no such marker, so this is also what keeps
+# the two paths' diagnostics identical.
+_CTRL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 _ERR_LINE = re.compile(r"\berror:", re.IGNORECASE)
 # Csound points at the offending source two ways: a bare "Line N" for semantic
 # errors, and a ">>> <the line> <<<" echo for parse errors. Read both.
@@ -509,8 +521,159 @@ _ECHO = re.compile(r">>>\s*(.*?)\s*<<<")
 _BODY_OFFSET = _HEAD.count("\n")
 
 
+# Where the compiler actually lives.
+#
+# It was a bare "csound" resolved through $PATH — and the backend inherits the
+# PATH of the app that forked it. A plugin or standalone launched from Finder /
+# `open` gets launchd's (/usr/bin:/bin:/usr/sbin:/sbin), which is exactly where
+# Homebrew's /opt/homebrew/bin is NOT. The lookup raised FileNotFoundError,
+# syntax_check read that as "unverified but fine", and EVERY first draft went to
+# the engine unchecked: the repair loop never ran a single round and the host
+# reported the compile error this gate exists to catch.
+#
+# Two ways to reach a compiler, in this order:
+#
+#   1. the CLI, when one is installed — a separate process, so a Csound abort
+#      cannot take down a backend holding a multi-GB model in memory;
+#   2. CsoundLib64 itself through ctypes. The ENGINE only ever needed the
+#      library (CsoundEngine.cpp: csoundCompileCsdText), and that is all
+#      tools/bundle_csound_macos.sh ships into Contents/libs — so a gate that
+#      insisted on the CLI would go dark on exactly the installs the bundling
+#      exists to serve, while the engine next to it compiled fine.
+#
+# Both are the same compiler the engine runs, which is the point: a gate that
+# is not the thing that later judges is not a gate.
+_CSOUND_CANDIDATES = (
+    "/opt/homebrew/bin/csound",
+    "/usr/local/bin/csound",
+    "/opt/homebrew/opt/csound/bin/csound",
+    "/Library/Frameworks/CsoundLib64.framework/Versions/Current/Resources/bin/csound",
+    "/usr/bin/csound",
+)
+
+_CSOUND_LIB_CANDIDATES = (
+    "/opt/homebrew/opt/csound/Frameworks/CsoundLib64.framework/CsoundLib64",
+    "/Library/Frameworks/CsoundLib64.framework/CsoundLib64",
+    "/usr/local/lib/libcsound64.dylib",
+    "libcsound64.so.6.0",
+    "libcsound64.so",
+)
+
+NO_COMPILER = ("no Csound compiler reachable: the orchestra cannot be checked "
+               "before it reaches the engine (install Csound, or point "
+               "T5YNTH_CSOUND at the csound binary)")
+
+
+class CompilerUnavailable(Exception):
+    """The environment cannot compile anything. NOT an authoring failure: it must
+    never be shown to the model as a Csound diagnostic, and no retry can fix it."""
+
+
+def _executable(path):
+    return bool(path) and os.path.isfile(path) and os.access(path, os.X_OK)
+
+
 def _csound_binary():
-    return os.environ.get("T5YNTH_CSOUND", "csound")
+    """Absolute path to a usable Csound CLI, or None.
+
+    T5YNTH_CSOUND is validated like any other candidate: a directory, a
+    non-executable file or a leftover bare "csound" would otherwise be returned
+    as a compiler, and the failure would surface six inferences later as the
+    author's fault instead of the setting's."""
+    explicit = os.environ.get("T5YNTH_CSOUND")
+    if explicit:
+        if _executable(explicit):
+            return explicit
+        resolved = shutil.which(explicit)
+        if _executable(resolved):
+            return resolved
+        return None
+    found = shutil.which("csound")
+    if _executable(found):
+        return found
+    for cand in _CSOUND_CANDIDATES:
+        if _executable(cand):
+            return cand
+    return None
+
+
+def _bundled_csound_libs():
+    """CsoundLib64 inside the host app bundle, if the backend runs from one.
+    tools/bundle_csound_macos.sh flattens it to <App>.app/Contents/libs/CsoundLib64
+    and rewrites every load command to @loader_path/../libs."""
+    here = Path(getattr(sys, "_MEIPASS", "") or os.path.abspath(sys.argv[0]))
+    for parent in [here] + list(here.parents):
+        if parent.name == "Contents":
+            yield str(parent / "libs" / "CsoundLib64")
+            return
+
+
+def _csound_library():
+    """A loaded CsoundLib64 handle with the entry points the gate needs, or None."""
+    global _csound_lib_cache
+    if _csound_lib_cache is not False:
+        return _csound_lib_cache
+
+    _csound_lib_cache = None
+    explicit = os.environ.get("T5YNTH_CSOUND_LIB")
+    found = ctypes.util.find_library("CsoundLib64") or ctypes.util.find_library("csound64")
+    for cand in ([explicit] if explicit else []) + list(_bundled_csound_libs()) \
+                + list(_CSOUND_LIB_CANDIDATES) + ([found] if found else []):
+        try:
+            lib = ctypes.CDLL(cand)
+            lib.csoundCreate.restype = ctypes.c_void_p
+            lib.csoundCreate.argtypes = [ctypes.c_void_p]
+            lib.csoundCompileCsdText.restype = ctypes.c_int
+            lib.csoundCompileCsdText.argtypes = [ctypes.c_void_p, ctypes.c_char_p]
+            lib.csoundSetOption.argtypes = [ctypes.c_void_p, ctypes.c_char_p]
+            lib.csoundCreateMessageBuffer.argtypes = [ctypes.c_void_p, ctypes.c_int]
+            lib.csoundGetMessageCnt.argtypes = [ctypes.c_void_p]
+            lib.csoundGetMessageCnt.restype = ctypes.c_int
+            lib.csoundGetFirstMessage.argtypes = [ctypes.c_void_p]
+            lib.csoundGetFirstMessage.restype = ctypes.c_char_p
+            lib.csoundPopFirstMessage.argtypes = [ctypes.c_void_p]
+            lib.csoundDestroyMessageBuffer.argtypes = [ctypes.c_void_p]
+            lib.csoundDestroy.argtypes = [ctypes.c_void_p]
+        except (OSError, AttributeError):
+            continue
+        _csound_lib_cache = lib
+        break
+    return _csound_lib_cache
+
+
+_csound_lib_cache = False   # False = not looked for yet; None = looked, absent
+
+
+def _check_via_library(csd):
+    """(ok, log) from CsoundLib64 in-process — the engine's own call sequence
+    (CsoundEngine.cpp:374-388): create, -n -d, compile the CSD text, read the
+    message queue. No csoundStart: nothing here is meant to make sound."""
+    lib = _csound_library()
+    if lib is None:
+        raise CompilerUnavailable(NO_COMPILER)
+    cs = lib.csoundCreate(None)
+    if not cs:
+        raise CompilerUnavailable(NO_COMPILER)
+    try:
+        lib.csoundCreateMessageBuffer(cs, 0)   # queue-only, not to our stderr
+        lib.csoundSetOption(cs, b"-n")
+        lib.csoundSetOption(cs, b"-d")
+        # Quiet the per-note statistics. Csound still prints its score-teardown
+        # summary straight to stderr from csoundDestroy (after the message
+        # buffer is gone), so backend_stderr.log picks up a few hundred bytes
+        # per check on this path — noise, not a failure.
+        lib.csoundSetOption(cs, b"-m0")
+        rc = lib.csoundCompileCsdText(cs, csd.encode("utf-8"))
+        parts = []
+        for _ in range(lib.csoundGetMessageCnt(cs)):
+            msg = lib.csoundGetFirstMessage(cs)
+            if msg:
+                parts.append(msg.decode("utf-8", "replace"))
+            lib.csoundPopFirstMessage(cs)
+        return rc == 0, "".join(parts)
+    finally:
+        lib.csoundDestroyMessageBuffer(cs)
+        lib.csoundDestroy(cs)
 
 
 def _explain(log, orchestra):
@@ -522,7 +685,7 @@ def _explain(log, orchestra):
     """
     msgs, quoted = [], []
     csd_lines = orchestra.splitlines()
-    for ln in log.splitlines():
+    for ln in _CTRL.sub("", _ANSI.sub("", log)).splitlines():
         if _ERR_LINE.search(ln):
             # drop Csound's "from file /tmp/....csd (1)," prefix: a temp path is
             # noise in the repair turn, and the author cannot act on it.
@@ -551,24 +714,57 @@ def _explain(log, orchestra):
 
 
 def syntax_check(orchestra):
-    """(ok, first_error). Runs the real compiler over the real orchestra with
-    `--syntax-check-only`, so the gate is Csound's own verdict rather than a
-    parser of ours guessing at one. sr is substituted for the check only."""
+    """(ok, first_error). Runs the real compiler over the real orchestra, so the
+    gate is Csound's own verdict rather than a parser of ours guessing at one.
+    sr is substituted for the check only.
+
+    Raises CompilerUnavailable when there is no compiler to ask. That is an
+    environment fault, not an authoring one: it must not be dressed up as a
+    Csound diagnostic and fed back to the model, and no retry can repair it."""
     csd = orchestra.replace("%SR%", "44100")
-    with tempfile.NamedTemporaryFile("w", suffix=".csd", delete=False) as fh:
-        fh.write(csd)
-        path = fh.name
+    binary = _csound_binary()
+    if binary is not None:
+        try:
+            return _check_via_cli(binary, csd, orchestra)
+        except OSError as exc:
+            # The binary vanished between lookup and run, or no process could be
+            # spawned at all (ENOMEM/EMFILE next to a resident multi-GB model).
+            # The in-process compiler needs no fork, so try it before giving up —
+            # refusing to author while a working Csound sits in this very process
+            # would be the wrong answer to a fork that failed.
+            spawn_error = f"could not run {binary}: {exc}"
+    else:
+        spawn_error = None
+
     try:
-        r = subprocess.run([_csound_binary(), "--syntax-check-only", path],
+        ok, log = _check_via_library(csd)
+    except CompilerUnavailable:
+        # Neither route worked. Prefer the spawn failure's own errno over the
+        # generic "nothing installed": one of them is actionable.
+        if spawn_error:
+            raise CompilerUnavailable(spawn_error) from None
+        raise
+    return (True, "") if ok else (False, _explain(log, orchestra))
+
+
+def _check_via_cli(binary, csd, orchestra):
+    """(ok, first_error) from the Csound CLI in its own process. Lets OSError
+    through: the caller decides whether an unspawnable compiler is fatal."""
+    # encoding is explicit: an authored comment can carry any codepoint, and the
+    # platform default (cp1252 on Windows) would raise mid-write, leaking the
+    # temp file and escaping every handler here as a bare ValueError. The
+    # in-process path encodes UTF-8, so this also keeps the two paths agreeing.
+    fh = tempfile.NamedTemporaryFile("w", suffix=".csd", delete=False,
+                                     encoding="utf-8", errors="replace")
+    path = fh.name
+    try:
+        with fh:
+            fh.write(csd)
+        r = subprocess.run([binary, "--syntax-check-only", path],
                            capture_output=True, text=True, timeout=90)
-        log = _ANSI.sub("", (r.stderr or "") + (r.stdout or ""))
         if r.returncode == 0:
             return True, ""
-        return False, _explain(log, orchestra)
-    except FileNotFoundError:
-        # No compiler on this machine: authoring still works, it is just
-        # unverified. Say so rather than failing a good orchestra.
-        return True, ""
+        return False, _explain((r.stderr or "") + (r.stdout or ""), orchestra)
     except subprocess.TimeoutExpired:
         return False, "csound syntax check timed out"
     finally:
@@ -604,6 +800,13 @@ def build_csound_response(text, llm, correction="", previous=""):
     if not prompt:
         return {"ok": False, "error": "empty prompt"}
 
+    # Ask once, before spending inferences: with nothing to compile against,
+    # every attempt would fail identically at the gate, and the honest answer is
+    # already available. An uncapped 12B authoring turn is not cheap enough to
+    # burn six of on a question the environment has already answered.
+    if _csound_binary() is None and _csound_library() is None:
+        return {"ok": False, "error": NO_COMPILER}
+
     user_turn = prompt
     if correction:
         user_turn = (f"{prompt}\n\nThe previous attempt was described as: "
@@ -624,7 +827,13 @@ def build_csound_response(text, llm, correction="", previous=""):
             continue
 
         orchestra = wrap(body)
-        ok, err = syntax_check(orchestra)
+        try:
+            ok, err = syntax_check(orchestra)
+        except CompilerUnavailable as exc:
+            # The compiler went away mid-run (or could not be spawned). Stop:
+            # re-prompting the author with an environment fault would ask it to
+            # repair code that may be perfectly good, five more times.
+            return {"ok": False, "error": str(exc), "attempts": attempt}
         if ok:
             return {"ok": True, "orchestra": orchestra,
                     "reading": reading or _fallback_reading(body),
