@@ -175,7 +175,21 @@ def select(prompt):
     full_m, rest_m = split(lib["motions"], m_hits)
     return {"instruments": full_i, "adjectives": full_a, "motions": full_m,
             "catalogue": {"instruments": rest_i, "adjectives": rest_a,
-                          "motions": rest_m}}
+                          "motions": rest_m},
+            # The consultation, reported so the panel can SHOW it (the LCO
+            # trace). `reached` is what the user's own words hit; `oriented_by`
+            # is the _STARTER top-up the author was shown ANYWAY because the
+            # prompt reached too few instruments. Keeping them apart is the whole
+            # point: presenting a starter entry as something the prompt reached
+            # would be the panel claiming an understanding that never happened.
+            "consultation": {
+                "reached": {"instruments": sorted(t_hits),
+                            "adjectives": sorted(a_hits),
+                            "motions": sorted(m_hits)},
+                "oriented_by": sorted(chosen - set(t_hits)),
+                "library_size": (len(lib["instruments"]) + len(lib["adjectives"])
+                                 + len(lib["motions"])),
+            }}
 
 
 def _catalogue(out, lib, section, intro):
@@ -341,10 +355,14 @@ LIBRARY (adapt and combine — do not simply copy one block):
 """
 
 
-def system_prompt(prompt=""):
+def system_prompt(prompt="", sel=None):
     """Head + the library entries this prompt reached. The full library stays on
-    disk; what travels is the consultation."""
-    return _SYSTEM_HEAD + "\n" + render_library(select(prompt))
+    disk; what travels is the consultation.
+
+    `sel` lets a caller that already ran select() (build_csound_response, which
+    also REPORTS the consultation) reuse it, so the prompt the author sees and
+    the consultation the panel shows can never describe different lookups."""
+    return _SYSTEM_HEAD + "\n" + render_library(sel if sel is not None else select(prompt))
 
 
 _REPAIR_HEAD = (
@@ -841,7 +859,12 @@ def build_csound_response(text, llm, correction="", previous=""):
         user_turn = (f"{prompt}\n\nThe previous attempt was described as: "
                      f"{previous}\nCorrect it: {correction}")
 
-    sysp = system_prompt(prompt)
+    # ONE selection, used twice: it builds the author's prompt AND is reported
+    # back as the consultation the panel shows. Selecting twice would let the two
+    # drift apart, and a trace that describes a lookup the author never got is
+    # worse than no trace.
+    sel = select(prompt)
+    sysp = system_prompt(prompt, sel)
     attempts = []
     seen_errors = []   # distinct errors, in first-seen order — the whole repair context
     turn = user_turn
@@ -874,6 +897,18 @@ def build_csound_response(text, llm, correction="", previous=""):
                     # the model actually wrote -- not a list of keys it picked,
                     # because it picks none.
                     "params_text": body,
+                    # The rest of the authoring trace, so the panel can show HOW
+                    # this orchestra came about and not only WHAT came out. Both
+                    # are records of what actually happened -- the author is
+                    # asked for no explanation of itself and none is invented
+                    # here (BJ 2026-07-24: "nur was ohnehin passiert ist").
+                    "consultation": sel["consultation"],
+                    # The compiler errors this body had to be repaired past, in
+                    # first-seen order; empty when it compiled on the first try.
+                    # Shown, not hidden: an orchestra that took four rounds to
+                    # stand up is a different fact about the machine than one
+                    # that landed immediately, and only the panel can say so.
+                    "repairs": list(seen_errors),
                     "attempts": attempt}
         attempts.append(err)
         if err not in seen_errors:
