@@ -188,6 +188,10 @@ public:
                              const juce::String& authorModel,
                              const juce::String& csoundBody);
 
+    /** The authored body cut back out of a wrapped orchestra, or empty if the
+     *  scaffold's boundaries are not both there. */
+    static juce::String bodyFromOrchestra(const juce::String& orchestra);
+
     /** Point the Re-Prompt chain at a prompt that was RECALLED into the editor
      *  rather than typed or baked. With a stance engaged, GENERATE re-reads
      *  `dcoLoopLast_` — not the editor — so without this a recalled prompt is

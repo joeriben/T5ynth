@@ -2669,7 +2669,34 @@ void PromptPanel::setLcoRecalledTrace(const juce::String& prompt, const juce::St
     t.reading = reading;
     t.model   = authorModel;
     dcoTraceView.setTrace(std::move(t));
-    dcoTraceView.setBody(csoundBody);   // the back of the card follows the recall
+
+    // The back of the card follows the recall — but a preset written before
+    // params_text meant the BODY stores a plain-language account instead, and
+    // that is not code to edit. When what came back is not Csound, it goes to
+    // the front as a reading and the code is recovered from the orchestra the
+    // engine is actually running, which every preset carries.
+    if (LcoTraceView::looksLikeCsound(csoundBody))
+        dcoTraceView.setBody(csoundBody);
+    else
+        dcoTraceView.setBody(bodyFromOrchestra(processorRef.getCsoundOrchestraText()),
+                             csoundBody);
+}
+
+// The authored body, cut back out of the wrapped orchestra. The scaffold around
+// it is fixed (backend/lco_write.py _HEAD/_TAIL) and its last and first own
+// lines are the boundary: everything between the host's note counter and its
+// output stage is what somebody wrote. Returns empty if either marker is
+// missing, which is the honest answer — better an empty page than sixty lines
+// of scaffold nobody authored and step 3 must not let anyone edit.
+juce::String PromptPanel::bodyFromOrchestra(const juce::String& orchestra)
+{
+    static const juce::String kAfterHead ("knote    = knote + 1/kr");
+    static const juce::String kBeforeTail("aout     = asig * kgate * kvel * kpresGain");
+    const int a = orchestra.indexOf(kAfterHead);
+    const int b = orchestra.indexOf(kBeforeTail);
+    if (a < 0 || b <= a)
+        return {};
+    return orchestra.substring(a + kAfterHead.length(), b).trim();
 }
 
 // ──────────────────────────────────────────────────────────────────────────────

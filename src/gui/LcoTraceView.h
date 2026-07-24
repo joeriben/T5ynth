@@ -229,20 +229,18 @@ public:
      *  sixteen channel reads, the score — is the host's, identical in every
      *  patch, and nobody authored it; printing it would bury the six lines that
      *  are actually this sound under sixty that are not. */
-    void setBody(const juce::String& csound)
+    /** @param csound   the back of the card. Only real Csound belongs here — it
+     *                  is set as code, unwrapped, and step 3 makes it editable.
+     *  @param summary  a plain-language account of what went into the sound,
+     *                  which is what a preset written before params_text meant
+     *                  the BODY carries ("saw: the canonical bright analogue
+     *                  waveform; organ: ..."). Drawn on the FRONT, as prose:
+     *                  it is something to read, not something to edit. */
+    void setBody(const juce::String& csound, const juce::String& summary = {})
     {
-        // Only real Csound goes on the back. A preset written before params_text
-        // meant the BODY carries a plain-language account of what went into the
-        // sound instead ("saw: the canonical bright analogue waveform; organ:
-        // ..."), and that belongs on the front, as prose — it is a reading, not
-        // something to edit. One test, in one place, so no caller has to know
-        // which era its preset came from.
-        const bool isCode = looksLikeCsound(csound);
-        const auto code    = isCode ? csound : juce::String();
-        const auto summary = isCode ? juce::String() : csound.trim();
-        if (code == body_ && summary == summary_)
+        if (csound == body_ && summary == summary_)
             return;
-        body_    = code;
+        body_    = csound;
         summary_ = summary;
         relayout();
     }
