@@ -1216,7 +1216,12 @@ void PromptPanel::resized()
         // Flexes to absorb the tall LCO panel; status and empty-state text are
         // carried by the view itself (setPlaceholder / setLcoStatus).
         {
-            dcoTraceView.setBaseFont(editorFontLco);
+            // fLco, not editorFontLco. The editor's font is the panel base
+            // ENLARGED for the prompt box; feeding it here and applying the
+            // house Caption role on top rendered the trace larger than the
+            // prompt it is about. This view is chrome, so it takes the same
+            // base every other label in the panel takes.
+            dcoTraceView.setBaseFont(fLco);
             dcoTraceView.setBounds(area);
         }
         return;

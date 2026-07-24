@@ -231,11 +231,43 @@ public:
      *  are actually this sound under sixty that are not. */
     void setBody(const juce::String& csound)
     {
-        if (csound == body_)
+        // Only real Csound goes on the back. A preset written before params_text
+        // meant the BODY carries a plain-language account of what went into the
+        // sound instead ("saw: the canonical bright analogue waveform; organ:
+        // ..."), and that belongs on the front, as prose — it is a reading, not
+        // something to edit. One test, in one place, so no caller has to know
+        // which era its preset came from.
+        const bool isCode = looksLikeCsound(csound);
+        const auto code    = isCode ? csound : juce::String();
+        const auto summary = isCode ? juce::String() : csound.trim();
+        if (code == body_ && summary == summary_)
             return;
-        body_ = csound;
-        if (showBack_)
-            relayout();
+        body_    = code;
+        summary_ = summary;
+        relayout();
+    }
+
+    /** Does this text contain a line of Csound? One line is enough: an opcode
+     *  call or an assignment whose target carries a type sigil. Prose does not
+     *  survive the anchor and the sigil together. */
+    static bool looksLikeCsound(const juce::String& text)
+    {
+        juce::StringArray lines;
+        lines.addLines(text);
+        for (auto ln : lines)
+        {
+            ln = ln.upToFirstOccurrenceOf(";", false, false).trim();
+            if (ln.isEmpty())
+                continue;
+            const auto first = ln.upToFirstOccurrenceOf(" ", false, false);
+            if (first.length() < 2 || juce::String("akifgS").indexOfChar(first[0]) < 0)
+                continue;
+            const auto rest = ln.fromFirstOccurrenceOf(" ", false, false).trim();
+            if (rest.startsWithChar('=') || (rest.isNotEmpty()
+                    && juce::CharacterFunctions::isLowerCase(rest[0])))
+                return true;
+        }
+        return false;
     }
 
     /** Which side is up. Set by the click-and-hold, and readable so the panel
@@ -326,9 +358,14 @@ public:
 
 private:
     // ── Geometry, in one place so measuring and drawing cannot drift ──────────
-    float labelFont() const { return juce::jmax(9.5f,  base_ * 0.74f); }
-    float bodyFont()  const { return juce::jmax(11.0f, base_ * 1.05f); }
-    float hintFont()  const { return juce::jmax(9.5f,  base_ * 0.84f); }
+    // The house roles, not ratios of my own: Caption is what every control label
+    // in this build is set in, Hint what every piece of secondary text is. The
+    // rubrics take Hint too — they are already set apart by small caps, letter
+    // spacing and colour, and a fourth size here would be a size this build does
+    // not otherwise have.
+    float labelFont() const { return uiFontSize(TextRole::Hint,    base_); }
+    float bodyFont()  const { return uiFontSize(TextRole::Caption, base_); }
+    float hintFont()  const { return uiFontSize(TextRole::Hint,    base_); }
     int   dotR()      const { return 3; }
     int   railX()     const { return 4; }            // centre of the dot column
     int   textX()     const { return railX() + 12; }
@@ -670,6 +707,13 @@ private:
             if (trace_.reading.isNotEmpty())
                 yy += paragraph(g, trace_.reading, fBody, kImpulseAText,
                                 static_cast<float>(textX()), yy, ww);
+            // What a pre-body preset stored instead of the code: an account of
+            // what went into the sound. Prose, in the panel's own text — it is
+            // something to read, not something to edit, which is why it is here
+            // and not on the back.
+            if (summary_.isNotEmpty())
+                yy += paragraph(g, summary_, fHint, kDim,
+                                static_cast<float>(textX()), yy + 3.0f, ww) + 3.0f;
             return yy - y0;
         });
 
@@ -804,6 +848,7 @@ private:
     juce::String live_;             // the reasoning as it streams; empty once traced
     int          liveAttempt_ = 0;
     juce::String body_;             // the back of the card: the authored Csound
+    juce::String summary_;          // a legacy preset's plain-language account, front side
     bool         showBack_ = false;
     bool         busy_ = false;
 
