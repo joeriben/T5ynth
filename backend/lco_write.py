@@ -451,15 +451,58 @@ def _codeishness(chunk):
     return sum(1 for ln in chunk.splitlines() if _CODEISH.match(ln))
 
 
+# Chat-template control tokens that leak into the reply body (observed on the
+# shipped GGUF: "<|channel>thought" / "<channel|>" opening the reasoning). They
+# are transport syntax, not the author's words, and printing them in the panel
+# would quote the tokeniser as if it were the machine thinking.
+_CTRL_TOKEN = re.compile(r"<\|[^<>]{0,40}\|?>|<[^<>|]{0,40}\|>")
+# The channel NAME left behind once its marker is gone, alone on its line.
+_CHANNEL_NAME = re.compile(r"^\s*(?:thought|thinking|analysis|final|message)\s*$",
+                           re.IGNORECASE)
+
+
+def _clean_thinking(prose):
+    """The author's own words, tidied but not rewritten: control tokens and fence
+    crumbs off, runs of blank lines collapsed, ends trimmed. Never paraphrased
+    and never truncated — it is a quotation, and a quotation that has been
+    improved is no longer evidence of anything."""
+    prose = _READING.sub("", prose or "")
+    prose = prose.replace("```", "")
+    prose = _CTRL_TOKEN.sub("", prose)
+    prose = "\n".join(ln for ln in prose.splitlines() if not _CHANNEL_NAME.match(ln))
+    lines, out, blanks = prose.splitlines(), [], 0
+    for ln in lines:
+        if ln.strip():
+            blanks = 0
+            out.append(ln.rstrip())
+        else:
+            blanks += 1
+            if blanks == 1 and out:
+                out.append("")
+    return "\n".join(out).strip()
+
+
 def sanitize(raw):
-    """Model reply -> (body, reading). Strips fences, the host's own lines and
-    the READING line; recovers `asig` when the model wrote its output through
-    `out`/`outch` under another name."""
+    """Model reply -> (body, reading, thinking).
+
+    `thinking` is everything the author wrote OUTSIDE the fence. Since the
+    author is asked to reason in plain language before writing the orchestra
+    (see HOW TO ANSWER), that prose is the one place the machine says WHY this
+    code and not other code — and it was being dropped on the floor here. It is
+    passed out verbatim so the panel can show it; nothing downstream reads it,
+    and it never touches the body or the compile.
+
+    Strips fences, the host's own lines and the READING line; recovers `asig`
+    when the model wrote its output through `out`/`outch` under another name."""
     txt = raw or ""
     raw_txt = txt
+    thinking = ""
 
     fences = _FENCE.findall(txt)
     if fences:
+        # Everything that is not a fenced block is the thinking — including an
+        # aside after the code, which is rarer but just as much the author's.
+        thinking = _clean_thinking(_FENCE.sub("\n", raw_txt))
         # The LAST fence, not the first. The author is told to think first and
         # write the body afterwards, so a sketch quoted mid-thought precedes the
         # real one — and taking the first shipped the sketch silently, compiling
@@ -473,7 +516,10 @@ def sanitize(raw):
         # reports "the model returned no code" about a reply that contained it.
         head, tail = txt.split("```", 1)
         tail = re.sub(r"^[A-Za-z0-9_+#-]*[ \t]*\r?\n", "", tail)
-        txt = tail if _codeishness(tail) >= _codeishness(head) else head
+        if _codeishness(tail) >= _codeishness(head):
+            txt, thinking = tail, _clean_thinking(head)
+        else:
+            txt, thinking = head, _clean_thinking(tail)
     txt = txt.replace("```", "")
 
     # The author's own words about what it built. Prefer the one that sits WITH
@@ -502,7 +548,7 @@ def sanitize(raw):
     # sound and give the host the variable it needs.
     if not re.search(r"^\s*asig\b", body, re.MULTILINE) and captured_out and captured_out != "asig":
         body += f"\n  asig = {captured_out}"
-    return body, reading
+    return body, reading, thinking
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -928,7 +974,7 @@ def build_csound_response(text, llm, correction="", previous=""):
         # would cut the body mid-line, and a truncated generation is not an
         # error — it would arrive as a syntax failure with no cause to show.
         raw = llm(turn, sysp, None)
-        body, reading = sanitize(raw)
+        body, reading, thinking = sanitize(raw)
         if not body.strip():
             attempts.append("the model returned no code")
             if "you returned no code at all" not in seen_errors:
@@ -952,11 +998,20 @@ def build_csound_response(text, llm, correction="", previous=""):
                     # the model actually wrote -- not a list of keys it picked,
                     # because it picks none.
                     "params_text": body,
+                    # The author's own reasoning, verbatim: the plain-language
+                    # paragraph HOW TO ANSWER asks for BEFORE the fence -- what
+                    # it decided this sound is, what excites and resonates in it,
+                    # what moves. It was being discarded here, which made the one
+                    # place the machine says WHY this code invisible. Nothing
+                    # downstream reads it; it never touches the body, the reading
+                    # or the compile. From the SUCCESSFUL attempt, so it explains
+                    # the orchestra that is actually running.
+                    "thinking": thinking,
                     # The rest of the authoring trace, so the panel can show HOW
-                    # this orchestra came about and not only WHAT came out. Both
-                    # are records of what actually happened -- the author is
-                    # asked for no explanation of itself and none is invented
-                    # here (BJ 2026-07-24: "nur was ohnehin passiert ist").
+                    # this orchestra came about and not only WHAT came out. Every
+                    # field is a record of what actually happened; nothing is
+                    # composed on the author's behalf (BJ 2026-07-24: "nur was
+                    # ohnehin passiert ist").
                     "consultation": sel["consultation"],
                     # The compiler errors this body had to be repaired past, in
                     # first-seen order; empty when it compiled on the first try.

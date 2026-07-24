@@ -51,6 +51,7 @@ public:
         juce::String prompt;      // what was authored; empty = not known (preset without one)
         juce::String model;       // the model that actually wrote it
         juce::String reading;     // the author's own READING line
+        juce::String thinking;    // its reasoning before the code, verbatim
         // The consultation. `consultationKnown` is what separates "this prompt
         // reached nothing in the library" (a finding, drawn as such) from "no
         // consultation was recorded for this orchestra" (a recall, where the
@@ -362,6 +363,21 @@ private:
             }
             return yy - y0;
         });
+
+        // ── THOUGHT ──────────────────────────────────────────────────────────
+        // The author's reasoning in its own words, verbatim and in full: what it
+        // decided the sound IS, what excites and resonates in it, what moves.
+        // Quoted, never summarised — a summary would be this panel's account of
+        // the machine, and the whole point is the machine's own.
+        //
+        // Absent when the reply carried no prose outside the fence, and on every
+        // recall (no preset stores it). Never fabricated from the code.
+        if (trace_.thinking.isNotEmpty())
+            station(kImpulseA, "THOUGHT", kTextDisabled, true, [&](float ww)
+            {
+                return paragraph(g, trace_.thinking, fHint, kDim,
+                                 static_cast<float>(textX()), y, ww);
+            });
 
         // ── WROTE ────────────────────────────────────────────────────────────
         station(kImpulseA, "WROTE", kTextDisabled, true, [&](float ww)

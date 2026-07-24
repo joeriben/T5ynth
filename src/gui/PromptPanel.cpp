@@ -2405,6 +2405,7 @@ void PromptPanel::triggerDcoBake()
             tr.prompt             = text;
             tr.model              = authored.authorModel;
             tr.reading            = authored.reading;
+            tr.thinking           = authored.thinking;
             tr.reachedInstruments = authored.reachedInstruments;
             tr.reachedAdjectives  = authored.reachedAdjectives;
             tr.reachedMotions     = authored.reachedMotions;

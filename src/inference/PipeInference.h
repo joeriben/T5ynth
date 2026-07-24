@@ -160,6 +160,12 @@ public:
         // fabricated here: every field below is a record the write-path already
         // kept and previously discarded.
         //
+        // The author's own reasoning, verbatim — the plain-language paragraph it
+        // writes BEFORE the fenced orchestra (lco_write's HOW TO ANSWER): what it
+        // decided the sound is, what excites and resonates in it, what moves. The
+        // one place the machine says WHY this code. Empty when the reply had no
+        // prose outside the fence.
+        juce::String thinking;
         // What the prompt's OWN WORDS reached in the library, by section. An
         // empty motions list is a real finding, not a gap in the data — it says
         // the prompt named no movement, which movement-by-default then has to

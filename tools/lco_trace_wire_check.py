@@ -92,6 +92,19 @@ for prompt in CASES:
         failures.append(f"{prompt!r}: `repairs` is not a list")
     if not isinstance(r.get("attempts"), int) or r.get("attempts") < 1:
         failures.append(f"{prompt!r}: `attempts` is not a positive int")
+    if not isinstance(r.get("thinking"), str):
+        failures.append(f"{prompt!r}: `thinking` is not a string")
+    # The author is ASKED to reason in plain language before the fence, so an
+    # empty thinking on every prompt means the extraction broke (or the author
+    # stopped obeying HOW TO ANSWER) — either way the THOUGHT station goes dark
+    # and nobody would notice by eye.
+    elif not r["thinking"].strip():
+        failures.append(f"{prompt!r}: the author wrote no reasoning outside the fence")
+    # The thinking must be PROSE, not the code again: if the fence split went
+    # wrong the body can land on both sides, and the panel would then quote
+    # Csound as the machine's reasoning.
+    elif r["thinking"].strip() == (r.get("params_text") or "").strip():
+        failures.append(f"{prompt!r}: `thinking` is a copy of the body, not reasoning")
 
     # The one SEMANTIC invariant worth asserting: an entry may never be counted
     # both as something the prompt reached and as orientation it did not. That
@@ -110,9 +123,14 @@ for prompt in CASES:
     for e in (r.get("repairs") or []):
         print(f"      repaired past: {e}", flush=True)
     print(f"   author: {r.get('author_model')}", flush=True)
+    print(f"   reading: {r.get('reading')}", flush=True)
+    print("   thought:", flush=True)
+    for ln in (r.get("thinking") or "").splitlines():
+        print(f"      {ln}", flush=True)
     results.append({"prompt": prompt, "consultation": c,
                     "repairs": r.get("repairs"), "attempts": r.get("attempts"),
-                    "reading": r.get("reading"), "author_model": r.get("author_model")})
+                    "reading": r.get("reading"), "thinking": r.get("thinking"),
+                    "author_model": r.get("author_model")})
 
 p.stdin.close()
 p.wait(timeout=30)

@@ -1392,6 +1392,7 @@ PipeInference::CsoundAuthorResult PipeInference::authorCsoundOrchestra(const juc
                         out.add(e.toString());
                 return out;
             };
+            result.thinking = parsed.getProperty("thinking", juce::var()).toString();
             const auto consultation = parsed.getProperty("consultation", juce::var());
             const auto reached = consultation.getProperty("reached", juce::var());
             result.reachedInstruments = toStrings(reached.getProperty("instruments", juce::var()));
