@@ -160,19 +160,27 @@ juce::StringArray getWindowsCompanionBackendRoots()
 
     constexpr auto wow64 = juce::WindowsRegistry::WoW64_64bit;
 
-    addRoot(juce::WindowsRegistry::getValue("HKEY_LOCAL_MACHINE\\Software\\T5ynth\\BackendDir", {}, wow64));
-    addRoot(juce::WindowsRegistry::getValue("HKEY_CURRENT_USER\\Software\\T5ynth\\BackendDir", {}, wow64));
+    // Both product names, akroasys first. The installer writes Software\akroasys
+    // now; Software\T5ynth is what an existing install left behind, and its
+    // backend works perfectly well for this plugin. Dropping it would leave a
+    // Windows VST3 saying "Backend not found" next to a working T5ynth install.
+    for (const char* product : { "akroasys", "T5ynth" })
+    {
+        const juce::String key = juce::String("\\Software\\") + product;
 
-    auto installDir = juce::WindowsRegistry::getValue("HKEY_LOCAL_MACHINE\\Software\\T5ynth\\InstallDir", {}, wow64);
-    if (installDir.isNotEmpty())
-        addRoot(juce::File(installDir).getChildFile("backend").getFullPathName());
+        addRoot(juce::WindowsRegistry::getValue("HKEY_LOCAL_MACHINE" + key + "\\BackendDir", {}, wow64));
+        addRoot(juce::WindowsRegistry::getValue("HKEY_CURRENT_USER" + key + "\\BackendDir", {}, wow64));
 
-    installDir = juce::WindowsRegistry::getValue("HKEY_CURRENT_USER\\Software\\T5ynth\\InstallDir", {}, wow64);
-    if (installDir.isNotEmpty())
-        addRoot(juce::File(installDir).getChildFile("backend").getFullPathName());
+        for (const char* hive : { "HKEY_LOCAL_MACHINE", "HKEY_CURRENT_USER" })
+        {
+            const auto installDir = juce::WindowsRegistry::getValue(juce::String(hive) + key + "\\InstallDir", {}, wow64);
+            if (installDir.isNotEmpty())
+                addRoot(juce::File(installDir).getChildFile("backend").getFullPathName());
+        }
 
-    addRoot("C:\\Program Files\\T5ynth\\backend");
-    addRoot("C:\\Program Files (x86)\\T5ynth\\backend");
+        addRoot(juce::String("C:\\Program Files\\") + product + "\\backend");
+        addRoot(juce::String("C:\\Program Files (x86)\\") + product + "\\backend");
+    }
     return roots;
 }
 #endif
@@ -2190,7 +2198,14 @@ void MainPanel::applyLoadedPreset(const PresetFormat::LoadResult& result, const 
                                         result.lcoMotionRateHz,
                                         result.lcoOscAHasContent, result.lcoGainA,
                                         result.lcoOscBHasContent, result.lcoGainB);
-        processorRef.setLastModel("LRO");
+        // "LCO", not "LRO": this lands in `synth.model` inside the .t5p, so it is
+        // a STORED token like engine.mode, not a label. Every shipped build up to
+        // 2.5.x compares it against "LCO" — writing the new spelling makes an
+        // older copy read this preset as "LCO · LRO" in the Detail card, and files
+        // a neural preset saved afterwards under a model row named "LRO" that
+        // does not exist. The rename happens on READ instead
+        // (PresetManagerPanel::parseEntry), where it costs nothing either way.
+        processorRef.setLastModel("LCO");
         promptPanel.setLcoPrompt(result.lcoPrompt);
         // The retired wavetable LCO: no Csound author wrote this, so the trace
         // names none rather than inheriting whoever wrote the last orchestra.
