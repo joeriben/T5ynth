@@ -784,9 +784,9 @@ T5ynth is where you find out what that marker can become.
     <td>Inpainting offset within the diffusion timeline. 0.0 gives you the attack/onset of a sound. ~0.5–0.7 gives you the sustained body, skipping transients — if there were any in the generated sample.</td>
   </tr>
   <tr>
-    <td><strong>Seed</strong></td>
-    <td>-1 … 999 999 999</td>
-    <td>Controls random state. Same seed + same settings = identical output (cross-platform). Use the <strong>Random</strong> button to automatically pick a new seed on each generation.</td>
+    <td><strong>VAR</strong></td>
+    <td>none / last / auto</td>
+    <td>The seed control. Same seed + same settings = identical output (cross-platform). <strong>none</strong> holds the fixed base seed, so repeated generations repeat. <strong>last</strong> reuses the seed of the previous generation — double-click it to type a specific seed. <strong>auto</strong> draws a new random seed for every generation.</td>
   </tr>
   <tr>
     <td><strong>HF Boost</strong></td>
@@ -804,44 +804,39 @@ T5ynth is where you find out what that marker can become.
   <strong>The instrument is built around a space of possible sound.</strong> The generation parameters above — Alpha, Semantic Axes, Noise, Magnitude — can all be modulated by the <a href="#drift">Drift &amp; Regenerate</a> system. With Drift active, these values shift continuously, and T5ynth can automatically re-generate audio as they move. The hidden space keeps evolving instead of behaving like a fixed one-shot source. See <a href="#drift">section 6</a> for details.
 </div>
 
-<h3>Easy vs. Advanced View</h3>
+<h3>The two views of the column</h3>
 <p>
 The Generation column header carries a small <strong>» adv.</strong> /
-<strong>» easy</strong> toggle. Easy view is the default on first launch
-and keeps the column focused on the controls that matter for most
-musical work; Advanced view exposes the full parameter surface. The
-toggle only affects the Generation column — Synth, FX, and Sequencer
-sections are unchanged.
+<strong>» easy</strong> toggle. The two views are not a short and a long
+form of the same surface — they are the instrument's <em>two sound
+sources</em>, and the toggle chooses which one the column is showing. The
+toggle only affects the Generation column: Synth, FX and Sequencer are
+unchanged, and whatever the column is showing, the synth plays whichever
+engine is active.
 </p>
 <p>
-<strong>What Easy view hides:</strong>
+<strong>Easy — the generated sound.</strong> The neural surface described
+in this section: the model selector, Prompts A and B, the Injection
+Modes, Alpha, the Semantic Axes, Duration, Magnitude, Noise, the VAR seed
+switch, Re-Prompt, the Snap / Cache row, Generate, and the Dimension
+Explorer card. This is the default on first launch.
 </p>
-<ul>
-  <li><strong>Model selector row</strong> — Easy view pins the engine to
-    Stable Audio Open Small (the fastest engine and T5ynth's main
-    benchmark). Advanced view shows all five slots: Stable Audio 3 Small
-    Music, Stable Audio 3 Small SFX, Stable Audio Open 1.0, Stable Audio
-    Open Small, and AudioLDM2.</li>
-  <li><strong>Magnitude</strong> — how strongly the impulses steer the
-    diffusion model (default 1.0).</li>
-  <li><strong>Noise</strong> — model-internal perturbation (default 0.0).</li>
-  <li><strong>Steps</strong> — diffusion sampling steps (default 8 for SA Open
-    Small). Lower is faster but less defined; higher is slower but more
-    refined.</li>
-  <li><strong>CFG</strong> — classifier-free guidance strength (default 1.0).</li>
-  <li><strong>Seed editor</strong> — the numeric seed field and the
-    <em>Random</em> toggle are replaced in Easy view by a compact
-    seed-mode quick-switch (fixed / random) at the same position.</li>
-  <li><strong>Dimension Explorer</strong> — the entire third card with
-    the 768-dimension offset panel is hidden in Easy view. Drift, Auto-
-    Regenerate, Alpha, Semantic Axes, Injection Modes, Snapshots, and the
-    Inference Cache remain visible in both views.</li>
-</ul>
 <p>
-<strong>What Easy view keeps:</strong> Prompts A and B, Injection Modes,
-Alpha, Semantic Axes, Duration, the Snap / Cache row, Generate, and the
-status bar — everything required for the core A/B exploration workflow.
+<strong>Advanced — the written oscillator.</strong> The column becomes the
+oscillator panel: one prompt field, its own model row, and the authoring
+trace that shows what the machine heard, which library entries the words
+reached, which model wrote the Csound, what it had to repair, and what is
+running now. Nothing of the neural surface is shown here, because nothing
+of it applies — this sound is not generated, it is <em>written</em>. See
+<a href="#lco">The Language-Controlled Oscillator</a>.
 </p>
+<div class="note">
+  <strong>Steps</strong> (diffusion sampling steps) and <strong>CFG</strong>
+  (classifier-free guidance strength) have no control in either view. They
+  remain full parameters — automatable from your DAW, stored in presets and
+  snapshots — and each model carries its own defaults, which T5ynth sets when
+  you switch engines.
+</div>
 <p>
 <strong>Hidden-state pulse.</strong> If you switch from Advanced back to
 Easy while one of the hidden controls is at a non-default value — for
@@ -1302,10 +1297,11 @@ While the synth is playing, multiple drift LFOs continuously and independently
 shift Alpha and the Semantic Axes. Each LFO moves at its own rate and depth —
 Alpha might slowly sweep from A toward B over 30 seconds, while Axis 1 (for
 example tonal/noisy) oscillates on a different cycle, and Axis 2 (for example
-sustained/rhythmic) drifts at yet another pace. With a fixed seed, this remains
-reproducible. With <strong>Random</strong> active, each regeneration receives a
-new seed: the exact sound will not repeat, but the semantic poles keep the
-material inside the marked space.
+sustained/rhythmic) drifts at yet another pace. With <strong>VAR</strong> on
+<em>none</em> or <em>last</em> the seed is held and this remains reproducible.
+With VAR on <em>auto</em>, each regeneration receives a new seed: the exact sound
+will not repeat, but the semantic poles keep the material inside the marked
+space.
 </p>
 <p>
 When an auto regen mode is active, T5ynth monitors how far the modulated
@@ -1318,8 +1314,8 @@ one without stopping playback.
 <p>
 The result is a <strong>continuous stream of new generations</strong>, each one
 produced from a slightly different internal state between and around the two
-impulses. With Random active, no generation is simply repeated; without Random,
-the same seed and same state remain recallable. In both cases, the movement is
+impulses. With VAR on <em>auto</em>, no generation is simply repeated; on
+<em>none</em> or <em>last</em> the same seed and same state remain recallable. In both cases, the movement is
 not arbitrary: it follows the trajectories defined by the drift LFO settings
 inside the sound space opened by the two impulses.
 </p>
@@ -1356,9 +1352,9 @@ Drift modulation of generation parameters only changes the internal generation c
 </p>
 <table>
   <tr><th>Mode</th><th>Behavior</th></tr>
-  <tr><td><strong>Manual</strong></td><td>You click Generate yourself. Drift still moves the generation controls, but nothing re-generates until you trigger it.</td></tr>
-  <tr><td><strong>Auto</strong></td><td>Automatically re-generates as soon as drift pushes parameters far enough from the last generated state. No rate limit — fastest option, highest energy use.</td></tr>
-  <tr><td><strong>max 1♩ / 4♩ / 16♩</strong></td><td>Like Auto, but with a minimum cooldown between generations: at most one re-generation per 1, 4, or 16 beats (at the current BPM). "max" means this is a <em>maximum rate</em>, not a guarantee — actual generation time depends on your hardware and model settings.</td></tr>
+  <tr><td><strong>manual</strong></td><td>You click Generate yourself. Drift still moves the generation controls, but nothing re-generates until you trigger it.</td></tr>
+  <tr><td><strong>a.s.a.p.</strong></td><td>Automatically re-generates as soon as drift pushes parameters far enough from the last generated state. No rate limit — fastest option, highest energy use.</td></tr>
+  <tr><td><strong>1 / 2 / 4 / 8 / 16 bars</strong></td><td>Like a.s.a.p., but with a minimum cooldown between generations: at most one re-generation per 1, 2, 4, 8 or 16 bars, counted as four beats to the bar at the current BPM. The setting is a <em>ceiling on the rate</em>, not a promise of one generation per interval — how long an inference actually takes depends on your hardware, the model and the step count.</td></tr>
 </table>
 
 <table>
@@ -1367,7 +1363,7 @@ Drift modulation of generation parameters only changes the internal generation c
 </table>
 
 <div class="tip">
-  <strong>Energy awareness:</strong> Each re-generation runs the full diffusion inference pipeline on the GPU (or CPU). Auto-regen with fast drift rates can trigger many generations per minute. The beat-limited modes (max 4♩, max 16♩) help keep compute and energy use in check. Consider whether Manual mode is sufficient for your purpose.
+  <strong>Energy awareness:</strong> Each re-generation runs the full diffusion inference pipeline on the GPU (or CPU). a.s.a.p. with fast drift rates can trigger many generations per minute. The bar-limited modes (4 bars, 16 bars) help keep compute and energy use in check. Consider whether manual mode is sufficient for your purpose.
 </div>
 
 <h4>Re-Prompt: the semantic self-listening loop</h4>
@@ -1403,7 +1399,7 @@ The <strong>coupling</strong> switch sets how far the rewrite reaches into your 
   <tr><td><strong>AB replace</strong></td><td>Two runs (A &amp; B); each pole is fully replaced by its stance interpretation &mdash; the human input is broken, and Alpha now blends two machine self-readings.</td></tr>
 </table>
 <div class="tip">
-  <strong>Energy awareness:</strong> Re-Prompt adds a CLAP analysis and one or two short LLM passes to every regeneration, on top of the diffusion render. With a fast Auto-Regen cadence it keeps re-rendering to feed itself; the same beat-limited regen modes keep that in check.
+  <strong>Energy awareness:</strong> Re-Prompt adds a CLAP analysis and one or two short LLM passes to every regeneration, on top of the diffusion render. With a fast regen cadence it keeps re-rendering to feed itself; the same bar-limited regen modes keep that in check.
 </div>
 
 <!-- ═══════════════════════════════════════════ -->
