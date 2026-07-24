@@ -27,7 +27,7 @@ Links:
 
 - User guide: bundled and rendered inside the app; source HTML lives at [`resources/T5ynth_Guide.html`](resources/T5ynth_Guide.html)
 - Preset collection: [`joeriben/T5ynth-Presets`](https://github.com/joeriben/T5ynth-Presets)
-- Current beta release: [`v1.8.0-beta.2`](https://github.com/joeriben/T5ynth/releases/tag/v1.8.0-beta.2)
+- Latest release: [`v2.5.3-beta.1`](https://github.com/joeriben/akroasys/releases/tag/v2.5.3-beta.1) — still published as **T5ynth**. `v3.0.0` will be the first release under the new name.
 
 Current tagged GitHub Releases publish:
 
@@ -99,6 +99,29 @@ in a vase" is not a sound by itself; "water in a glass vase, quiet room, petals
 brushed by fingers" gives the model acoustic handles. But the abstract phrase
 can still be used as a strange marker in the model's space. akróasys is where you
 find out what that marker can become.
+
+### The second oscillator
+
+Everything above describes the **T5 Oscillator**, which reaches into a diffusion
+model. There is a second one, and it answers in a different medium: the
+**Language-Resonant Oscillator (LRO)**. You describe an instrument — "a bowed
+cello", "bright shimmer degrading to a dark rumble" — and a language model
+running on your machine writes a Csound orchestra for exactly that description.
+The code is compiled and run live, and it is what every voice sounds. Nothing is
+sampled and nothing is baked: the source code is the sound.
+
+The panel shows the whole path rather than a progress bar. What the model was
+given, which entries it asked to have opened from the code library, its
+reasoning as it streams, the orchestra it wrote, a repair round if the first
+attempt did not compile or ran silent, and finally whether the code compiled and
+played. The toggle at the top of the Generation column switches between the two
+oscillators; **Generate** and the four Snapshot slots stay where they are and
+drive whichever one is active.
+
+The LRO needs two things the T5 Oscillator does not: Csound on the machine, and
+the authoring model (Gemma 4 12B QAT, about 7 GB, ungated, Apache-2.0), which
+installs from the Settings page. Install neither and the rest of the instrument
+is unaffected.
 
 About the name: **akróasys** comes from the Greek *akróasis* (ἀκρόασις) —
 listening, the act of hearing something out. The ending is spelled `-sys` so
@@ -185,19 +208,22 @@ akróasys is dedicated to my dear colleague at the DFKI, musician and AI
 researcher Dr. Stephan Baumann, without whom AI4ArtsEd would not have come
 into being.
 
-## What Is New in v1.7.0-beta.1
+## What Is New in 3.0.0
 
-- **BPM sync for LFOs, Drift LFOs, and Delay Time.** Each of the three LFOs,
-  three Drift LFOs, and Delay Time can switch from free rate/time to musical
-  divisions.
-- **Host/standalone clock resolution.** Sync follows the host transport when
-  available, falls back to the in-app sequencer while it runs, and otherwise
-  uses the last host BPM or the sequencer BPM field.
-- **Safer preset restore.** Old presets now restore missing clock and injection
-  defaults explicitly instead of inheriting whatever state was last active.
-- **LFO Trigger mode fix.** Per-voice LFO trigger mode now affects voice
-  rendering instead of silently behaving like free-running global LFOs.
-- **Delay mix fix.** Delay Mix is now a true dry/wet crossfade.
+- **A second oscillator: the Language-Resonant Oscillator (LRO).** Describe an
+  instrument in words and a local language model writes a Csound orchestra from
+  that description. The compiled code — not a sample, not a preset — is what
+  every voice sounds. The panel discloses the whole path while it happens: what
+  the model was given, which library entries it asked to have opened, its
+  reasoning as it streams, the code it wrote, any repair round, and whether the
+  orchestra compiled and ran.
+- **The instrument is called akróasys.** See *About the name* above.
+  T5ynth 2.5.3 remains the last version under the old name and without the LRO,
+  and it stays installable beside this one.
+- **Requirements for the LRO only.** Csound must be present on the machine, and
+  the authoring model (Gemma 4 12B QAT, about 7 GB, ungated, Apache-2.0)
+  installs from the Settings page like any other model. The T5 Oscillator and
+  everything downstream of it are unaffected if you install neither.
 
 See [`CHANGELOG.md`](CHANGELOG.md) for the full release history.
 
@@ -258,6 +284,9 @@ akróasys can use generated audio in two ways:
 
 ## Feature Overview
 
+- **Oscillators:** T5 Oscillator (diffusion-model sound space) and
+  Language-Resonant Oscillator (a language model writes the Csound orchestra),
+  switched from the Generation column's header.
 - **Generation:** Impulse A/B, Alpha, Magnitude, Noise, Duration, Steps, CFG,
   Seed, Start Position, HF Boost.
 - **Source controls:** Sound-character axes, 768-dimension explorer, Linear/
@@ -327,7 +356,7 @@ It is not the target-machine installer path.
 
 ```bash
 # Clone
-git clone https://github.com/joeriben/t5ynth.git
+git clone https://github.com/joeriben/akroasys.git
 cd t5ynth
 
 # Python backend
@@ -411,7 +440,7 @@ If you use akróasys in academic work:
 
 ```text
 Prof. Dr. Benjamin Jörissen / UNESCO Chair in Digital Culture and Arts in Education — UCDCAE AI Lab
-https://github.com/joeriben/t5ynth
+https://github.com/joeriben/akroasys
 ```
 
 ### Documentation Note
