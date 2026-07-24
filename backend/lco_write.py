@@ -306,8 +306,18 @@ HARD RULES
 - Keep `asig` near +-0.5 peak. The host applies its own headroom and voice gain.
 - The sound MOVES by default: a sweep, a beat, a shimmer, a morph. Only write a standing tone if the user explicitly asks for something static or still.
 - A LOOP is a free-running `oscili`/`phasor`/`lfo` that NEVER resets, driving a parameter or a crossfade. If the user asks for a loop or for something repeating, write a REPEATING trajectory — never a one-shot `linseg`, which moves once and then holds.
-- You may layer up to THREE oscillators and mix them, and you may morph or crossfade between timbres. "a > b" means start at a and move to b; a LOOP of that repeats forever. "a + b" means two layers at once.
-- Layer 1 must be scaled by `kvol1`, layer 2 by `kvol2`, layer 3 by `kvol3`, and each layer's pitch is `kfreq * koct1` / `koct2` / `koct3`. Those are the player's mix and octave knobs — a layer that ignores them cannot be mixed. With one layer, use `kvol1` and `kfreq * koct1`.
+- "a > b" (equivalently "a into b", "a morphing into b", "a turning into b", "a transition from a to b", "a becomes b") is ONE voice that STARTS as a and BECOMES b across the note — a true crossfade, NOT two things. Build it in exactly this shape, and give a and b their OWN variables — never write your final `asig` more than once:
+    asiga   <...>                          ; the first timbre, in its own variable
+    asigb   <...>                          ; the second timbre, in its own variable
+    kmorph  = min(knote / 2.0, 1)          ; 0 -> 1 over 2 s then holds (knote is in scope, seconds since the note began)
+    asig    = asiga * (1 - kmorph) + asigb * kmorph
+  Three ways this silently becomes "no transition at all" — each is WRONG for "a > b", never do them:
+    (1) writing `asig` twice (`asig = <a>` … later `asig = <b>`): the second assignment ERASES the first, so only b is heard and everything above it is dead code. This is the most common mistake — a and b MUST meet in one crossfade line, not overwrite each other.
+    (2) a static layer (`asig = <a> * kvol1 + <b> * kvol2`): that is a and b at once, forever — a LAYER, not a transition.
+    (3) a bad `linseg` for the position (`linseg 0, 1, knote` passes a k-variable where linseg needs i-time CONSTANTS). Prefer `kmorph = min(knote / T, 1)`; if you must use linseg every argument is a constant — `kmorph linseg 0, 2, 1`.
+  A REPEATING morph (a loop of a>b) drives kmorph from a free-running `oscili` instead of `min(knote…)`, so it sweeps back and forth forever.
+- "a + b" means two layers sounding at once — the static mix of (2), correct ONLY when the user asked to layer, never as a substitute for a transition. You may layer up to THREE oscillators this way.
+- Layer 1 must be scaled by `kvol1`, layer 2 by `kvol2`, layer 3 by `kvol3`, and each layer's pitch is `kfreq * koct1` / `koct2` / `koct3`. Those are the player's mix and octave knobs — a layer that ignores them cannot be mixed. With one layer, use `kvol1` and `kfreq * koct1`. In an "a > b" transition the two ends share `kvol1` and `kfreq * koct1` (it is one voice, not two layers).
 
 AVAILABLE IN SCOPE
   kfreq  k-rate pitch in Hz (already glide-smoothed and limited)
