@@ -50,7 +50,7 @@ private:
 
     // Col 1: GENERATION — three cards with headers
     juce::Label oscHeader, axesNote, poweredByLabel;
-    juce::TextButton oscModeToggle { juce::String::fromUTF8("\xc2\xbb LCO") };
+    juce::TextButton oscModeToggle { juce::String::fromUTF8("\xc2\xbb LRO") };
     PromptPanel promptPanel;
     AxesPanel axesPanel;
     // Semantic Axes | Dim Explorer — a 2-segment view switch (switchbox template)

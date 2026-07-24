@@ -90,24 +90,44 @@ if(APPLE)
     endif()
 endif()
 
+# The instrument is called akróasys (ASCII: akroasys). T5ynth was its name up to
+# and including 2.5.3 — the last version without the language-resonant
+# oscillator — and the identity below is a DELIBERATE clean break, taken while it
+# is still cheap (BJ, 2026-07-25: "noch kennt kaum jemand diesen Synth").
+#
+# What each field does, because three of them look interchangeable and are not:
+#   PLUGIN_NAME   what the host DISPLAYS. Carries the accent.
+#   PRODUCT_NAME  the artefact FILENAME (akroasys.vst3 / .component / .app), so
+#                 ASCII — a non-ASCII bundle name is a portability accident
+#                 waiting on the first Windows or Linux path.
+#   PLUGIN_CODE   the four-character IDENTITY a saved DAW project matches on.
+#                 Changing it away from T5yn is what makes this a break: a
+#                 project that had loaded T5ynth no longer finds the plugin.
+# PLUGIN_MANUFACTURER_CODE stays A4Ae — it identifies the lab, not the product.
+#
+# The CMake TARGET is still T5ynth, so `build_clean/T5ynth_artefacts/…` and every
+# script pointing at it keep working. Renaming the target, the source files and
+# the symbols is a separate mechanical pass; doing it here would mean one commit
+# that changes identity AND moves every path.
 juce_add_plugin(T5ynth
     COMPANY_NAME "UCDCAE AI Lab"
     IS_SYNTH TRUE
     NEEDS_MIDI_INPUT TRUE
     NEEDS_MIDI_OUTPUT FALSE
     PLUGIN_MANUFACTURER_CODE A4Ae
-    PLUGIN_CODE T5yn
+    PLUGIN_CODE Akro
     FORMATS ${T5YNTH_PLUGIN_FORMATS}
-    PRODUCT_NAME "T5ynth"
-    BUNDLE_ID "org.ai4artsed.t5ynth"
-    DESCRIPTION "Text-to-Sound Synthesizer — T5 Embedding Space Navigation"
+    PLUGIN_NAME "akróasys"
+    PRODUCT_NAME "akroasys"
+    BUNDLE_ID "org.ai4artsed.akroasys"
+    DESCRIPTION "Text-to-Sound Synthesizer — embedding-space navigation and a language-resonant oscillator"
     ICON_BIG "${CMAKE_SOURCE_DIR}/resources/logos/t5ynth_icon.png"
     ICON_SMALL "${CMAKE_SOURCE_DIR}/resources/logos/t5ynth_icon.png"
     COPY_PLUGIN_AFTER_BUILD FALSE
     BLUETOOTH_PERMISSION_ENABLED TRUE
-    BLUETOOTH_PERMISSION_TEXT "T5ynth uses Bluetooth to connect to MIDI controllers."
+    BLUETOOTH_PERMISSION_TEXT "akróasys uses Bluetooth to connect to MIDI controllers."
     MICROPHONE_PERMISSION_ENABLED TRUE
-    MICROPHONE_PERMISSION_TEXT "T5ynth captures live audio input to seed Resynth (init_audio)."
+    MICROPHONE_PERMISSION_TEXT "akróasys captures live audio input to seed Resynth (init_audio)."
 )
 
 # ── macOS: ad-hoc sign VST3 / AU bundles after JUCE's build steps ──

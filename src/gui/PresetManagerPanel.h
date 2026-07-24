@@ -38,10 +38,10 @@ public:
         juce::String name;
         juce::String model;        // shortened display name (SA1 Open, SA3 Music, …)
         /** What the MODEL section of the sidebar files this preset under: the
-         *  same label as `model` for a neural preset, "LCO" for one whose
+         *  same label as `model` for a neural preset, "LRO" for one whose
          *  engine is the language oscillator. Separate from `model` because
          *  the two answer different questions — the Detail card's MODEL row
-         *  reports what the FILE says (an LCO preset can still carry a neural
+         *  reports what the FILE says (an LRO preset can still carry a neural
          *  id + audio buffer from before the bake, and that must not be
          *  overwritten), while this reports what actually SOUNDS. */
         juce::String sourceLabel;
@@ -811,6 +811,11 @@ private:
             e.promptB = synth->getProperty("promptB").toString();
             const auto rawModel = synth->getProperty("model").toString().trim();
             e.model = shortenModelName(rawModel);
+            // The language oscillator's stored id was "LCO" before it was named
+            // the Language-Resonant Oscillator. Files keep whichever token they
+            // were written with; the card shows the current name for both, so an
+            // older preset does not read as "LRO · LCO" in the MODEL row.
+            if (e.model == "LCO") e.model = "LRO";
             e.device = synth->getProperty("device").toString().trim();
             // synth.inferenceMs is optional — added to format after the
             // initial v3 release; older presets simply have 0.
@@ -822,35 +827,36 @@ private:
             const auto m = eng->getProperty("mode").toString();
             // "csound" is what the live language oscillator writes today,
             // "lco" what the retired wavetable-bake path wrote; both are the
-            // LCO to the user, who never sees either token.
+            // LRO to the user, who never sees either token.
             const bool isLco = (m == "lco" || m == "csound");
             if (m == "wavetable")    e.engineMode = "Wavetable";
             else if (m == "freeze")  e.engineMode = "Granular";
             else if (m == "sampler") e.engineMode = "Sampler";
-            else if (isLco)          e.engineMode = "LCO";
+            else if (isLco)          e.engineMode = "LRO";
             else if (m.isNotEmpty()) e.engineMode = m;
 
             // The MODEL section of the sidebar files a preset by what MADE its
-            // sound, and for an LCO preset that is the oscillator, not an
+            // sound, and for an LRO preset that is the oscillator, not an
             // inference model — the voices render the orchestra whatever
             // `synth.model` says. A bake runs no model of its own, so that
-            // field is empty in every LCO preset saved without a preceding
-            // generation, and the entire LCO half of a library had no sidebar
+            // field is empty in every LRO preset saved without a preceding
+            // generation, and the entire LRO half of a library had no sidebar
             // row at all. Derived on READ, so presets already on disk get
             // their row without being re-saved, and derived into a field of
             // its own so the Detail card keeps reporting the id the file
             // actually carries.
-            if (isLco) e.sourceLabel = "LCO";
+            if (isLco) e.sourceLabel = "LRO";
         }
 
-        // Non-LCO presets never claim the LCO row. `lastModel` — which is what
-        // lands in `synth.model` — is left holding "LCO" after an LCO preset is
-        // loaded (MainPanel::loadPresetFromFile) and nothing clears it when the
-        // engine is switched back, so a neural preset saved in that state would
-        // otherwise walk into the row as a lookalike. It keeps its file-level
-        // claim in the Detail card; it just doesn't get filed under an
-        // oscillator it doesn't use.
-        if (e.sourceLabel.isEmpty() && e.model != "LCO")
+        // Non-LRO presets never claim the LRO row. `lastModel` — which is what
+        // lands in `synth.model` — is left holding the oscillator's token after
+        // an LRO preset is loaded (MainPanel::loadPresetFromFile) and nothing
+        // clears it when the engine is switched back, so a neural preset saved in
+        // that state would otherwise walk into the row as a lookalike. It keeps
+        // its file-level claim in the Detail card; it just doesn't get filed
+        // under an oscillator it doesn't use. (Both the old "LCO" and the new
+        // "LRO" token arrive here as "LRO" — normalised above.)
+        if (e.sourceLabel.isEmpty() && e.model != "LRO")
             e.sourceLabel = e.model;
 
         // Sequencer mode = combination of step seq + generative seq enables.
@@ -1775,12 +1781,12 @@ private:
         /** MODEL row. It must open with the label the sidebar's MODEL section
          *  files this preset under — the two carry the same word in the same
          *  panel, and a card naming a model whose sidebar row hides the preset
-         *  is a contradiction the user cannot resolve. An LCO preset saved
+         *  is a contradiction the user cannot resolve. An LRO preset saved
          *  after a generation carries BOTH (its voices sound the orchestra, its
          *  buffer is still the neural sample), so the stored id follows the
          *  oscillator rather than being dropped. Empty when nothing files it:
          *  a legacy preset with no model, or one whose stored id is the stale
-         *  "LCO" token left in lastModel by a preset load — paintMetaRow draws
+         *  oscillator token left in lastModel by a preset load — paintMetaRow draws
          *  the em-dash for both, which is the honest claim. */
         juce::String modelRowText() const
         {

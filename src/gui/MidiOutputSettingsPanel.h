@@ -1,6 +1,7 @@
 #pragma once
 #include <JuceHeader.h>
 #include "../PluginProcessor.h"
+#include "../ProductName.h"
 
 // ─────────────────────────────────────────────────────────────────────────────
 // MIDI output + external-clock controls for the standalone "MIDI/Audio Settings"
@@ -19,7 +20,7 @@ class MidiOutputSettingsPanel : public juce::Component
 public:
     explicit MidiOutputSettingsPanel (T5ynthProcessor& p) : proc (p)
     {
-        titleLabel.setText ("T5ynth MIDI", juce::dontSendNotification);
+        titleLabel.setText (productName() + " MIDI", juce::dontSendNotification);
         titleLabel.setFont (juce::Font (juce::FontOptions (15.0f, juce::Font::bold)));
         addAndMakeVisible (titleLabel);
 
@@ -47,7 +48,7 @@ public:
         addAndMakeVisible (outCombo);
 
         clockToggle.setButtonText ("External MIDI Clock (sync BPM to incoming clock)");
-        clockToggle.setTooltip ("Sync T5ynth BPM to incoming MIDI clock — overrides host transport + Seq BPM.");
+        clockToggle.setTooltip ("Sync " + productName() + " BPM to incoming MIDI clock — overrides host transport + Seq BPM.");
         clockToggle.onClick = [this] { proc.setMidiClockEnabled (clockToggle.getToggleState()); };
         addAndMakeVisible (clockToggle);
 

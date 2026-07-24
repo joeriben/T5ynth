@@ -1,6 +1,6 @@
-# T5ynth on Linux
+# akróasys on Linux
 
-This document is the Linux **developer / build-host** path for T5ynth. It is
+This document is the Linux **developer / build-host** path for akróasys. It is
 for people who need to build the standalone app and the isolated backend bundle
 from source.
 
@@ -36,7 +36,7 @@ Before you start, check the package names on the target machine:
 dnf search webkit2gtk
 ```
 
-T5ynth's JUCE build currently expects the WebKitGTK 4.1 ABI. On Fedora 42 that
+akróasys's JUCE build currently expects the WebKitGTK 4.1 ABI. On Fedora 42 that
 usually means `webkit2gtk4.1-devel`, but verify the exact package name on the
 host before assuming the docs are current.
 
@@ -120,7 +120,7 @@ installer/linux/stage_backend_bundle.sh --bundle-id fedora42-x86_64-cuda
 installer/linux/stage_backend_bundle.sh --bundle-id fedora42-x86_64-cuda-blackwell
 ```
 
-## 5. Build T5ynth
+## 5. Build akróasys
 
 ```bash
 cmake -S . -B build_clean -DCMAKE_BUILD_TYPE=Release
@@ -134,13 +134,13 @@ Raise the job count only after you know the host stays stable.
 The standalone binary ends up at:
 
 ```text
-build_clean/T5ynth_artefacts/Release/Standalone/T5ynth
+build_clean/T5ynth_artefacts/Release/Standalone/akroasys
 ```
 
 The VST3 bundle ends up at:
 
 ```text
-build_clean/T5ynth_artefacts/Release/VST3/T5ynth.vst3
+build_clean/T5ynth_artefacts/Release/VST3/akroasys.vst3
 ```
 
 ## 6. Assemble the runnable Linux layout
@@ -149,15 +149,15 @@ The standalone app expects the bundled backend in a sibling `backend/`
 directory, matching CI:
 
 ```bash
-mkdir -p dist/T5ynth/backend
-cp build_clean/T5ynth_artefacts/Release/Standalone/T5ynth dist/T5ynth/
-cp -R backend/dist/pipe_inference/* dist/T5ynth/backend/
+mkdir -p dist/akroasys/backend
+cp build_clean/T5ynth_artefacts/Release/Standalone/akroasys dist/akroasys/
+cp -R backend/dist/pipe_inference/* dist/akroasys/backend/
 ```
 
 Run it with:
 
 ```bash
-./dist/T5ynth/T5ynth
+./dist/akroasys/akroasys
 ```
 
 For the Linux package-layer path, this same backend bundle is first staged into
@@ -166,14 +166,14 @@ a named release bundle and then wrapped into the RPM or `.deb` described in
 
 ## 7. Model installation on Linux
 
-T5ynth does not ship model weights. The Linux model directory is:
+akróasys does not ship model weights. The Linux model directory is:
 
 ```text
 ~/.local/share/T5ynth/models/<model-id>/
 ```
 
 For `stable-audio-open-small`, the user downloads the files manually from
-HuggingFace. T5ynth only scans or copies them into the model directory. The
+HuggingFace. akróasys only scans or copies them into the model directory. The
 required files are:
 
 ```text
@@ -185,7 +185,7 @@ The bundled backend includes the auxiliary T5 Base text encoder used for
 native Stable Audio prompt conditioning.
 
 Use `Auto-Scan` or `Browse...` in the Settings panel after downloading them.
-Do not fetch `model.ckpt` or `base_model.*` files for that model; T5ynth
+Do not fetch `model.ckpt` or `base_model.*` files for that model; akróasys
 ignores them.
 
 ## 8. Troubleshooting

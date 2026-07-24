@@ -1,5 +1,6 @@
 #include "SetupWizard.h"
 #include "GuiHelpers.h"
+#include "../ProductName.h"
 #include "BinaryData.h"
 #include <nlohmann/json.hpp>
 #include <cstring>
@@ -336,7 +337,7 @@ static const KnownModel kKnownModels[] = {
       "- Non-commercial use: free\n"
       "- Commercial use under $1M annual revenue: free (register at stability.ai)\n"
       "- Commercial use over $1M: enterprise license required\n\n"
-      "T5ynth does not provide the weights; they download from the ungated\n"
+      "akr\xc3\xb3" "asys does not provide the weights; they download from the ungated\n"
       "Comfy-Org repository. By downloading you accept the license terms and take\n"
       "responsibility for compliance. A copy is written into the model folder.\n\n"
       "This engine also installs the T5-Base text encoder (Apache-2.0,\n"
@@ -353,7 +354,7 @@ static const KnownModel kKnownModels[] = {
       "- Non-commercial use: free\n"
       "- Commercial use under $1M annual revenue: free (register at stability.ai)\n"
       "- Commercial use over $1M: enterprise license required\n\n"
-      "T5ynth does not provide the weights; they download from an ungated mirror\n"
+      "akr\xc3\xb3" "asys does not provide the weights; they download from an ungated mirror\n"
       "that redistributes the official weights unmodified. By downloading you accept\n"
       "the license terms and take responsibility for compliance. A copy is written\n"
       "into the model folder.\n\n"
@@ -365,14 +366,14 @@ static const KnownModel kKnownModels[] = {
       "This model is licensed under CC BY-NC-SA 4.0.\n\n"
       "- Non-commercial use only (no revenue threshold, no exceptions)\n"
       "- Commercial use is NOT permitted under this license\n\n"
-      "T5ynth does not provide the model weights. By downloading, you accept\n"
+      "akr\xc3\xb3" "asys does not provide the model weights. By downloading, you accept\n"
       "the license terms and take responsibility for compliance.", true, true,
       nullptr, 0 },
     { "t5-base",                 "T5-Base text encoder",       "t5-base", nullptr,
       "https://www.apache.org/licenses/LICENSE-2.0",
       "T5-base is licensed under Apache License 2.0 (open, no restrictions).\n\n"
       "Required by the Stable Audio Open engines (1.0 and Small) as the text\n"
-      "encoder. T5ynth does not provide the weights. By downloading you accept\n"
+      "encoder. " "akr\xc3\xb3" "asys does not provide the weights. By downloading you accept\n"
       "the Apache 2.0 license.", true, false,
       kT5BaseGhFiles,
       static_cast<int>(sizeof(kT5BaseGhFiles) / sizeof(kT5BaseGhFiles[0])) },
@@ -389,7 +390,7 @@ static const KnownModel kKnownModels[] = {
       "   - Commercial use over $1M: enterprise license required\n\n"
       "2) The t5gemma text encoder -- Google Gemma Terms of Use and the Gemma\n"
       "   Prohibited Use Policy (ai.google.dev/gemma/terms).\n\n"
-      "T5ynth does not provide the weights; they download from the ungated\n"
+      "akr\xc3\xb3" "asys does not provide the weights; they download from the ungated\n"
       "Comfy-Org repository. By downloading you accept BOTH licenses and take\n"
       "responsibility for compliance. Copies are written into the model folder.", true, true,
       nullptr, 0, "t5gemma-b-b-ul2", kSa3MusicAssets, 2 },
@@ -407,7 +408,7 @@ static const KnownModel kKnownModels[] = {
       "   - Commercial use over $1M: enterprise license required\n\n"
       "2) The t5gemma text encoder -- Google Gemma Terms of Use and the Gemma\n"
       "   Prohibited Use Policy (ai.google.dev/gemma/terms).\n\n"
-      "T5ynth does not provide the weights; they download from the ungated\n"
+      "akr\xc3\xb3" "asys does not provide the weights; they download from the ungated\n"
       "Comfy-Org repository. By downloading you accept BOTH licenses and take\n"
       "responsibility for compliance. Copies are written into the model folder.", true, true,
       nullptr, 0, "t5gemma-b-b-ul2", kSa3SfxAssets, 2 },
@@ -428,7 +429,7 @@ static const KnownModel kKnownModels[] = {
       "2) The t5gemma text encoder -- Google Gemma Terms of Use and the Gemma\n"
       "   Prohibited Use Policy (ai.google.dev/gemma/terms).\n\n"
       "This is the larger SA3 checkpoint (~9.2 GB download, ~16 GB memory to run).\n"
-      "T5ynth does not provide the weights; they download from the ungated\n"
+      "akr\xc3\xb3" "asys does not provide the weights; they download from the ungated\n"
       "Comfy-Org repository. By downloading you accept BOTH licenses and take\n"
       "responsibility for compliance. Copies are written into the model folder.", true, true,
       nullptr, 0, "t5gemma-b-b-ul2", kSa3MediumAssets, 2 },
@@ -455,11 +456,11 @@ static const KnownModel kKnownModels[] = {
       "https://www.apache.org/licenses/LICENSE-2.0",
       "Gemma 4 12B (QAT, 4-bit) is licensed under Apache License 2.0 (open, no "
       "restrictions).\n\n"
-      "This is the language model behind the LCO -- the oscillator you play by "
+      "This is the language model behind the LRO -- the oscillator you play by "
       "describing a sound in words: the model writes the Csound code that becomes "
       "your sound. The same model translates prompts to English (the EN button) "
       "and drives Re-Prompt. About 7 GB.\n\n"
-      "T5ynth does not provide the weights; they download from HuggingFace "
+      "akr\xc3\xb3" "asys does not provide the weights; they download from HuggingFace "
       "(ungated, no account). By downloading you accept the Apache 2.0 "
       "license.", true, false,
       nullptr, 0 },
@@ -1521,7 +1522,7 @@ SettingsPage::InstallOutcome SettingsPage::installFromManifestFolder(
             juce::AlertWindow::showMessageBoxAsync(
                 juce::MessageBoxIconType::WarningIcon,
                 "Folder not found",
-                "T5ynth could not read the folder:\n  " + sourceFolder.getFullPathName());
+                productName() + " could not read the folder:\n  " + sourceFolder.getFullPathName());
             return InstallOutcome::AbortedWithDialog;
         }
         return InstallOutcome::NotInstalled;
@@ -1663,7 +1664,7 @@ SettingsPage::InstallOutcome SettingsPage::installFromManifestFolder(
         if (!targetDir.createDirectory())
         {
             errorTitle = "Could not create model folder";
-            errorBody = "T5ynth could not create:\n  " + targetDir.getFullPathName()
+            errorBody = productName() + " could not create:\n  " + targetDir.getFullPathName()
                       + "\n\nCheck folder permissions and try again.";
         }
         else
@@ -1715,7 +1716,7 @@ SettingsPage::InstallOutcome SettingsPage::installFromManifestFolder(
                 juce::AlertWindow::showMessageBoxAsync(
                     juce::MessageBoxIconType::InfoIcon,
                     modelDisplayName + " -- Installed",
-                    "T5ynth copied the model files from:\n  " + sourceFolder.getFullPathName()
+                    productName() + " copied the model files from:\n  " + sourceFolder.getFullPathName()
                         + "\n\nto:\n  " + targetDir.getFullPathName()
                         + "\n\nThe originals are still in your Downloads folder -- "
                           "you can delete them now.",
@@ -1815,7 +1816,7 @@ void SettingsPage::performAutoScan()
                 juce::AlertWindow::showMessageBoxAsync(
                     juce::MessageBoxIconType::WarningIcon,
                     "Could not fetch the file list",
-                    "T5ynth could not reach HuggingFace to look up which files "
+                    productName() + " could not reach HuggingFace to look up which files "
                     + modelDisplayName + " needs.\n\nYou download the model from "
                     "HuggingFace, so this is almost certainly a temporary network "
                     "problem. Check your connection and click Auto-Scan again.");
@@ -1888,7 +1889,7 @@ void SettingsPage::startDownload()
         juce::AlertWindow::showOkCancelBox(
             juce::MessageBoxIconType::InfoIcon,
             juce::String(km.displayName) + " -- License",
-            juce::String(km.licenseNotice) + "\n\nFull license:\n" + licenseUrl,
+            juce::String::fromUTF8(km.licenseNotice) + "\n\nFull license:\n" + licenseUrl,
             "Accept & Download", "Cancel", this,
             juce::ModalCallbackFunction::create([safeThis](int result) {
                 if (result == 1) {
@@ -3718,12 +3719,12 @@ void SettingsPage::updateStatus()
     {
         if (coderModelInstalled())
             setInstructionsText(instructionsLabel,
-                display + " is installed. It writes the Csound code for the LCO -- "
+                display + " is installed. It writes the Csound code for the LRO -- "
                 "the oscillator you play by describing a sound in words. The EN "
                 "translate button and Re-Prompt use the same model.");
         else
             setInstructionsText(instructionsLabel,
-                "Required by the LCO -- the oscillator you play by describing a "
+                "Required by the LRO -- the oscillator you play by describing a "
                 "sound in words: this model writes the Csound code that becomes "
                 "your sound. It also translates your prompt to English in the "
                 "background when you enable the EN button (your typed text is "

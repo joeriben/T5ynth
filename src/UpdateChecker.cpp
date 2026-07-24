@@ -2,7 +2,7 @@
 
 namespace
 {
-// The LIST endpoint, not /releases/latest: every T5ynth release is a GitHub
+// The LIST endpoint, not /releases/latest: every release is a GitHub
 // pre-release, and /releases/latest excludes pre-releases (returns 404 here),
 // so it would never surface an update. /releases returns all non-draft releases
 // newest-first and DOES include pre-releases.
@@ -82,7 +82,7 @@ int compareSemVer(const SemVer& a, const SemVer& b)
 } // namespace
 
 UpdateChecker::UpdateChecker(juce::String currentVersion)
-    : juce::Thread("T5ynth Update Check"), currentVersion_(std::move(currentVersion))
+    : juce::Thread("akroasys Update Check"), currentVersion_(std::move(currentVersion))
 {
 }
 
@@ -101,7 +101,7 @@ void UpdateChecker::run()
     juce::URL url(kReleasesApiUrl);
     auto opts = juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress)
                     .withConnectionTimeoutMs(5000)
-                    .withExtraHeaders("User-Agent: T5ynth-UpdateChecker\r\nAccept: application/vnd.github+json");
+                    .withExtraHeaders("User-Agent: akroasys-UpdateChecker\r\nAccept: application/vnd.github+json");
 
     auto stream = url.createInputStream(opts);
     if (stream == nullptr || threadShouldExit())

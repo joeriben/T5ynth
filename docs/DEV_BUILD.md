@@ -1,6 +1,6 @@
-# T5ynth Developer Build Guide
+# akróasys Developer Build Guide
 
-This is the authoritative cross-platform build guide for T5ynth developers. The
+This is the authoritative cross-platform build guide for akróasys developers. The
 top-level `README.md` carries only a minimal build snippet; everything below
 covers the full set of system dependencies, Python packages, and platform
 quirks you actually need to produce a working build.
@@ -13,7 +13,7 @@ correct and file a fix against this document.
 
 ## 1. Overview
 
-A T5ynth build produces two artefacts that must be assembled together:
+A akróasys build produces two artefacts that must be assembled together:
 
 1. **The C++ JUCE plugin.** A single CMake target produces three formats:
    - `Standalone` on every platform
@@ -267,7 +267,7 @@ broken — fix that before proceeding to PyInstaller.
 The PyInstaller spec lives at `backend/pipe_inference.spec`. Run it from
 inside the `backend/` directory so the relative paths in the spec resolve.
 t5-base (the text encoder for native Stable Audio Open Small) is no longer
-bundled — the user installs it via T5ynth's Settings page after first launch.
+bundled — the user installs it via akróasys's Settings page after first launch.
 
 ```bash
 cd backend
@@ -349,9 +349,9 @@ first inference request, and that work is unaffected by the C++ build type.
 After a Release build the artefacts are at:
 
 ```
-build_clean/T5ynth_artefacts/Release/Standalone/T5ynth(.app|.exe|)
-build_clean/T5ynth_artefacts/Release/VST3/T5ynth.vst3
-build_clean/T5ynth_artefacts/Release/AU/T5ynth.component        # macOS only
+build_clean/T5ynth_artefacts/Release/Standalone/akroasys(.app|.exe|)
+build_clean/T5ynth_artefacts/Release/VST3/akroasys.vst3
+build_clean/T5ynth_artefacts/Release/AU/akroasys.component        # macOS only
 ```
 
 ---
@@ -360,11 +360,11 @@ build_clean/T5ynth_artefacts/Release/AU/T5ynth.component        # macOS only
 
 The Standalone `.app` produced by JUCE is a fully formed bundle but does
 **not** yet contain the Python backend. The app expects to find the bundled
-backend at `T5ynth.app/Contents/Resources/backend/pipe_inference`. Copy it
+backend at `akroasys.app/Contents/Resources/backend/pipe_inference`. Copy it
 in after the build:
 
 ```bash
-APP=build_clean/T5ynth_artefacts/Release/Standalone/T5ynth.app
+APP=build_clean/T5ynth_artefacts/Release/Standalone/akroasys.app
 mkdir -p "$APP/Contents/Resources/backend"
 cp -R backend/dist/pipe_inference/* "$APP/Contents/Resources/backend/"
 ```
@@ -375,7 +375,7 @@ from `build/` to `build_clean/`.
 
 For Linux and Windows builds the equivalent is to place the
 `backend/dist/pipe_inference/` directory next to the `T5ynth` /
-`T5ynth.exe` binary. CI does this under `dist/T5ynth/backend/` —
+`akroasys.exe` binary. CI does this under `dist/akroasys/backend/` —
 mirror that layout when shipping.
 
 ---
@@ -384,20 +384,20 @@ mirror that layout when shipping.
 
 macOS:
 ```bash
-./build_clean/T5ynth_artefacts/Release/Standalone/T5ynth.app/Contents/MacOS/T5ynth
+./build_clean/T5ynth_artefacts/Release/Standalone/akroasys.app/Contents/MacOS/akróasys
 ```
 
 Linux:
 ```bash
-./build_clean/T5ynth_artefacts/Release/Standalone/T5ynth
+./build_clean/T5ynth_artefacts/Release/Standalone/akroasys
 ```
 
 Windows (PowerShell):
 ```powershell
-.\build_clean\T5ynth_artefacts\Release\Standalone\T5ynth.exe
+.\build_clean\T5ynth_artefacts\Release\Standalone\akroasys.exe
 ```
 
-On first launch with no model installed, T5ynth opens in its clean Init
+On first launch with no model installed, akróasys opens in its clean Init
 state; generation will fail until a model is installed. Click the *Settings*
 button in the status bar to walk through the per-model install flow described in
 `docs/handover_distribution_session.md` and the in-app *About* dialog.
@@ -411,17 +411,17 @@ your platform.
 
 | Platform | Format | Location |
 | --- | --- | --- |
-| macOS | AU | `~/Library/Audio/Plug-Ins/Components/T5ynth.component` |
-| macOS | VST3 | `~/Library/Audio/Plug-Ins/VST3/T5ynth.vst3` |
-| Linux | VST3 | `~/.vst3/T5ynth.vst3` |
-| Windows | VST3 | `%CommonProgramFiles%\VST3\T5ynth.vst3` |
+| macOS | AU | `~/Library/Audio/Plug-Ins/Components/akroasys.component` |
+| macOS | VST3 | `~/Library/Audio/Plug-Ins/VST3/akroasys.vst3` |
+| Linux | VST3 | `~/.vst3/akroasys.vst3` |
+| Windows | VST3 | `%CommonProgramFiles%\VST3\akroasys.vst3` |
 
 A symlink from the build output avoids re-copying after every build:
 
 ```bash
 # macOS AU example
-ln -sf "$PWD/build_clean/T5ynth_artefacts/Release/AU/T5ynth.component" \
-  "$HOME/Library/Audio/Plug-Ins/Components/T5ynth.component"
+ln -sf "$PWD/build_clean/T5ynth_artefacts/Release/AU/akroasys.component" \
+  "$HOME/Library/Audio/Plug-Ins/Components/akroasys.component"
 ```
 
 The plugin formats and the Standalone share a single CMake target, so
@@ -437,7 +437,7 @@ Cause: missing `libgtk-3-dev` **or** missing the explicit
 `juce::pkgconfig_JUCE_BROWSER_LINUX_DEPS` link in `CMakeLists.txt`. Both are
 required. JUCE 8's `juce_gui_extra` module header has no `linuxPackages:`
 declaration, so JUCE neither pulls the package via pkg-config nor links it
-automatically. T5ynth's CMake configuration links the helper target by
+automatically. akróasys's CMake configuration links the helper target by
 hand; you provide the system package.
 
 Fix: install `libgtk-3-dev` (see section 4.2). If the link is missing in
@@ -469,7 +469,7 @@ end-to-end through the JUCE app.
 ### 11.4 `error: no matching constructor for initialization of 'juce::WebBrowserComponent'`
 
 Cause: `JUCE_WEB_BROWSER` is set to `0` in the compile definitions of the
-target. T5ynth requires it to be `1` — the in-app Manual overlay renders
+target. akróasys requires it to be `1` — the in-app Manual overlay renders
 the shipped HTML guide through a `juce::WebBrowserComponent`.
 
 Fix: verify `CMakeLists.txt` still contains:
@@ -486,7 +486,7 @@ the seal invalidates the signature, and macOS DAWs refuse to load the
 plugin as an instrument (it appears in scan logs but not in the
 instrument browser).
 
-Fix: T5ynth's `CMakeLists.txt` adds a `POST_BUILD` `add_custom_command`
+Fix: akróasys's `CMakeLists.txt` adds a `POST_BUILD` `add_custom_command`
 on the `T5ynth_VST3` target that re-signs the bundle ad-hoc after JUCE's
 own POST_BUILD steps complete. POST_BUILD commands run in target order,
 so this lands after the manifest step. If you see this error, verify the

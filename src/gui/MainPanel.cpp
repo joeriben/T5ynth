@@ -5,6 +5,7 @@
 #include "../presets/CalibrationMigration.h"
 #include "GuiHelpers.h"
 #include "BinaryData.h"
+#include "../ProductName.h"
 #include "PhysicalKeyState.h"   // t5::physicalKeyDown — layout-independent (isolated TU)
 #include <cmath>
 #include <cstring>
@@ -482,7 +483,7 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
     oscModeToggle.setColour(juce::TextButton::buttonOnColourId, kSurface.darker(0.45f));
     oscModeToggle.setColour(juce::TextButton::textColourOffId, kOscCol);
     oscModeToggle.setColour(juce::TextButton::textColourOnId, kOscCol);
-    oscModeToggle.setTooltip("Switch oscillator mode: T5osc (neural generator) / LCO (language-controlled)");
+    oscModeToggle.setTooltip("Switch oscillator mode: T5osc (neural generator) / LRO (language-resonant)");
     oscModeToggle.onClick = [this] {
         const bool wantNeural = !oscEasyMode;
         setOscEasyMode(wantNeural, true);
@@ -1561,7 +1562,7 @@ void MainPanel::setOscEasyMode(bool easy, bool persist)
     // out the mode's real name instead (no separate subtitle line any more —
     // the LCO panel's own dcoSubtitleLabel was removed, PromptPanel.cpp).
     oscHeader.setText(neural ? juce::String(" T5 OSCILLATOR")
-                             : juce::String::fromUTF8(" Language-Controlled Oscillator (Alpha)"),
+                             : juce::String::fromUTF8(" Language-Resonant Oscillator"),
                       juce::dontSendNotification);
 
     // Axes|Dim segment + the Stability credit are neural-only (no LCO meaning).
@@ -1631,7 +1632,7 @@ void MainPanel::setOscEasyMode(bool easy, bool persist)
 
     updateAxesDimSegment();   // re-applies axesPanel/dimensionExplorer (mode-aware)
 
-    oscModeToggle.setButtonText(oscEasyMode ? juce::String::fromUTF8("\xc2\xbb LCO")
+    oscModeToggle.setButtonText(oscEasyMode ? juce::String::fromUTF8("\xc2\xbb LRO")
                                             : juce::String::fromUTF8("\xc2\xbb T5osc"));
     updateOscModeToggleVisual();
 
@@ -2189,7 +2190,7 @@ void MainPanel::applyLoadedPreset(const PresetFormat::LoadResult& result, const 
                                         result.lcoMotionRateHz,
                                         result.lcoOscAHasContent, result.lcoGainA,
                                         result.lcoOscBHasContent, result.lcoGainB);
-        processorRef.setLastModel("LCO");
+        processorRef.setLastModel("LRO");
         promptPanel.setLcoPrompt(result.lcoPrompt);
         // The retired wavetable LCO: no Csound author wrote this, so the trace
         // names none rather than inheriting whoever wrote the last orchestra.
@@ -2651,14 +2652,20 @@ void MainPanel::tryLoadInferenceModels(bool forceRestart)
         }
     }
 
-    // 3. Plugin context (VST3/AU): the exe is the DAW, not T5ynth. Look for a
-    //    companion T5ynth Standalone install and borrow its bundled backend.
+    // 3. Plugin context (VST3/AU): the exe is the DAW, not the instrument. Look
+    //    for a companion Standalone install and borrow its bundled backend.
     //    Release archives ship the heavy backend only with the Standalone —
     //    VST3/AU plugins piggy-back on it so the plugin downloads stay small.
+    //    The pre-rename bundle name stays in the list: a machine that still has
+    //    T5ynth installed has a perfectly good backend, and the plugin has no
+    //    reason to refuse it.
     if (!backendDir.exists() && !forceBundledBackend)
     {
        #if JUCE_MAC
         juce::Array<juce::File> companionApps {
+            juce::File("/Applications/akroasys.app"),
+            juce::File::getSpecialLocation(juce::File::userHomeDirectory)
+                .getChildFile("Applications/akroasys.app"),
             juce::File("/Applications/T5ynth.app"),
             juce::File::getSpecialLocation(juce::File::userHomeDirectory)
                 .getChildFile("Applications/T5ynth.app")
@@ -2687,6 +2694,8 @@ void MainPanel::tryLoadInferenceModels(bool forceRestart)
         }
        #elif JUCE_LINUX
         juce::StringArray companionRoots {
+            "/opt/akroasys/backend",
+            "/usr/local/share/akroasys/backend",
             "/opt/T5ynth/backend",
             "/usr/local/share/T5ynth/backend"
         };
@@ -2752,8 +2761,8 @@ void MainPanel::tryLoadInferenceModels(bool forceRestart)
         const auto msg = forceBundledBackend
                          ? juce::String("Bundled backend not found in app")
                          : (juce::JUCEApplicationBase::isStandaloneApp()
-                            ? juce::String("Backend not found — reinstall T5ynth")
-                            : juce::String("Backend not found — install the T5ynth app"));
+                            ? juce::String("Backend not found — reinstall ") + productName()
+                            : juce::String("Backend not found — install the ") + productName() + " app");
         statusBar.setStatusText(msg);
         settingsPage.setBackendFailed(forceBundledBackend ? "Bundled backend missing" : "Not found");
     }
@@ -3298,7 +3307,7 @@ void MainPanel::storeSnapshotFromPress(int slot)
         auto& pendingLco = lcoPressCaptures[static_cast<size_t>(slot - 1)];
         if (!pendingLco.valid)
         {
-            statusBar.setStatusText("No LCO sound or prompt to snapshot");
+            statusBar.setStatusText("No LRO sound or prompt to snapshot");
             return;
         }
         const bool hasSound = pendingLco.orchestra.isNotEmpty();
@@ -3308,8 +3317,8 @@ void MainPanel::storeSnapshotFromPress(int slot)
         syncSnapshotUi();
         snapshotButtons[slot].flashStored();
         statusBar.setStatusText(hasSound
-            ? "LCO snapshot " + juce::String(slot) + " saved (orchestra + sound)"
-            : "LCO prompt " + juce::String(slot) + " saved (no orchestra yet)");
+            ? "LRO snapshot " + juce::String(slot) + " saved (orchestra + sound)"
+            : "LRO prompt " + juce::String(slot) + " saved (no orchestra yet)");
         return;
     }
 
@@ -3344,7 +3353,7 @@ void MainPanel::activateSnapshot(int slot)
         // prompt (the user bakes via GENERATE when ready).
         if (slot > kNumSnapshotSlots || !lcoSnapshots[static_cast<size_t>(slot - 1)].valid)
         {
-            statusBar.setStatusText("LCO snapshot " + juce::String(slot) + " empty");
+            statusBar.setStatusText("LRO snapshot " + juce::String(slot) + " empty");
             syncSnapshotUi();
             return;
         }
@@ -3356,7 +3365,7 @@ void MainPanel::activateSnapshot(int slot)
             // one over now would sound for a few seconds and then be replaced by a
             // sound the user did not ask for. Say so instead of half-doing it. A
             // prompt-only slot is unaffected — it touches no sound at all.
-            statusBar.setStatusText("LCO is authoring — recall when the bake lands");
+            statusBar.setStatusText("LRO is authoring — recall when the bake lands");
             syncSnapshotUi();
             return;
         }
@@ -3364,8 +3373,8 @@ void MainPanel::activateSnapshot(int slot)
         activeSnapshotIndex = slot;
         syncSnapshotUi();
         statusBar.setStatusText(hasSound
-            ? "LCO snapshot " + juce::String(slot) + " recalled"
-            : "LCO prompt " + juce::String(slot) + " recalled (no orchestra stored)");
+            ? "LRO snapshot " + juce::String(slot) + " recalled"
+            : "LRO prompt " + juce::String(slot) + " recalled (no orchestra stored)");
         return;
     }
 
@@ -4241,7 +4250,7 @@ void MainPanel::exportWav()
 
 // A human-friendly default filename for the WAV export dialog: the preset name
 // if the user has one, else the A prompt, sanitised to a legal filename and
-// length-capped. Falls back to "T5ynth" so the field is never empty.
+// length-capped. Falls back to the app name so the field is never empty.
 juce::String MainPanel::suggestedExportBaseName() const
 {
     juce::String base = processorRef.getLastPresetName().trim();
@@ -4251,7 +4260,7 @@ juce::String MainPanel::suggestedExportBaseName() const
     if (base.length() > 48)
         base = base.substring(0, 48).trim();
     base = juce::File::createLegalFileName(base);
-    return base.isNotEmpty() ? base : juce::String("T5ynth");
+    return base.isNotEmpty() ? base : juce::String(kProductNameAscii);
 }
 
 // Copy the current session's .t5evt (the continuously-recorded event log) to a

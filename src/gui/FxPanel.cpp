@@ -2,6 +2,7 @@
 #include "../dsp/BlockParams.h"
 #include "../PluginProcessor.h"
 #include "MidiLearnMenu.h"
+#include "../ProductName.h"
 
 static juce::String fmtMs(double v)
 {
@@ -443,7 +444,7 @@ void FxPanel::WordmarkComponent::paint(juce::Graphics& g)
 
     g.setFont(juce::FontOptions(prefixFs));
     g.setColour(kDimmer);
-    g.drawText("T5ynth by", 0, y, panelW, prefixH, juce::Justification::centred);
+    g.drawText(productName() + " by", 0, y, panelW, prefixH, juce::Justification::centred);
 
     y += prefixH + lineGap;
     const int tracking = juce::roundToInt(brandFs * 0.15f);

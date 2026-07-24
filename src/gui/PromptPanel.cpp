@@ -401,7 +401,7 @@ PromptPanel::PromptPanel(T5ynthProcessor& processor)
         // (modelBtns[], below): same LnF, same styleSwitchButton accent. Display-
         // only for now (selection is future work); the tab lights when the model
         // is installed and dims when absent (updateLcoModelTabs, driven by
-        // MainPanel). Replaces the old single "LCO: ready" status line and the
+        // MainPanel). Replaces the old single "LRO: ready" status line and the
         // earlier single collapsed model button.
         {
             // The tab names the model, never a guess: MainPanel pushes the
@@ -434,7 +434,7 @@ PromptPanel::PromptPanel(T5ynthProcessor& processor)
         // logical status/error holder (many call sites write it) but is no
         // longer laid out as its own visible line — its text is routed into
         // dcoTraceView below (setLcoStatus).
-        makeLabel(dcoStatusLabel, "LCO: ready", kDim, juce::Justification::centredLeft, this);
+        makeLabel(dcoStatusLabel, "LRO: ready", kDim, juce::Justification::centredLeft, this);
 
         // Flags list — the guardrail honesty channel made visible: one
         // "word: reason" line per approximated/unmappable prompt term
@@ -465,8 +465,8 @@ PromptPanel::PromptPanel(T5ynthProcessor& processor)
         if (auto* dcoStanceParam = processor.getValueTreeState().getParameter(PID::dcoRepromptStance))
             dcoStanceBar.attachTo(*dcoStanceParam, RepromptStance::kCount);
         dcoStanceBar.setTooltip(
-            "LCO Re-Prompt stance: the machine reads its own last recipe (resolved "
-            "values + flags), not audio - it rewrites the LCO prompt before the next "
+            "LRO Re-Prompt stance: the machine reads its own last recipe (resolved "
+            "values + flags), not audio - it rewrites the LRO prompt before the next "
             "bake. Hover a glyph for its movement type.");
         dcoStanceBar.setPositionTooltips({
             "Off - Re-Prompt loop disabled.",
@@ -2451,7 +2451,7 @@ void PromptPanel::triggerDcoBake()
             tr.attempts           = authored.attempts;
             self->dcoTraceView.setTrace(std::move(tr));
             self->dcoTraceView.setTooltip({});
-            self->dcoStatusLabel.setText("LCO: csound authored", juce::dontSendNotification);
+            self->dcoStatusLabel.setText("LRO: csound authored", juce::dontSendNotification);
 
             // Re-Prompt bookkeeping (docs/DCO_REPROMPT_CONCEPT.md): the
             // chain reads its own last reading/flags to build the next
@@ -3248,7 +3248,7 @@ void PromptPanel::setLlmAvailable(bool available)
                        "Models settings tab."));
     dcoStanceBar.setTooltip(available
         ? juce::String()
-        : juce::String("LCO Re-Prompt needs the language model. Install it in the "
+        : juce::String("LRO Re-Prompt needs the language model. Install it in the "
                        "Models settings tab."));
 
     repromptStanceBar.repaint();   // a raw Component: reflect the dim immediately

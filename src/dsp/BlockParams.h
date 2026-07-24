@@ -521,7 +521,7 @@ namespace EngineMode {
         { "sampler",   "Sampler"   },
         { "wavetable", "Wavetable" },
         { "freeze",    "Granular"  },
-        { "lco",       "LCO"       },
+        { "lco",       "LRO"       },
         { "csound",    "Csound"    }
     };
     static constexpr int kCount = sizeof(kEntries) / sizeof(kEntries[0]);

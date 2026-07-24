@@ -2,6 +2,7 @@
 #include "PluginProcessor.h"
 #include "BinaryData.h"
 #include "gui/MidiOutputSettingsPanel.h"
+#include "ProductName.h"
 
 #if JucePlugin_Build_Standalone
  // Gives access to juce::StandalonePluginHolder::getInstance() so we can inject our
@@ -91,7 +92,10 @@ void T5ynthEditor::applyStandaloneWindowTitle()
 
     if (auto* window = findParentComponentOfClass<juce::DocumentWindow>())
     {
-        const juce::String title = juce::String(ProjectInfo::projectName)
+        // productName(), not ProjectInfo::projectName: the latter is the CMake
+        // PRODUCT_NAME, which is the ASCII artefact name ("akroasys"). The window
+        // title is read, not typed.
+        const juce::String title = productName()
                                  + " "
                                  + ProjectInfo::versionString;
 

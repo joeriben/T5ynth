@@ -41,7 +41,10 @@ public:
     juce::AudioProcessorEditor* createEditor() override;
     bool hasEditor() const override { return true; }
 
-    const juce::String getName() const override { return "T5ynth"; }
+    // JucePlugin_Name comes from PLUGIN_NAME in CMakeLists.txt, so the name a host
+    // shows can never drift from the one the plugin registers. It carries a
+    // non-ASCII character ("akróasys") — fromUTF8, never the raw literal.
+    const juce::String getName() const override { return juce::String::fromUTF8(JucePlugin_Name); }
     bool acceptsMidi() const override { return true; }
     bool producesMidi() const override { return false; }
     double getTailLengthSeconds() const override { return 0.0; }
