@@ -259,11 +259,38 @@ def comb_contrast(y, f, n=24, t0=0.5, t1=3.5):
                                / max(np.mean(valleys), 1e-12)))
 
 
+def travel(y, n=8):
+    """Colour over the course of the note: the centroid of n successive windows.
+
+    Movement by default is a platform fundamental, and a fundamental that is a
+    requirement but not a measurement is a regression waiting to ship: a corpus of
+    standing tones passes an implementation that cannot move at all. This is the
+    objective signature — where the colour goes, and how far — so "it moves" stops
+    being a matter of what somebody remembers hearing.
+
+    The window length picks which RATE of motion is visible, and reading only one
+    of them will call a moving instrument still: `pwm`'s duty sweep reads 48 Hz of
+    travel in 0.5 s windows (n=8, a full LFO cycle per window, averaged flat) and
+    696 Hz in 31 ms ones (n=128). A standing sine reads 0 at every window length,
+    which is what makes the fast reading evidence rather than noise. `measure()`
+    therefore reports both.
+    """
+    n = max(2, n)
+    edges = np.linspace(0, len(y) / SR, n + 1)
+    cs = [centroid(y, a, b) for a, b in zip(edges[:-1], edges[1:])]
+    return cs, (max(cs) - min(cs))
+
+
 def measure(y, asked_freq):
     f = f0(y)
+    cs, span = travel(y, 8)
+    _, fast = travel(y, 128)
     return {"f0": None if f is None else round(f, 2),
             "cents": None if f is None else round(cents(f, asked_freq), 1),
             "centroid": round(centroid(y), 1),
+            "centroid_travel_hz": round(span, 1),
+            "centroid_motion_hz": round(fast, 1),
+            "centroid_over_note": [round(c) for c in cs],
             "rms_db": round(rms_db(y), 2),
             "peak_p999": round(peak_p999(y), 3),
             "sustain": round(sustain(y), 3),
@@ -341,6 +368,18 @@ def selftest():
     yw, _ = render(_SAW)
     check("sine is darker than saw", centroid(ys) < centroid(yw),
           f"{centroid(ys):.0f} < {centroid(yw):.0f} Hz")
+
+    print("movement is visible, and stillness is not mistaken for it")
+    ymov, emov = render("""asaw    vco2 0.5, kfreq * koct1, 0
+kcut    expon 300, 4.0, 8000
+asig    tone asaw, kcut""")
+    if emov:
+        check("a sweeping body renders", False, emov)
+    else:
+        _, span_mov = travel(ymov)
+        _, span_still = travel(ys)
+        check("a sweep travels", span_mov > 800, f"{span_mov:.0f} Hz")
+        check("a standing sine does not", span_still < 20, f"{span_still:.0f} Hz")
 
     print("comb contrast tracks the resonator, not the exciter")
     (yn, en), (yh, eh), (yl, el) = (render(_NOISE), render(_comb(0.995)),
