@@ -34,7 +34,7 @@ t5ynth/
 │   ├── routes/                 # Legacy HTTP routes (kept but unused by the plugin)
 │   ├── config.py               # Device/model enumeration logic
 │   └── dist/pipe_inference/    # PyInstaller one-folder output (populated by `pyinstaller`)
-├── JUCE/                       # Vendored JUCE framework, see §9
+├── JUCE/                       # Vendored JUCE framework, see §10
 ├── resources/
 │   ├── ir/                     # Convolution reverb impulse responses (.wav)
 │   ├── presets/                # Bundled .t5p presets (seeded into the UCDCAE AI Lab bank on first launch)
@@ -62,18 +62,20 @@ t5ynth/
   - `WavetableOscillator`, `SamplePlayer`, `WavetableBank` — the two
     oscillator types fed by the generator output. Both are owned by
     `T5ynthProcessor` as *master* instances (`masterOsc`, `masterSampler`) and
-    the per-voice copies share frame/buffer data.
+    the per-voice copies share frame/buffer data. A third, unrelated
+    oscillator source sits beside them: `CsoundEngine.{h,cpp}`, the LCO's
+    live Csound orchestra — see §5.
   - `LFO`, `DriftLFO`, `ADSREnvelope`, `StateVariableFilter`,
     `NoiseGenerator`.
   - `DelayLine`, `ConvolutionReverb`, `AlgorithmicReverb`, `Limiter` —
     global post-sum effects.
   - `BlockParams.h` — plain-old-data struct carrying every per-block
     parameter value from APVTS down into `VoiceManager::renderBlock`.
-  - `ModulationMatrix.{h,cpp}` — **stub**, see §5.
+  - `ModulationMatrix.{h,cpp}` — **stub**, see §6.
 - **`src/gui/`** — every `juce::Component` subclass, plus `T5ynthLookAndFeel`
   and `GuiHelpers.h` (shared `SliderRow`, `SwitchBox` primitives). See §3.
 - **`src/inference/`** — `PipeInference.{h,cpp}` only. C++ side of the IPC to
-  Python. See §6.
+  Python. See §7.
 - **`src/sequencer/`** — `StepSequencer`, `Arpeggiator`,
   `GenerativeSequencer` (Euclidean + scale-quantized note generator).
   Driven from `processBlock` and exposed via `PluginProcessor` accessors.
@@ -101,7 +103,7 @@ the plugin instance:
   subprocess;
 - generated-audio buffers (`generatedAudioFull`, `generatedAudioRaw`) plus
   the last known `sampleRate`, seed, prompts, and prompt embeddings —
-  these are *GUI-visible state that is not in APVTS*. See §7.
+  these are *GUI-visible state that is not in APVTS*. See §8.
 
 ### APVTS as single source of truth
 
@@ -117,7 +119,7 @@ that exposes it.
 
 `src/PluginProcessor.cpp:470`. Calls `prepare(sampleRate, samplesPerBlock)`
 on every DSP member, loads the default convolution-reverb IR from
-`BinaryData::emt_140_plate_medium_wav` (§8), resizes pre-allocated scratch
+`BinaryData::emt_140_plate_medium_wav` (§9), resizes pre-allocated scratch
 buffers (`lfo1Buffer`, `lfo2Buffer`, `reverbSendBuffer`), and computes
 `tailBlocks` for deep-idle detection (≈10 seconds of reverb tail at the
 current block size).
@@ -137,7 +139,7 @@ current block size).
 4. **Modulation targets resolved.** Drift LFO target, ENV 2/3 targets
    (`mod1_target`, `mod2_target`), LFO1/LFO2 targets are all stored as
    integer choices in APVTS; `processBlock` dispatches them onto the
-   correct DSP destinations. See §5.
+   correct DSP destinations. See §6.
 5. **Global LFOs ticked into `lfo1Buffer` / `lfo2Buffer`.**
 6. **MIDI routed** through sequencer / arpeggiator / direct note-on.
 7. **`voiceManager.renderBlock(...)`** sums polyphonic voices into
@@ -161,7 +163,7 @@ are explicitly forced to `0` so sessions never auto-start audio on restore.
 
 Note that this session serialization only captures APVTS. Prompts, seed,
 generated audio, axes slot state, and prompt embeddings live outside APVTS
-and are persisted separately via the .t5p preset format (§7).
+and are persisted separately via the .t5p preset format (§8).
 
 ---
 
@@ -242,10 +244,15 @@ runtime `voiceLimit` from APVTS `voice_count` (choices:
 
 Each `SynthVoice` (`src/dsp/SynthVoice.h:17`) owns its own instance of:
 
-- `WavetableOscillator osc` and `SamplePlayer sampler` (engine mode
-  switches between the two; mode is stored in APVTS `engine_mode`, not as
-  a class member — see `PluginProcessor::isWavetableMode()` at
-  `src/PluginProcessor.h:47`).
+- `WavetableOscillator osc` and `SamplePlayer sampler` (mode is stored in
+  APVTS `engine_mode`, not as a class member — see
+  `PluginProcessor::isWavetableMode()` at `src/PluginProcessor.h:61`).
+  These are two of FOUR per-voice engines selected by `engine_mode`
+  (`SynthVoice::EngineMode`, `src/dsp/SynthVoice.h:122`): the others are
+  the `FreezeTextureEngine freezeEngine` granular engine
+  (`SynthVoice.h:169`) and, in Csound mode, a live orchestra rendered by a
+  processor-owned `CsoundEngine` entirely outside the voice and read in via
+  `csoundBuf_` — see §5.
 - `NoiseGenerator noise` for the sub-oscillator noise source.
 - Three `ADSREnvelope`s: `ampEnv` (amplifier/ENV1), `modEnv1` (ENV2),
   `modEnv2` (ENV3).
@@ -280,7 +287,215 @@ sub-block rate without paying the cost of per-sample recomputation
 
 ---
 
-## 5. Modulation routing
+## 5. The LCO — the language-controlled oscillator
+
+Alongside the two sample-fed engines in §4, `engine_mode` can select a third
+kind of oscillator that is fed by neither of them: for every prompt, one
+inference against a curated library makes a language model **write** a
+Csound orchestra, which is compiled and run live as the voice source. One
+prompt → one inference → one orchestra → it runs. The **authoring** path has
+no fallback: if the model cannot produce an orchestra that compiles, the LCO
+stays silent — never a keyword-matched or default one. (The **engine** has one
+exception to that, described at the end of this section, and it is a known
+conflict with the rule rather than a designed escape hatch.)
+
+### Where it sits
+
+`SynthVoice::EngineMode` (`src/dsp/SynthVoice.h:122`) is four-valued:
+`Sampler`, `Wavetable`, `Freeze` (the granular `FreezeTextureEngine`,
+`SynthVoice.h:169`) and `Csound`. In Csound mode a voice's raw signal is not
+produced by `osc`/`sampler`/`freezeEngine` at all — it is read
+sample-by-sample from a processor-owned `CsoundEngine`'s per-voice output
+buffer (`SynthVoice.cpp:1043-1056`); noise mix, drive, filter and the
+VCA/envelope chain downstream are the same shared path every other engine
+uses, untouched.
+
+`engine_mode` itself (`EngineMode` in `src/dsp/BlockParams.h:503`) is
+five-valued: `Sampler`/`Wavetable`/`Freeze` are the neural "T5osc" paradigm;
+`Lco` is a legacy value kept only so a v5 preset's baked-wavetable DCO still
+loads (it falls through to the Wavetable DSP path,
+`PluginProcessor.cpp:3337-3339`); `Csound` is the live value described in
+this section. The
+"» LCO / » T5osc" toggle in `MainPanel` owns the switch
+(`MainPanel::applyOscModeToEngine`, `MainPanel.cpp:1645`): leaving Csound
+for T5osc calls `T5ynthProcessor::restoreNeuralEngineMode()`; returning to
+the LCO restores whichever language mode was stashed
+(`restoreLanguageEngineMode()`) or, failing that, re-forces Csound if an
+orchestra has already been authored this session
+(`forceCsoundEngineMode()`, `PluginProcessor.cpp:2134`) — a session with
+nothing baked yet leaves the engine on whatever was already sounding until
+the first bake.
+
+### Triggering an authoring pass
+
+`PromptPanel::triggerDcoBake()` (`PromptPanel.cpp:2301`) is the LCO's
+GENERATE entry point — the same button, Cmd/Return shortcut and Launch
+Control XL "Generate" CC that drive the neural path route here whenever the
+panel is in Advanced (LCO) mode. It gates on the language model being
+installed, the inference pipe being idle, and the prompt editor being
+non-empty, then calls `PipeInference::authorCsoundOrchestra()`
+(`PromptPanel.cpp:2656`) on a detached background thread.
+`setLcoStatus()` (`PromptPanel.cpp:2161`) is the single channel ordinary
+status text ("Writing the instrument", "Still generating", …) and the busy
+state flow through, both funnelled into `LcoTraceView`
+(`src/gui/LcoTraceView.h`). With a Re-Prompt stance engaged, the same
+GENERATE press instead runs `triggerDcoReprompt()` (`PromptPanel.cpp:2713`),
+which rereads the previous bake's own reading and prompt under the selected
+stance and rewrites the prompt before calling `triggerDcoBake()` again.
+
+On success, the panel builds an `LcoTraceView::Trace`
+(`PromptPanel.cpp:2425-2444`) entirely from fields the backend already
+computed — nothing is composed and the author is asked for no account of
+itself. The view renders
+it as five stations (`LcoTraceView.h:11-17`): **HEARD** (the authored
+prompt), **LOOKED UP** (which library instruments/adjectives/motions the
+prompt's own words reached, and which orientation entries the author saw
+anyway), **WROTE** (which model, and its own one-line reading), **REPAIRED**
+(the Csound errors it had to fix, absent when it compiled on the first
+attempt) and **RUNNING** (the live compile state). The authored Csound body
+is the flip side of the same card, not printed inline. A single model tab
+names whichever model would author next, or — once a bake has claimed one —
+the model that actually wrote the running orchestra (`lcoResolvedModel_` /
+`lcoAuthorClaim_`, `PromptPanel.h:617-618`); it is the one language model in
+the app, shared by authoring, translation and Re-Prompt.
+
+### The IPC hop
+
+`authorCsoundOrchestra()` (`PipeInference.h:263`, implemented
+`PipeInference.cpp:1276`) sends a `mode:"csound"` request over the same
+stdin/stdout binary protocol as generation — see `docs/IPC_PROTOCOL.md`
+§3.3 for the request shape and §4.5/§4.6 for the text-result and
+interim-frame responses it reads. On the Python side,
+`backend/pipe_inference.py`'s `request.get("mode") == "csound"` branch
+(`pipe_inference.py:3667`) resolves the author model via
+`_resolve_coder_model_dir()` (`:938` — one directory, no fallback to any
+other installed model; the shipped slot is `gemma-4-12b-it-qat-q4_0`,
+`:913`), builds a single `csound_llm` callable around it (GGUF via
+llama.cpp when the install ships one, else a `transformers` directory) and
+calls `lco_write.build_csound_response()` (`:3721`). When the request
+carries `"stream": true`, the author's reasoning is sent back live as
+`\x04` interim frames as it is written, decoded on the C++ side and shown
+in the WROTE station while authoring is still running.
+
+### The host scaffold — the model's one contract
+
+`lco_write.wrap()` (`backend/lco_write.py:922`) puts the authored body
+between a fixed `_HEAD` (`:844`) and `_TAIL`+`_SCORE` (`:907`, `:918`). The
+body's only obligation is to write its signal into **`asig`**; everything
+else is the host's:
+
+- `sr` substituted from the engine's real sample rate at compile time,
+  `ksmps = 64`, `nchnls = 16` (one channel per voice, matching
+  `CsoundEngine::kMaxVoices`), `0dbfs = 1`.
+- ftables `giSine` (1, sine), `giCos` (2, cosine — `gbuzz`'s harmonics are
+  cosines), `giCheb` (3, a GEN13 Chebyshev transfer function) and `giImp`
+  (4, a strike impulse for models that take their excitation as a table
+  number).
+- one numeric `instr 1` with `ivoice = p4` and sixteen always-on score
+  instances (`i 1 0 360000 <v>` for v = 1..16) — there is no note-off and
+  no per-note score event; every struck idiom in the library is
+  continuously driven (noise, `dust`) rather than one-shot, because the
+  synth's own envelope owns amplitude shape, never the oscillator.
+- six per-voice control channels read via `sprintf`+`chnget`
+  (`gate`/`freq`/`vel`/`pres`/`timb`/`trig`), `kgate` declicked with
+  `portk`, `kfreq` limited to 20..12000 Hz, and the player's `kvol1-3`/
+  `koct1-3` mix/octave knobs.
+- `knote`, seconds since the current note began — `init 0`, reset on
+  `changed2(ktrig)` — for anything the authored body wants to shape over
+  the note's lifetime.
+- `aout = asig * kgate * kvel * kpresGain * 0.32` (`HEADROOM`), then a
+  final `clip aout, 0, 0.95, 0.85` before `outch ivoice, aout`.
+
+### The repair loop
+
+`build_csound_response()` (`lco_write.py:1276`) assembles the prompt from
+`select()` + `render_library()` — which library entries the prompt's words
+reached versus a `_STARTER` orientation set when they reach too few
+(`:147`, `:220`) — calls the model, and hands the reply to `sanitize()`
+(`:768`) to split the plain-language reasoning from the fenced `csound`
+body and its `READING:` line. `wrap()` + `syntax_check()` (`:1183`) then
+compile the result through the real Csound compiler — the CLI's
+`--syntax-check-only`, or CsoundLib64 via `ctypes` as a fallback, the same
+compiler `CsoundEngine.cpp` itself runs. A failure does not end the
+attempt: `_continue()` (`:412`) puts the original request, the model's own
+failed reply, and every distinct error seen so far — not only the latest —
+back to the model as a continuation of the same conversation, so a retry
+edits what it wrote rather than re-authoring from nothing. This runs for up
+to `MAX_TRIES` (`T5YNTH_LCO_MAX_TRIES`, default 6) attempts, stopping early
+if a reply repeats with no new error. Exhausting the budget returns
+`{"ok": false, ...}` and the LCO stays silent — never a keyword-matched or
+default orchestra.
+
+### Compiling, swapping and rendering (`CsoundEngine`)
+
+`src/dsp/CsoundEngine.{h,cpp}` wraps one `CSOUND*` instance behind
+`prepare()` / `setVoiceControls()` / `renderUpTo()` / `voiceBuffer()`.
+`T5ynthProcessor` owns TWO instances (`csoundEngines_[2]`,
+`PluginProcessor.h:528-529`) so a newly authored orchestra can compile on a
+background thread while the previously active one keeps sounding.
+`requestCsoundOrchestra()` (`PluginProcessor.cpp:2073`) snapshots every
+voice's retrigger epoch and frequency, queues the orchestra text, and wakes
+`handleAsyncUpdate()` (`:7686`) on the message thread, which compiles the
+text into whichever engine is currently inactive
+(`CsoundEngine::prepare(sampleRate, blockSize, orchestraText)`) and then
+calls `primeForTakeover()` — silently pumping ~0.25 s of `ksmps` at a closed
+gate so a HELD note's later crossfade does not audibly re-strike — before
+the swap is armed. The crossfade itself runs over `driftCrossfade` ("Regen
+XFade", `PluginProcessor.cpp:4133`), the same control the platform's other
+regenerating engines use. If no engine is ready yet at all (the first bake
+of a session), the new orchestra compiles directly into the active slot
+instead, with no fade. On a compile failure, `csoundCompileErrorText_` is
+set and nothing swaps — the previously active orchestra keeps playing
+unchanged (`PluginProcessor.cpp:7888-7905`); `PromptPanel::
+pollCsoundCompile()` (`PromptPanel.cpp:2213`) polls this state and reports
+compiling → ok/error into the RUNNING station.
+
+A `prepare()` call with `orchestraText == nullptr` compiles
+`CsoundEngine.cpp`'s own hard-wired 12-partial standing-tone orchestra
+(`:46-189`) instead of an authored one. It is reached when Csound mode is
+selected before anything has been authored in the session — the bootstrap
+compile at `PluginProcessor.cpp:7798`, and the restore path at `:1989` when
+the active engine carries no orchestra text.
+
+**This is a live conflict with a documented platform rule, not a design
+choice to build on.** The rule is that there is no oscillator without the
+language model and no deterministic fallback tone; this orchestra is exactly
+such a tone, and `CsoundEngine.cpp`'s own comments call it "the fallback
+tone". Whether it should sound at all, or whether selecting Csound mode with
+nothing authored should be silent, is open and belongs to the maintainer.
+Do not extend or rely on it in the meantime.
+
+### Where the library lives
+
+`backend/dco_lexicon.json` (`lexicon_version` 10) is the curated source: 30
+instruments, 51 adjectives, 17 motions, of which 7 instruments
+(`analog_osc`, `fm`, `fm_bell`, `fm_ep`, `drum_head`, `metallic_fm`,
+`string`) carry measured parameters with named, glossed anchors.
+`tools/lco_build_library.py` assembles it into `backend/lco_library.json`,
+which `lco_write.render_library()` renders into the author's prompt;
+`--check` regenerates the library in memory and exits 1 on drift against
+the committed file, so the two cannot silently fall out of step.
+
+### The Csound dependency is optional
+
+`CMakeLists.txt:70-78` finds `CsoundLib64.framework` only on Apple, only in
+a Homebrew or `/Library/Frameworks` prefix (`NO_DEFAULT_PATH` — never a
+system default search), and is never required; it is not searched for at
+all on Linux/Windows. `src/dsp/CsoundEngine.cpp` is added to
+`target_sources(T5ynth ...)` only inside that `if(T5YNTH_CSOUND_FOUND)`
+block (`:216-217`); everywhere else the class compiles from the header-only
+inert stub at the bottom of `CsoundEngine.h` (every call a no-op / false /
+silence). `T5YNTH_HAS_CSOUND` is nonetheless always defined, 0 or 1
+(`CMakeLists.txt:313`), so every call site branches at runtime rather than
+needing a build-level `#ifdef` — but the practical consequence is that a
+build made on a machine without Csound installed (every CI runner, and any
+developer machine that has not `brew install`ed it) links and runs cleanly
+with `engine_mode = Csound` selecting an engine that is never ready: the
+LCO compiles green and is silent.
+
+---
+
+## 6. Modulation routing
 
 **Important:** `src/dsp/ModulationMatrix.{h,cpp}` exists in the tree and is
 compiled, but it is currently a **stub** — `ModulationMatrix::process()`
@@ -363,7 +578,7 @@ not a separate visibility flag.
 
 ---
 
-## 6. Inference IPC
+## 7. Inference IPC
 
 C++ side is `src/inference/PipeInference.{h,cpp}`; the single instance
 lives in `T5ynthProcessor::pipeInference` (`src/PluginProcessor.h:144`) and
@@ -400,11 +615,15 @@ and the semantic axes map. The `Result` struct carries the audio buffer,
 generation time, final seed, and the two mean-pooled 768-dim T5 prompt
 embeddings.
 
+The same client also carries the LCO's authoring call
+(`authorCsoundOrchestra()`, `mode:"csound"` on the wire) — a separate
+request/response shape from `generate()`, described in §5.
+
 **Wire format details (flag bytes, header layout, error frames) are
 documented separately in `docs/IPC_PROTOCOL.md`.** This file intentionally
 does not duplicate the protocol spec.
 
-### 6.5 Prompt-injection modes
+### 7.5 Prompt-injection modes
 
 The `Request` carries an `injectionMode` string and four numeric
 fields (`injectionTransitionAt`, `latePhaseAlpha`, `splitStart`,
@@ -498,7 +717,7 @@ to the blend" carries through to the non-linear modes verbatim.
 
 ---
 
-## 7. APVTS parameters and non-APVTS state
+## 8. APVTS parameters and non-APVTS state
 
 ### What lives in APVTS
 
@@ -536,6 +755,12 @@ preset format:
   display) and `generatedAudioRaw` (unmodified VAE output, for re-apply
   on HF toggle) plus `generatedSampleRate`.
 - `lastDevice` / `lastModel` — for preset tagging.
+- Csound-authored orchestra text, prompt, reading and authored body —
+  `getCsoundOrchestraText()` (`PluginProcessor.h:147`),
+  `setCsoundPrompt`/`getCsoundPrompt` (`:299-300`),
+  `setCsoundReading`/`getCsoundReading` (`:287-288`),
+  `setCsoundParamsText`/`getCsoundParamsText` (`:309-310`) — the LCO's
+  counterpart to the prompt/embedding state above (§5).
 
 Note that DAW session state (`getStateInformation` /
 `setStateInformation`) only captures APVTS, so any of the above that is
@@ -543,7 +768,7 @@ needed in a DAW round-trip must be in a preset file or pushed into APVTS.
 
 ---
 
-## 8. Binary resources
+## 9. Binary resources
 
 `CMakeLists.txt:110` calls `juce_add_binary_data(T5ynthData ...)` to bake
 runtime assets into the plugin library. Current contents:
@@ -567,7 +792,7 @@ file path to the `juce_add_binary_data` block and rebuild — the
 
 ---
 
-## 9. Vendored JUCE
+## 10. Vendored JUCE
 
 `JUCE/` is a full vendored copy of the JUCE framework
 (**version 8.0.6** at time of writing, per `JUCE/CHANGE_LIST.md`).
@@ -591,7 +816,7 @@ Guidelines:
 
 ---
 
-## 10. Build outputs
+## 11. Build outputs
 
 The project convention is to build out-of-source in `build_clean/` using
 the `Release` config:
@@ -627,7 +852,7 @@ PyInstaller step is optional during iteration.
 
 ---
 
-## 11. What is auto-generated
+## 12. What is auto-generated
 
 Do not edit these by hand — they are regenerated on every CMake
 configure/build:
@@ -639,31 +864,38 @@ configure/build:
   the file to `#include <JuceHeader.h>` from; do not include individual
   JUCE module headers directly in T5ynth sources.
 - **`BinaryData.{h,cpp}`** — generated by `juce_add_binary_data` from
-  the resources listed in §8. Output lands in
+  the resources listed in §9. Output lands in
   `build_clean/juce_binarydata_T5ynthData/`.
 - **`libT5ynthData.a`** — static archive wrapping the binary data, linked
   into the plugin targets via `target_link_libraries(T5ynth PRIVATE T5ynthData)`.
 
 ---
 
-## 12. Cross-references
+## 13. Cross-references
 
 Developer docs being written alongside this file. Some may not yet exist
 at the moment you read this — paths are listed so that links can be
 followed once they land:
 
+- **`docs/LCO_CONCEPT.md`** — the LCO's goal, architecture, what an
+  instrument is, and the platform invariants every instrument must obey
+  (§1–§4 of that document). Authoritative for those; its account of the
+  implementation predates the model-authored write path.
+  **`docs/plans/HANDOVER_LCO.md`** carries the current implementation
+  state instead (the library, the author model, the repair loop, measured
+  facts, open items). Both referenced from §5.
 - **`docs/IPC_PROTOCOL.md`** — exact wire format for the JUCE ↔ Python
   pipe (flag bytes, header layout, error encoding, handshake). Referenced
-  from §6.
+  from §5 and §7.
 - **`docs/ADDING_A_MODEL.md`** — step-by-step HOWTO for plugging a new
   text-to-audio backend into `backend/services/` and advertising it in
-  the inference handshake. Referenced from §6.
+  the inference handshake. Referenced from §7.
 - **`docs/ADDING_A_MODULATION_TARGET.md`** — HOWTO for adding a new
   `*_target` choice entry, wiring the `processBlock` dispatch, and
-  declaring the associated atomic in `ModulatedValues`. Referenced from §5.
+  declaring the associated atomic in `ModulatedValues`. Referenced from §6.
 - **`docs/PRESET_FORMAT.md`** — complete `.t5p` binary format spec,
   including the JSON payload schema, the current version byte, and the
-  legacy JSON/XML fallback detection path. Referenced from §1 and §7.
+  legacy JSON/XML fallback detection path. Referenced from §1 and §8.
 - **`resources/T5ynth_Guide.html`, section 16** — end-user and DSP
   signal flow reference. This is the "how does the audio actually get
   from MIDI to speakers" document and is intentionally not duplicated
