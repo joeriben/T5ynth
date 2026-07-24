@@ -48,12 +48,20 @@ read_exact(p.stdout, n)
 print("READY", flush=True)
 
 
-def call(payload):
+def call(payload, partials=None):
+    """One request. Interim \x04 frames (§4.6) are collected into `partials`
+    before the frame that ends the request — reading the status byte only once
+    would take the first of them for the answer."""
     p.stdin.write((json.dumps(payload, separators=(",", ":")) + "\n").encode())
     p.stdin.flush()
-    h = read_exact(p.stdout, 1)
-    ln = struct.unpack("<I", read_exact(p.stdout, 4))[0]
-    body = read_exact(p.stdout, ln).decode("utf-8", "replace")
+    while True:
+        h = read_exact(p.stdout, 1)
+        ln = struct.unpack("<I", read_exact(p.stdout, 4))[0]
+        body = read_exact(p.stdout, ln).decode("utf-8", "replace")
+        if h != b"\x04":
+            break
+        if partials is not None:
+            partials.append(json.loads(body))
     if h == b"\x00":
         return {"ok": False, "error": "FRAME " + body}
     return json.loads(body)
@@ -67,7 +75,8 @@ CASES = ["a bowed cello", "the colour of wet slate at dusk"]
 results, failures = [], []
 for prompt in CASES:
     print(f"\n=== {prompt!r}", flush=True)
-    r = call({"mode": "csound", "text": prompt})
+    partials = []
+    r = call({"mode": "csound", "text": prompt, "stream": True}, partials)
     if not r.get("ok"):
         failures.append(f"{prompt!r}: authoring failed — {r.get('error')}")
         print("   FAILED:", r.get("error"), flush=True)
@@ -105,6 +114,32 @@ for prompt in CASES:
     # Csound as the machine's reasoning.
     elif r["thinking"].strip() == (r.get("params_text") or "").strip():
         failures.append(f"{prompt!r}: `thinking` is a copy of the body, not reasoning")
+
+    # The reasoning has to arrive WHILE it is written, not only with the final
+    # frame — that is the whole point of \x04. Three things can break silently
+    # here and none of them shows by eye until someone watches a live authoring:
+    # no frames at all (streaming off, or the gate not honoured), Csound in a
+    # frame (the fence cut failed and the panel would print code as reasoning),
+    # or a last frame that does not match the thinking the answer carries (the
+    # panel would end on text the author revised away).
+    if not partials:
+        failures.append(f"{prompt!r}: nothing streamed — no \\x04 frame arrived")
+    else:
+        bad = [q for q in partials if q.get("kind") != "thinking"
+               or not isinstance(q.get("text"), str)
+               or not isinstance(q.get("attempt"), int)]
+        if bad:
+            failures.append(f"{prompt!r}: {len(bad)} interim frames are mis-shaped")
+        leaked = [q for q in partials if "```" in q.get("text", "")]
+        if leaked:
+            failures.append(f"{prompt!r}: a fence reached the live reasoning "
+                            f"({len(leaked)} frames) — the code would be shown as thought")
+        last = partials[-1]
+        if last.get("attempt") == r.get("attempts") and last.get("text") != (r.get("thinking") or ""):
+            failures.append(f"{prompt!r}: the last streamed reasoning is not the "
+                            "reasoning the answer carries")
+        print(f"   streamed {len(partials)} frames, last from attempt "
+              f"{last.get('attempt')} of {r.get('attempts')}", flush=True)
 
     # The one SEMANTIC invariant worth asserting: an entry may never be counted
     # both as something the prompt reached and as orientation it did not. That
