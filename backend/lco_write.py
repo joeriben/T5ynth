@@ -1167,6 +1167,34 @@ def _check_via_cli(binary, csd, orchestra):
 # The entry point
 # ─────────────────────────────────────────────────────────────────────────────
 
+def compile_body(body):
+    """A body somebody EDITED -> the same {ok, orchestra, error} shape authoring
+    returns. No model involved: the user is the author here.
+
+    The host scaffold lives in this module, so a hand-edited body cannot be
+    compiled anywhere else — wrapping it in the plugin would mean a second copy
+    of `_HEAD`/`_TAIL`/`_SCORE` that drifts from this one, and the drift would
+    show up as an orchestra that compiles in the panel and fails in the engine.
+
+    The error is the same _explain() text the author is repaired with, which
+    quotes the offending line of the BODY rather than of the wrapped CSD — the
+    person editing has never seen the wrapper either."""
+    body = (body or "").strip()
+    if not body:
+        return {"ok": False, "error": "nothing to compile"}
+    if _csound_binary() is None and _csound_library() is None:
+        return {"ok": False, "error": NO_COMPILER}
+
+    orchestra = wrap(body)
+    try:
+        ok, err = syntax_check(orchestra)
+    except CompilerUnavailable as exc:
+        return {"ok": False, "error": str(exc)}
+    if not ok:
+        return {"ok": False, "error": err}
+    return {"ok": True, "orchestra": orchestra, "params_text": body}
+
+
 def build_csound_response(text, llm, correction="", previous="", on_thinking=None):
     """Prompt -> live Csound orchestra. The REAL pipeline entry
     (pipe_inference mode=="csound" calls this).

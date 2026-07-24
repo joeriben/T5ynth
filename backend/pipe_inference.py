@@ -3710,6 +3710,18 @@ def main():
                 send_text(json.dumps(response))
                 continue
 
+            # A body the USER edited, compiled without a model. Same host
+            # scaffold, same compiler, same error text as authoring — it is the
+            # authoring path with the author replaced by a person, which is the
+            # whole point of making the back of the card editable. Dispatched
+            # here beside mode="csound" because it shares its dependencies:
+            # Csound, and nothing else.
+            if request.get("mode") == "csound_compile":
+                from lco_write import compile_body
+
+                send_text(json.dumps(compile_body(request.get("body") or "")))
+                continue
+
             # CLAP machine-listening analysis: decode init_audio → top-k CLAP tags
             # + DSP spectral words, returned in ONE \x03 text frame as JSON. Like
             # translate/interpret it is dispatched BEFORE audio-model routing — it

@@ -283,6 +283,19 @@ valid.
   tooling (`tools/clap_llm_loop.py`) and wired into the JUCE client as
   `PipeInference::interpret()`.
 
+- **`"csound_compile"`** (`backend/pipe_inference.py`, beside `csound`): compiles
+  a body somebody EDITED, with no model involved — the authoring path with the
+  author replaced by a person, which is what makes the Csound shown in the LCO
+  panel editable. Reads `body`; responds with a **text frame** (`\x03`) carrying
+  the same shape authoring returns: `{"ok": true, "orchestra": "...",
+  "params_text": "..."}`, or `{"ok": false, "error": "..."}`. The host scaffold
+  lives in `backend/lco_write.py`, so this is the only place a body can be
+  wrapped — a second copy in the plugin would drift, and the drift would read as
+  an orchestra that compiles in the panel and fails in the engine. The error is
+  the same `_explain()` text the author is repaired with: it quotes the offending
+  line of the BODY, not of the wrapped CSD, because whoever is editing has never
+  seen the wrapper either. No model is loaded, so this answers in milliseconds.
+
 - **`"analyze"`** (`backend/pipe_inference.py`, intercepted at the top of the
   request loop, right after `interpret`): the CLAP machine-listening "ear" of the
   semantic loop. Decodes the audio carried on the init_audio wire keys
