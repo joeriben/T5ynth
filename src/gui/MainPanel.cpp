@@ -2189,7 +2189,8 @@ void MainPanel::applyLoadedPreset(const PresetFormat::LoadResult& result, const 
         promptPanel.setLcoPrompt(result.lcoPrompt);
         // The retired wavetable LCO: no Csound author wrote this, so the trace
         // names none rather than inheriting whoever wrote the last orchestra.
-        promptPanel.setLcoRecalledTrace(result.lcoPrompt, result.lcoReadingA, {});
+        promptPanel.setLcoRecalledTrace(result.lcoPrompt, result.lcoReadingA, {},
+                                        /*csoundBody=*/{});
     }
 
     // Csound orchestra restore (Phase 5, SPEC_phase4_5_csound_llm_preset.md):
@@ -2218,7 +2219,8 @@ void MainPanel::applyLoadedPreset(const PresetFormat::LoadResult& result, const 
             == static_cast<int>(EngineMode::Csound))
     {
         promptPanel.setLcoRecalledTrace(result.hasLco ? result.lcoPrompt : juce::String(),
-                                        processorRef.getCsoundReading(), {});
+                                        processorRef.getCsoundReading(), {},
+                                        processorRef.getCsoundParamsText());
         // The restore issued its own requestCsoundOrchestra() inside
         // importJsonPreset, so open a compile window for it: without one the
         // RUNNING station could only say "not observed" for an orchestra whose
@@ -3097,7 +3099,8 @@ void MainPanel::restoreLcoSnapshot(const LcoSnapshot& snapshot)
     // A slot stores the reading, the body and the author — not the consultation
     // or the repairs, which happened at bake time. The trace shows what the slot
     // actually holds; the missing stations stay absent rather than blank.
-    promptPanel.setLcoRecalledTrace(snapshot.prompt, snapshot.reading, snapshot.authorModel);
+    promptPanel.setLcoRecalledTrace(snapshot.prompt, snapshot.reading, snapshot.authorModel,
+                                    processorRef.getCsoundParamsText());
     // Whoever wrote THIS orchestra — including "not known", which must clear the
     // previous bake's name rather than let it stand over a different sound.
     if (snapshot.authorModel.isNotEmpty())

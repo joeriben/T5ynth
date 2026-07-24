@@ -173,10 +173,17 @@ public:
     //  recall sets the tab AFTER restoring the card, and a preset does not store
     //  an author at all — reading the tab here would caption a recalled orchestra
     //  with the name of whoever wrote the previous one.
-    //  Defined in the .cpp: it reads the authored body back off the processor,
-    //  which is only forward-declared here.
+    //  `csoundBody` is the back of the card, and it is passed in rather than
+    //  read off the processor for the same reason `authorModel` is: the
+    //  processor's copy outlives the sound it belongs to. importJsonPreset
+    //  writes it only when the preset carries a Csound orchestra and never
+    //  clears it otherwise, so a wavetable-LCO preset loaded after a Csound bake
+    //  would put the PREVIOUS sound's code on the back of the new one's trace —
+    //  exactly the mismatch this card must not show. Only the caller knows
+    //  whether the sound it is restoring has one.
     void setLcoRecalledTrace(const juce::String& prompt, const juce::String& reading,
-                             const juce::String& authorModel);
+                             const juce::String& authorModel,
+                             const juce::String& csoundBody);
 
     /** Point the Re-Prompt chain at a prompt that was RECALLED into the editor
      *  rather than typed or baked. With a stance engaged, GENERATE re-reads
@@ -469,7 +476,11 @@ private:
     /** Write text into both the logical status holder and the visible HEARD AS
      *  box (which doubles as the LCO status/error channel until a reading
      *  exists). tooltip is optional context shown on the box. */
-    void setLcoStatus(const juce::String& text, const juce::String& tooltip = {});
+    //  `busy` = something is running and the user is waiting for it; the line
+    //  then gets a pulsing dot. Everything else is a state that will not change
+    //  on its own and stays still.
+    void setLcoStatus(const juce::String& text, const juce::String& tooltip = {},
+                      bool busy = false);
 
     /** The compile window's report, routed into the trace's RUNNING station (and
      *  into dcoFlagsLabel, which stays as the logical holder). Kept apart from

@@ -84,6 +84,7 @@ public:
         viewport_.getVerticalScrollBar().setColour(juce::ScrollBar::trackColourId,
                                                    juce::Colours::transparentBlack);
         content_.owner_ = this;
+        blink_.owner_   = this;
         // Takes its own mouse, exactly as the text box it replaced did: the
         // scrollbar needs drags, and the card flip lands here.
         setInterceptsMouseClicks(true, true);
@@ -92,7 +93,7 @@ public:
     /** Rule 1 of the project's JUCE safety list: stop the timer BEFORE any
      *  member is destroyed. This one is only ever running mid-press, so the
      *  window is small — which is exactly the kind that gets missed. */
-    ~LcoTraceView() override { stopTimer(); }
+    ~LcoTraceView() override { stopTimer(); blink_.stopTimer(); }
 
     /** The panel's responsive base font — same unit every other LCO widget uses. */
     void setBaseFont(float f)
@@ -115,6 +116,8 @@ public:
         trace_  = std::move(t);
         trace_.valid = true;
         status_.clear();
+        busy_ = false;
+        blink_.stopTimer();
         // What streamed came from whichever attempt was running; the trace
         // carries the one that compiled. Keeping both would show the reasoning
         // twice, once out of date.
@@ -122,6 +125,7 @@ public:
         liveAttempt_ = 0;
         compile_ = CompileState::Unknown;
         compileDetail_.clear();
+        turnToFront();
         relayout();
     }
 
@@ -130,14 +134,24 @@ public:
      *  point: the previous trace describes a sound that is being superseded or
      *  an attempt that failed, and leaving it up would let it read as current.
      *  (This mirrors what the text box it replaced did.) */
-    void setStatus(const juce::String& text)
+    /** @param busy  something is RUNNING and the user is waiting for it. The
+     *               line gets a pulsing dot, so "nothing has happened yet" and
+     *               "nothing is going to happen" stop looking alike — which for
+     *               an authoring that takes a 12B generation is most of the
+     *               time the panel is on screen. Terminal states (an empty
+     *               prompt, a failure) pass false and stay still. */
+    void setStatus(const juce::String& text, bool busy = false)
     {
+        busy_ = busy;
+        if (busy) blink_.startTimerHz(12);
+        else      blink_.stopTimer();
         status_ = text;
         trace_ = {};
         live_.clear();
         liveAttempt_ = 0;
         compile_ = CompileState::Unknown;
         compileDetail_.clear();
+        turnToFront();
         relayout();
     }
 
@@ -158,7 +172,13 @@ public:
             return;
         liveAttempt_ = attempt;
         live_ = text;
-        relayout();
+        // Held, not drawn, while the code is up. Laying out the back again would
+        // re-shape every line of Csound through the text shaper and repaint
+        // content that provably did not change — once per streamed line, for
+        // the length of a 12B generation. It is on screen the moment the card
+        // turns back.
+        if (! showBack_)
+            relayout();
     }
 
     /** The RUNNING station: the compile window's own report. Kept separate from
@@ -233,12 +253,37 @@ public:
     // flip every time the user tried to use it. The timer exists only between
     // the press and the flip, and a drag of more than a few pixels cancels it —
     // that is someone scrolling, not someone turning the page.
-    void mouseDown(const juce::MouseEvent&) override        { startTimer(kHoldMs); }
+    // Plain left press only. A right press is what a context menu wants — and
+    // step 3 puts a text field on the back, which will want one — and on macOS
+    // ctrl+left arrives as a right press, so both would otherwise turn the card
+    // over instead.
+    void mouseDown(const juce::MouseEvent& e) override
+    {
+        if (e.mods.isLeftButtonDown() && ! e.mods.isAnyModifierKeyDown())
+            startTimer(kHoldMs);
+    }
     void mouseDrag(const juce::MouseEvent& e) override      { if (e.getDistanceFromDragStart() > 6) stopTimer(); }
     void mouseUp(const juce::MouseEvent&) override          { stopTimer(); }
 
 private:
     static constexpr int kHoldMs = 400;
+
+    /** Bring the trace back up, without a relayout — the caller is about to.
+     *
+     *  Called wherever a state arrives that the back cannot show. This view is
+     *  the ONLY visible status channel in LCO mode: dcoStatusLabel is never laid
+     *  out and dcoFlagsLabel is given an empty rectangle there. So a status that
+     *  landed while the code was up would not merely be late, it would never
+     *  appear — an authoring that failed while the card was turned over would be
+     *  invisible for good. */
+    void turnToFront()
+    {
+        if (! showBack_)
+            return;
+        showBack_ = false;
+        viewport_.setScrollBarsShown(true, false);
+        viewport_.setViewPosition(0, 0);
+    }
 
     void timerCallback() override
     {
@@ -353,19 +398,40 @@ private:
     int renderBody(juce::Graphics* g, int& width) const
     {
         const float x = 8.0f;
+        const float wrapW = static_cast<float>(width) - x - 11.0f;
+        const juce::Font fLabel { juce::FontOptions(labelFont()) };
+        const juce::Font fHint  { juce::FontOptions(hintFont())  };
+        const float labelH = std::round(labelFont() * 1.5f);
+        float top = 7.0f;
+
+        // Which side is up, and how to leave it. Nothing else here says so, and
+        // the way back is a gesture rather than a control.
+        if (g != nullptr)
+        {
+            g->setColour(kTextDisabled);
+            drawTrackedText(*g, fLabel, juce::String::fromUTF8("CSOUND \xc2\xb7 HOLD TO TURN BACK"),
+                            x, top, labelH, juce::jmax(0.8f, labelFont() * 0.16f));
+        }
+        top += labelH + 3.0f;
+
+        // The compiler's complaint belongs on the page being edited. It quotes
+        // the offending line of the BODY, which is what is on screen here — on
+        // the front it would be a verdict about code the reader cannot see.
+        if (compile_ == CompileState::Error && compileDetail_.isNotEmpty())
+            top += paragraph(g, compileDetail_, fHint, kErrorText, x, top, wrapW) + 5.0f;
+
         if (body_.trim().isEmpty())
         {
             const juce::Font fb { juce::FontOptions(bodyFont()) };
-            const float w = static_cast<float>(width) - x - 11.0f;
-            return juce::roundToInt(7.0f + paragraph(g, "no orchestra has been authored yet",
-                                                     fb, kDim, x, 7.0f, w) + 7.0f);
+            return juce::roundToInt(top + paragraph(g, "nothing has been written yet",
+                                                    fb, kDim, x, top, wrapW) + 7.0f);
         }
 
         const juce::Font f { juce::FontOptions(juce::Font::getDefaultMonospacedFontName(),
                                                juce::jmax(9.5f, base_ * 0.86f),
                                                juce::Font::plain) };
         const float lineH = std::round(f.getHeight() * 1.30f);
-        float y = 7.0f, widest = 0.0f;
+        float y = top, widest = 0.0f;
         juce::StringArray lines;
         lines.addLines(body_);
         if (g != nullptr)
@@ -470,7 +536,20 @@ private:
         if (! trace_.valid)
         {
             const auto text = status_.isNotEmpty() ? status_ : placeholder_;
-            y += paragraph(g, text, fBody, kDim, static_cast<float>(textX()), y, w);
+            // A dot on the rail that breathes while something is running. The
+            // authoring takes a whole 12B generation, and without it a panel
+            // that is working and a panel that has given up look the same.
+            if (busy_ && g != nullptr)
+            {
+                const float phase = std::sin(static_cast<float>(juce::Time::getMillisecondCounter() % 1200)
+                                             / 1200.0f * juce::MathConstants<float>::twoPi);
+                const float cy = y + bodyFont() * 0.62f;
+                g->setColour(kWarning.withAlpha(0.45f + 0.55f * (0.5f + 0.5f * phase)));
+                g->fillEllipse(static_cast<float>(railX() - dotR()), cy - static_cast<float>(dotR()),
+                               static_cast<float>(dotR() * 2), static_cast<float>(dotR() * 2));
+            }
+            y += paragraph(g, text, fBody, busy_ ? kTextPrimary : kDim,
+                           static_cast<float>(textX()), y, w);
             if (live_.isNotEmpty())
             {
                 y += static_cast<float>(stationGap());
@@ -629,7 +708,11 @@ private:
         int w = juce::jmax(1, viewport_.getMaximumVisibleWidth());
         const int h = showBack_ ? renderBody(nullptr, w)   // widens w to the longest line
                                 : render(nullptr, w);
-        content_.setSize(w, juce::jmax(viewport_.getHeight(), h));
+        // getMaximumVisibleHeight, not getHeight: with the back's horizontal
+        // scrollbar shown, content exactly getHeight() tall is 7px taller than
+        // the visible area, and the viewport answers with a vertical scrollbar
+        // whose whole range is the other bar's thickness.
+        content_.setSize(w, juce::jmax(viewport_.getMaximumVisibleHeight(), h));
         content_.repaint();
     }
 
@@ -664,6 +747,24 @@ private:
     int          liveAttempt_ = 0;
     juce::String body_;             // the back of the card: the authored Csound
     bool         showBack_ = false;
+    bool         busy_ = false;
+
+    /** Repaints the status dot while something is running, and NOTHING else —
+     *  only the rail's top corner, so a whole trace is not re-shaped twelve
+     *  times a second. Runs strictly between a busy status and the state that
+     *  ends it; there is no idle case. */
+    struct Blink : public juce::Timer
+    {
+        ~Blink() override { stopTimer(); }
+        void timerCallback() override
+        {
+            if (owner_ != nullptr)
+                owner_->content_.repaint(0, 0, owner_->textX(),
+                                         juce::roundToInt(owner_->bodyFont() * 1.6f));
+        }
+        LcoTraceView* owner_ = nullptr;
+    };
+    Blink blink_;
     CompileState compile_ = CompileState::Unknown;
     float   base_ = 13.0f;
 

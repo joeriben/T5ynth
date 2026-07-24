@@ -444,7 +444,9 @@ PromptPanel::PromptPanel(T5ynthProcessor& processor)
         // the LCO status/error surface (setLcoStatus) until a trace exists. The
         // dual A+B/harmonic-inharmonic split this used to carry (a second, twin
         // editor) is retired — BJ 2026-07-17: "this split is dead".
-        dcoTraceView.setPlaceholder("The authoring trace appears here after Generate.");
+        dcoTraceView.setPlaceholder("Describe a sound and press Generate. What the machine "
+                                    "makes of it appears here, step by step; hold the panel "
+                                    "to see the Csound it wrote.");
         addAndMakeVisible(dcoTraceView);
 
         // DCO Re-Prompt (stance-driven self-reading loop, docs/DCO_REPROMPT_CONCEPT.md):
@@ -2137,14 +2139,14 @@ void PromptPanel::triggerLcoGenerate()
 // Route status/error text into both the logical holder (dcoStatusLabel — kept
 // for the many call sites that already write it) and the visible trace view,
 // which doubles as the LCO status/error channel until an actual trace exists.
-void PromptPanel::setLcoStatus(const juce::String& text, const juce::String& tooltip)
+void PromptPanel::setLcoStatus(const juce::String& text, const juce::String& tooltip, bool busy)
 {
     dcoStatusLabel.setText(text, juce::dontSendNotification);   // keep the logical status holder
     // A status REPLACES the trace (the view dims it as a status line, never as a
     // reading). That replacement is the point: the trace on screen describes an
     // orchestra that is being superseded, or an attempt that just failed, and
     // leaving it standing would let it read as the current one.
-    dcoTraceView.setStatus(text);
+    dcoTraceView.setStatus(text, busy);
     dcoTraceView.setTooltip(tooltip);
     // A new state supersedes the previous orchestra's compile report too — the
     // RUNNING station must not keep claiming "compiled" over a failed attempt.
@@ -2308,7 +2310,7 @@ void PromptPanel::triggerDcoBake()
     // review finding).
     if (dcoRepromptBusy_)
     {
-        setLcoStatus("LCO: busy (re-prompt running)");
+        setLcoStatus("Still rewriting the prompt", {}, /*busy=*/true);
         return;
     }
     // The pipe is one serialized channel (recursive stateMutex_): authoring
@@ -2317,25 +2319,25 @@ void PromptPanel::triggerDcoBake()
     // triggerGeneration.
     if (generating || translatingPrompts_ || loopStepInFlight_)
     {
-        setLcoStatus("LCO: busy (generation running)");
+        setLcoStatus("Still generating", {}, /*busy=*/true);
         return;
     }
     auto pipePtr = processorRef.getPipeInferencePtr();
     if (pipePtr == nullptr)
     {
-        setLcoStatus("LCO: backend not running");
+        setLcoStatus("The synthesis helper is not running");
         return;
     }
     const auto text = dcoPromptEditor.getText().trim();
     if (text.isEmpty())
     {
-        setLcoStatus("LCO: prompt is empty");
+        setLcoStatus("Type what the instrument should sound like");
         return;
     }
 
     dcoBaking_ = true;
     if (onLcoBusyChanged) onLcoBusyChanged(true);   // disable the reused GENERATE button
-    setLcoStatus("LCO: authoring...");
+    setLcoStatus("Writing the instrument", {}, /*busy=*/true);
 
     // One blocking IPC round-trip (may lazily load the instruct model) on a
     // detached background thread — house pattern (triggerGeneration,
@@ -2376,9 +2378,9 @@ void PromptPanel::triggerDcoBake()
                 // exhausted its one retry without ever falling back to a
                 // default/keyword-matched orchestra) — leave the engine and
                 // any previously-authored orchestra completely untouched.
-                self->setLcoStatus("LCO: " + (authored.errorMessage.isNotEmpty()
-                                                   ? authored.errorMessage
-                                                   : juce::String("authoring failed")));
+                self->setLcoStatus(authored.errorMessage.isNotEmpty()
+                                       ? authored.errorMessage
+                                       : juce::String("Could not write an instrument for this prompt"));
                 return;
             }
 
@@ -2638,7 +2640,8 @@ void PromptPanel::triggerDcoBake()
 }
 
 void PromptPanel::setLcoRecalledTrace(const juce::String& prompt, const juce::String& reading,
-                                      const juce::String& authorModel)
+                                      const juce::String& authorModel,
+                                      const juce::String& csoundBody)
 {
     ++dcoBakeSeq_;
     dcoSelfCheck_.clear();
@@ -2647,12 +2650,7 @@ void PromptPanel::setLcoRecalledTrace(const juce::String& prompt, const juce::St
     t.reading = reading;
     t.model   = authorModel;
     dcoTraceView.setTrace(std::move(t));
-    // The back of the card follows the recall too. The processor is the one
-    // place the authored body survives a preset load, and reading it here covers
-    // every recall site at once — a card whose front says "this orchestra" while
-    // its back still shows the previous one would be wrong in exactly the
-    // direction this panel exists to prevent.
-    dcoTraceView.setBody(processorRef.getCsoundParamsText());
+    dcoTraceView.setBody(csoundBody);   // the back of the card follows the recall
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -2672,12 +2670,12 @@ void PromptPanel::triggerDcoReprompt()
     // click did nothing (house pattern: triggerDcoBake, triggerGeneration).
     if (dcoRepromptBusy_)
     {
-        setLcoStatus("LCO: re-prompt already running");
+        setLcoStatus("Still rewriting the prompt", {}, /*busy=*/true);
         return;
     }
     if (dcoBaking_)
     {
-        setLcoStatus("LCO: busy (bake running)");
+        setLcoStatus("Still writing the instrument", {}, /*busy=*/true);
         return;
     }
     // loopStepInFlight_ added to match triggerDcoBake's identical gate (line
@@ -2691,24 +2689,24 @@ void PromptPanel::triggerDcoReprompt()
     // not re-baked) — adversarial review finding.
     if (generating || translatingPrompts_ || loopStepInFlight_)
     {
-        setLcoStatus("LCO: busy (generation running)");
+        setLcoStatus("Still generating", {}, /*busy=*/true);
         return;
     }
     if (! llmAvailable_)
     {
-        setLcoStatus("LCO: re-prompt needs the language model");
+        setLcoStatus("Rewriting the prompt needs the language model");
         return;
     }
     const int stanceIdx = static_cast<int>(processorRef.getValueTreeState()
                               .getRawParameterValue(PID::dcoRepromptStance)->load());
     if (stanceIdx == RepromptStance::Off)
     {
-        setLcoStatus("LCO: pick a stance first");
+        setLcoStatus("Pick a stance first");
         return;
     }
     if (dcoLastMachineReading_.isEmpty())
     {
-        setLcoStatus("LCO: bake once first");
+        setLcoStatus("Write an instrument first");
         return;
     }
 
@@ -2728,14 +2726,14 @@ void PromptPanel::triggerDcoReprompt()
     auto pipePtr = processorRef.getPipeInferencePtr();
     if (pipePtr == nullptr)
     {
-        setLcoStatus("LCO: backend not running");
+        setLcoStatus("The synthesis helper is not running");
         return;
     }
     const juce::String device = defaultInferenceDevice_;
 
     dcoRepromptBusy_ = true;
     if (onLcoBusyChanged) onLcoBusyChanged(true);   // disable the reused GENERATE button
-    setLcoStatus("LCO: interpreting...");
+    setLcoStatus("Rereading the prompt", {}, /*busy=*/true);
 
     // IPC on a detached background thread ONLY — never the message thread (JUCE
     // rule; house pattern: triggerDcoBake / runSemanticLoopStep).
@@ -2776,8 +2774,9 @@ void PromptPanel::triggerDcoReprompt()
 
             if (! success || cleaned.isEmpty())
             {
-                const juce::String failMsg = "LCO: " + (errorMessage.isNotEmpty() ? errorMessage
-                                                         : juce::String("re-prompt returned nothing"));
+                const juce::String failMsg = errorMessage.isNotEmpty()
+                                                 ? errorMessage
+                                                 : juce::String("The rewrite came back empty");
                 self->setLcoStatus(failMsg);
                 return;   // do NOT touch the prompt editor on failure/empty
             }
