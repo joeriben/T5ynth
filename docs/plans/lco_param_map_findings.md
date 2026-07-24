@@ -1,5 +1,21 @@
 # FINDINGS — 2026-07-21 — Does the 7B map language onto the instrument parameters?
 
+**Status (2026-07-24, verified against code and git history).** The
+mechanism this document measured — `dco_llm_map.py`'s word→KEY routing
+feeding Python-side anchor tables (`csound_orch.py`'s `_DRUM_ANCHORS`/
+`_FMEP_ANCHORS`/`_PARAM_SCHEMAS`) — no longer exists; `csound_orch.py` is
+deleted (`3728a42f`, 2026-07-22) and the model now writes numeric parameter
+values directly into the Csound it authors. The specific measurement (2/15
+prompts reached the param syntax, `spot` never) is therefore a fact about a
+dead mechanism, not a current number — nobody has re-run an equivalent
+probe against the current architecture. The design lesson it produced is
+visibly live, though: the current library's `anchor_code` field
+(`docs/plans/HANDOVER_LCO.md` §2, "the same instrument rendered at each
+anchor of its character axis, so the model can see which numbers move with
+which word") reads as a direct answer to this finding's root cause. Current
+architecture and the seven parametrised instruments:
+`docs/plans/HANDOVER_LCO.md` §2.
+
 Question (BJ): before extending the parametrised LCO instruments (fm_ep, drum_head, …),
 clarify how a 7B is supposed to map natural language and metaphors onto discrete jargon
 anchors like `spot=centre` "even halfway sensibly".

@@ -1,5 +1,18 @@
 # Re-Prompt für den DCO — vom Selbst-Hören zum Selbst-Lesen
 
+**Status (2026-07-24, verified against code).** Re-Prompt is live:
+`PromptPanel::triggerDcoReprompt()` (`src/gui/PromptPanel.cpp:2713`)
+implements this document's exact mechanism — one `interpret()` call under
+the selected stance, reading the oscillator's own last bake instead of CLAP
+("lesen → deuten → umformulieren", cited by name in the code comment) — with
+all six stances unchanged (`RepromptStances.h`) and no auto-loop, matching
+the document's own open items. The 2026-07-22 Nachtrag below (model swap to
+the one gemma-4-12B) is current. One drift past that Nachtrag: since the
+same-day switch to Csound authoring (`docs/plans/HANDOVER_LCO.md`), the
+`resolved`/`flags` JSON this document treats as the complete self-description
+no longer exists — only a natural-language `reading` string survives, and
+`flags` is confirmed always-empty in the live code.
+
 *Stand: 2026-07-10. Designnotiz, keine Implementierungszusage. Konzeptionelle Übertragung der Re-Prompt-Idee (Stance-gesteuerter semantischer Loop, `docs/SEMANTIC_LOOP_AESTHETICS.md`, implementiert in `src/inference/RepromptStances.*` + `RepromptStanceBar`) auf das DCO-Paradigma (Advanced-Panel).*
 
 > **Nachtrag 2026-07-22 — das Modell, gegen das diese Notiz geschrieben ist, gibt es nicht mehr.** Der separat installierte Qwen2.5-1.5B-Übersetzer ist ausgebaut (`dd2e0373`, `9ece63b3`). Das Produkt hat genau **ein** Sprachmodell: `google/gemma-4-12B-it-qat-q4_0-gguf`, ein 4-Bit-GGUF über llama.cpp (`backend/pipe_inference.py:900-915`, Slot `gemma-4-12b-it-qat-q4_0`). Dasselbe Modell übersetzt, treibt Re-Prompt/`interpret` **und** bedient den Csound-Pfad (`translate`/`interpret` über `run_author_instruct` → `_resolve_coder_model_dir`, `:1205-1233`; `csound` löst das Modell selbst auf, `:3611-3628`). Das Argument der Notiz bleibt stehen; nur seine Prämisse „klein" nicht. Konkret betroffen: die Stellen unten, die aus der Schwäche des kleinen Modells argumentieren, sind einzeln markiert. Die Anti-Cycling-Logit-Transformationen, die der 1.5B im Re-Prompt-Pfad brauchte, sind ersatzlos entfernt — sie waren die Krücke des kleinen Modells, auf dem Autor-Modell nachgemessen und wirkungslos (`run_author_instruct` verwirft sie auf dem GGUF-Pfad, `pipe_inference.py:1216-1224`).

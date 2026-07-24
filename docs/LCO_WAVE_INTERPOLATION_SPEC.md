@@ -1,5 +1,18 @@
 # LCO: Interpolierte Wellen — Spezifikation (2026-07-14, Entwurf zur Freigabe)
 
+**Status (2026-07-24, verified against code and git history).** This spec's
+pipeline is entirely dead. Backend: `dco_recipe.py`/`lco_author.py` implement
+the §6-7 movement-by-default/character passes, but `backend/pipe_inference.py`
+has no `mode=="dco"` handling left (deleted `40600a0e`, 2026-07-17) to reach
+them — both modules' own docstrings say so. Engine: the §3 multi-station
+additive design (`MipData::partialSets`, `isAdditive`,
+`WavetableOscillator::setAdditiveBank`) does exist in code, closely matching
+the spec, but its glue (`loadDcoAdditive`) was deleted in `6347e3a5`
+(2026-07-17, three days after this spec was written) and the primitive is
+now uncalled; `DcoBaker::bake` likewise has zero callers anywhere in `src/`.
+Current architecture: `docs/plans/HANDOVER_LCO.md` — the LCO is live Csound,
+no wavetable path.
+
 ## 1. Auftrag
 
 BJ, wörtlich (2026-07-13): *„Es muss keinen ‚bewegten Pfad' geben […] Es muss 2–4, vielleicht 5 zu interpolierende Wellen geben"* — *„und die müssen KORREKT gebaut werden im Anschluss an eine LLM-basierte Übersetzung von Prompt zu Tools."*

@@ -1,5 +1,13 @@
 # Handover — DCO Slice 0 (Steps/CFG/Seed/Header aus Advanced entfernen) — INCOMPLETE
 
+**Status (2026-07-24, historical).** This document records a failed,
+non-compiling intermediate state (`HEAD = 6c328c43`) superseded within the
+same work session by `docs/HANDOVER_DCO_SLICE0_DONE.md` — verified:
+`6c328c43` (2026-07-09) is an ancestor of `035e5cf8` (2026-07-10), the commit
+the DONE handover reports as the clean landing. Nothing here describes
+current code; it is the record of one abandoned edit approach to a task
+later completed. Superseded by `docs/HANDOVER_DCO_SLICE0_DONE.md`.
+
 Status: **Teilweise durchgeführt, nicht kompilierbar.** Working tree hat uncommitted Änderungen
 in `PromptPanel.h` (fast fertig) und `PromptPanel.cpp` (teilweise fertig, 54 Referenzen auf
 entfernte Member bleiben). HEAD = `6c328c43` (clean baseline zum Rücksetzen).

@@ -1,5 +1,15 @@
 # Handover — DCO Slice 0 (Steps/CFG/Seed/Header aus Advanced entfernt) — DONE
 
+**Status (2026-07-24, verified against code and git history).** The removal
+this document records landed: commit `035e5cf8` (2026-07-10) is real, a
+descendant of the `6c328c43` baseline, and `stepsSlider`/`cfgSlider` have
+zero occurrences in current `src/gui/PromptPanel.{h,cpp}`. Stale: the
+Advanced view described here as empty except Model/A-B/Re-Prompt no longer
+is — the space this slice freed now holds the live LCO prompt editor
+(`dcoPromptEditor.setVisible(!easy)`, `PromptPanel.cpp:1089`). The
+`getPreferredHeightForWidth` bug noted below as unfixed — unverified whether
+it was ever fixed separately or just subsumed by the later LCO layout.
+
 Status: **Abgeschlossen und committed.** Commit `035e5cf8` auf `main`
 (2 files changed, 53 insertions(+), 254 deletions(-)). Build wurde noch nicht
 getestet (nächster Schritt).

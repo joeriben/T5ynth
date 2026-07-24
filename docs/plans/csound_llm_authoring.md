@@ -1,5 +1,26 @@
 # Plan — LLM-authored Csound (the write-path) — v2 (post adversarial review)
 
+**Status (2026-07-24, verified against code and git history).** Decision
+resolved: BJ approved the write-path (Prerequisite 0, §0) and it shipped
+2026-07-22 (`3728a42f`) — no longer "not yet decided." What was NOT built as
+specified: the central §2-§4 idea, a BEHAVIORAL gate (standing-tone/envelope/
+movement/bounds checks, fork-exec + `setrlimit` sandboxing) — the live
+repair loop in `backend/lco_write.py` gates on Csound compile success only
+(`rc == 0`, `compile_body`); no behavioral check exists anywhere in it. The
+untracked `tools/csound_orch_check` (a compiled binary with no git history
+and no callers found) reads as an abandoned attempt at the check binary this
+plan specifies, not a wired gate. The *measurements* such a gate would need
+do now exist, offline and calibrated — `tools/lco_measure.py` (pitch,
+colour, level, comb contrast, and colour travel over the note, with a
+`--selftest` that calibrates each on signals whose answer is known) and
+`tools/lco_author_offline.py --measure` (the real author over a corpus, each
+compiled body rendered and measured). What is missing is only the decision
+to make any of them a gate; do not rebuild the meters. §5's frozen-parity-corpus proposal was not
+built either; migration safety was instead achieved by directly harvesting
+the old keys-path's own Csound idioms into the new lexicon with a
+byte-identity check (`73f91857`) — a narrower, different mechanism than
+proposed here. Current architecture: `docs/plans/HANDOVER_LCO.md`.
+
 Status: **PROPOSAL, NOT approved, NOT yet decided by BJ.** This plan exists so BJ
 can decide *whether* to take the write-path at all, with adversarial scrutiny in
 hand. v1 was double-adversarially reviewed (two independent Opus reviewers,

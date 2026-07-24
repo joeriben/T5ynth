@@ -1,5 +1,21 @@
 # Handover — the DCO oscillator (T5Osc "Advanced" becomes a classical, LLM-authored oscillator)
 
+**Status (2026-07-24, second-order correction — verified against code and git
+history).** The 2026-07-22 correction directly below is itself stale: it
+names `csound_orch.py`'s `build_csound_response` as "the live entry", but
+that module was deleted the same evening, under an hour later, by commit
+`3728a42f` — the model now writes the whole Csound orchestra body itself
+(`backend/lco_write.py`), and the keys-path this correction describes never
+was the final state. Still accurate: §4 (`WavetableOscillator`/
+`WavetableBank`-dead-code) and the IPC/generate-flow patterns in §5.1-5.3
+describe live, unchanged machinery, and §6's UI removal executed cleanly
+(`docs/HANDOVER_DCO_SLICE0_DONE.md`) — that freed space is now the live LCO
+panel. Newly dead, verified by grep: `DcoBaker::bake` and
+`WavetableOscillator::setAdditiveBank` have zero callers anywhere in `src/`;
+`loadDcoWavetable` survives only as a legacy `.t5p`-preset-restore call
+(`MainPanel.cpp:2182`), not a generation path. Current architecture:
+`docs/plans/HANDOVER_LCO.md`.
+
 > **Status correction 2026-07-22 — the v1 pipeline below is no longer live.** Its backend half is
 > deleted: `mode:"dco"` went in `40600a0e`, so nothing produces the recipe JSON any more. `dco::Baker`
 > still compiles (`CMakeLists.txt:157`) but no file in `src/` calls it. `loadDcoWavetable` survives and is

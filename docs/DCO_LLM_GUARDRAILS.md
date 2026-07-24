@@ -1,5 +1,20 @@
 # DCO — Semantics→Sound with the on-board LLM: lexicons, guardrails, composer
 
+**Status (2026-07-24, doc-currency pass — verified against code and git history).**
+§§1-7 describe the pre-2026-07-22 deterministic S0-S4 router (`dco_recipe.py`/
+`dco_llm_map.py`: keyword scan + one constrained LLM call + composer) — already
+marked dead by this document's own 2026-07-22 correction below. That correction
+is itself now one architecture-generation stale: it names `csound_orch.py`'s
+`build_csound_response` (model picks OSC/ADJ/MOTION keys, Python assembles) as
+"the live entry", but `csound_orch.py` was deleted the same evening, under an
+hour later, by commit `3728a42f` ("the LLM writes the Csound orchestra; the
+keys montage is gone") — the model now writes the whole orchestra body itself,
+in `backend/lco_write.py`. Still accurate: the `csound` mode resolves its own
+model via its own closure in `backend/pipe_inference.py`, separate from
+`run_author_instruct` — confirmed current (`from lco_write import
+build_csound_response`, `pipe_inference.py:3668`). Current architecture:
+`docs/plans/HANDOVER_LCO.md`.
+
 Status: design, authoritative for the Slice-3 implementation.
 
 **Model premise corrected 2026-07-22.** This document was written against the
