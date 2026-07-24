@@ -432,7 +432,14 @@ _STRIP = re.compile(
     r"ftgen\b|\w+\s+ftgen\b|out\b|outs\b|outch\b|i\s+\d|f\s+\d|e\s*$)",
     re.IGNORECASE)
 
-_FENCE = re.compile(r"```[A-Za-z0-9_+#-]*[ \t]*\r?\n(.*?)```", re.DOTALL)
+# A fence marker on its OWN line. Markers are found individually and never
+# PAIRED: pairing is what mis-binds a stray ``` to the wrong block, and the
+# author's replies are malformed in exactly that way often enough to matter — an
+# unclosed final fence (the body is the last thing written, so it is what a
+# stopped generation loses), a sketch quoted mid-thought, a lone closer under a
+# body that needed none. Splitting on markers and letting the CONTENT say which
+# segment is code survives all three; parity does not.
+_FENCE_MARK = re.compile(r"^[ \t]*```[A-Za-z0-9_+#-]*[ \t]*\r?$\n?", re.MULTILINE)
 # Anchored at BOTH ends: a real out call is the whole line. Unanchored, the prose
 # the author is now invited to write ("outs aexc first, then the resonator") was
 # captured as an output routing and appended as `asig = aexc` — a body that
@@ -440,15 +447,53 @@ _FENCE = re.compile(r"```[A-Za-z0-9_+#-]*[ \t]*\r?\n(.*?)```", re.DOTALL)
 _OUT_CALL = re.compile(r"^\s*(?:out|outs|outch)\s+(?:\d+\s*,\s*)?(a\w+)"
                        r"(?:\s*,\s*a\w+)*\s*(?:;.*)?$", re.IGNORECASE)
 _READING = re.compile(r"^\s*READING\s*:\s*(.+?)\s*$", re.IGNORECASE | re.MULTILINE)
-# A line that carries Csound rather than prose: `avar opcode args`, an assignment,
-# or a block keyword. Used only to tell code from thinking when the author opened
-# a fence and never closed it.
-_CODEISH = re.compile(r"^\s*(?:[a-zA-Z]\w*\s+[a-z]\w*[\s,]|[a-zA-Z]\w*\s*=|"
-                      r"(?:if|else|elseif|endif|until|while|od|kgoto|igoto)\b)")
+# A line that carries Csound rather than prose. This has to DISCRIMINATE, not
+# merely describe: a pattern like `Word word` matches "A struck bar rings and
+# decays." as readily as `asig vco2 0.5`, and since the author is now asked to
+# reason at length, prose routinely outnumbers code — so a loose pattern hands
+# the compiler English and discards a reply that contained a whole orchestra.
+#
+# Two requirements, both cheap and both true of essentially every Csound line and
+# essentially no English sentence:
+#   1. it starts with a Csound VARIABLE — the sigil is the type (a/k/i/f/S, with
+#      an optional g for global), not a free identifier,
+#   2. it does not end like a sentence (checked separately, after any trailing
+#      `;` comment is dropped).
+# Block keywords count on their own.
+_CODE_LINE = re.compile(
+    r"^\s*(?:"
+    r"g?[akifS]\w*\s*=\s*\S"                  # kx = ...
+    r"|g?[akifS]\w*\s+[a-z]\w*(?:[\s,(]|$)"   # avar opcode args
+    r"|(?:if|else|elseif|endif|until|while|od|kgoto|igoto|then)\b"
+    r")")
+_SENTENCE_END = re.compile(r"[.!?:]\s*$")
 
 
 def _codeishness(chunk):
-    return sum(1 for ln in chunk.splitlines() if _CODEISH.match(ln))
+    """How many lines of this segment read as Csound. Used to pick the body out
+    of a reply whose fences cannot be trusted — the comparison is between
+    segments of ONE reply, so an absolute threshold is never needed."""
+    n = 0
+    for ln in (chunk or "").splitlines():
+        s = ln.split(";", 1)[0].rstrip()      # a trailing Csound comment is not the line
+        if not s.strip() or _SENTENCE_END.search(s):
+            continue
+        if _CODE_LINE.match(s):
+            n += 1
+    return n
+
+
+def _fence_segments(txt):
+    """The reply split on fence-marker LINES, as (start, end, mark_before,
+    mark_after) spans over the text BETWEEN markers. Never pairs markers, so an
+    odd number of them is not a special case."""
+    marks = list(_FENCE_MARK.finditer(txt))
+    spans, prev_end, prev_mark = [], 0, None
+    for m in marks:
+        spans.append((prev_end, m.start(), prev_mark, m))
+        prev_end, prev_mark = m.end(), m
+    spans.append((prev_end, len(txt), prev_mark, None))
+    return spans
 
 
 # Chat-template control tokens that leak into the reply body (observed on the
@@ -467,6 +512,11 @@ def _clean_thinking(prose):
     and never truncated — it is a quotation, and a quotation that has been
     improved is no longer evidence of anything."""
     prose = _READING.sub("", prose or "")
+    # Only the MARKER lines go, never what stood between them. A block the author
+    # quoted mid-thought ("the library's saw idiom is: ```…``` but a struck bar
+    # is closer") is part of the sentence; deleting it leaves a sentence with its
+    # object missing, presented as a verbatim quotation.
+    prose = _FENCE_MARK.sub("", prose)
     prose = prose.replace("```", "")
     prose = _CTRL_TOKEN.sub("", prose)
     prose = "\n".join(ln for ln in prose.splitlines() if not _CHANNEL_NAME.match(ln))
@@ -498,28 +548,22 @@ def sanitize(raw):
     raw_txt = txt
     thinking = ""
 
-    fences = _FENCE.findall(txt)
-    if fences:
-        # Everything that is not a fenced block is the thinking — including an
-        # aside after the code, which is rarer but just as much the author's.
-        thinking = _clean_thinking(_FENCE.sub("\n", raw_txt))
-        # The LAST fence, not the first. The author is told to think first and
-        # write the body afterwards, so a sketch quoted mid-thought precedes the
-        # real one — and taking the first shipped the sketch silently, compiling
-        # and all. `findall` is non-greedy per block, so nested prose between two
-        # blocks is never swallowed into one.
-        txt = fences[-1]
-    elif "```" in txt:
-        # A fence opened and never closed, or a stray closer under a body that
-        # needed none. Both are one split; which SIDE holds the code is decided by
-        # which side reads as Csound, because guessing wrong empties the body and
-        # reports "the model returned no code" about a reply that contained it.
-        head, tail = txt.split("```", 1)
-        tail = re.sub(r"^[A-Za-z0-9_+#-]*[ \t]*\r?\n", "", tail)
-        if _codeishness(tail) >= _codeishness(head):
-            txt, thinking = tail, _clean_thinking(head)
-        else:
-            txt, thinking = head, _clean_thinking(tail)
+    spans = _fence_segments(txt)
+    if len(spans) > 1:
+        # Which segment holds the orchestra is decided by CONTENT, not by fence
+        # parity. Highest codeishness wins; on a tie the LATER one, because the
+        # author is told to think first and write the body afterwards, so a
+        # sketch quoted mid-thought always precedes the real one.
+        best = max(range(len(spans)),
+                   key=lambda i: (_codeishness(txt[spans[i][0]:spans[i][1]]), i))
+        s0, s1, mark_before, mark_after = spans[best]
+        # The thinking is the whole reply MINUS the chosen block and the two
+        # markers that delimited it — so every other quoted block survives where
+        # the author put it.
+        cut0 = mark_before.start() if mark_before is not None else s0
+        cut1 = mark_after.end()    if mark_after  is not None else s1
+        thinking = _clean_thinking(txt[:cut0] + "\n" + txt[cut1:])
+        txt = txt[s0:s1]
     txt = txt.replace("```", "")
 
     # The author's own words about what it built. Prefer the one that sits WITH

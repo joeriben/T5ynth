@@ -129,6 +129,15 @@ public:
      *  is reporting on. `detail` carries the compiler's error text for Error. */
     void setCompileState(CompileState s, const juce::String& detail = {})
     {
+        // Early-out on an unchanged state. pollCsoundCompile writes "compiling"
+        // on EVERY 10 Hz tick for the whole compile window, and relayout() is not
+        // cheap here: it builds a juce::TextLayout for the prompt, the entire
+        // (deliberately uncapped) thinking, the reading and every repair, then
+        // repaints, which shapes all of it a second time. The juce::Label this
+        // replaced early-outed on unchanged text, so without this the panel would
+        // pay two full text-shaping passes ten times a second for nothing.
+        if (s == compile_ && detail == compileDetail_)
+            return;
         compile_       = s;
         compileDetail_ = detail;
         relayout();
