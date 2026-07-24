@@ -100,6 +100,57 @@ CASES = [
      + BODY + "\nREADING: bowed cello\n```\n",
      "aexc  dust", lambda t: "k0qf0   limit" in t and "struck_bar idiom" in t),
 
+    # HOW TO ANSWER says everything outside the fence is thinking, and the author
+    # takes that literally in BOTH directions — it writes after the block as
+    # readily as before it. A rule that simply takes the last code-carrying
+    # segment ships the afterthought.
+    ("a line of prose after the closing fence",
+     "A bowed cello.\n\n```csound\n" + BODY + "\nREADING: bowed cello\n```\n\n"
+     "asig carries the bowed tone into the host\n",
+     "aexc  dust", lambda t: "asig carries the bowed tone" in t),
+
+    # The same, at full length: the reasoning written AFTER the code. The
+    # discarded orchestra compiles; the English does not, so this shape burns
+    # the whole repair loop and is then reported as an author that could not
+    # write a compiling orchestra.
+    ("the whole reasoning written after the code",
+     "Here is the orchestra for a bowed cello:\n\n```csound\n" + BODY
+     + "\nREADING: bowed cello\n```\n\n"
+     "What IS this sound: a cello, bowed, one string and a wooden body\n"
+     "aexc is the bow, continuous noise, never an impulse\n"
+     "kstr holds the played note, clamped below Nyquist\n"
+     "asig is the string and the body together\n",
+     "aexc  dust", lambda t: "What IS this sound" in t),
+
+    # A plainer variant offered after the real one. Shorter, so a size rule gets
+    # it right and a position rule gets it wrong — and it COMPILES, so the user
+    # simply hears a bare sine where the cello should be, with no error anywhere.
+    ("a simplified variant offered after the body",
+     "A bowed cello.\n\n```csound\n" + BODY + "\nREADING: bowed cello\n```\n\n"
+     "If you want it plainer, the core of it is just:\n\n"
+     "```csound\nasig  oscili 0.4, kfreq * koct1\n```\n",
+     "aexc  dust", lambda t: "If you want it plainer" in t),
+
+    # An enumeration of the variables, in English. Reads as a multi-output
+    # opcode line ("aL, aR reverbsc ...") to anything shape-based.
+    ("an English enumeration of variable names after the fence",
+     "A bowed cello.\n\n```csound\n" + BODY + "\nREADING: bowed cello\n```\n\n"
+     "aexc, kstr and asig are the three stages\n",
+     "aexc  dust", lambda t: "three stages" in t),
+
+    # The library's idioms carry their reasoning in full-line comments, and the
+    # author copies that habit. A body can therefore be mostly comment.
+    ("a body that is mostly comment",
+     "A bowed cello.\n\n```csound\n"
+     "; bow: a continuous noise excitation, never an impulse\n"
+     "aexc  rand 0.05\n"
+     "; string: one mode at the played note\n"
+     "asig  mode aexc, kfreq * koct1, 240\n"
+     "; body: a gentle low-pass so it does not get glassy\n"
+     "asig  butlp asig, 2400\n"
+     "READING: bowed cello, continuous excitation\n```\n",
+     "; bow: a continuous", lambda t: t.startswith("A bowed cello")),
+
     # A sketch quoted mid-thought, then the real body with no closer: taking the
     # last COMPLETE fence ships the sketch and the user hears the wrong sound.
     ("sketch fence, then the real body unclosed",
@@ -149,25 +200,33 @@ failures = []
 # prose looks nothing like code passes every case above no matter how the picker
 # is written, and reads as proof while proving nothing.
 #
-# Measured with the LINE MATCHER alone, deliberately not with _codeishness: the
-# English-fragment guard inside _codeishness is itself under test here, so using
-# it as the yardstick would let a change to that guard quietly declaw the corpus
-# instead of failing it.
+# Measured BOTH ways, because the two disagree and each catches a different way
+# of getting this wrong. The line matcher alone is what a shape-based rule sees;
+# _codeishness is what the picker's own fallback consults, and a corpus that has
+# teeth against one yardstick can be toothless against the other — which is
+# exactly how the "prose after the fence" family stayed invisible.
 def _looks_like_code(chunk):
     return sum(1 for ln in chunk.splitlines()
                if ln.strip() and not L._SENTENCE_END.search(ln)
                and L._CODE_LINE.match(ln))
 
 
-_prose, _body, _lib = (_looks_like_code(REASONING), _looks_like_code(BODY),
-                       _looks_like_code(LIB_IDIOM))
+# The reasoning is measured by SHAPE only. _codeishness scores it low on
+# purpose — that guard is part of the fix — so demanding it score high there
+# would be demanding the fix not work. What has to stay true is that a rule
+# reading only the shape of the lines WOULD be fooled by this reasoning.
+_prose, _body = _looks_like_code(REASONING), _looks_like_code(BODY)
 if _prose <= _body:
-    failures.append(f"corpus has no teeth: {_prose} lines of the reasoning read as "
-                    f"code against {_body} in the body — a picker that counts code "
-                    "lines would pass by luck")
-if _lib <= _body:
-    failures.append(f"corpus has no teeth: quoted idiom scores {_lib}, body {_body} — "
-                    "the quotation must be the LONGER of the two")
+    failures.append(f"corpus has no teeth: {_prose} lines of the reasoning read as code "
+                    f"against {_body} in the body — a shape-based picker would pass by luck")
+
+# The quotation is measured BOTH ways, because that one is about length and not
+# about English: it must outweigh the body under whichever metric arbitrates.
+for _label, _measure in (("shape", _looks_like_code), ("picker", L._codeishness)):
+    _b, _lib = _measure(BODY), _measure(LIB_IDIOM)
+    if _lib <= _b:
+        failures.append(f"corpus has no teeth by {_label}: quoted idiom scores {_lib}, "
+                        f"body {_b} — the quotation must be the LONGER of the two")
 
 for name, reply, body_starts, thinking_ok in CASES:
     body, reading, thinking = L.sanitize(reply)

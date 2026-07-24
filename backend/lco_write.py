@@ -462,7 +462,11 @@ _READING = re.compile(r"^\s*READING\s*:\s*(.+?)\s*$", re.IGNORECASE | re.MULTILI
 # Block keywords count on their own.
 _CODE_LINE = re.compile(
     r"^\s*(?:"
-    r"g?[akifS]\w*(?:\s*,\s*g?[akifS]\w*)+\s+[a-z]\w*"  # aL, aR reverbsc ...
+    # aL, aR reverbsc a1, a2, 0.85, 5000 — the trailing [\d,] is what keeps
+    # "aexc, kstr and asig are the three stages" out: an English enumeration of
+    # variable names is otherwise the same shape, and _ENGLISH_HEAD cannot see
+    # it because such a line opens with a content word.
+    r"g?[akifS]\w*(?:\s*,\s*g?[akifS]\w*)+\s+[a-z]\w*\s+[^;\n]*[\d,]"
     r"|g?[akifS]\w*\s*=\s*\S"                  # kx = ...
     r"|g?[akifS]\w*\s+[a-z]\w*(?:[\s,(]|$)"   # avar opcode args
     r"|(?:if|else|elseif|endif|until|while|od|kgoto|igoto|then)\b"
@@ -498,10 +502,6 @@ def _codeishness(chunk):
     return n
 
 
-def _nonblank(chunk):
-    return sum(1 for ln in (chunk or "").splitlines() if ln.strip())
-
-
 def _fence_segments(txt):
     """The reply split on fence-marker LINES, as (start, end, mark_before,
     mark_after) spans over the text BETWEEN markers. Never pairs markers, so an
@@ -518,33 +518,41 @@ def _fence_segments(txt):
 def _pick_body(segments):
     """Which of those segments is the orchestra.
 
-    STRUCTURE decides. Two facts about the reply are guaranteed by the prompt and
-    hold whether or not the fences are well formed:
+    The author is told to think first, so the text before the FIRST marker is
+    prose and is not a candidate. That much is guaranteed by the prompt. What is
+    NOT guaranteed — and what two rewrites of this function got wrong in opposite
+    directions — is anything about order or size among the rest:
 
-      1. the author is told to think first and write the code afterwards, so the
-         text BEFORE the first marker is prose and is never a candidate — which
-         is what makes reasoning longer than the body harmless,
-      2. everything the author quotes mid-thought (a sketch, a library idiom it
-         is about to adapt) therefore PRECEDES the block it finally wrote.
+      - the author quotes the library idiom it is adapting, and that quotation
+        is longer than the focused body it becomes, so "biggest wins" ships the
+        library's own example as the sound,
+      - the author also writes AFTER the block ("asig carries the bowed tone
+        into the host", or a plainer one-line variant offered as an
+        afterthought), so "last wins" ships the afterthought. Measured: a reply
+        whose orchestra compiles clean was handed to the repair loop as English,
+        and a one-line `asig oscili` alternative replaced a six-line cello
+        without any error anywhere.
 
-    So the body is the LAST candidate that carries code: BJ's original "last
-    fence, not the first" rule, made robust against a missing closer by never
-    pairing markers. Scoring must not override this. A quoted library idiom runs
-    8-18 lines against a focused 3-6 line body, so "highest count wins" ships the
-    quotation as the sound systematically, not occasionally.
+    So neither position nor length decides. The CONTRACT does: the system prompt
+    requires a `READING:` line inside the fence with the body, and only the body
+    ever carries one. A quotation does not (it is the library's code, not this
+    sound's), an afterthought does not, and prose does not. The body is the last
+    candidate that has both a READING and at least one line of code — the code
+    requirement because a READING that landed in the prose must not drag a
+    paragraph in with it.
 
-    Content arbitrates only where structure has nothing to say: a candidate needs
-    at least one code line and at least half its lines to be code, so a trailing
-    prose aside cannot outvote the orchestra, and if NO candidate qualifies the
-    reply is malformed beyond the contract (the body written before the fence,
-    say) and the best-scoring segment overall is the last thing left to try."""
-    if len(segments) == 1:
-        return 0
-    for i in range(len(segments) - 1, 0, -1):
-        code = _codeishness(segments[i])
-        if code and code * 2 >= _nonblank(segments[i]):
+    Only when no candidate has one — the author put the READING outside the
+    fence, or the generation stopped before reaching it — does content arbitrate,
+    and then by weight: the most code, ties to the later. A trailing fragment
+    loses to an orchestra on that measure, which is what "last wins" could not
+    do. Segment 0 is reached only if nothing after a marker carries code at all,
+    i.e. the author wrote the body before the fence."""
+    later = range(1, len(segments))
+    for i in reversed(later):
+        if _READING.search(segments[i]) and _codeishness(segments[i]):
             return i
-    return max(range(len(segments)), key=lambda i: (_codeishness(segments[i]), i))
+    best = max(later, key=lambda i: (_codeishness(segments[i]), i), default=0)
+    return best if _codeishness(segments[best]) else 0
 
 
 # Chat-template control tokens that leak into the reply body (observed on the
