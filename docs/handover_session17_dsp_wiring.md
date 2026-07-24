@@ -164,7 +164,7 @@ Aus dem alten Handover §2.2: "Free/Trig funktioniert nicht". Trail:
 
 User-Vorgabe: **separater Commit, nach den Feature-Steps 3–6.** Nicht bundlen.
 
-### 3.2 GitHub-Issue [#19](https://github.com/joeriben/T5ynth/issues/19) — `forcedValueWidth`-Inkonsistenz
+### 3.2 GitHub-Issue [#19](https://github.com/joeriben/akroasys/issues/19) — `forcedValueWidth`-Inkonsistenz
 
 Heute aufgemacht. Mod-Section LEFT-Spalte hat 3 verschiedene Value-Width-Strategien (ENV natural,
 LFO 56, Drift 64); RIGHT-Spalte ist überall natural. Slider-Track-Right-Edges innerhalb der

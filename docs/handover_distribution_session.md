@@ -86,7 +86,7 @@ Betroffene Dateien:
 - Workflow-Permissions auf "Read and write" stehen (bereits konfiguriert)
 
 #### 3. Repo ist public
-- https://github.com/joeriben/t5ynth — GPLv3, public seit 2026-04-05
+- https://github.com/joeriben/akroasys — GPLv3, public seit 2026-04-05
 - CI läuft kostenlos (keine Minutenbegrenzung)
 - Keine Secrets in Git-History
 

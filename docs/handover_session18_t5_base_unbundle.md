@@ -59,7 +59,7 @@
 
 ```cpp
     { "t5-base",                 "T5-Base text encoder",       "t5-base",
-      "https://github.com/joeriben/t5ynth/releases/download/assets/t5-base-v1",
+      "https://github.com/joeriben/akroasys/releases/download/assets/t5-base-v1",
 ```
 
 Eine Zeile. Build verifizieren, commit.

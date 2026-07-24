@@ -173,7 +173,7 @@ Version:        $version
 Release:        1%{?dist}
 Summary:        Text-to-sound synthesizer standalone app
 License:        GPL-3.0-only
-URL:            https://github.com/joeriben/t5ynth
+URL:            https://github.com/joeriben/akroasys
 BuildArch:      x86_64
 Requires:       bash
 Requires:       gtk3

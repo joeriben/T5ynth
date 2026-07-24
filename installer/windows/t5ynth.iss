@@ -15,7 +15,7 @@
 AppName=akroasys
 AppVersion={#AppVersion}
 AppPublisher=AI4ArtsEd / UNESCO Chair in Digital Culture and Arts in Education (UCDCAE)
-AppPublisherURL=https://github.com/joeriben/t5ynth
+AppPublisherURL=https://github.com/joeriben/akroasys
 DefaultDirName={autopf}\akroasys
 DefaultGroupName=akroasys
 OutputBaseFilename=akroasys-Windows-Setup

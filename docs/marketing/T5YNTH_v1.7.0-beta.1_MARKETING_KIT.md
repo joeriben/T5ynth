@@ -231,8 +231,8 @@ The Generation section starts with Impulse A and Impulse B. These are not two sa
 
 The new version adds BPM sync for LFOs, Drift LFOs and Delay. Slow sound-space movement, background auto-regeneration and delay movement can now be tied to musical divisions across multiple bars, making T5ynth easier to connect to DAW and sequencer workflows.
 
-Release: https://github.com/joeriben/t5ynth/releases/tag/v1.7.0-beta.1
-Repository: https://github.com/joeriben/t5ynth
+Release: https://github.com/joeriben/akroasys/releases/tag/v1.7.0-beta.1
+Repository: https://github.com/joeriben/akroasys
 Press kit / screenshots / audio: [Press kit URL]
 
 Best,
@@ -257,8 +257,8 @@ T5ynth is currently a beta release. Model weights are not bundled and must be do
 
 Links:
 
-- Release: https://github.com/joeriben/t5ynth/releases/tag/v1.7.0-beta.1
-- Source: https://github.com/joeriben/t5ynth
+- Release: https://github.com/joeriben/akroasys/releases/tag/v1.7.0-beta.1
+- Source: https://github.com/joeriben/akroasys
 - Presets: https://github.com/joeriben/T5ynth-Presets
 
 ### Forum post, English
@@ -273,19 +273,19 @@ T5ynth then renders a short playable fragment. From there, it becomes a familiar
 
 New in v1.7.0-beta.1 is BPM sync for LFOs, Drift LFOs and Delay. For long drift movements and background auto-regeneration, this matters musically: the sound space keeps moving, but now it can move in musical divisions.
 
-Release: https://github.com/joeriben/t5ynth/releases/tag/v1.7.0-beta.1
-Repository: https://github.com/joeriben/t5ynth
+Release: https://github.com/joeriben/akroasys/releases/tag/v1.7.0-beta.1
+Repository: https://github.com/joeriben/akroasys
 Audio/screenshots: [Press kit URL]
 
 I am especially interested in audible A/Bs: which impulse pairs and injection modes open musically compelling spaces, and which ones break in interesting ways?
 
 ### Social posts, English
 
-1. T5ynth v1.7.0-beta.1 is out: an innovative music synth built around resonance with meaning. A/B mark a space of possible sounds; Alpha, Drift and Injection move that space. https://github.com/joeriben/t5ynth/releases/tag/v1.7.0-beta.1
+1. T5ynth v1.7.0-beta.1 is out: an innovative music synth built around resonance with meaning. A/B mark a space of possible sounds; Alpha, Drift and Injection move that space. https://github.com/joeriben/akroasys/releases/tag/v1.7.0-beta.1
 
-2. Impulse A and B in T5ynth are not two samples, song requests or oscillators. They mark a sound space inside the model. Then Alpha, Noise, axes, Dimension Explorer, Injection and Drift decide where that space becomes audio. https://github.com/joeriben/t5ynth/releases/tag/v1.7.0-beta.1
+2. Impulse A and B in T5ynth are not two samples, song requests or oscillators. They mark a sound space inside the model. Then Alpha, Noise, axes, Dimension Explorer, Injection and Drift decide where that space becomes audio. https://github.com/joeriben/akroasys/releases/tag/v1.7.0-beta.1
 
-3. T5ynth opens hidden spaces of possible sound: cross "steady clean saw wave, C3" with "120 bpm syncopated transient pattern". T5ynth turns that space into a playable fragment for sampler, wavetable, filters and sequencing. v1.7 adds clocked Drift. https://github.com/joeriben/t5ynth/releases/tag/v1.7.0-beta.1
+3. T5ynth opens hidden spaces of possible sound: cross "steady clean saw wave, C3" with "120 bpm syncopated transient pattern". T5ynth turns that space into a playable fragment for sampler, wavetable, filters and sequencing. v1.7 adds clocked Drift. https://github.com/joeriben/akroasys/releases/tag/v1.7.0-beta.1
 
 4. New clip: one impulse pair, six Injection Modes. Not six orders sent to a black box, but six interventions in the hidden sound space. This is where T5ynth becomes interesting: as an instrument. [Video link]
 
@@ -299,7 +299,7 @@ The new version adds BPM sync for LFOs, Drift LFOs and Delay. This makes movemen
 
 It is also an arts education question: how can AI systems be reworked so they foster access, exploration, judgment and creative agency rather than consumption and substitution?
 
-Release: https://github.com/joeriben/t5ynth/releases/tag/v1.7.0-beta.1
+Release: https://github.com/joeriben/akroasys/releases/tag/v1.7.0-beta.1
 
 ## 9. Presskit-Struktur
 

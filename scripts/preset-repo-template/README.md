@@ -1,7 +1,7 @@
 # T5ynth-Presets — *UCDCAE AI Lab* preset bank
 
 This repository holds the **UCDCAE AI Lab** preset collection for
-[T5ynth](https://github.com/joeriben/T5ynth) — a JUCE/C++ synthesizer that
+[akróasys](https://github.com/joeriben/akroasys) — a JUCE/C++ synthesizer that
 treats Stable Audio Open's latent space as a meta-oscillator. Each `.t5p`
 file is one complete instrument state: prompts, axes, dimension offsets,
 engine parameters, generated audio, and (optionally) an inference cache.

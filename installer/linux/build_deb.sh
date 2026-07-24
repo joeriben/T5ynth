@@ -181,7 +181,7 @@ Architecture: $arch
 Maintainer: akroasys Maintainers <noreply@github.com>
 Depends: bash, libc6, libgcc-s1, libstdc++6, libgtk-3-0t64 | libgtk-3-0, libwebkit2gtk-4.1-0, libasound2t64 | libasound2, libcurl4t64 | libcurl4, libfontconfig1, libfreetype6, libx11-6, libxrandr2, libxinerama1, libxcursor1, libxcomposite1, libxext6, libxrender1
 Installed-Size: $installed_size_kb
-Homepage: https://github.com/joeriben/t5ynth
+Homepage: https://github.com/joeriben/akroasys
 Description: Text-to-sound synthesizer standalone app
  akroasys is a JUCE-based text-to-sound synthesizer. This Debian package installs
  the standalone app and its isolated bundled Python inference backend under

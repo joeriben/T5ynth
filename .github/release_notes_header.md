@@ -19,7 +19,7 @@ The macOS installer ships **Standalone**, **VST3** and **Audio Unit (AU)** in a 
 ### Platform Scope
 This beta release ships public installers for **macOS** (Standalone + VST3 + AU) and **Windows** (Standalone + VST3).
 
-Linux is **best-effort**: build from source via [`docs/DEV_BUILD.md`](https://github.com/joeriben/T5ynth/blob/main/docs/DEV_BUILD.md) or [`docs/LINUX_INSTALLATION.md`](https://github.com/joeriben/T5ynth/blob/main/docs/LINUX_INSTALLATION.md). The CI produces Linux Standalone / VST3 archives plus an Ubuntu `.deb` on every push — they are downloadable from the [*Actions* tab](https://github.com/joeriben/T5ynth/actions/workflows/build.yml) as workflow artifacts but are intentionally not attached to release pages and are not officially supported.
+Linux is **best-effort**: build from source via [`docs/DEV_BUILD.md`](https://github.com/joeriben/akroasys/blob/main/docs/DEV_BUILD.md) or [`docs/LINUX_INSTALLATION.md`](https://github.com/joeriben/akroasys/blob/main/docs/LINUX_INSTALLATION.md). The CI produces Linux Standalone / VST3 archives plus an Ubuntu `.deb` on every push — they are downloadable from the [*Actions* tab](https://github.com/joeriben/akroasys/actions/workflows/build.yml) as workflow artifacts but are intentionally not attached to release pages and are not officially supported.
 
 ### Windows
 1. Download **`akroasys-Windows-Setup.exe`** and every **`akroasys-Windows-Setup-*.bin`** file.

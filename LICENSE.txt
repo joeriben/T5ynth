@@ -1,11 +1,13 @@
-T5ynth — Text-to-Sound Synthesizer
+akróasys — Text-to-Sound Synthesizer
+(published as T5ynth up to and including version 2.5.3)
 Copyright (C) 2024-2026 Prof. Dr. Benjamin Jörissen / AI4ArtsEd (UCDCAE AI Lab)
-https://github.com/joeriben/t5ynth
+https://github.com/joeriben/akroasys
 
-T5ynth is a novel synthesizer concept that navigates the T5 text embedding
-space of a diffusion audio model, enabling direct sonic exploration of
-semantic dimensions. Conceived and developed by Prof. Dr. Benjamin Jörissen
-as part of the AI4ArtsEd project at the UCDCAE AI Lab.
+akróasys navigates the text embedding space of a diffusion audio model, and
+lets a language model write a Csound oscillator from a spoken description —
+two ways of making machine listening audible and playable. Conceived and
+developed by Prof. Dr. Benjamin Jörissen as part of the AI4ArtsEd project at
+the UCDCAE AI Lab.
 
 This program is free software: you can redistribute it and/or modify it
 under the terms of the GNU General Public License as published by the
@@ -20,9 +22,9 @@ for more details.
 You should have received a copy of the GNU General Public License along
 with this program. If not, see <https://www.gnu.org/licenses/>.
 
-If you use T5ynth in academic work, please cite:
+If you use akróasys in academic work, please cite:
   Prof. Dr. Benjamin Jörissen / AI4ArtsEd — UCDCAE AI Lab
-  https://github.com/joeriben/t5ynth
+  https://github.com/joeriben/akroasys
 
 ===========================================================================
 

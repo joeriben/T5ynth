@@ -4,7 +4,7 @@ Authoritative reference for producing T5ynth releases. Derived from
 `.github/workflows/build.yml` and the `gh` CLI. If this document and the
 workflow file disagree, the workflow file wins — update this document.
 
-Repository: `joeriben/t5ynth`. Default branch: `main`.
+Repository: `joeriben/akroasys`. Default branch: `main`.
 
 ---
 
@@ -308,7 +308,7 @@ Release notes are assembled by the `release` job:
    flow and the Linux `chmod +x` fallback.
 2. The release job asks `gh release list` for the most recent published
    GitHub Release tag, then calls
-   `gh api repos/joeriben/t5ynth/releases/generate-notes` with the new tag
+   `gh api repos/joeriben/akroasys/releases/generate-notes` with the new tag
    and that previous published release tag. This avoids using failed,
    unpublished tags as the comparison base. The `.body` field from the
    response is appended to `release_notes.md`, producing a "What's Changed" /
@@ -508,7 +508,7 @@ Check:
 Public release URL:
 
 ```
-https://github.com/joeriben/t5ynth/releases/tag/vX.Y.Z
+https://github.com/joeriben/akroasys/releases/tag/vX.Y.Z
 ```
 
 ---

@@ -6,7 +6,7 @@ namespace
 // pre-release, and /releases/latest excludes pre-releases (returns 404 here),
 // so it would never surface an update. /releases returns all non-draft releases
 // newest-first and DOES include pre-releases.
-constexpr const char* kReleasesApiUrl = "https://api.github.com/repos/joeriben/T5ynth/releases?per_page=30";
+constexpr const char* kReleasesApiUrl = "https://api.github.com/repos/joeriben/akroasys/releases?per_page=30";
 
 // A parsed semantic version: {major, minor, patch} plus the raw pre-release
 // identifiers after '-' ("beta", "0"). Empty prerelease == a final release,
