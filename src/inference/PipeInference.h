@@ -153,6 +153,28 @@ public:
                                      // panel names this instead of a compiled-in string, so a
                                      // resolver that walks past the intended slot is visible.
         juce::String errorMessage;  // set when success == false
+
+        // ── The authoring TRACE (backend/lco_write.py, "consultation"/"repairs") ──
+        // What actually happened on the way to this orchestra, for the panel to
+        // show. The author is asked for no account of itself and none is
+        // fabricated here: every field below is a record the write-path already
+        // kept and previously discarded.
+        //
+        // What the prompt's OWN WORDS reached in the library, by section. An
+        // empty motions list is a real finding, not a gap in the data — it says
+        // the prompt named no movement, which movement-by-default then has to
+        // answer for.
+        juce::StringArray reachedInstruments, reachedAdjectives, reachedMotions;
+        // Entries the author was ALSO shown because the prompt reached too few
+        // instruments (lco_write._STARTER). Kept apart from the reached ones:
+        // presenting orientation as understanding is the one lie this surface
+        // exists to prevent.
+        juce::StringArray orientedBy;
+        int libraryEntryCount = 0;  // entries in the whole library, for "n of N"
+        // Csound's own errors this body had to be repaired past, in first-seen
+        // order; empty when it compiled on the first attempt.
+        juce::StringArray repairs;
+        int attempts = 0;           // how many authoring passes it took (1 = first try)
     };
 
     /** Blocking generation — call from background thread.

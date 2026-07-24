@@ -1378,6 +1378,30 @@ PipeInference::CsoundAuthorResult PipeInference::authorCsoundOrchestra(const juc
             result.reading    = parsed.getProperty("reading", juce::var()).toString();
             result.paramsText = parsed.getProperty("params_text", juce::var()).toString();
             result.authorModel = parsed.getProperty("author_model", juce::var()).toString();
+
+            // The authoring trace (lco_write.py's "consultation"/"repairs").
+            // Every field is optional on the wire: a backend older than this
+            // build simply leaves them absent, and the panel then shows the
+            // stations it has rather than empty ones — the trace degrades, the
+            // orchestra does not.
+            auto toStrings = [](const juce::var& v)
+            {
+                juce::StringArray out;
+                if (auto* arr = v.getArray())
+                    for (auto& e : *arr)
+                        out.add(e.toString());
+                return out;
+            };
+            const auto consultation = parsed.getProperty("consultation", juce::var());
+            const auto reached = consultation.getProperty("reached", juce::var());
+            result.reachedInstruments = toStrings(reached.getProperty("instruments", juce::var()));
+            result.reachedAdjectives  = toStrings(reached.getProperty("adjectives", juce::var()));
+            result.reachedMotions     = toStrings(reached.getProperty("motions", juce::var()));
+            result.orientedBy         = toStrings(consultation.getProperty("oriented_by", juce::var()));
+            result.libraryEntryCount  = static_cast<int>(consultation.getProperty("library_size", juce::var(0)));
+            result.repairs            = toStrings(parsed.getProperty("repairs", juce::var()));
+            result.attempts           = static_cast<int>(parsed.getProperty("attempts", juce::var(0)));
+
             result.success    = result.orchestra.isNotEmpty();
             if (!result.success)
                 result.errorMessage = "Empty orchestra in Csound response";
