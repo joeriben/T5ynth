@@ -281,6 +281,7 @@ without whom AI4ArtsEd would not have come into being.
   <ul>
     <li class="sub"><a href="#orientation">Before You Start: What T5ynth Is</a></li>
     <li class="sub"><a href="#setup">Setup: Model Installation</a></li>
+    <li class="sub"><a href="#lco">The Language-Controlled Oscillator (LCO)</a></li>
     <li><strong>Part I — How to Use T5ynth</strong></li>
     <li class="sub"><a href="#gen">1. The Generation Section (Pre-Audio Space)</a></li>
     <li class="sub"><a href="#axes">2. Sound-Character Axes</a></li>
@@ -478,6 +479,203 @@ On first launch, the status bar shows backend connection status. Once you see <s
 <div class="tip">
   If the status bar shows an error, check: (1) Is at least one model downloaded? (2) Is there enough disk space and RAM/VRAM? Stable Audio Open 1.0 needs ~4 GB VRAM.
 </div>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- LCO -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<h2 id="lco">The Language-Controlled Oscillator (LCO)</h2>
+
+<p>
+T5ynth's oscillator has a second mode, beside the T5 Oscillator described
+above: the <strong>Language-Controlled Oscillator</strong>, or LCO. Instead
+of marking a hidden sound space inside a diffusion model, you describe an
+instrument in words. A language model writes Csound synthesis code from that
+description, and that code — compiled and run live — becomes the
+oscillator's voice for every note you play. It is not a preset and not a
+rendered sample: it is source code, written for this one prompt.
+</p>
+
+<h3>Switching to the LCO</h3>
+<p>
+The toggle at the top right of the Generation column's header switches
+between the two oscillator paradigms. It reads <strong>» LCO</strong> while
+the neural T5 Oscillator is active — click it to switch. The column header
+itself then changes to <strong>Language-Controlled Oscillator
+(Alpha)</strong>, and the toggle now reads <strong>» T5osc</strong> to switch
+back.
+</p>
+<p>
+Switching replaces the whole Generation column: Impulse A/B, Alpha, the
+Semantic Axes and the Dimension Explorer are gone, and in their place sit a
+single prompt field, the authoring trace described below, and a Re-Prompt
+card of its own. The shared <strong>Generate</strong> button and the SNAP
+slots below it stay in exactly the same place and now drive the LCO instead;
+Cache and Resynth, both meaningful only for the neural generator, are shown
+dimmed rather than removed.
+</p>
+<p>
+Type a description into the prompt field at the top of the panel — its
+placeholder reads <strong>"Describe the oscillator to bake"</strong> — and
+press <strong>Generate</strong>. A single tab above the prompt field names
+the language model that will do the writing; see Requirements, below.
+</p>
+
+<div class="note">
+  <strong>(Alpha)</strong> in the header is literal: this mode is early and
+  under active change.
+</div>
+
+<h3>What you see while it writes</h3>
+<p>
+Before you have written anything, the panel reads: <strong>"Describe a sound
+and press Generate. What the machine makes of it appears here, step by step;
+hold the panel to see the Csound it wrote."</strong> While the model is
+composing its answer, its reasoning streams into the panel live under a
+temporary <strong>THINKING</strong> heading — provisional, and replaced the
+moment an attempt actually lands.
+</p>
+<p>
+Once an attempt lands, the trace becomes a fixed sequence of stations:
+</p>
+<table>
+  <tr><th>Station</th><th>What it shows</th></tr>
+  <tr>
+    <td><strong>HEARD</strong></td>
+    <td>The prompt exactly as it was authored from.</td>
+  </tr>
+  <tr>
+    <td><strong>LOOKED UP</strong></td>
+    <td>Which of the library's instruments, sound words and motions your own
+      wording reached, shown as chips, plus — visibly dimmer, captioned
+      "also shown, for orientation:" — entries the model was shown anyway
+      although your words did not ask for them. A prompt that matches
+      nothing in the library still gets a station here; it reads "no word of
+      this prompt is in the library", and the model writes from its own
+      knowledge instead. A count line also flags it when nothing you wrote
+      named a movement ("no movement named") — worth watching, since every
+      LCO instrument is meant to move on its own unless you ask for something
+      static or still.</td>
+  </tr>
+  <tr>
+    <td><strong>THOUGHT</strong></td>
+    <td>The model's own reasoning, quoted in full: what it decided the sound
+      is, what excites and resonates in it, what moves in it.</td>
+  </tr>
+  <tr>
+    <td><strong>WROTE</strong></td>
+    <td>Which model wrote the code, and its own one-line description of what
+      it built.</td>
+  </tr>
+  <tr>
+    <td><strong>REPAIRED</strong></td>
+    <td>Present only when the first attempt did not compile: the Csound
+      errors it had to fix, in the order it fixed them, and how many
+      attempts it took. A sound that compiled on the first try shows no
+      station here — the absence is itself the report.</td>
+  </tr>
+  <tr>
+    <td><strong>RUNNING</strong></td>
+    <td>Whether the orchestra now loaded actually compiled: "compiling…",
+      "compiled", the compiler's own error text, or "compile not observed"
+      for a sound whose compile nobody watched (a recalled preset, for
+      instance).</td>
+  </tr>
+</table>
+
+<h3>What comes back</h3>
+<p>
+Once a version compiles, the <strong>WROTE</strong> station's one-line
+reading tells you what the machine understood the instrument to be, and the
+sound itself is already running — every voice plays the one orchestra that
+was written.
+</p>
+<p>
+Click and hold anywhere on the trace to turn the card over. The back is
+headed <strong>"CSOUND · HOLD TO TURN BACK"</strong> and shows only the
+lines the model actually wrote — not the host scaffolding common to every
+LCO instrument (the sixteen voice channels, the note-age counter, the output
+stage), which nobody wrote and which stays the same from sound to sound.
+Click and hold again to turn the card back to the trace.
+</p>
+<div class="note">
+  In this build the back of the card is a read-only view. There is no way to
+  edit the Csound text and recompile it without going back through the
+  language model.
+</div>
+<p>
+The SNAP slots below <strong>Generate</strong> work here too: long-click a
+slot to store the current instrument — prompt, Csound and sound together —
+and short-click to bring it back. A recalled slot compiles and plays again
+immediately, with no new call to the language model.
+</p>
+
+<h3>Re-Prompt</h3>
+<p>
+Above <strong>Generate</strong> sits a RE-PROMPT card with the same
+seven-position stance bar as the neural oscillator's <a href="#drift">Re-Prompt
+loop</a>, but it works on different material: it never listens to the
+rendered sound. Each step instead rereads the LCO's own last
+<strong>WROTE</strong> reading and rewrites the prompt text under the chosen
+stance:
+</p>
+<table>
+  <tr><th>Stance</th><th>What it does</th></tr>
+  <tr><td><strong>Off</strong></td><td>Re-Prompt loop disabled.</td></tr>
+  <tr><td><strong>Transcribe</strong> (fixed point)</td><td>The machine re-describes what it reads; the prompt stays put.</td></tr>
+  <tr><td><strong>Sober</strong> (inward spiral)</td><td>Re-states the sound plainly and factually — sentiment and scene stripped, the real source kept.</td></tr>
+  <tr><td><strong>Sweeten</strong> (damped settling)</td><td>Softens toward a gentler, cuter reading.</td></tr>
+  <tr><td><strong>Variation</strong> (bounded cluster)</td><td>Small variations around the current theme.</td></tr>
+  <tr><td><strong>Abduction</strong> (wandering)</td><td>Leaps to new scenes, drifting far from the source.</td></tr>
+  <tr><td><strong>Opposite</strong> (limit cycle)</td><td>Oscillates between opposing readings.</td></tr>
+</table>
+<p>
+With a stance chosen and at least one instrument already on screen, pressing
+<strong>Generate</strong> performs one Re-Prompt step instead of authoring
+from scratch: it rewrites the prompt under the current stance, replaces the
+text in the prompt field with the result, and immediately writes a new
+instrument from those words. There is no separate coupling control here —
+the neural loop's B only / AB add / AB replace choice has nothing to attach
+to, since the LCO has no A/B pair to couple.
+</p>
+
+<h3>Requirements</h3>
+<p>
+The LCO depends on two things the neural oscillator does not.
+</p>
+<p>
+<strong>The author language model must be installed.</strong> It is listed
+in <strong>Settings</strong>, on the <strong>Models</strong> tab, under its
+own <strong>LANGUAGE MODEL</strong> heading, as <strong>Gemma 4 12B</strong>
+— a 4-bit build of Google's Gemma, quantization-aware trained by Google and
+run through llama.cpp rather than the usual transformers library, about
+7&nbsp;GB, downloaded ungated from HuggingFace under the Apache 2.0 license
+(no account needed). The same model also translates prompts to English and
+drives Re-Prompt on both oscillators — there is only ever the one language
+model. Once installed, the LCO's own model tab reads <strong>"Gemma 4 12B —
+writes code for Csound"</strong>; until then it reads <strong>"no language
+model"</strong>, and pressing <strong>Generate</strong> answers: <strong>"Load
+the language model in Settings"</strong>.
+</p>
+<p>
+<strong>Csound must be present on the machine T5ynth runs on.</strong> Unlike
+the models above, T5ynth does not download or manage Csound itself: support
+for it is compiled in only if the machine that built your copy of T5ynth had
+Csound installed at build time — and, in this build, only on macOS; there is
+no Linux or Windows build path for it yet. The build looks in two places: the
+Homebrew install location, <code>/opt/homebrew/opt/csound/Frameworks</code>,
+and <code>/Library/Frameworks</code>, where Csound's own macOS installer puts
+it. Installing Csound afterward does not help a copy that was already built
+without it — that choice is made once, when T5ynth itself is compiled. When
+no Csound can be reached at all, authoring fails immediately and plainly
+rather than guessing: <strong>"no Csound compiler reachable: the orchestra
+cannot be checked before it reaches the engine (install Csound, or point
+T5YNTH_CSOUND at the csound binary)"</strong>.
+</p>
+<p>
+An empty prompt is refused the same way: pressing <strong>Generate</strong>
+with nothing typed answers <strong>"Type what the instrument should sound
+like"</strong>.
+</p>
 
 <!-- ═══════════════════════════════════════════════════════════════ -->
 <!-- PART I -->
