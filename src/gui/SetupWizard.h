@@ -57,6 +57,12 @@ public:
      *  internal install gate for the editor's UI gating. */
     bool isCoderModelInstalled() const { return coderModelInstalled(); }
 
+    /** Directory name of the language model the backend's resolver will author
+     *  with (the same precedence walk as the install gate), or empty when none is
+     *  loadable. MainPanel feeds it to the LCO model tab, which names the model
+     *  instead of showing a role placeholder. */
+    juce::String resolvedCoderDirName() const;
+
     static juce::File getAppSupportModelDir();
     static juce::File getAppSupportModelDir(const juce::String& modelId);
 
@@ -82,10 +88,9 @@ private:
     // Called at the end of refreshAllRows(), including its transition-latch fire
     // of onCoderModelChanged so an install refreshes the gate live.
     void refreshCoderRow();
-    // True iff the language model is installed on disk, checking BOTH locations
-    // the backend's _resolve_coder_model_dir (pipe_inference.py) accepts: the
-    // in-app Download slot (<model root>/coder/...) and a manually dropped dev
-    // copy (<model root>/lco-coder/...).
+    // True iff the backend's resolver will find a loadable language model: the
+    // emptiness check of resolvedCoderDirName(), which mirrors the backend's
+    // _resolve_coder_model_dir (pipe_inference.py) step for step.
     bool coderModelInstalled() const;
     // Transition latch for onCoderModelChanged: refreshCoderRow() is called on
     // every refresh (construction, download/import, backend connect), so it

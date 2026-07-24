@@ -113,17 +113,20 @@ public:
 
     /** Name the model that authored the orchestra just received, as reported by
      *  the backend resolver (`author_model` on the csound response). Empty leaves
-     *  the placeholder standing. Call from the message thread. */
+     *  the current display standing. Call from the message thread. */
     void setLcoAuthorModel(const juce::String& modelDirName);
-    /** The model name currently claimed on the LCO author tab, or empty while
-     *  the placeholder is still standing (no orchestra authored yet). A SNAP
-     *  stores it so a recall re-states who wrote the orchestra it brings back
-     *  instead of leaving the previous bake's author on screen. */
-    juce::String getLcoAuthorModel() const
-    {
-        const auto name = dcoModelBtns[0].getButtonText().trim();
-        return name == kLcoAuthorUnknownLabel ? juce::String() : name;
-    }
+    /** Name the model the backend's resolver WILL author with next (MainPanel
+     *  feeds it SettingsPage::resolvedCoderDirName() at open and on live
+     *  install/removal). Shown on the model tab while no authored orchestra
+     *  claims otherwise; empty = none loadable (the tab states that plainly and
+     *  dims via setLlmAvailable). Message thread. */
+    void setLcoResolvedModel(const juce::String& modelDirName);
+    /** The model that wrote the CURRENT orchestra, as claimed by the last bake
+     *  or SNAP recall -- empty when none has. Deliberately NOT the tab's visible
+     *  text: idle, the tab names the model that would author NEXT, and a SNAP
+     *  must store who wrote the orchestra it holds, not who would write another
+     *  one. */
+    juce::String getLcoAuthorModel() const { return lcoAuthorClaim_; }
     bool isEasyMode() const { return easyMode_; }
     bool hasHiddenActiveState() const;
 
@@ -215,9 +218,10 @@ public:
         adoptRecalledPrompt(prompt);
     }
 
-    /** Put the LCO author tab back to its placeholder — the orchestra now loaded
-     *  has no known author (a preset, or a bake whose backend reported none), and
-     *  a stale name claiming otherwise is worse than no claim. */
+    /** Drop the author claim — the orchestra now loaded has no known author (a
+     *  preset, or a bake whose backend reported none), and a stale name claiming
+     *  otherwise is worse than no claim. The tab falls back to the resolved
+     *  idle name (who would author next), or its no-model placeholder. */
     void resetLcoAuthorModel();
 
     /** Open the compile-window poll (pollCsoundCompile) for an orchestra that was
@@ -576,6 +580,10 @@ private:
     // flag: the tab shows the model at full opacity when installed and dimmed
     // when absent.
     void updateLcoModelTabs();
+    // Recompute the model tab's text + tooltip from the two name sources: the
+    // bake claim wins while it stands, else the resolved idle name, else the
+    // no-model placeholder.
+    void refreshLcoModelTabText();
 
     // Model selector (fixed 4-slot switchbox: SA3 Music | SA1 Open | SA1 Small | AudioLDM2).
     // Easy-only: the model choice belongs to the neural view — Advanced is
@@ -592,12 +600,18 @@ private:
     // destruction-order rule: the LnF must outlive every component whose
     // setLookAndFeel points at it).
     static constexpr int kNumLcoModelSlots = 1;   // the LCO author
-    // Placeholder until the backend reports which model it actually resolved.
-    // Never a model NAME: the panel cannot know the resolver's choice, and a
-    // compiled-in name is exactly how "Coder 7B" stayed on screen while a
-    // different model wrote every orchestra.
-    static constexpr const char* kLcoAuthorUnknownLabel = "LCO author";
+    // Idle text while NO model is resolvable (nothing installed): a plain state
+    // statement, never a pseudo model name ("LCO author" read like a model
+    // called that, and a compiled-in "Coder 7B" once stayed on screen while a
+    // different model wrote every orchestra). With a model present the tab
+    // names it: "<model> — writes code for Csound" (refreshLcoModelTabText).
+    static constexpr const char* kLcoNoModelLabel = "no language model";
     juce::TextButton dcoModelBtns[kNumLcoModelSlots];
+    // The tab's two name sources: who WOULD author next (the resolver mirror,
+    // pushed by MainPanel) and who DID author the current orchestra (the
+    // backend's per-bake claim). The claim wins while it stands.
+    juce::String lcoResolvedModel_;   // dir name; empty = none loadable
+    juce::String lcoAuthorClaim_;     // dir name; empty = current orchestra unclaimed
     juce::String modelSlotIds[kNumModelSlots];  // resolved model directory name per slot
     juce::Rectangle<int> modelSwitchBounds;
 

@@ -587,10 +587,10 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
     settingsScrim.setVisible(false);
     addChildComponent(settingsScrim);
 
-    // Settings overlay is tabbed: "Modelle" (model manager, default-open) +
+    // Settings overlay is tabbed: "Models" (model manager, default-open) +
     // "Settings" (global options). deleteWhenNotNeeded=false — MainPanel owns the
     // pages; the TabbedComponent only displays them (and reparents them).
-    settingsTabs.addTab("Modelle",  kBg, &settingsPage,        false);
+    settingsTabs.addTab("Models",   kBg, &settingsPage,        false);
     settingsTabs.addTab("Settings", kBg, &generalSettingsPage, false);
     settingsTabs.setCurrentTabIndex(0);
     settingsTabs.setOutline(0);
@@ -622,11 +622,15 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
     // install state: disabled and explained via tooltip when absent, re-enabled the
     // instant it is installed (no restart). ONE model does all three jobs, so it is
     // one callback and one gate. The callback fires on transitions; this initial
-    // push sets the startup state.
+    // push sets the startup state. The tab also NAMES the model the backend's
+    // resolver will author with (same walk as the gate, so name and gate can't
+    // disagree); each bake's author_model claim then overrides it on the wire.
     settingsPage.onCoderModelChanged = [this](bool installed)
     {
+        promptPanel.setLcoResolvedModel(settingsPage.resolvedCoderDirName());
         promptPanel.setLlmAvailable(installed);
     };
+    promptPanel.setLcoResolvedModel(settingsPage.resolvedCoderDirName());
     promptPanel.setLlmAvailable(settingsPage.isCoderModelInstalled());
 
     presetScrim.onClick = [this] { hidePresetManager(); };

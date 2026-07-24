@@ -450,13 +450,15 @@ static const KnownModel kKnownModels[] = {
     // static -- it passed 10 of 11 at a 12 s median, while the previous
     // Qwen2.5-Coder-7B passed 8 of 11 at 20 s and did not fit a 16 GB Mac at all.
     // Ungated (no HuggingFace account needed) and Apache-2.0.
-    { "coder/gemma-4-12b-it-qat-q4_0", "Language model (Gemma 4 12B, 4-bit)",
+    { "coder/gemma-4-12b-it-qat-q4_0", "Gemma 4 12B",
       "google/gemma-4-12B-it-qat-q4_0-gguf", nullptr,
       "https://www.apache.org/licenses/LICENSE-2.0",
       "Gemma 4 12B (QAT, 4-bit) is licensed under Apache License 2.0 (open, no "
       "restrictions).\n\n"
-      "Required for the LCO, where it writes the Csound orchestra for your prompt; "
-      "it also translates prompts to English and drives Re-Prompt. About 7 GB. "
+      "This is the language model behind the LCO -- the oscillator you play by "
+      "describing a sound in words: the model writes the Csound code that becomes "
+      "your sound. The same model translates prompts to English (the EN button) "
+      "and drives Re-Prompt. About 7 GB.\n\n"
       "T5ynth does not provide the weights; they download from HuggingFace "
       "(ungated, no account). By downloading you accept the Apache 2.0 "
       "license.", true, false,
@@ -920,7 +922,7 @@ SettingsPage::SettingsPage()
         const auto& cm = kKnownModels[catalogIndexForId("coder/gemma-4-12b-it-qat-q4_0")];
         coderRow_ = std::make_unique<ModelRow>("coder/gemma-4-12b-it-qat-q4_0",
                                                cm.displayName,
-                                               "writes the LCO orchestra, translates, re-prompts");
+                                               "writes code for Csound; translates; Re-Prompt");
         coderRow_->onAction = [this](juce::String id) {
             activeOpModelId_ = id;
             startDownload();
@@ -3584,12 +3586,15 @@ void SettingsPage::refreshAllRows()
     refreshCoderRow();
 }
 
-bool SettingsPage::coderModelInstalled() const
+juce::String SettingsPage::resolvedCoderDirName() const
 {
     // Mirrors the backend's _resolve_coder_model_dir, step for step AND in its
-    // precedence order. This one gate now decides Translate, Re-Prompt AND the LCO
-    // bake, so a check that recognises FEWER models than the backend does disables
-    // all three for a user the backend would have served perfectly well.
+    // precedence order, and returns the directory NAME of the model the backend
+    // will author with -- empty when none is loadable. coderModelInstalled() is
+    // this walk's emptiness check, so the install gate and the model named on
+    // the LCO tab can never disagree. Per bake, the backend still reports the
+    // ACTUAL author on the wire (`author_model`), which overrides this idle
+    // resolution on the tab; a mirror can drift, the wire claim cannot.
     //
     // Deliberately NOT scanForModelById: that gates on hasModelMarker, which
     // requires .safetensors and cannot see a GGUF author at all. The gate here is
@@ -3609,25 +3614,47 @@ bool SettingsPage::coderModelInstalled() const
         if (pinned.startsWith("~"))   // the backend expanduser()s; juce::File does not
             pinned = juce::File::getSpecialLocation(juce::File::userHomeDirectory)
                          .getFullPathName() + pinned.substring(1);
-        return juce::File::isAbsolutePath(pinned) && isLoadableCoderDir(juce::File(pinned));
+        if (juce::File::isAbsolutePath(pinned) && isLoadableCoderDir(juce::File(pinned)))
+            return juce::File(pinned).getFileName();
+        return {};
     }
 
     // 2. The current install slot, by its exact name.
     const auto& cm = kKnownModels[catalogIndexForId("coder/gemma-4-12b-it-qat-q4_0")];
     for (auto& dir : modelDirCandidates("coder/gemma-4-12b-it-qat-q4_0", cm.hfRepo))
         if (isLoadableCoderDir(dir))
-            return true;
+            return "gemma-4-12b-it-qat-q4_0";
 
     // 3. Any other model sitting in coder/ or lco-coder/ -- an install predating
     //    the current slot, or a hand-dropped dev copy. The backend serves these,
-    //    so the UI must not pretend they are absent.
+    //    so the UI must not pretend they are absent. The backend scans each dir
+    //    sorted(); sort here too, so with several leftovers both sides name the
+    //    same winner.
     for (auto* sub : { "coder", "lco-coder" })
         for (auto& dir : modelDirCandidates(sub, {}))
             if (dir.isDirectory())
-                for (auto& child : dir.findChildFiles(juce::File::findDirectories, false))
+            {
+                auto children = dir.findChildFiles(juce::File::findDirectories, false);
+                struct ByName
+                {
+                    static int compareElements(const juce::File& a, const juce::File& b)
+                    { return a.getFileName().compare(b.getFileName()); }
+                };
+                ByName byName;
+                children.sort(byName);
+                for (auto& child : children)
                     if (isLoadableCoderDir(child))
-                        return true;
-    return false;
+                        return child.getFileName();
+            }
+    return {};
+}
+
+// The ONE gate for Translate, Re-Prompt and the LCO bake: a check recognising
+// FEWER models than the backend does would disable all three for a user the
+// backend would have served perfectly well.
+bool SettingsPage::coderModelInstalled() const
+{
+    return resolvedCoderDirName().isNotEmpty();
 }
 
 void SettingsPage::refreshCoderRow()
@@ -3691,16 +3718,17 @@ void SettingsPage::updateStatus()
     {
         if (coderModelInstalled())
             setInstructionsText(instructionsLabel,
-                display + " is installed. The LCO (classic oscillator) uses it to "
-                "write the Csound orchestra for your prompt whenever you bake; the "
-                "EN button and Re-Prompt use the same model.");
+                display + " is installed. It writes the Csound code for the LCO -- "
+                "the oscillator you play by describing a sound in words. The EN "
+                "translate button and Re-Prompt use the same model.");
         else
             setInstructionsText(instructionsLabel,
-                "Required by the LCO (classic oscillator) -- this model writes the "
-                "Csound orchestra for your prompt. It also translates your prompt to "
-                "English in the background when you enable the EN button (your typed "
-                "text is never changed), and it drives Re-Prompt. About 7 GB. "
-                "Ungated, no HuggingFace account. License: Apache 2.0 (open, no "
+                "Required by the LCO -- the oscillator you play by describing a "
+                "sound in words: this model writes the Csound code that becomes "
+                "your sound. It also translates your prompt to English in the "
+                "background when you enable the EN button (your typed text is "
+                "never changed), and it drives Re-Prompt. About 7 GB. Ungated, no "
+                "HuggingFace account. License: Apache 2.0 (open, no "
                 "restrictions).\n"
                 "  Target: " + targetPath);
         return;
