@@ -462,25 +462,44 @@ _READING = re.compile(r"^\s*READING\s*:\s*(.+?)\s*$", re.IGNORECASE | re.MULTILI
 # Block keywords count on their own.
 _CODE_LINE = re.compile(
     r"^\s*(?:"
-    r"g?[akifS]\w*\s*=\s*\S"                  # kx = ...
+    r"g?[akifS]\w*(?:\s*,\s*g?[akifS]\w*)+\s+[a-z]\w*"  # aL, aR reverbsc ...
+    r"|g?[akifS]\w*\s*=\s*\S"                  # kx = ...
     r"|g?[akifS]\w*\s+[a-z]\w*(?:[\s,(]|$)"   # avar opcode args
     r"|(?:if|else|elseif|endif|until|while|od|kgoto|igoto|then)\b"
     r")")
 _SENTENCE_END = re.compile(r"[.!?:]\s*$")
+# Lowercase a/k/i/f and capital S are Csound TYPE sigils and also the first
+# letter of very ordinary English ("as the bow smears", "keep it below", "So a
+# struck bar"). Since HOW TO ANSWER asks the author to answer three questions,
+# much of the reasoning arrives as FRAGMENTS, which have no closing full stop
+# for _SENTENCE_END to catch. `if` stays out of this list: it is a real Csound
+# keyword. Lowercase `s` is not a sigil at all, so "sound"/"since"/"slow" never
+# reach here.
+_ENGLISH_HEAD = re.compile(
+    r"^(?:an?|and|as|at|are|any|also|after|about|another|across"
+    r"|i|in|is|it|its|into|instead"
+    r"|for|from|first|fast|few|full|finally"
+    r"|keep|keeps|kind"
+    r"|so|since|slow|slower|some|short|still|second)\b", re.IGNORECASE)
 
 
 def _codeishness(chunk):
-    """How many lines of this segment read as Csound. Used to pick the body out
-    of a reply whose fences cannot be trusted — the comparison is between
-    segments of ONE reply, so an absolute threshold is never needed."""
+    """How many lines of this segment read as Csound. Only ever compared between
+    segments of ONE reply, and only as a last resort — the structure of the reply
+    decides first (see _pick_body), because content scoring cannot reliably tell
+    a fragment of English from a line of Csound and must not be asked to."""
     n = 0
     for ln in (chunk or "").splitlines():
         s = ln.split(";", 1)[0].rstrip()      # a trailing Csound comment is not the line
-        if not s.strip() or _SENTENCE_END.search(s):
+        if not s.strip() or _SENTENCE_END.search(s) or _ENGLISH_HEAD.match(s.lstrip()):
             continue
         if _CODE_LINE.match(s):
             n += 1
     return n
+
+
+def _nonblank(chunk):
+    return sum(1 for ln in (chunk or "").splitlines() if ln.strip())
 
 
 def _fence_segments(txt):
@@ -494,6 +513,38 @@ def _fence_segments(txt):
         prev_end, prev_mark = m.end(), m
     spans.append((prev_end, len(txt), prev_mark, None))
     return spans
+
+
+def _pick_body(segments):
+    """Which of those segments is the orchestra.
+
+    STRUCTURE decides. Two facts about the reply are guaranteed by the prompt and
+    hold whether or not the fences are well formed:
+
+      1. the author is told to think first and write the code afterwards, so the
+         text BEFORE the first marker is prose and is never a candidate — which
+         is what makes reasoning longer than the body harmless,
+      2. everything the author quotes mid-thought (a sketch, a library idiom it
+         is about to adapt) therefore PRECEDES the block it finally wrote.
+
+    So the body is the LAST candidate that carries code: BJ's original "last
+    fence, not the first" rule, made robust against a missing closer by never
+    pairing markers. Scoring must not override this. A quoted library idiom runs
+    8-18 lines against a focused 3-6 line body, so "highest count wins" ships the
+    quotation as the sound systematically, not occasionally.
+
+    Content arbitrates only where structure has nothing to say: a candidate needs
+    at least one code line and at least half its lines to be code, so a trailing
+    prose aside cannot outvote the orchestra, and if NO candidate qualifies the
+    reply is malformed beyond the contract (the body written before the fence,
+    say) and the best-scoring segment overall is the last thing left to try."""
+    if len(segments) == 1:
+        return 0
+    for i in range(len(segments) - 1, 0, -1):
+        code = _codeishness(segments[i])
+        if code and code * 2 >= _nonblank(segments[i]):
+            return i
+    return max(range(len(segments)), key=lambda i: (_codeishness(segments[i]), i))
 
 
 # Chat-template control tokens that leak into the reply body (observed on the
@@ -550,12 +601,7 @@ def sanitize(raw):
 
     spans = _fence_segments(txt)
     if len(spans) > 1:
-        # Which segment holds the orchestra is decided by CONTENT, not by fence
-        # parity. Highest codeishness wins; on a tie the LATER one, because the
-        # author is told to think first and write the body afterwards, so a
-        # sketch quoted mid-thought always precedes the real one.
-        best = max(range(len(spans)),
-                   key=lambda i: (_codeishness(txt[spans[i][0]:spans[i][1]]), i))
+        best = _pick_body([txt[a:b] for a, b, _, _ in spans])
         s0, s1, mark_before, mark_after = spans[best]
         # The thinking is the whole reply MINUS the chosen block and the two
         # markers that delimited it — so every other quoted block survives where
