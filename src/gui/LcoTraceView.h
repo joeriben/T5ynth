@@ -84,7 +84,10 @@ public:
         viewport_.getVerticalScrollBar().setColour(juce::ScrollBar::trackColourId,
                                                    juce::Colours::transparentBlack);
         content_.owner_ = this;
+        pulse_.owner_   = this;
         blink_.owner_   = this;
+        content_.addAndMakeVisible(pulse_);
+        pulse_.setVisible(false);
         // Takes its own mouse, exactly as the text box it replaced did: the
         // scrollbar needs drags, and the card flip lands here.
         setInterceptsMouseClicks(true, true);
@@ -197,6 +200,23 @@ public:
             return;
         compile_       = s;
         compileDetail_ = detail;
+        relayout();
+    }
+
+    /** Stop the pulse if it is still going. Called from the panel's existing
+     *  10 Hz tick with the real busy state, because a status can be armed by a
+     *  path that then returns without ever writing a terminating one — pressing
+     *  Generate in LCO mode while a neural generation is still running says
+     *  "Still generating" and returns, and nothing in the neural completion
+     *  path writes to this view at all. A dot left breathing at 12 Hz over an
+     *  idle panel is precisely the regression this project keeps having. */
+    void stopBusy()
+    {
+        if (! busy_)
+            return;
+        busy_ = false;
+        blink_.stopTimer();
+        layoutPulse();
         relayout();
     }
 
@@ -398,7 +418,11 @@ private:
     int renderBody(juce::Graphics* g, int& width) const
     {
         const float x = 8.0f;
-        const float wrapW = static_cast<float>(width) - x - 11.0f;
+        // Wraps to the VIEWPORT, never to the widened content: the draw pass is
+        // handed the content width, and laying the error out to that would run
+        // it off the side of the very page it was moved here to be read on, and
+        // reserve a different height than the measure pass did.
+        const float wrapW = static_cast<float>(juce::jmax(40, wrapW_)) - x - 11.0f;
         const juce::Font fLabel { juce::FontOptions(labelFont()) };
         const juce::Font fHint  { juce::FontOptions(hintFont())  };
         const float labelH = std::round(labelFont() * 1.5f);
@@ -536,18 +560,9 @@ private:
         if (! trace_.valid)
         {
             const auto text = status_.isNotEmpty() ? status_ : placeholder_;
-            // A dot on the rail that breathes while something is running. The
-            // authoring takes a whole 12B generation, and without it a panel
-            // that is working and a panel that has given up look the same.
-            if (busy_ && g != nullptr)
-            {
-                const float phase = std::sin(static_cast<float>(juce::Time::getMillisecondCounter() % 1200)
-                                             / 1200.0f * juce::MathConstants<float>::twoPi);
-                const float cy = y + bodyFont() * 0.62f;
-                g->setColour(kWarning.withAlpha(0.45f + 0.55f * (0.5f + 0.5f * phase)));
-                g->fillEllipse(static_cast<float>(railX() - dotR()), cy - static_cast<float>(dotR()),
-                               static_cast<float>(dotR() * 2), static_cast<float>(dotR() * 2));
-            }
+            // The dot that breathes while something is running is drawn by
+            // pulse_, a child of its own, so its 12 Hz repaint cannot drag this
+            // whole view through the text shaper with it.
             y += paragraph(g, text, fBody, busy_ ? kTextPrimary : kDim,
                            static_cast<float>(textX()), y, w);
             if (live_.isNotEmpty())
@@ -706,15 +721,58 @@ private:
     void relayout()
     {
         int w = juce::jmax(1, viewport_.getMaximumVisibleWidth());
+        // The width text WRAPS to, kept apart from the content width, which the
+        // back widens to its longest code line. Measuring and drawing must wrap
+        // identically, and the draw pass only sees the widened one — so the
+        // compile error on the back would be laid out to the scrolled width and
+        // run off the side of the viewport it is meant to be read in.
+        wrapW_ = w;
         const int h = showBack_ ? renderBody(nullptr, w)   // widens w to the longest line
                                 : render(nullptr, w);
-        // getMaximumVisibleHeight, not getHeight: with the back's horizontal
-        // scrollbar shown, content exactly getHeight() tall is 7px taller than
-        // the visible area, and the viewport answers with a vertical scrollbar
-        // whose whole range is the other bar's thickness.
-        content_.setSize(w, juce::jmax(viewport_.getMaximumVisibleHeight(), h));
+        // Subtract the bar thickness OURSELVES rather than asking the viewport:
+        // getMaximumVisibleHeight() still reports the previous content's bar
+        // state at this point, so on the flip itself it answers the full height,
+        // content exactly that tall ends up 7px past the visible area, and the
+        // viewport replies with a vertical scrollbar whose entire range is the
+        // horizontal bar's thickness.
+        const int floorH = viewport_.getHeight()
+                         - (showBack_ ? viewport_.getScrollBarThickness() : 0);
+        content_.setSize(w, juce::jmax(floorH, h));
+        layoutPulse();
         content_.repaint();
     }
+
+    /** The pulsing dot is its OWN component, and that is the whole point: a
+     *  repaint of a rectangle inside content_ still runs Content::paint, which
+     *  ignores the clip region and re-shapes every paragraph in the view —
+     *  including the author's uncapped streamed reasoning, twelve times a
+     *  second, for the length of a 12B generation. A separate child repaints
+     *  alone. */
+    void layoutPulse()
+    {
+        const bool wanted = busy_ && ! trace_.valid && ! showBack_;
+        pulse_.setVisible(wanted);
+        if (wanted)
+            pulse_.setBounds(0, 0, textX(), juce::roundToInt(bodyFont() * 1.6f));
+    }
+
+    struct Pulse : public juce::Component
+    {
+        Pulse() { setInterceptsMouseClicks(false, false); }   // the flip lands behind it
+        void paint(juce::Graphics& g) override
+        {
+            if (owner_ == nullptr)
+                return;
+            const float phase = std::sin(static_cast<float>(juce::Time::getMillisecondCounter() % 1200)
+                                         / 1200.0f * juce::MathConstants<float>::twoPi);
+            const float cy = 7.0f + owner_->bodyFont() * 0.62f;
+            const int   r  = owner_->dotR();
+            g.setColour(kWarning.withAlpha(0.45f + 0.55f * (0.5f + 0.5f * phase)));
+            g.fillEllipse(static_cast<float>(owner_->railX() - r), cy - static_cast<float>(r),
+                          static_cast<float>(r * 2), static_cast<float>(r * 2));
+        }
+        LcoTraceView* owner_ = nullptr;
+    };
 
     struct Content : public juce::Component,
                      public juce::SettableTooltipClient
@@ -749,22 +807,21 @@ private:
     bool         showBack_ = false;
     bool         busy_ = false;
 
-    /** Repaints the status dot while something is running, and NOTHING else —
-     *  only the rail's top corner, so a whole trace is not re-shaped twelve
-     *  times a second. Runs strictly between a busy status and the state that
-     *  ends it; there is no idle case. */
+    /** Repaints the status dot, and nothing else in the view: pulse_ is its own
+     *  component, so this cannot reach Content::paint. Runs strictly between a
+     *  busy status and the state that ends it — and PromptPanel's existing 10 Hz
+     *  tick calls stopBusy() whenever nothing is actually running, so a path
+     *  that arms it and returns without a terminating status cannot leave it
+     *  spinning at idle. */
     struct Blink : public juce::Timer
     {
         ~Blink() override { stopTimer(); }
-        void timerCallback() override
-        {
-            if (owner_ != nullptr)
-                owner_->content_.repaint(0, 0, owner_->textX(),
-                                         juce::roundToInt(owner_->bodyFont() * 1.6f));
-        }
+        void timerCallback() override { if (owner_ != nullptr) owner_->pulse_.repaint(); }
         LcoTraceView* owner_ = nullptr;
     };
+    Pulse pulse_;
     Blink blink_;
+    int   wrapW_ = 0;
     CompileState compile_ = CompileState::Unknown;
     float   base_ = 13.0f;
 

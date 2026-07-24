@@ -404,21 +404,26 @@ PromptPanel::PromptPanel(T5ynthProcessor& processor)
         // MainPanel). Replaces the old single "LCO: ready" status line and the
         // earlier single collapsed model button.
         {
-            // NOT the model's name: nothing here knows which model the backend's
-            // resolver will actually pick, and a compiled-in "Coder 7B" was wrong
-            // for a whole afternoon while an unloadable 7B slot sent authoring to
-            // the 3B. The real directory name replaces this the moment the first
-            // authored orchestra comes back (setLcoAuthorModel).
-            const char* lcoSlotLabels[kNumLcoModelSlots] = { kLcoAuthorUnknownLabel };
+            // The tab names the model, never a guess: MainPanel pushes the
+            // resolver-mirror name at open and on live install/removal
+            // (setLcoResolvedModel), and each authored orchestra brings the
+            // backend's own claim (setLcoAuthorModel), which wins while it
+            // stands. Until either speaks the placeholder states plainly that no
+            // model is there — never a pseudo model name (a compiled-in
+            // "Coder 7B" once stayed on screen while a different model wrote
+            // every orchestra, and "LCO author" read like a model called that).
             for (int i = 0; i < kNumLcoModelSlots; ++i)
             {
-                dcoModelBtns[i].setButtonText(lcoSlotLabels[i]);
+                dcoModelBtns[i].setButtonText(kLcoNoModelLabel);
                 dcoModelBtns[i].setLookAndFeel(&modelSwitchLnF);
                 styleSwitchButton(dcoModelBtns[i], kOscCol);
                 dcoModelBtns[i].setClickingTogglesState(false);
                 dcoModelBtns[i].setConnectedEdges(0);   // single slot: no connected edges
                 dcoModelBtns[i].setEnabled(false);      // display-only for now (selection is future work)
-                dcoModelBtns[i].setInterceptsMouseClicks(false, false);
+                // Hover stays live (clicks still do nothing on the disabled
+                // button) so the tooltip — full directory name + whether it
+                // wrote the current orchestra or will write the next — can show.
+                dcoModelBtns[i].setInterceptsMouseClicks(true, false);
                 addAndMakeVisible(dcoModelBtns[i]);
             }
             updateLcoModelTabs();
@@ -867,6 +872,15 @@ void PromptPanel::timerCallback()
     // Phase 5 Csound compile-window poll (SPEC_phase4_5_csound_llm_preset.md):
     // a cheap no-op unless triggerDcoBake() opened a window.
     pollCsoundCompile();
+
+    // The trace view's "something is running" pulse, held to the truth. A status
+    // that arms it is written at the START of an authoring or a re-prompt, and
+    // not every way out of those writes another one — a re-prompt that succeeds
+    // and hands over to a bake which then early-returns leaves nothing behind to
+    // clear it. Two bool reads a tick, and the alternative is a 12 Hz repaint on
+    // an idle panel, which is this project's oldest bug.
+    if (! dcoBaking_ && ! dcoRepromptBusy_)
+        dcoTraceView.stopBusy();
 
     // Reprompt-off deferred clean re-render: when the stance is switched to Off the
     // restore block reverts the prompts AND sets pendingOriginalReRender_, but a loop
@@ -2310,7 +2324,7 @@ void PromptPanel::triggerDcoBake()
     // review finding).
     if (dcoRepromptBusy_)
     {
-        setLcoStatus("Still rewriting the prompt", {}, /*busy=*/true);
+        setLcoStatus("Still rewriting the prompt");
         return;
     }
     // The pipe is one serialized channel (recursive stateMutex_): authoring
@@ -2319,7 +2333,7 @@ void PromptPanel::triggerDcoBake()
     // triggerGeneration.
     if (generating || translatingPrompts_ || loopStepInFlight_)
     {
-        setLcoStatus("Still generating", {}, /*busy=*/true);
+        setLcoStatus("Still generating");
         return;
     }
     auto pipePtr = processorRef.getPipeInferencePtr();
@@ -2670,12 +2684,12 @@ void PromptPanel::triggerDcoReprompt()
     // click did nothing (house pattern: triggerDcoBake, triggerGeneration).
     if (dcoRepromptBusy_)
     {
-        setLcoStatus("Still rewriting the prompt", {}, /*busy=*/true);
+        setLcoStatus("Still rewriting the prompt");
         return;
     }
     if (dcoBaking_)
     {
-        setLcoStatus("Still writing the instrument", {}, /*busy=*/true);
+        setLcoStatus("Still writing the instrument");
         return;
     }
     // loopStepInFlight_ added to match triggerDcoBake's identical gate (line
@@ -2689,7 +2703,7 @@ void PromptPanel::triggerDcoReprompt()
     // not re-baked) — adversarial review finding.
     if (generating || translatingPrompts_ || loopStepInFlight_)
     {
-        setLcoStatus("Still generating", {}, /*busy=*/true);
+        setLcoStatus("Still generating");
         return;
     }
     if (! llmAvailable_)
@@ -3139,17 +3153,17 @@ void PromptPanel::setLlmAvailable(bool available)
     translateToggle.setTooltip(available
         ? "Translate prompts to English in place "
           "(auto-regen pauses during translation, then resumes)"
-        : "Install the language model in the Modelle settings tab to translate "
+        : "Install the language model in the Models settings tab to translate "
           "prompts.");
     // Empty → the stance bar's per-glyph hover tooltips resume (set in mouseMove).
     repromptStanceBar.setTooltip(available
         ? juce::String()
         : juce::String("Re-Prompt needs the language model. Install it in the "
-                       "Modelle settings tab."));
+                       "Models settings tab."));
     dcoStanceBar.setTooltip(available
         ? juce::String()
         : juce::String("LCO Re-Prompt needs the language model. Install it in the "
-                       "Modelle settings tab."));
+                       "Models settings tab."));
 
     repromptStanceBar.repaint();   // a raw Component: reflect the dim immediately
     dcoStanceBar.repaint();        // same custom-paint dim logic as repromptStanceBar
@@ -3168,26 +3182,63 @@ void PromptPanel::beginCsoundCompileWatch()
     setLcoCompileState(LcoTraceView::CompileState::Compiling);
 }
 
+// The shipped install slot gets its readable name; anything else (an env pin, a
+// legacy or dev drop) shows its directory name verbatim — honest over pretty.
+static juce::String lcoModelPrettyName(const juce::String& dirName)
+{
+    return dirName == "gemma-4-12b-it-qat-q4_0" ? juce::String("Gemma 4 12B")
+                                                : dirName;
+}
+
+// The tab line names the model AND what it does here, with the synthesis
+// backend spelled out: "Gemma 4 12B — writes code for Csound". The bake claim
+// wins over the idle resolution while it stands; the tooltip carries the full
+// directory name and which of the two is being shown.
+void PromptPanel::refreshLcoModelTabText()
+{
+    const auto shown = lcoAuthorClaim_.isNotEmpty() ? lcoAuthorClaim_
+                                                    : lcoResolvedModel_;
+    if (shown.isEmpty())
+    {
+        dcoModelBtns[0].setButtonText(kLcoNoModelLabel);
+        dcoModelBtns[0].setTooltip("Install the language model in the Models "
+                                   "settings tab.");
+    }
+    else
+    {
+        dcoModelBtns[0].setButtonText(lcoModelPrettyName(shown)
+            + juce::String::fromUTF8(" \xe2\x80\x94 writes code for Csound"));
+        dcoModelBtns[0].setTooltip((lcoAuthorClaim_.isNotEmpty()
+                                        ? "Wrote this orchestra: "
+                                        : "Will write the next orchestra: ")
+                                   + shown);
+    }
+    dcoModelBtns[0].repaint();
+}
+
 // Name the model that ACTUALLY wrote the orchestra. The backend puts its
-// resolver's answer on the wire (`author_model`); the tab shows that and nothing
-// else, so a resolver that walked past the intended slot is visible on the panel
-// instead of hiding behind a compiled-in name. The full directory name goes in
-// the tooltip because the tab is narrow.
+// resolver's answer on the wire (`author_model`); while that claim stands the
+// tab shows it and nothing else, so a resolver that walked past the intended
+// slot is visible on the panel instead of hiding behind the idle resolution.
 void PromptPanel::setLcoAuthorModel(const juce::String& modelDirName)
 {
     const auto name = modelDirName.trim();
     if (name.isEmpty())
         return;                       // no claim beats a wrong claim
-    dcoModelBtns[0].setButtonText(name);
-    dcoModelBtns[0].setTooltip("Wrote this orchestra: " + name);
-    dcoModelBtns[0].repaint();
+    lcoAuthorClaim_ = name;
+    refreshLcoModelTabText();
+}
+
+void PromptPanel::setLcoResolvedModel(const juce::String& modelDirName)
+{
+    lcoResolvedModel_ = modelDirName.trim();
+    refreshLcoModelTabText();
 }
 
 void PromptPanel::resetLcoAuthorModel()
 {
-    dcoModelBtns[0].setButtonText(kLcoAuthorUnknownLabel);
-    dcoModelBtns[0].setTooltip({});
-    dcoModelBtns[0].repaint();
+    lcoAuthorClaim_ = {};
+    refreshLcoModelTabText();
 }
 
 // Refresh the single-tab LCO model strip: the tab shows the model at full
