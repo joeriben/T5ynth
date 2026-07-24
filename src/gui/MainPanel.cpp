@@ -2224,10 +2224,18 @@ void MainPanel::applyLoadedPreset(const PresetFormat::LoadResult& result, const 
             == static_cast<int>(EngineMode::Csound))
     {
         const auto restoredPrompt = processorRef.getCsoundPrompt();
-        // The editor follows it, so pressing Generate again re-authors THIS
-        // sound rather than the last thing that happened to be typed.
+        // The editor follows it, AND the Re-Prompt chain adopts it — the same
+        // pair the SNAP recall does. GENERATE with a stance engaged re-reads the
+        // chain, not the editor, so setting the text alone would rewrite and
+        // bake the PREVIOUS sound's prompt and overwrite the restored one on
+        // screen while doing it.
         if (restoredPrompt.isNotEmpty())
             promptPanel.setLcoPrompt(restoredPrompt);
+        // The READING has to be adopted whether or not the file carried a
+        // prompt: a stance turn reads the panel's last machine reading, and
+        // leaving the previous bake's there makes GENERATE rewrite a sound that
+        // is no longer loaded.
+        promptPanel.adoptRecalledOrchestra(restoredPrompt, processorRef.getCsoundReading());
         promptPanel.setLcoRecalledTrace(restoredPrompt,
                                         processorRef.getCsoundReading(), {},
                                         processorRef.getCsoundParamsText());
@@ -3059,6 +3067,10 @@ MainPanel::LcoSnapshot MainPanel::captureLcoSnapshot()
 {
     LcoSnapshot snapshot;
     snapshot.prompt      = promptPanel.getLcoPrompt().trim();
+    // From the processor, not the editor: the editor may already hold the next
+    // idea while the sound this slot is keeping still plays. Everything else
+    // here comes from the processor for the same reason.
+    snapshot.authoringPrompt = processorRef.getCsoundPrompt();
     snapshot.orchestra   = processorRef.getCsoundOrchestraText();
     snapshot.reading     = processorRef.getCsoundReading();
     snapshot.paramsText  = processorRef.getCsoundParamsText();
@@ -3104,7 +3116,7 @@ void MainPanel::restoreLcoSnapshot(const LcoSnapshot& snapshot)
     // The disclosure travels with the code, so the card explains the orchestra
     // that is actually sounding — and a Save right after a recall round-trips the
     // recalled sound rather than the last bake's (exportJsonPreset reads these).
-    processorRef.setCsoundPrompt(snapshot.prompt);
+    processorRef.setCsoundPrompt(snapshot.authoringPrompt);
     processorRef.setCsoundReading(snapshot.reading);
     processorRef.setCsoundParamsText(snapshot.paramsText);
     // A slot stores the reading, the body and the author — not the consultation

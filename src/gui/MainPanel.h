@@ -154,6 +154,12 @@ private:
     {
         bool valid = false;
         juce::String prompt;        // the LCO prompt editor's text
+        // What actually AUTHORED the orchestra in this slot, which is not the
+        // same thing: `prompt` is parked editor text and may be the next idea
+        // already typed while the previous sound is still playing. Only this one
+        // may be persisted as the preset's csound_prompt — the other would
+        // caption a sound with a prompt that never wrote it.
+        juce::String authoringPrompt;
         juce::String orchestra;     // authored Csound source ("" = nothing baked yet)
         juce::String reading;       // "how it was heard" gloss
         juce::String paramsText;    // the parametrisation behind that reading

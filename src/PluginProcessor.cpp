@@ -6304,6 +6304,11 @@ void T5ynthProcessor::setStateInformation(const void* data, int sizeInBytes)
             requestCsoundOrchestra(juce::String());
             setCsoundReading(juce::String()); // pairs with the built-in orchestra above, not a stale reading
             setCsoundParamsText(juce::String());
+            setCsoundPrompt(juce::String());  // ...and so does the prompt: a purge that
+                                              // leaves it standing lets the next save write
+                                              // the previous project's prompt beside an
+                                              // empty orchestra, and the reload then
+                                              // captions the built-in one with it
         }
     }
 
