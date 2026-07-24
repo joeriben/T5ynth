@@ -168,3 +168,79 @@ Method: Every factual claim verified against source code by file and line number
 - [x] .t5p format (PresetFormat.h:57)
 - [x] Stores params + prompts + audio + embeddings + seed + device + model (PresetFormat.cpp:9-97)
 - [x] Import/Export buttons (PresetPanel.h:30-31)
+
+---
+
+# Addendum — Resynth section (2026-07-24)
+
+Reason: `resources/T5ynth_Guide.html` linked `<a href="#resynth">§ Resynth</a>` from the
+drift-target note, but no `id="resynth"` and no Resynth section existed. Section written
+(now `7. Resynth`; sections 7–17 renumbered to 8–18, TOC and the in-text `§9` / `section 17`
+cross-references updated with them). Same method as the 2026-04-07 audit: every factual
+claim below verified against source by file and line.
+
+## Verified Claims — Resynth
+
+### Control and gating
+- [x] One `RESYNTH` slider in the Generation column, below the SNAP/CACHE row (MainPanel.cpp:1162-1196, layout 3962-3977)
+- [x] `resynthAmount` range 0.0–1.0, step 0.05, default 0.0 (PluginProcessor.cpp:1234-1236)
+- [x] No separate on/off — the slider minimum IS off (PluginProcessor.cpp:1220-1221)
+- [x] Word read-out Off/Min/Subtle/Medium/Strong/Full at 0 / .05 / .25 / .50 / .75 / 1.0; other steps show a percentage (MainPanel.cpp:1175-1184)
+- [x] Slider and both source buttons enabled only for SA3, else disabled + dimmed (MainPanel.cpp:1245-1260)
+- [x] SA3 = model id contains "stable-audio-3" (PromptPanel.cpp:1997)
+- [x] Request path drops the audio seed off SA3 even with a non-zero amount (PromptPanel.cpp:3076, comment 3052-3054)
+- [x] SA3 is `model_type` "diffusion_cond_inpaint" → `generate_diffusion_cond_inpaint`, the entry point that takes `init_audio` (pipe_inference.py:3148-3152, 3185-3196)
+- [x] LCO mode forces the row off + dimmed (MainPanel.cpp:1610-1614)
+
+### Amount → denoise start
+- [x] `initNoiseLevel = 0.90 − 0.85 × amount` (PromptPanel.cpp:3127); table values 0.86 / 0.69 / 0.48 / 0.26 / 0.05 follow from it
+- [x] Low amount = prompt-dominant, high amount = preserves the fed-in audio (PromptPanel.cpp:3107-3126; backend semantics pipe_inference.py:2454-2457)
+- [x] Any Re-Prompt stance other than Off forces `initNoiseLevel = 0.9` regardless of the slider (PromptPanel.cpp:3139-3142)
+
+### int / ext
+- [x] APVTS choice `resynthSource` {int, ext}, default 0 = Internal (PluginProcessor.cpp:1259-1261; BlockParams.h:1158-1166)
+- [x] int seeds from `getGeneratedAudioRaw()` = raw model output before HF Boost (PromptPanel.cpp:3095-3103; PluginProcessor.h:321-325)
+- [x] int attaches only when a prior buffer exists — first generation of a session is text-only (PromptPanel.cpp:3098, comment 3054-3057)
+- [x] ext window length = the `genDuration` parameter (PromptPanel.cpp:2952, 3087)
+- [x] ext window capped at `kMaxCaptureSeconds` = 12.0 s (PluginProcessor.h:824; PluginProcessor.cpp:2064, 2763)
+- [x] Library `prepare_audio` resamples and pad/crops the seed to the model (pipe_inference.py:2465-2466)
+- [x] ext capture peak-normalised (to 0.95) before sending (PluginProcessor.cpp:2797-2807)
+- [x] Mono input is copied to both ring channels (PluginProcessor.cpp:2834)
+- [x] Silence guard: peak < 1e-4 → `dest.setSize(0,0)` + false → no `init_audio` → text-only (PluginProcessor.cpp:2783-2795; PromptPanel.cpp:3083-3085)
+- [x] ext button enabled only when SA3 AND `hasExternalInputAvailable()` (MainPanel.cpp:1256-1260; PluginProcessor.h:339-345), live-refreshed without a reload (MainPanel.cpp:3652-3667)
+- [x] Input bus is optional: disabled / mono / stereo (PluginProcessor.cpp:2737-2743)
+
+### Drift and the standing loop
+- [x] Drift target entry "Resynth" exists, grouped with the generation targets (BlockParams.h:453-455, 465, 484)
+- [x] Drift offset for Resynth = waveform × depth × half-range 0.5, i.e. ±0.5 at Depth 1.0 (DriftLFO.cpp:58, applied 102-117)
+- [x] Effective = base + offset clamped to 0–1; NaN sentinel when not modulated (PluginProcessor.cpp:5384-5408)
+- [x] Ghost indicator painted on the RESYNTH row (MainPanel.cpp:3690-3698)
+- [x] pollDriftRegen uses the drifted value, else the slider (PromptPanel.cpp:3951-3957)
+- [x] Standing trigger: SA3 + effective amount > 0.01 keeps regenerating at the Regen Mode cadence (PromptPanel.cpp:4041-4049)
+- [x] Manual Regen Mode does not auto-regenerate at all (PromptPanel.cpp:3899-3902)
+- [x] Release/lock: a false→true parameter-change edge detaches the seed for one round, then re-locks at the set amount (PromptPanel.cpp:4098-4134)
+- [x] Loop floor `kResynthLoopFloor` = 0.05 (PromptPanel.cpp:135, applied 4131)
+
+### Seed
+- [x] VAR switchbox: none = fixed base seed, last = reuse previous, auto = new random seed (PromptPanel.cpp:326-335); sits right of Duration (PromptPanel.cpp:367-370, 1407-1412)
+- [x] Default seed mode is `base` (PromptPanel.h:578); `lastSeed = 123456789`, `lastRandomSeed = false` (PluginProcessor.h:807-808)
+- [x] `req.seed = getLastRandomSeed() ? -1 : getLastSeed()` (PromptPanel.cpp:2960)
+- [x] Backend draws a fresh seed only when `seed < 0` (pipe_inference.py:2604-2606, native path)
+- [x] Realized seed written back after each generation (PromptPanel.cpp:3477, 3633)
+
+## Documented defect (present in code, NOT fixed here)
+
+The Resynth loop sets only the Resynth amount per round (PromptPanel.cpp:4121-4139); it
+never overrides the seed. With VAR at `none` (default) or `last`, an unchanged prompt and
+an unchanged incoming waveform, the request is byte-identical to the previous round, so the
+render is too. This is the reported "alte Samples hängen" symptom on the **ext** path, where
+a static/held input keeps the seed audio constant; **int** is unaffected because its own
+output becomes the next seed. The Guide states this behaviour and names VAR `auto` as the
+way out, rather than describing the loop as self-evolving unconditionally.
+
+## Pre-existing errors found while writing (NOT fixed — outside this task)
+
+| Section | Claim in Guide | Actual (Code) | Source |
+|---------|---------------|---------------|--------|
+| 6. Drift & Regenerate | Regen Mode = "Manual / Auto / max 1♩ / 4♩ / 16♩" | manual / a.s.a.p. / 1 / 2 / 4 / 8 / 16 **bars** | BlockParams.h:1088-1103; PromptPanel.cpp:3926-3935 |
+| 1. Generation Section | "Seed −1 … 999 999 999" + a "Random" button; Easy vs. Advanced view with a numeric seed editor | The seed editor and Random toggle were removed; the VAR switchbox (none/last/auto) is the seed control, and Advanced is now the LCO panel | PromptPanel.h:147-149; PromptPanel.cpp:326-335, 373-374 |

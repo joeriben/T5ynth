@@ -306,18 +306,19 @@ without whom AI4ArtsEd would not have come into being.
     <li class="sub"><a href="#engine">4. Engine Modes: Sampler, Wavetable &amp; Granular</a></li>
     <li class="sub"><a href="#synth">5. Classic Synth Elements</a></li>
     <li class="sub"><a href="#drift">6. Drift &amp; Regenerate</a></li>
-    <li class="sub"><a href="#fx">7. Effects</a></li>
-    <li class="sub"><a href="#seq">8. Step Sequencer</a></li>
-    <li class="sub"><a href="#genseq">9. Generative Sequencer</a></li>
-    <li class="sub"><a href="#arp">10. Arpeggiator</a></li>
-    <li class="sub"><a href="#presets">11. Presets</a></li>
-    <li class="sub"><a href="#sweetspots">12. Strategies for Finding Sweet Spots</a></li>
+    <li class="sub"><a href="#resynth">7. Resynth</a></li>
+    <li class="sub"><a href="#fx">8. Effects</a></li>
+    <li class="sub"><a href="#seq">9. Step Sequencer</a></li>
+    <li class="sub"><a href="#genseq">10. Generative Sequencer</a></li>
+    <li class="sub"><a href="#arp">11. Arpeggiator</a></li>
+    <li class="sub"><a href="#presets">12. Presets</a></li>
+    <li class="sub"><a href="#sweetspots">13. Strategies for Finding Sweet Spots</a></li>
     <li><strong>Part II — Background</strong></li>
-    <li class="sub"><a href="#bg-axes">13. Technical Background: Axes</a></li>
-    <li class="sub"><a href="#bg-dimex">14. The DimExplorer In Depth</a></li>
-    <li class="sub"><a href="#bg-genseq">15. Principles of the Generative Sequencer</a></li>
-    <li class="sub"><a href="#bg-pipeline">16. The Inference Pipeline</a></li>
-    <li class="sub"><a href="#bg-injection">17. How Injection Modes Work</a></li>
+    <li class="sub"><a href="#bg-axes">14. Technical Background: Axes</a></li>
+    <li class="sub"><a href="#bg-dimex">15. The DimExplorer In Depth</a></li>
+    <li class="sub"><a href="#bg-genseq">16. Principles of the Generative Sequencer</a></li>
+    <li class="sub"><a href="#bg-pipeline">17. The Inference Pipeline</a></li>
+    <li class="sub"><a href="#bg-injection">18. How Injection Modes Work</a></li>
     <li><strong>Legal</strong></li>
     <li class="sub"><a href="#license">License (GPLv3)</a></li>
     <li class="sub"><a href="#thirdparty">Third-Party Components</a></li>
@@ -1414,7 +1415,142 @@ The <strong>coupling</strong> switch sets how far the rewrite reaches into your 
 </div>
 
 <!-- ═══════════════════════════════════════════ -->
-<h2 id="fx">7. Effects</h2>
+<h2 id="resynth">7. Resynth</h2>
+
+<p>
+Re-Prompt closes the loop through language: the machine listens to its own
+output and rewrites the words. <strong>Resynth</strong> closes it through
+audio. Instead of starting a generation from pure noise, the model starts
+from a waveform you hand it and denoises away from there. The prompt still
+conditions the render; the audio decides where the denoising begins, and
+therefore how much of the fed-in sound survives into the result.
+</p>
+<p>
+The control is one slider labeled <strong>RESYNTH</strong> in the Generation
+column, directly below the SNAP / CACHE row, with an <strong>int</strong> /
+<strong>ext</strong> button pair to its right that selects which audio goes in.
+There is no separate on/off switch — the left end of the slider is off.
+</p>
+
+<div class="note">
+  <strong>Resynth requires an SA3 model.</strong> The slider and both source
+  buttons are enabled only while a Stable Audio 3 model is selected; on any
+  other model they are disabled and dimmed, and the request drops the audio
+  seed even if a preset restored a non-zero amount. SA3 is the engine whose
+  generation entry point accepts an initial waveform. In LCO mode the row is
+  switched off and dimmed as well.
+</div>
+
+<h3>The Resynth amount</h3>
+<p>
+The slider runs from Off to Full in steps of 0.05. Six positions have a word
+read-out; any other step shows a percentage instead. The value sets where the
+denoising starts (<code>0.90 − 0.85 × amount</code>): a high starting point
+means the render is mostly re-made and the prompt dominates, a low one means
+it stays close to the audio you fed in.
+</p>
+<table>
+  <tr><th>Read-out</th><th>Value</th><th>Denoising starts at</th></tr>
+  <tr><td><strong>Off</strong></td><td>0.00</td><td>— no audio is attached; ordinary text-only generation</td></tr>
+  <tr><td><strong>Min</strong></td><td>0.05</td><td>0.86 — the prompt dominates, the fed-in sound is barely present</td></tr>
+  <tr><td><strong>Subtle</strong></td><td>0.25</td><td>0.69</td></tr>
+  <tr><td><strong>Medium</strong></td><td>0.50</td><td>0.48</td></tr>
+  <tr><td><strong>Strong</strong></td><td>0.75</td><td>0.26</td></tr>
+  <tr><td><strong>Full</strong></td><td>1.00</td><td>0.05 — the render follows the fed-in sound closely, the prompt has the least room</td></tr>
+</table>
+<p>
+The direction is the opposite of what "more effect" usually means: turn
+Resynth <em>down</em> to let a typed prompt win, <em>up</em> to resynthesise
+and preserve the incoming sound.
+</p>
+
+<div class="note">
+  With a <a href="#drift">Re-Prompt</a> stance engaged, the starting point is
+  forced to 0.9 for every render regardless of the slider, so the rewritten
+  words are not drowned by the carried audio. The slider then decides only
+  <em>whether</em> audio is attached at all, not how strongly it holds.
+</div>
+
+<h3>int and ext: which audio is fed in</h3>
+<table>
+  <tr><th>Source</th><th>What it feeds in</th></tr>
+  <tr><td><strong>int</strong> (default)</td><td>The last generation — the raw model output, before HF Boost. Each render becomes the seed for the next one, so the material moves on its own.</td></tr>
+  <tr><td><strong>ext</strong></td><td>Live audio from the plugin's input, captured continuously; the generation takes the window ending at that moment.</td></tr>
+</table>
+<p>
+<strong>int</strong> only attaches when a generation already exists. The first
+generation of a session has nothing to feed back and renders text-only.
+</p>
+<p>
+<strong>ext</strong> takes a window as long as the current <strong>Duration</strong>
+setting, capped at 12 seconds — a longer duration still gets a 12-second seed,
+which the backend pads out. The capture is peak-normalised before it is sent,
+so playing in quietly does not weaken the effect. A mono input is copied to
+both channels. If the window is effectively silent — no input device, denied
+microphone permission, nothing playing — nothing is attached and the
+generation falls back to text-only rather than seeding silence.
+</p>
+<p>
+The <strong>ext</strong> button stays disabled until an input is actually
+available: the plugin needs an open input bus and a running audio device. In
+the Standalone that means selecting an input in its audio settings and
+granting microphone permission. The button re-enables by itself once that is
+the case — no reload needed.
+</p>
+
+<h3>Resynth in the drift loop</h3>
+<p>
+Drift can target Resynth. At Depth 1.0 the offset spans ±0.5; it is added to
+the slider value and clamped to the 0–1 range. The drifted value shows as the
+orange ghost indicator on the RESYNTH row and is the amount the next
+regeneration uses.
+</p>
+<p>
+Resynth also acts as a <em>standing</em> trigger for auto-regeneration: with
+an SA3 model, a Resynth amount above zero and any Regen Mode other than
+manual, T5ynth keeps regenerating at the chosen cadence without any control
+having to move. Each round re-feeds the audio, so the sound evolves by
+itself. In manual mode nothing auto-regenerates, but Resynth still applies to
+every Generate you press.
+</p>
+<p>
+One round in that loop behaves differently. When you move a generation
+control — Alpha, an axis, Noise, Magnitude — or edit a prompt, the audio seed
+is detached for that single regeneration, so the new content renders cleanly
+from the prompt instead of being pulled back toward the carried waveform. The
+next round re-attaches at your setting and the loop continues from the new
+material. While the loop runs, the effective amount has a floor of 0.05.
+</p>
+
+<h3>Seed: why a Resynth loop can repeat itself</h3>
+<p>
+The <strong>VAR</strong> switchbox, to the right of Duration, decides which
+seed each generation uses: <strong>none</strong> (the default) sends a fixed
+base seed, <strong>last</strong> reuses the previous generation's seed, and
+<strong>auto</strong> sends a fresh random seed every time. The backend only
+draws a new seed when the request asks for one, which is what
+<strong>auto</strong> does; the other two settings pin it.
+</p>
+<p>
+The Resynth loop does not override this. Each round it sets the Resynth amount
+and nothing else — the seed stays whatever VAR selected. So when the seed, the
+prompt, the amount and the incoming audio are all unchanged from the previous
+round, the render is identical to the previous round. With <strong>ext</strong>
+and a source that does not change — a held chord, a static pad, a stopped
+player — that is exactly the situation, and the loop appears to hang on one
+sound. With <strong>int</strong> the incoming audio is the previous output, so
+it differs each round and the loop keeps moving even with a pinned seed.
+</p>
+<div class="note">
+  If an <strong>ext</strong> loop stops evolving, set VAR to
+  <strong>auto</strong> so every round gets a fresh seed. The further right the
+  Resynth slider sits, the less that helps: at high amounts the render is
+  determined by the incoming audio rather than by the seed, which is what the
+  setting is for.
+</div>
+
+<!-- ═══════════════════════════════════════════ -->
+<h2 id="fx">8. Effects</h2>
 
 <h3>Delay</h3>
 <table>
@@ -1444,7 +1580,7 @@ The limiter wraps JUCE <code>dsp::Limiter</code>.
 </p>
 
 <!-- ═══════════════════════════════════════════ -->
-<h2 id="seq">8. Step Sequencer</h2>
+<h2 id="seq">9. Step Sequencer</h2>
 
 <p>
 A traditional step sequencer with 2–32 steps. Each step has:
@@ -1503,7 +1639,7 @@ Click a one-shot slot to cycle Normal / Accent / Mute. The step's <strong>On</st
 </div>
 
 <!-- ═══════════════════════════════════════════ -->
-<h2 id="genseq">9. Generative Sequencer</h2>
+<h2 id="genseq">10. Generative Sequencer</h2>
 
 <p>
 Press the <strong>GEN</strong> button to switch from the manual step sequencer to the generative mode. This is a <strong>self-evolving pattern engine</strong> that combines Euclidean rhythms with Turing Machine–style melodic mutation.
@@ -1621,7 +1757,7 @@ Strands run independently inside themselves; this control governs how (or whethe
 </div>
 
 <!-- ═══════════════════════════════════════════ -->
-<h2 id="arp">10. Arpeggiator</h2>
+<h2 id="arp">11. Arpeggiator</h2>
 
 <p>
 The arpeggiator sits <strong>after</strong> both the step sequencer and the
@@ -1647,7 +1783,7 @@ stutter.
 </p>
 
 <!-- ═══════════════════════════════════════════ -->
-<h2 id="presets">11. Presets</h2>
+<h2 id="presets">12. Presets</h2>
 
 <p>
 akróasys uses <code>.t5p</code> preset files — a binary container that stores:
@@ -1672,7 +1808,7 @@ refreshes the curated <em>UCDCAE AI Lab</em> bank in place from
 </p>
 
 <!-- ═══════════════════════════════════════════ -->
-<h2 id="sweetspots">12. Strategies for Finding Sweet Spots</h2>
+<h2 id="sweetspots">13. Strategies for Finding Sweet Spots</h2>
 
 <div class="tip">
   <strong>akróasys is not a sweet-spot synth.</strong> Unlike subtractive synths where most parameter combinations produce usable sound, akróasys's generation process is exploratory and unpredictable. Many combinations produce nothing interesting. That's by design — the instrument rewards patient exploration, not preset-surfing.
@@ -1736,7 +1872,7 @@ Presets include the generated audio, so you never lose a good generation. Export
 <!-- PART II -->
 <!-- ═══════════════════════════════════════════════════════════════ -->
 <div class="part-label" style="margin-top:3rem">Part II</div>
-<h2 id="bg-axes">13. How Semantic Axes Work</h2>
+<h2 id="bg-axes">14. How Semantic Axes Work</h2>
 
 <p>
 akróasys's semantic axes are directions in the 768-dimensional embedding space of the T5 text encoder. Here's how they are constructed:
@@ -1791,7 +1927,7 @@ On SA3's t5gemma encoder a single-word pole is too weak to move the sound — me
 </div>
 
 <!-- ═══════════════════════════════════════════ -->
-<h2 id="bg-dimex">14. The DimExplorer In Depth</h2>
+<h2 id="bg-dimex">15. The DimExplorer In Depth</h2>
 
 <p>
 The DimExplorer (see <a href="#dimex">section 3</a> for basic usage) operates on the <strong>mean-pooled</strong> encoder output — the 768-dimensional vector obtained by averaging across the token sequence dimension. This is the same representation the diffusion model uses for conditioning.
@@ -1822,7 +1958,7 @@ Individual T5 dimensions do not correspond to human-interpretable audio features
 </ul>
 
 <!-- ═══════════════════════════════════════════ -->
-<h2 id="bg-genseq">15. Principles of the Generative Sequencer</h2>
+<h2 id="bg-genseq">16. Principles of the Generative Sequencer</h2>
 
 <p>
 The generative sequencer combines three layers of musical algorithm:
@@ -1877,7 +2013,7 @@ All drift is bounded and reversible — parameters oscillate rather than running
 
 <h3>Layer 4: Polyphonic Strands</h3>
 <p>
-Up to five <strong>Strands</strong> run in parallel, each with its own Euclidean DNA, drift state, role, and tempo multiplier. Strands are not voices in a chord — they are independent agents sharing one pitch space. The polyrhythmic interplay arises naturally from the sorted <code>Div×</code> multipliers (1/16×, 1/8×, 1/5×, 1/4×, 1/3×, 1/2×, 1×, 2×, 3×, 4×, 5×, 8×, 16×), which create non-coincident downbeats; cycle boundaries only realign on the lowest common multiple. Each strand runs the same internal pipeline as Strand&nbsp;1 (Euclidean rhythm + Turing degree-walk + quantization to its register); the role choice only sets default character. How strands interact (or don't) is decided by the <em>Coordination Mode</em>; see §9. With four secondary strands available, every role (Anchor, Line, Density, Gesture) can be assigned uniquely if desired.
+Up to five <strong>Strands</strong> run in parallel, each with its own Euclidean DNA, drift state, role, and tempo multiplier. Strands are not voices in a chord — they are independent agents sharing one pitch space. The polyrhythmic interplay arises naturally from the sorted <code>Div×</code> multipliers (1/16×, 1/8×, 1/5×, 1/4×, 1/3×, 1/2×, 1×, 2×, 3×, 4×, 5×, 8×, 16×), which create non-coincident downbeats; cycle boundaries only realign on the lowest common multiple. Each strand runs the same internal pipeline as Strand&nbsp;1 (Euclidean rhythm + Turing degree-walk + quantization to its register); the role choice only sets default character. How strands interact (or don't) is decided by the <em>Coordination Mode</em>; see §10. With four secondary strands available, every role (Anchor, Line, Density, Gesture) can be assigned uniquely if desired.
 </p>
 <p>
 Each strand's <em>Role</em> selects a different note-picking strategy from the shared field:
@@ -1906,7 +2042,7 @@ The field evolves on Strand 1's cycle boundary at the chosen <em>Rate</em> (1–
   <li><strong>Pivot</strong> — transposes the entire pc-set by the configured Pivot interval (m3, M3, Tritone, P5) each tick, accumulating shift over time. After enough cycles the field returns to its origin (e.g.&nbsp;four cycles at m3 = full octave).</li>
 </ul>
 <p>
-Because all strands share the same field, harmonic coherence is provided at the field level alone: a Drift swap or Transform tick changes what every strand can play. There is no per-event harmonic check between strands &mdash; that question is delegated to the <em>Coordination Mode</em> (§9), which currently caps simultaneous voices via priority displacement (DensityBudget). The listener perceives one evolving texture because the strands draw from the same evolving pitch set, not because each note is negotiated against the others.
+Because all strands share the same field, harmonic coherence is provided at the field level alone: a Drift swap or Transform tick changes what every strand can play. There is no per-event harmonic check between strands &mdash; that question is delegated to the <em>Coordination Mode</em> (§10), which currently caps simultaneous voices via priority displacement (DensityBudget). The listener perceives one evolving texture because the strands draw from the same evolving pitch set, not because each note is negotiated against the others.
 </p>
 
 <div class="note">
@@ -1914,7 +2050,7 @@ Because all strands share the same field, harmonic coherence is provided at the 
 </div>
 
 <!-- ═══════════════════════════════════════════ -->
-<h2 id="bg-pipeline">16. The Inference Pipeline</h2>
+<h2 id="bg-pipeline">17. The Inference Pipeline</h2>
 
 <p>
 Understanding the inference pipeline helps explain why certain controls interact the way they do.
@@ -2014,7 +2150,7 @@ Modes enter the path; the detailed mode mechanics follow in the next section.
     │                                     │   (empty side → 2·emb_neutral − other)
     │                                     │
     ├─ Injection Mode ─────────────────── Select conditioning path
-    │                                     │   (details in section 17)
+    │                                     │   (details in section 18)
     │                                     │
     ├─ Alpha / mode slider ────────────── Control selected path
     │                                     │
@@ -2059,7 +2195,7 @@ Key observations from this flow:
 </ul>
 
 <!-- ═══════════════════════════════════════════════════════════════ -->
-<h2 id="bg-injection">17. How Injection Modes Work</h2>
+<h2 id="bg-injection">18. How Injection Modes Work</h2>
 
 <p>
 The user-facing injection-mode buttons (§1) are a thin UI on top of
