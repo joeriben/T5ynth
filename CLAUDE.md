@@ -45,7 +45,7 @@ Idle CPU regressions are the #1 historical class of bug in this project. Before 
 ## Process
 
 - Read ALL relevant files before writing code. State reasoning before acting.
-- After every code change: spawn a verification agent (model: opus) with "This code has a bug. Find it."
+- After every change to BEHAVIOUR: spawn a verification agent (model: opus) with "This code has a bug. Find it." Behaviour means control flow, state, DSP, threading, IPC, lifetime — anything where the code can be wrong about something. A change that only edits user-facing strings, comments or docs has no hypothesis to falsify: read it and ship it. Never spawn an agent to review wording.
 - Before every build: check JUCE destruction order, audio thread safety, crash vectors.
 - One concern per commit.
 - Never hallucinate names — grep the repo. Canonical: "UCDCAE AI Lab".
