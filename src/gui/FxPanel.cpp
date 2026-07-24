@@ -33,8 +33,12 @@ static const int kPlateFamily[] = { ReverbType::Dark, ReverbType::Medium, Reverb
 static const int kAlgoFamily[]  = { ReverbType::Algo, ReverbType::AlgoPlus };
 
 // Cell labels for the active variant. Indexed by DelayType::character().
-static const char* kTapeVariantLbls[] = { "Clean", "Warm", "Wild", "Old" };
-static const char* kBbdVariantLbls[]  = { "Warm", "Clean", "Degraded" };
+// Family prefix stays visible when active ("Tp Clean", not a bare "Clean"):
+// without it the cell no longer said WHICH family is running, and Tape and BBD
+// both own a "Clean"/"Warm" variant, so the bare word was ambiguous. "Degrd"
+// is elided to keep one line in the cell; the tooltip carries the full name.
+static const char* kTapeVariantLbls[] = { "Tp Clean", "Tp Warm", "Tp Wild", "Tp Old" };
+static const char* kBbdVariantLbls[]  = { "BBD Warm", "BBD Clean", "BBD Degrd" };
 
 FxPanel::FxPanel(juce::AudioProcessorValueTreeState& apvts, T5ynthProcessor& processor)
     : processorRef(processor)
@@ -74,9 +78,9 @@ FxPanel::FxPanel(juce::AudioProcessorValueTreeState& apvts, T5ynthProcessor& pro
         const bool bbdOn  = (baseType == DelayType::Bbd);
         delayTypeBtns[3].setButtonText(tapeOn ? kTapeVariantLbls[DelayType::character(dt)] : "Tape");
         delayTypeBtns[4].setButtonText(bbdOn  ? kBbdVariantLbls[DelayType::character(dt)]   : "BBD");
-        delayTypeBtns[3].setTooltip(tapeOn ? juce::String("Tape echo - ") + kTapeVariantLbls[DelayType::character(dt)]
+        delayTypeBtns[3].setTooltip(tapeOn ? juce::String("Tape echo - ") + DelayType::kEntries[dt].label
                                            : juce::String("Tape echo - pick a character"));
-        delayTypeBtns[4].setTooltip(bbdOn  ? juce::String("Bucket-brigade - ") + kBbdVariantLbls[DelayType::character(dt)]
+        delayTypeBtns[4].setTooltip(bbdOn  ? juce::String("Bucket-brigade - ") + DelayType::kEntries[dt].label
                                            : juce::String("Bucket-brigade - pick a character"));
         updateVisibility();
     };
