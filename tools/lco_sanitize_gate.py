@@ -245,10 +245,62 @@ for name, reply, _, _ in CASES:
     if thinking.strip() and thinking.strip() == body.strip():
         failures.append(f"{name}: thinking IS the body")
 
+# ── The LIVE reasoning has to end up saying the same thing ──────────────────
+# _live_thinking runs on a buffer truncated at an arbitrary character, so it can
+# fail in ways sanitize() cannot: a fence pattern ending in `$` matches the end
+# of the BUFFER as readily as the end of a line, and a reply whose fence is not
+# at a line start (or absent) gives it nothing to stop at. Both are invisible in
+# a finished authoring — the answer is right, only the panel was wrong.
+#
+# Fed one CHARACTER at a time, which is worse than any real token boundary.
+LIVE_CASES = [
+    ("well-formed",
+     "What IS this sound: a cello, bowed\nthe bow keeps it going\n"
+     "```csound\naexc dust 1.0, 3900\nasig mode aexc, kfreq, 240\nREADING: cello\n```\n"),
+    # ```mode``` mid-sentence: half-arrived, it looks like a finished fence line.
+    ("an inline code span inside the reasoning",
+     "What IS this: a struck bell.\n```mode``` is the right opcode, not vco2.\n"
+     "it rings for seconds\n```csound\nasig mode aexc, 440, 900\nREADING: bell\n```\n"),
+    ("no fence anywhere",
+     "A struck bell, metal, long decay\nit needs an impulse and modes\n"
+     "aexc mpulse 1, 0\nasig mode aexc, 440, 900\nkdet linseg 1, 3, 0.98\nREADING: bell\n"),
+    ("the fence opens at the end of a sentence",
+     "A bell. It moves as it decays. ```csound\n"
+     "asig mode aexc, 440, 900\nREADING: bell\n```\n"),
+    # A leaked control token completes into something SHORTER; a growth test
+    # leaves the fragment on screen and drops the correction.
+    ("a revision that shortens the text",
+     "aaaaaaaaaaaaaaaaaaaa <|xx\nyy|>\nnext\n"
+     "```csound\nasig poscil 0.4, kfreq\nREADING: x\n```\n"),
+    # "aexc is the bow, continuous noise" is a sentence ABOUT the code and reads
+    # as code to any line matcher. Stopping at the first such line truncates the
+    # reasoning of almost every real reply.
+    ("sentences that read as code must not cut the reasoning short",
+     "What IS this sound: a cello\naexc is the bow, continuous noise\n"
+     "kstr holds the played note\nand the body is wood\n"
+     "```csound\naexc dust 1.0, 3900\nasig mode aexc, kfreq, 240\nREADING: cello\n```\n"),
+]
+
+for name, reply in LIVE_CASES:
+    frames = []
+    on_delta = L._live_thinking(lambda a, t: frames.append(t), 1)
+    for ch in reply:
+        on_delta(ch)
+    live = frames[-1] if frames else ""
+    _, _, final = L.sanitize(reply)
+    if "```" in live or L._codeishness(live) >= 2:
+        failures.append(f"live/{name}: Csound reached the panel as reasoning: {live!r}")
+    elif live != final:
+        failures.append(f"live/{name}: the panel ends on {live!r}, "
+                        f"the answer carries {final!r}")
+    else:
+        print(f"  ok   live: {name}", flush=True)
+
 print()
 if failures:
     print("FAIL")
     for f in failures:
         print("  " + f)
     sys.exit(1)
-print(f"PASS — {len(CASES)} reply shapes, the orchestra came out of every one")
+print(f"PASS — {len(CASES)} reply shapes, the orchestra came out of every one; "
+      f"{len(LIVE_CASES)} of them streamed live without losing or leaking a line")

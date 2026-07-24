@@ -440,6 +440,14 @@ _STRIP = re.compile(
 # body that needed none. Splitting on markers and letting the CONTENT say which
 # segment is code survives all three; parity does not.
 _FENCE_MARK = re.compile(r"^[ \t]*```[A-Za-z0-9_+#-]*[ \t]*\r?$\n?", re.MULTILINE)
+# The same marker with the line-start anchor dropped, for the reply that opens
+# its fence at the END of a sentence: "...and it moves as it decays. ```csound".
+# _FENCE_MARK finds nothing there, the whole reply becomes one segment, and the
+# reasoning is handed to the Csound compiler as code. Used ONLY as a fallback,
+# when the strict pattern found no marker at all, so a well-formed reply is
+# never split on this looser rule. An inline span ("the ```saw``` idiom") does
+# not match: the tag has to run to the end of the line.
+_FENCE_TAIL = re.compile(r"```[A-Za-z0-9_+#-]*[ \t]*\r?$\n?", re.MULTILINE)
 # Anchored at BOTH ends: a real out call is the whole line. Unanchored, the prose
 # the author is now invited to write ("outs aexc first, then the resonator") was
 # captured as an output routing and appended as `asig = aexc` — a body that
@@ -485,6 +493,19 @@ _ENGLISH_HEAD = re.compile(
     r"|for|from|first|fast|few|full|finally"
     r"|keep|keeps|kind"
     r"|so|since|slow|slower|some|short|still|second)\b", re.IGNORECASE)
+# An English function word standing on its own anywhere in the line. This is
+# what separates a SENTENCE ABOUT the code from the code — "aexc is the bow,
+# continuous noise" opens with a variable name and carries a comma, so it reads
+# as `aexc opcode arg, arg` to any shape-based test, and the author writes lines
+# like it constantly now that it is asked to reason. Csound has no such words:
+# checked against all 94 library idioms and the host scaffold, nothing is lost.
+# `if`, `in`, `then`, `while` and `do` are left out — all real Csound.
+_ENGLISH_WORD = re.compile(
+    r"(?<![\w.])(?:the|is|are|was|were|be|been|this|that|these|those|and|of"
+    r"|with|without|from|it|its|as|because|which|when|would|will|should"
+    r"|can|could|does|has|have|had|we|you|they|there|than|but|not"
+    r"|all|both|each|more|most|much|very|just|only|also|about|into|onto"
+    r"|here|how|why|what|who|whose)(?![\w.])", re.IGNORECASE)
 
 
 def _codeishness(chunk):
@@ -495,7 +516,8 @@ def _codeishness(chunk):
     n = 0
     for ln in (chunk or "").splitlines():
         s = ln.split(";", 1)[0].rstrip()      # a trailing Csound comment is not the line
-        if not s.strip() or _SENTENCE_END.search(s) or _ENGLISH_HEAD.match(s.lstrip()):
+        if (not s.strip() or _SENTENCE_END.search(s)
+                or _ENGLISH_HEAD.match(s.lstrip()) or _ENGLISH_WORD.search(s)):
             continue
         if _CODE_LINE.match(s):
             n += 1
@@ -506,7 +528,12 @@ def _fence_segments(txt):
     """The reply split on fence-marker LINES, as (start, end, mark_before,
     mark_after) spans over the text BETWEEN markers. Never pairs markers, so an
     odd number of them is not a special case."""
-    marks = list(_FENCE_MARK.finditer(txt))
+    # _FENCE_TAIL, not _FENCE_MARK: it finds the line-start markers too (they
+    # satisfy it), plus the one that opens at the end of a sentence, which the
+    # anchored pattern cannot see. Missing that one is not a smaller split, it
+    # is NO split — the whole reply becomes one segment and the reasoning goes
+    # to the Csound compiler as code.
+    marks = list(_FENCE_TAIL.finditer(txt))
     spans, prev_end, prev_mark = [], 0, None
     for m in marks:
         spans.append((prev_end, m.start(), prev_mark, m))
@@ -591,6 +618,36 @@ def _clean_thinking(prose):
     return "\n".join(out).strip()
 
 
+def _first_code_run(txt):
+    """Character offset where the code starts in an UNFENCED reply, or 0 if it
+    starts at the top.
+
+    A RUN of two code lines, not one: "aexc is the bow, continuous noise" is a
+    sentence about the code and reads as code to any line matcher, so a
+    single-line rule would cut most replies mid-reasoning. Blank lines are
+    neutral — they neither start a run nor break one. Same rule the live stream
+    uses, so what the panel shows while the author writes and what the compiler
+    is finally handed cannot disagree."""
+    lines = (txt or "").splitlines(keepends=True)
+    run_start, run = None, 0
+    at = 0
+    for ln in lines:
+        stripped = ln.split(";", 1)[0].strip()
+        if not stripped:
+            at += len(ln)
+            continue
+        if _codeishness(ln):
+            if run == 0:
+                run_start = at
+            run += 1
+            if run >= 2:
+                return run_start
+        else:
+            run, run_start = 0, None
+        at += len(ln)
+    return 0
+
+
 def _live_thinking(on_thinking, attempt):
     """Wrap a watcher's callback so it is only ever handed THINKING.
 
@@ -603,28 +660,65 @@ def _live_thinking(on_thinking, attempt):
     The full cleaned text goes out each time, not the increment: _clean_thinking
     edits what it has already seen (a control token completes, a run of blank
     lines collapses), so an appending receiver would drift out of step with what
-    the author actually wrote. Only whole LINES are released, because a fence
-    marker arrives character by character and would otherwise be shown as
-    reasoning for as long as it takes to finish — which also keeps this to a few
-    frames a second instead of one per token."""
+    the author actually wrote. It is compared for DIFFERENCE, not for growth — a
+    revision that shortens the text is the correction of something wrong on
+    screen (half a leaked control token, say), and a growth test suppresses
+    exactly those.
+
+    Nothing is judged until its line is COMPLETE. A fence pattern ends in `$`,
+    which matches the end of the buffer as readily as the end of a line, so a
+    half-arrived "```mode" reads as a fence that is not there and would close
+    the stream for the rest of the generation. Working in whole lines also keeps
+    this to a few frames a second rather than one per token.
+
+    The fence is not the only stop, because it is not always there. The author
+    sometimes opens with no marker at all, or opens at the end of a sentence
+    where a line-anchored pattern cannot see it; the reasoning then simply runs
+    into the orchestra, and every opcode line would be shown as the machine's
+    thinking. So a RUN of code lines closes the stream too, and is held back
+    rather than sent. A run, not a single line: "aexc is the bow, continuous
+    noise" is a sentence about the code and reads as code to any line matcher,
+    and cutting the reasoning at the first such line would truncate most
+    replies."""
     if on_thinking is None:
         return None
-    state = {"buf": "", "closed": False, "shown": 0}
+    state = {"buf": "", "kept": [], "held": [], "closed": False, "sent": None}
 
     def on_delta(piece):
         if state["closed"]:
             return
         state["buf"] += piece
-        cut = _FENCE_MARK.search(state["buf"])
-        if cut is not None:
-            state["closed"] = True
-            text = _clean_thinking(state["buf"][:cut.start()])
-        elif "\n" in state["buf"]:
-            text = _clean_thinking(state["buf"].rsplit("\n", 1)[0])
-        else:
-            return
-        if len(text) > state["shown"] or state["closed"]:
-            state["shown"] = len(text)
+        while "\n" in state["buf"]:
+            line, _, state["buf"] = state["buf"].partition("\n")
+            fence = _FENCE_TAIL.search(line)
+            if fence is not None:
+                # The fence can open at the END of a sentence, and that sentence
+                # is still reasoning: keep what stands before the backticks, or
+                # the panel loses the last thing the author said.
+                head = line[:fence.start()].rstrip()
+                if head:
+                    state["kept"].extend(state["held"])
+                    state["held"].clear()
+                    state["kept"].append(head)
+                state["closed"] = True
+                break
+            if not line.strip():
+                # Neutral: a blank line inside the body must not break the run,
+                # and one inside the prose must not be released ahead of it.
+                state["held"].append(line)
+                continue
+            if _codeishness(line):
+                state["held"].append(line)
+                if sum(1 for h in state["held"] if _codeishness(h)) >= 2:
+                    state["closed"] = True
+                    break
+                continue
+            state["kept"].extend(state["held"])
+            state["held"].clear()
+            state["kept"].append(line)
+        text = _clean_thinking("\n".join(state["kept"]))
+        if text != state["sent"]:
+            state["sent"] = text
             on_thinking(attempt, text)
 
     return on_delta
@@ -657,6 +751,16 @@ def sanitize(raw):
         cut1 = mark_after.end()    if mark_after  is not None else s1
         thinking = _clean_thinking(txt[:cut0] + "\n" + txt[cut1:])
         txt = txt[s0:s1]
+    else:
+        # No fence anywhere in the reply — and the reasoning is still in front of
+        # the code, because that is what HOW TO ANSWER asks for. Without a cut
+        # here the paragraph goes to the Csound compiler verbatim, the attempt
+        # is burned on a syntax error in an English sentence, and the panel
+        # shows no reasoning at all because it was never separated out.
+        cut = _first_code_run(txt)
+        if cut > 0:
+            thinking = _clean_thinking(txt[:cut])
+            txt = txt[cut:]
     txt = txt.replace("```", "")
 
     # The author's own words about what it built. Prefer the one that sits WITH
