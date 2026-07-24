@@ -177,16 +177,24 @@ def select(prompt):
             "catalogue": {"instruments": rest_i, "adjectives": rest_a,
                           "motions": rest_m},
             # The consultation, reported so the panel can SHOW it (the LCO
-            # trace). `reached` is what the user's own words hit; `oriented_by`
-            # is the _STARTER top-up the author was shown ANYWAY because the
-            # prompt reached too few instruments. Keeping them apart is the whole
-            # point: presenting a starter entry as something the prompt reached
-            # would be the panel claiming an understanding that never happened.
+            # trace). Three disjoint sets, because they mean three different
+            # things and merging any two would let the panel over-claim:
+            #   reached          the user's own words hit it AND the author was
+            #                    quoted it,
+            #   oriented_by      the _STARTER top-up the author was shown ANYWAY
+            #                    because the prompt reached too few instruments —
+            #                    NOT something the prompt said,
+            #   reached_not_shown  the words hit it but it fell past
+            #                    _MAX_INSTRUMENTS, so the author never saw it.
+            #                    Rare, and the one case where the prompt was
+            #                    understood and the understanding still did not
+            #                    travel; silence here would flatter the machine.
             "consultation": {
-                "reached": {"instruments": sorted(t_hits),
+                "reached": {"instruments": sorted(set(t_hits) & chosen),
                             "adjectives": sorted(a_hits),
                             "motions": sorted(m_hits)},
                 "oriented_by": sorted(chosen - set(t_hits)),
+                "reached_not_shown": sorted(set(t_hits) - chosen),
                 "library_size": (len(lib["instruments"]) + len(lib["adjectives"])
                                  + len(lib["motions"])),
             }}
@@ -321,14 +329,17 @@ HARD RULES
 - The sound MOVES by default: a sweep, a beat, a shimmer, a morph. Only write a standing tone if the user explicitly asks for something static or still.
 - A LOOP is a free-running `oscili`/`phasor`/`lfo` that NEVER resets, driving a parameter or a crossfade. If the user asks for a loop or for something repeating, write a REPEATING trajectory — never a one-shot `linseg`, which moves once and then holds.
 - "a > b" (equivalently "a into b", "a morphing into b", "a turning into b", "a transition from a to b", "a becomes b") is ONE voice that STARTS as a and BECOMES b across the note — a true crossfade, NOT two things. Build it in exactly this shape, and give a and b their OWN variables — never write your final `asig` more than once:
-    asiga   <...>                          ; the first timbre, in its own variable
-    asigb   <...>                          ; the second timbre, in its own variable
+    <a's OWN lines>                        ; a, built in full — as many lines as it takes
+    asiga   = <a's output>                 ; the first timbre, in its own variable
+    <b's OWN lines>                        ; b, built in full — as many lines as it takes
+    asigb   = <b's output>                 ; the second timbre, in its own variable
     kmorph  = min(knote / 2.0, 1)          ; 0 -> 1 over 2 s then holds (knote is in scope, seconds since the note began)
     asig    = asiga * (1 - kmorph) + asigb * kmorph
   Three ways this silently becomes "no transition at all" — each is WRONG for "a > b", never do them:
     (1) writing `asig` twice (`asig = <a>` … later `asig = <b>`): the second assignment ERASES the first, so only b is heard and everything above it is dead code. This is the most common mistake — a and b MUST meet in one crossfade line, not overwrite each other.
     (2) a static layer (`asig = <a> * kvol1 + <b> * kvol2`): that is a and b at once, forever — a LAYER, not a transition.
     (3) a bad `linseg` for the position (`linseg 0, 1, knote` passes a k-variable where linseg needs i-time CONSTANTS). Prefer `kmorph = min(knote / T, 1)`; if you must use linseg every argument is a constant — `kmorph linseg 0, 2, 1`.
+  AN END OF A MORPH IS A WHOLE INSTRUMENT, NOT A ONE-LINER. Each end keeps every line it needs — including its own moving controls. NEVER freeze a k-rate control to a constant to make an end fit on one line: that silently deletes the very thing the user named. If the user asks for "sine > pulse width modulation" (or "sine > pwm"), b IS pulse-width MODULATION — its duty must go on sweeping after the morph arrives, so b keeps its LFO (`klfo oscili 0.5, 0.5`, `kpw = 0.5 + 0.6 * klfo`, `apw vco2 0.6, kfreq * koct1, 2, kpw`) and you write `asigb = apw - 0.6 * (2 * kpw - 1)`. Writing `vco2 …, 2, 0.5` there is a STATIC pulse wave — a different instrument from the one that was asked for, and the DC-correction line then reads `- 0.6 * (2 * 0.5 - 1)`, which is zero: dead code that proves the modulation was dropped. The same holds for every moving instrument used as an end — a bowed string still breathes, an organ still drifts, a filter sweep still sweeps.
   A REPEATING morph (a loop of a>b) drives kmorph from a free-running `oscili` instead of `min(knote…)`, so it sweeps back and forth forever.
 - "a + b" means two layers sounding at once — the static mix of (2), correct ONLY when the user asked to layer, never as a substitute for a transition. You may layer up to THREE oscillators this way.
 - Layer 1 must be scaled by `kvol1`, layer 2 by `kvol2`, layer 3 by `kvol3`, and each layer's pitch is `kfreq * koct1` / `koct2` / `koct3`. Those are the player's mix and octave knobs — a layer that ignores them cannot be mixed. With one layer, use `kvol1` and `kfreq * koct1`. In an "a > b" transition the two ends share `kvol1` and `kfreq * koct1` (it is one voice, not two layers).
@@ -387,7 +398,10 @@ _REPAIR_TAIL = (
     "  - an opcode with no result variable (`atone asig, 400` alone), or the opcode NAME used as a value (`asig = asig + atone`) — every opcode names its result first: `ahi atone asig, 400` then `asig = asig + ahi`.\n"
     "  - `mode` called without a named `aexc` excitation line before it.\n"
     "  - a variable used before it is defined, or your final signal not written into `asig`.\n"
-    "Write the WHOLE body again, correctly. Do not explain the error."
+    "Write the WHOLE body again, correctly, in the SAME answer format as before: "
+    "work out the fix in plain language first if it helps you, then the complete "
+    "corrected body in exactly ONE ```csound fence with its READING line. Only "
+    "what is inside the fence is used; do not narrate the error instead of fixing it."
 )
 
 
@@ -418,9 +432,23 @@ _STRIP = re.compile(
     r"ftgen\b|\w+\s+ftgen\b|out\b|outs\b|outch\b|i\s+\d|f\s+\d|e\s*$)",
     re.IGNORECASE)
 
-_FENCE = re.compile(r"```[A-Za-z0-9_+#-]*\s*\n(.*?)```", re.DOTALL)
-_OUT_CALL = re.compile(r"\s*(?:out|outs|outch)\s+(?:\d+\s*,\s*)?(a\w+)", re.IGNORECASE)
+_FENCE = re.compile(r"```[A-Za-z0-9_+#-]*[ \t]*\r?\n(.*?)```", re.DOTALL)
+# Anchored at BOTH ends: a real out call is the whole line. Unanchored, the prose
+# the author is now invited to write ("outs aexc first, then the resonator") was
+# captured as an output routing and appended as `asig = aexc` — a body that
+# compiles and emits the bare excitation instead of the instrument.
+_OUT_CALL = re.compile(r"^\s*(?:out|outs|outch)\s+(?:\d+\s*,\s*)?(a\w+)"
+                       r"(?:\s*,\s*a\w+)*\s*(?:;.*)?$", re.IGNORECASE)
 _READING = re.compile(r"^\s*READING\s*:\s*(.+?)\s*$", re.IGNORECASE | re.MULTILINE)
+# A line that carries Csound rather than prose: `avar opcode args`, an assignment,
+# or a block keyword. Used only to tell code from thinking when the author opened
+# a fence and never closed it.
+_CODEISH = re.compile(r"^\s*(?:[a-zA-Z]\w*\s+[a-z]\w*[\s,]|[a-zA-Z]\w*\s*=|"
+                      r"(?:if|else|elseif|endif|until|while|od|kgoto|igoto)\b)")
+
+
+def _codeishness(chunk):
+    return sum(1 for ln in chunk.splitlines() if _CODEISH.match(ln))
 
 
 def sanitize(raw):
@@ -428,23 +456,34 @@ def sanitize(raw):
     the READING line; recovers `asig` when the model wrote its output through
     `out`/`outch` under another name."""
     txt = raw or ""
+    raw_txt = txt
 
-    # Read READING from the WHOLE reply, BEFORE the fence is cut out. The author
-    # is asked to put it inside the fence, but it costs nothing to also accept it
-    # after — and cutting first would silently throw that one away.
+    fences = _FENCE.findall(txt)
+    if fences:
+        # The LAST fence, not the first. The author is told to think first and
+        # write the body afterwards, so a sketch quoted mid-thought precedes the
+        # real one — and taking the first shipped the sketch silently, compiling
+        # and all. `findall` is non-greedy per block, so nested prose between two
+        # blocks is never swallowed into one.
+        txt = fences[-1]
+    elif "```" in txt:
+        # A fence opened and never closed, or a stray closer under a body that
+        # needed none. Both are one split; which SIDE holds the code is decided by
+        # which side reads as Csound, because guessing wrong empties the body and
+        # reports "the model returned no code" about a reply that contained it.
+        head, tail = txt.split("```", 1)
+        tail = re.sub(r"^[A-Za-z0-9_+#-]*[ \t]*\r?\n", "", tail)
+        txt = tail if _codeishness(tail) >= _codeishness(head) else head
+    txt = txt.replace("```", "")
+
+    # The author's own words about what it built. Prefer the one that sits WITH
+    # the code: a READING in the thinking is a draft (or, seen in testing, the
+    # prompt's own placeholder restated) and must not reach the panel or the
+    # re-prompt loop as the machine's reading.
     reading = ""
-    rm = _READING.search(txt)
+    rm = _READING.search(txt) or _READING.search(raw_txt)
     if rm:
         reading = rm.group(1).strip()
-
-    m = _FENCE.search(txt)
-    if m:
-        txt = m.group(1)
-    elif "```" in txt:
-        # An opened but never closed fence. Everything before it is the author's
-        # thinking, which reaches the compiler as prose if it is not cut here.
-        txt = re.sub(r"^[A-Za-z0-9_+#-]*[ \t]*\n", "", txt.split("```", 1)[1])
-    txt = txt.replace("```", "")
     txt = _READING.sub("", txt)
 
     kept, captured_out = [], None

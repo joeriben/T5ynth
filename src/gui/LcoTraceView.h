@@ -38,14 +38,29 @@ class LcoTraceView : public juce::Component,
                      public juce::SettableTooltipClient
 {
 public:
+    /** What is known about the orchestra now in the engine. `Unknown` is a real
+     *  and necessary state, not a placeholder for Ok: a recalled preset, or a
+     *  compile window abandoned because the engine left Csound mode, genuinely
+     *  did not observe a compile — and saying "compiled" there would be the
+     *  panel asserting something nobody checked. */
+    enum class CompileState { Unknown, Compiling, Ok, Error };
+
     /** One authored orchestra's trace, as it came off the wire. */
     struct Trace
     {
-        juce::String prompt;      // what was authored
+        juce::String prompt;      // what was authored; empty = not known (preset without one)
         juce::String model;       // the model that actually wrote it
         juce::String reading;     // the author's own READING line
+        // The consultation. `consultationKnown` is what separates "this prompt
+        // reached nothing in the library" (a finding, drawn as such) from "no
+        // consultation was recorded for this orchestra" (a recall, where the
+        // station is left OUT). Without the flag the two are the same empty
+        // list, and every preset load would accuse its own prompt of being
+        // unknown vocabulary.
+        bool consultationKnown = false;
         juce::StringArray reachedInstruments, reachedAdjectives, reachedMotions;
         juce::StringArray orientedBy;   // shown to the author, NOT reached by the prompt
+        juce::StringArray reachedNotShown;  // reached, but past the author's quote limit
         int libraryEntryCount = 0;
         juce::StringArray repairs;      // compiler errors repaired past, first-seen order
         int attempts = 0;               // 1 = compiled on the first pass
@@ -77,12 +92,20 @@ public:
         relayout();
     }
 
-    /** Show a trace. Clears any status line: a trace IS the state. */
+    /** Show a trace. Clears any status line: a trace IS the state.
+     *
+     *  It also resets the compile state to Unknown. A NEW orchestra has not been
+     *  compiled yet by definition, and carrying the previous one's result over
+     *  would caption it with a verdict on a different sound — including the
+     *  permanent case where the old verdict was an error and nothing reopens a
+     *  compile window to correct it. */
     void setTrace(Trace t)
     {
         trace_  = std::move(t);
         trace_.valid = true;
         status_.clear();
+        compile_ = CompileState::Unknown;
+        compileDetail_.clear();
         relayout();
     }
 
@@ -95,23 +118,23 @@ public:
     {
         status_ = text;
         trace_ = {};
+        compile_ = CompileState::Unknown;
+        compileDetail_.clear();
         relayout();
     }
 
-    /** The RUNNING station: the compile window's own report. Empty text with
-     *  no error = compiled clean. Kept separate from setStatus so a compile
-     *  result never wipes the trace of the orchestra it is reporting on. */
-    void setCompileState(const juce::String& text, bool isError)
+    /** The RUNNING station: the compile window's own report. Kept separate from
+     *  setStatus so a compile result never wipes the trace of the orchestra it
+     *  is reporting on. `detail` carries the compiler's error text for Error. */
+    void setCompileState(CompileState s, const juce::String& detail = {})
     {
-        compileText_    = text;
-        compileIsError_ = isError;
+        compile_       = s;
+        compileDetail_ = detail;
         relayout();
     }
 
     /** Placeholder for the empty panel, before anything has been authored. */
     void setPlaceholder(juce::String text) { placeholder_ = std::move(text); relayout(); }
-
-    bool hasTrace() const noexcept { return trace_.valid; }
 
     /** The scrolled content sits ON TOP of this view, so it — not this view — is
      *  the component a tooltip lookup finds under the mouse (JUCE asks the
@@ -150,14 +173,8 @@ private:
 
     // Small-caps station label with manual tracking — JUCE has no letter-spacing,
     // and the spacing is what makes these read as rubrics rather than as text.
-    static float trackedTextWidth(const juce::Font& f, const juce::String& s, float track)
-    {
-        float w = 0.0f;
-        for (int i = 0; i < s.length(); ++i)
-            w += juce::GlyphArrangement::getStringWidth(f, s.substring(i, i + 1)) + track;
-        return w;
-    }
-
+    // The rubric never wraps and never drives the layout height (the station
+    // reserves a fixed labelH), so there is no width-measuring counterpart.
     static void drawTrackedText(juce::Graphics& g, const juce::Font& f,
                                 const juce::String& s, float x, float y, float h, float track)
     {
@@ -281,15 +298,26 @@ private:
         };
 
         // ── HEARD ────────────────────────────────────────────────────────────
-        station(kImpulseA, "HEARD", kTextDisabled, true, [&](float ww)
-        {
-            return paragraph(g, trace_.prompt, fBody, kImpulseAText,
-                             static_cast<float>(textX()), y, ww);
-        });
+        // Omitted when the prompt is not known. A Csound-only preset stores no
+        // prompt, and captioning the restored orchestra with whatever happens to
+        // be in the editor would name a prompt that never authored it.
+        if (trace_.prompt.isNotEmpty())
+            station(kImpulseA, "HEARD", kTextDisabled, true, [&](float ww)
+            {
+                return paragraph(g, trace_.prompt, fBody, kImpulseAText,
+                                 static_cast<float>(textX()), y, ww);
+            });
 
         // ── LOOKED UP ────────────────────────────────────────────────────────
         // Reached first, then — visibly weaker and separately captioned — what
         // the author was shown anyway. The count line names both.
+        //
+        // Drawn ONLY when a consultation was actually recorded. A recalled
+        // orchestra has none (no preset stores one), and an empty list there
+        // would print "no word of this prompt is in the library" over a prompt
+        // that may be nothing but library vocabulary — the precise false claim
+        // this whole surface exists to avoid.
+        if (trace_.consultationKnown)
         station(kImpulseA, "LOOKED UP", kTextDisabled, true, [&](float ww)
         {
             const float y0 = y;
@@ -321,7 +349,16 @@ private:
             {
                 yy += paragraph(g, "also shown, for orientation:", fHint, kTextDisabled,
                                 static_cast<float>(textX()), yy, ww) + 1.0f;
-                yy += chips(g, trace_.orientedBy, static_cast<float>(textX()), yy, ww, true);
+                yy += chips(g, trace_.orientedBy, static_cast<float>(textX()), yy, ww, true) + 3.0f;
+            }
+            // Reached, but past the author's quote limit — so the words landed
+            // and the entries still never reached the author. Naming them is the
+            // difference between a full report and a flattering one.
+            if (! trace_.reachedNotShown.isEmpty())
+            {
+                yy += paragraph(g, "reached, but not quoted to the author:", fHint, kWarning,
+                                static_cast<float>(textX()), yy, ww) + 1.0f;
+                yy += chips(g, trace_.reachedNotShown, static_cast<float>(textX()), yy, ww, true);
             }
             return yy - y0;
         });
@@ -359,16 +396,26 @@ private:
         }
 
         // ── RUNNING ──────────────────────────────────────────────────────────
+        // Four states, and Unknown is not a synonym for Ok: an orchestra whose
+        // compile nobody watched (a recalled preset; a window abandoned because
+        // the engine left Csound mode mid-compile) must say so rather than
+        // report a success it never saw.
         {
-            const bool busy = compileText_.isNotEmpty() && ! compileIsError_;
-            const juce::Colour dot = compileIsError_ ? kError : (busy ? kWarning : kSuccess);
-            const juce::String text = compileText_.isNotEmpty() ? compileText_
-                                                                : juce::String("compiled");
+            juce::Colour dot = kTextDisabled, ink = kDimmer;
+            juce::String text = "compile not observed";
+            switch (compile_)
+            {
+                case CompileState::Compiling: dot = kWarning; ink = kWarning;   text = "compiling..."; break;
+                case CompileState::Ok:        dot = kSuccess; ink = kSuccess;   text = "compiled";     break;
+                case CompileState::Error:     dot = kError;   ink = kErrorText;
+                    text = compileDetail_.isNotEmpty() ? compileDetail_
+                                                       : juce::String("the orchestra did not compile");
+                    break;
+                case CompileState::Unknown:   break;
+            }
             station(dot, "RUNNING", kTextDisabled, false, [&](float ww)
             {
-                return paragraph(g, text, fHint,
-                                 compileIsError_ ? kErrorText : (busy ? kWarning : kSuccess),
-                                 static_cast<float>(textX()), y, ww);
+                return paragraph(g, text, fHint, ink, static_cast<float>(textX()), y, ww);
             });
         }
 
@@ -393,11 +440,14 @@ private:
         LcoTraceView* owner_ = nullptr;
     };
 
+    // content_ AFTER viewport_ is deliberate and safe: Viewport holds its viewed
+    // component through a WeakReference with deleteContent == false, so content_
+    // being destroyed first simply nulls that reference and ~Viewport no-ops.
     juce::Viewport viewport_;
     Content content_;
     Trace   trace_;
-    juce::String status_, placeholder_, compileText_;
-    bool    compileIsError_ = false;
+    juce::String status_, placeholder_, compileDetail_;
+    CompileState compile_ = CompileState::Unknown;
     float   base_ = 13.0f;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(LcoTraceView)

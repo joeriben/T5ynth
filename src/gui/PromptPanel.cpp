@@ -2148,8 +2148,9 @@ void PromptPanel::setLcoStatus(const juce::String& text, const juce::String& too
     dcoTraceView.setTooltip(tooltip);
     // A new state supersedes the previous orchestra's compile report too — the
     // RUNNING station must not keep claiming "compiled" over a failed attempt.
-    dcoTraceView.setCompileState({}, false);
+    // (setStatus clears it in the view; this keeps dcoFlagsLabel in step.)
     dcoFlagsLabel.setText({}, juce::dontSendNotification);
+    dcoFlagsLabel.setTooltip({});
     // Any status write replaces the card, so a self-check still in flight no
     // longer describes what is on screen — including the case this exists for: a
     // REJECTED generate attempt ("prompt is empty") never reaches the bump inside
@@ -2161,12 +2162,21 @@ void PromptPanel::setLcoStatus(const juce::String& text, const juce::String& too
 
 // The compile window's report — see the declaration comment. Writes the logical
 // holder AND the trace's RUNNING station, so the two can never disagree about
-// what the engine did with the orchestra on screen.
-void PromptPanel::setLcoCompileState(const juce::String& text, bool isError)
+// what the engine did with the orchestra on screen. EVERY writer of the compile
+// state goes through here, including beginCsoundCompileWatch.
+void PromptPanel::setLcoCompileState(LcoTraceView::CompileState state, const juce::String& detail)
 {
-    dcoFlagsLabel.setText(text, juce::dontSendNotification);
-    dcoFlagsLabel.setTooltip(isError ? text : juce::String());
-    dcoTraceView.setCompileState(text, isError);
+    juce::String label;
+    switch (state)
+    {
+        case LcoTraceView::CompileState::Compiling: label = "compiling..."; break;
+        case LcoTraceView::CompileState::Error:     label = detail;         break;
+        case LcoTraceView::CompileState::Ok:
+        case LcoTraceView::CompileState::Unknown:   break;   // nothing to report on a line
+    }
+    dcoFlagsLabel.setText(label, juce::dontSendNotification);
+    dcoFlagsLabel.setTooltip(state == LcoTraceView::CompileState::Error ? detail : juce::String());
+    dcoTraceView.setCompileState(state, detail);
 }
 
 // Phase 5 compile-window poll (SPEC_phase4_5_csound_llm_preset.md) — see its
@@ -2196,7 +2206,11 @@ void PromptPanel::pollCsoundCompile()
     if (engineModeNow != EngineMode::Csound)
     {
         csoundCompileWatching_ = false;
-        setLcoCompileState({}, false);
+        // UNKNOWN, not Ok. This window is abandoned, not resolved: the swap is
+        // merely deferred, csoundCompileError() may well be non-empty, and
+        // nothing re-opens a watch on re-entering Csound mode. Reporting
+        // "compiled" here would be a success nobody observed.
+        setLcoCompileState(LcoTraceView::CompileState::Unknown);
         return;
     }
 
@@ -2207,7 +2221,7 @@ void PromptPanel::pollCsoundCompile()
     if (busyNow)
     {
         csoundCompileSeenBusy_ = true;
-        setLcoCompileState("compiling...", false);
+        setLcoCompileState(LcoTraceView::CompileState::Compiling);
         return;   // still going — check again next tick
     }
 
@@ -2224,7 +2238,7 @@ void PromptPanel::pollCsoundCompile()
     if (! csoundCompileSeenBusy_
         && (juce::Time::getMillisecondCounterHiRes() - csoundCompileWatchStartMs_) < kGraceMs)
     {
-        setLcoCompileState("compiling...", false);
+        setLcoCompileState(LcoTraceView::CompileState::Compiling);
         return;
     }
 
@@ -2233,7 +2247,7 @@ void PromptPanel::pollCsoundCompile()
     const juce::String err = processorRef.csoundCompileError();
     if (err.isNotEmpty())
     {
-        setLcoCompileState(err, true);
+        setLcoCompileState(LcoTraceView::CompileState::Error, err);
         // The swap FAILED: the engine still plays the previous orchestra. An
         // in-flight self-check rendered the NEW text, so its finding describes a
         // sound nobody can hear — drop it. This is the one invalidation that comes
@@ -2243,7 +2257,7 @@ void PromptPanel::pollCsoundCompile()
     }
     else
     {
-        setLcoCompileState({}, false);   // clean: the RUNNING station says "compiled"
+        setLcoCompileState(LcoTraceView::CompileState::Ok);
     }
 }
 
@@ -2395,7 +2409,14 @@ void PromptPanel::triggerDcoBake()
             tr.reachedAdjectives  = authored.reachedAdjectives;
             tr.reachedMotions     = authored.reachedMotions;
             tr.orientedBy         = authored.orientedBy;
+            tr.reachedNotShown    = authored.reachedNotShown;
             tr.libraryEntryCount  = authored.libraryEntryCount;
+            // A consultation was RECORDED for this bake — which is what lets the
+            // LOOKED UP station distinguish "this prompt reached nothing" (a
+            // finding worth showing) from "nobody recorded a lookup" (a recall,
+            // where the station is left out entirely). The library size is the
+            // one field a consultation block always carries.
+            tr.consultationKnown  = authored.libraryEntryCount > 0;
             tr.repairs            = authored.repairs;
             tr.attempts           = authored.attempts;
             self->dcoTraceView.setTrace(std::move(tr));
@@ -3108,9 +3129,11 @@ void PromptPanel::beginCsoundCompileWatch()
     csoundCompileWatching_ = true;
     csoundCompileSeenBusy_ = false;
     csoundCompileWatchStartMs_ = juce::Time::getMillisecondCounterHiRes();
-    dcoFlagsLabel.setText("compiling...", juce::dontSendNotification);
-    dcoFlagsLabel.setTooltip({});
-    resized();   // flag-area content changed
+    // Through the ONE writer, so the RUNNING station enters "compiling" with the
+    // window rather than keeping whatever the previous orchestra resolved to.
+    // (No resized() any more: dcoFlagsLabel is never laid out, so the relayout
+    // this used to trigger was a full panel pass for an invisible label.)
+    setLcoCompileState(LcoTraceView::CompileState::Compiling);
 }
 
 // Name the model that ACTUALLY wrote the orchestra. The backend puts its

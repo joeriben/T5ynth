@@ -481,9 +481,9 @@ private:
     /** The compile window's report, routed into the trace's RUNNING station (and
      *  into dcoFlagsLabel, which stays as the logical holder). Kept apart from
      *  setLcoStatus for one reason: a compile result must NOT wipe the trace of
-     *  the very orchestra it is reporting on. Empty text with isError == false
-     *  means "compiled clean". */
-    void setLcoCompileState(const juce::String& text, bool isError);
+     *  the very orchestra it is reporting on. `Unknown` is a real state — an
+     *  abandoned compile window must not report the success it never saw. */
+    void setLcoCompileState(LcoTraceView::CompileState state, const juce::String& detail = {});
 
     /** Phase 5 compile-window poll (SPEC_phase4_5_csound_llm_preset.md):
      *  called from the EXISTING 10Hz timerCallback() (PromptPanel is already

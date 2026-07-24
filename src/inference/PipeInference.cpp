@@ -1398,6 +1398,7 @@ PipeInference::CsoundAuthorResult PipeInference::authorCsoundOrchestra(const juc
             result.reachedAdjectives  = toStrings(reached.getProperty("adjectives", juce::var()));
             result.reachedMotions     = toStrings(reached.getProperty("motions", juce::var()));
             result.orientedBy         = toStrings(consultation.getProperty("oriented_by", juce::var()));
+            result.reachedNotShown    = toStrings(consultation.getProperty("reached_not_shown", juce::var()));
             result.libraryEntryCount  = static_cast<int>(consultation.getProperty("library_size", juce::var(0)));
             result.repairs            = toStrings(parsed.getProperty("repairs", juce::var()));
             result.attempts           = static_cast<int>(parsed.getProperty("attempts", juce::var(0)));

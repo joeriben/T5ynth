@@ -2207,11 +2207,23 @@ void MainPanel::applyLoadedPreset(const PresetFormat::LoadResult& result, const 
     // repairs or the author's name — so this restores the stations it HAS and
     // leaves the rest out. The authored body is not lost: it stays in
     // csoundParamsText and is what the card's back side shows.
+    //
+    // The PROMPT is deliberately empty unless the file carried one. A Csound
+    // bake never writes an "lco" block (exportJsonPreset gates that on
+    // hasLcoBakeSnapshot), so for a Csound-only preset `result.hasLco` is false
+    // and the editor still holds whatever the user last typed — passing that in
+    // would caption the restored orchestra with a prompt that never authored it.
+    // With an empty prompt the HEARD station is simply absent.
     if (static_cast<int>(processorRef.getValueTreeState().getRawParameterValue(PID::engineMode)->load())
             == static_cast<int>(EngineMode::Csound))
     {
-        promptPanel.setLcoRecalledTrace(promptPanel.getLcoPrompt(),
+        promptPanel.setLcoRecalledTrace(result.hasLco ? result.lcoPrompt : juce::String(),
                                         processorRef.getCsoundReading(), {});
+        // The restore issued its own requestCsoundOrchestra() inside
+        // importJsonPreset, so open a compile window for it: without one the
+        // RUNNING station could only say "not observed" for an orchestra whose
+        // compile is knowable, and a failed restore would never surface at all.
+        promptPanel.beginCsoundCompileWatch();
     }
 
     // Preset selection must ALSO switch the oscillator MODE to match the restored

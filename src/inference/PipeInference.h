@@ -170,6 +170,10 @@ public:
         // presenting orientation as understanding is the one lie this surface
         // exists to prevent.
         juce::StringArray orientedBy;
+        // Reached by the prompt but past the author's quote limit, so the words
+        // landed and the entry still never travelled. The one case where the
+        // machine understood and the understanding was dropped anyway.
+        juce::StringArray reachedNotShown;
         int libraryEntryCount = 0;  // entries in the whole library, for "n of N"
         // Csound's own errors this body had to be repaired past, in first-seen
         // order; empty when it compiled on the first attempt.

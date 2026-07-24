@@ -1,0 +1,125 @@
+"""Does the authoring TRACE actually arrive on the wire the plugin drives?
+
+The LCO panel's trace (HEARD / LOOKED UP / WROTE / REPAIRED / RUNNING) is fed by
+two fields backend/lco_write.py now reports and previously discarded:
+`consultation` (which library entries the prompt's own words reached, and which
+the author was shown for orientation anyway) and `repairs` (the Csound errors
+the body had to be repaired past). If either is missing or mis-shaped, the panel
+silently degrades to a trace with holes in it — visible only by eye, which is
+exactly what this check exists to avoid.
+
+So this exercises the ACTUAL wire (mode=csound over the pipe_inference IPC
+subprocess, project rule), not an in-process call, and asserts the SHAPE the C++
+side parses in PipeInference::authorCsoundOrchestra.
+
+What it deliberately does NOT assert: which entries a given prompt reaches, or
+that a body compiles first try. Those are the author's and the library's
+business and change legitimately; the contract under test is that the trace
+travels at all and is shaped as the panel reads it.
+
+Run:  .venv/bin/python tools/lco_trace_wire_check.py
+Writes tools/lco_trace_wire_out/results.json (untracked, like every *_out).
+"""
+import json, struct, subprocess, os, sys
+
+REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+OUT = os.path.join(REPO, "tools", "lco_trace_wire_out")
+os.makedirs(OUT, exist_ok=True)
+
+
+def read_exact(f, n):
+    buf = b""
+    while len(buf) < n:
+        c = f.read(n - len(buf))
+        if not c:
+            raise RuntimeError("EOF")
+        buf += c
+    return buf
+
+
+p = subprocess.Popen([os.path.join(REPO, ".venv/bin/python"), "-u",
+                      os.path.join(REPO, "backend/pipe_inference.py")],
+                     stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                     stderr=open(os.path.join(OUT, "stderr.log"), "wb"),
+                     cwd=os.path.join(REPO, "backend"))
+assert read_exact(p.stdout, 1) == b"\x02"
+n = struct.unpack("<H", read_exact(p.stdout, 2))[0]
+read_exact(p.stdout, n)
+print("READY", flush=True)
+
+
+def call(payload):
+    p.stdin.write((json.dumps(payload, separators=(",", ":")) + "\n").encode())
+    p.stdin.flush()
+    h = read_exact(p.stdout, 1)
+    ln = struct.unpack("<I", read_exact(p.stdout, 4))[0]
+    body = read_exact(p.stdout, ln).decode("utf-8", "replace")
+    if h == b"\x00":
+        return {"ok": False, "error": "FRAME " + body}
+    return json.loads(body)
+
+
+# One prompt that reaches a library word ("string") and one that reaches almost
+# nothing: the second is the case where `reached` is thin and `oriented_by`
+# carries the starter top-up, which the panel MUST draw as a different thing.
+CASES = ["a bowed cello", "the colour of wet slate at dusk"]
+
+results, failures = [], []
+for prompt in CASES:
+    print(f"\n=== {prompt!r}", flush=True)
+    r = call({"mode": "csound", "text": prompt})
+    if not r.get("ok"):
+        failures.append(f"{prompt!r}: authoring failed — {r.get('error')}")
+        print("   FAILED:", r.get("error"), flush=True)
+        continue
+
+    c = r.get("consultation")
+    if not isinstance(c, dict):
+        failures.append(f"{prompt!r}: no `consultation` on the wire")
+        continue
+    reached = c.get("reached")
+    if not isinstance(reached, dict):
+        failures.append(f"{prompt!r}: `consultation.reached` is not an object")
+        continue
+    for section in ("instruments", "adjectives", "motions"):
+        if not isinstance(reached.get(section), list):
+            failures.append(f"{prompt!r}: `reached.{section}` is not a list")
+    if not isinstance(c.get("oriented_by"), list):
+        failures.append(f"{prompt!r}: `oriented_by` is not a list")
+    if not isinstance(c.get("library_size"), int) or c.get("library_size") <= 0:
+        failures.append(f"{prompt!r}: `library_size` is not a positive int")
+    if not isinstance(r.get("repairs"), list):
+        failures.append(f"{prompt!r}: `repairs` is not a list")
+    if not isinstance(r.get("attempts"), int) or r.get("attempts") < 1:
+        failures.append(f"{prompt!r}: `attempts` is not a positive int")
+
+    # The one SEMANTIC invariant worth asserting: an entry may never be counted
+    # both as something the prompt reached and as orientation it did not. That
+    # distinction is the whole reason the panel draws the two differently, and a
+    # regression in select() would make the trace quietly lie.
+    overlap = set(c.get("oriented_by") or []) & set(reached.get("instruments") or [])
+    if overlap:
+        failures.append(f"{prompt!r}: {sorted(overlap)} counted as BOTH reached and orientation")
+
+    n_reached = sum(len(reached.get(s) or []) for s in ("instruments", "adjectives", "motions"))
+    print(f"   reached {n_reached} of {c.get('library_size')}: "
+          f"{reached.get('instruments')} {reached.get('adjectives')} {reached.get('motions')}",
+          flush=True)
+    print(f"   orientation: {c.get('oriented_by')}", flush=True)
+    print(f"   attempts {r.get('attempts')}, repairs {len(r.get('repairs') or [])}", flush=True)
+    for e in (r.get("repairs") or []):
+        print(f"      repaired past: {e}", flush=True)
+    print(f"   author: {r.get('author_model')}", flush=True)
+    results.append({"prompt": prompt, "consultation": c,
+                    "repairs": r.get("repairs"), "attempts": r.get("attempts"),
+                    "reading": r.get("reading"), "author_model": r.get("author_model")})
+
+p.stdin.close()
+p.wait(timeout=30)
+
+with open(os.path.join(OUT, "results.json"), "w", encoding="utf-8") as fh:
+    json.dump({"results": results, "failures": failures}, fh, indent=1)
+
+print("\n" + ("FAIL\n" + "\n".join(failures) if failures else "PASS — the trace travels intact"),
+      flush=True)
+sys.exit(1 if failures else 0)
