@@ -2356,7 +2356,14 @@ void PromptPanel::triggerDcoBake()
 
     dcoBaking_ = true;
     if (onLcoBusyChanged) onLcoBusyChanged(true);   // disable the reused GENERATE button
-    setLcoStatus("Writing the instrument", {}, /*busy=*/true);
+    // The first phase, named for what it is: before the first token can
+    // stream, the author has to evaluate its whole prompt — the library
+    // selection, tens of seconds on this model — and during that there is
+    // nothing to show BECAUSE nothing exists yet. The first streamed frame
+    // flips the line to "Writing the instrument" (see onThinking/onBody), and
+    // each repair round renames it again (onAttempt) — one line that always
+    // says which phase the minutes belong to (BJ 2026-07-24).
+    setLcoStatus("Reading the library", {}, /*busy=*/true);
 
     // One blocking IPC round-trip (may lazily load the instruct model) on a
     // detached background thread — house pattern (triggerGeneration,
@@ -2427,17 +2434,18 @@ void PromptPanel::triggerDcoBake()
             tr.model              = authored.authorModel;
             tr.reading            = authored.reading;
             tr.thinking           = authored.thinking;
-            tr.reachedInstruments = authored.reachedInstruments;
-            tr.reachedAdjectives  = authored.reachedAdjectives;
-            tr.reachedMotions     = authored.reachedMotions;
-            tr.orientedBy         = authored.orientedBy;
-            tr.reachedNotShown    = authored.reachedNotShown;
+            tr.namedInstruments   = authored.namedInstruments;
+            tr.namedAdjectives    = authored.namedAdjectives;
+            tr.namedMotions       = authored.namedMotions;
+            tr.openedInstruments  = authored.openedInstruments;
+            tr.openedAdjectives   = authored.openedAdjectives;
+            tr.openedMotions      = authored.openedMotions;
             tr.libraryEntryCount  = authored.libraryEntryCount;
             // A consultation was RECORDED for this bake — which is what lets the
-            // LOOKED UP station distinguish "this prompt reached nothing" (a
-            // finding worth showing) from "nobody recorded a lookup" (a recall,
-            // where the station is left out entirely). The library size is the
-            // one field a consultation block always carries.
+            // OPENED station distinguish "the author asked for nothing" (a
+            // finding worth showing) from "nobody recorded a consultation" (a
+            // recall, where the station is left out entirely). The library size
+            // is the one field a consultation block always carries.
             tr.consultationKnown  = authored.libraryEntryCount > 0;
             tr.repairs            = authored.repairs;
             tr.attempts           = authored.attempts;
@@ -2640,20 +2648,61 @@ void PromptPanel::triggerDcoBake()
         // listen, no correction. bakeSeq is still bumped at the call site to
         // invalidate any stale in-flight card; nothing here consumes it now.
         juce::ignoreUnused(bakeSeq);
-        // The reasoning, while it is being written. It arrives on THIS thread,
-        // so it marshals like every other UI-visible result; setLiveThinking
-        // stops accepting it the moment the finished trace lands, which is what
-        // keeps a late frame from overwriting the attempt that actually
+        // The authoring, while it is being written — the reasoning, the code,
+        // and each repair round. All three arrive on THIS thread, so they
+        // marshal like every other UI-visible result; the view's live setters
+        // stop accepting them the moment the finished trace lands, which is
+        // what keeps a late frame from overwriting the attempt that actually
         // compiled.
+        //
+        // The status line follows the phases: a first-attempt frame means the
+        // prompt evaluation is over and the author is writing ("Reading the
+        // library" -> "Writing the instrument"); a repair frame names its round
+        // and what it was sent back for. Only attempt-1 frames flip the line —
+        // during a repair the caption belongs to onAttempt, and a body frame
+        // overwriting it would erase the one sight of the loop the user has.
         auto onThinking = [safeThis](int attempt, const juce::String& thinking)
         {
             juce::MessageManager::callAsync([safeThis, attempt, thinking]()
             {
                 if (auto* self = safeThis.getComponent())
+                {
+                    if (attempt == 1)
+                        self->dcoTraceView.setStatusLine("Writing the instrument");
                     self->dcoTraceView.setLiveThinking(attempt, thinking);
+                }
             });
         };
-        auto authored = pipePtr->authorCsoundOrchestra(text, {}, {}, onThinking);
+        auto onBody = [safeThis](int attempt, const juce::String& code)
+        {
+            juce::MessageManager::callAsync([safeThis, attempt, code]()
+            {
+                if (auto* self = safeThis.getComponent())
+                {
+                    if (attempt == 1)
+                        self->dcoTraceView.setStatusLine("Writing the instrument");
+                    self->dcoTraceView.setLiveBody(attempt, code);
+                }
+            });
+        };
+        auto onAttempt = [safeThis](int attempt, int maxTries, const juce::String& errors)
+        {
+            juce::MessageManager::callAsync([safeThis, attempt, maxTries, errors]()
+            {
+                if (auto* self = safeThis.getComponent())
+                {
+                    juce::String line("Repairing (attempt ");
+                    line << attempt;
+                    if (maxTries > 0)
+                        line << " of " << maxTries;
+                    line << ")";
+                    if (errors.isNotEmpty())
+                        line << ": " << errors;
+                    self->dcoTraceView.setStatusLine(line);
+                }
+            });
+        };
+        auto authored = pipePtr->authorCsoundOrchestra(text, {}, {}, onThinking, onBody, onAttempt);
         publish(authored, /*attempt=*/0, /*moreToCome=*/false);
 #endif
     }).detach();
@@ -2722,7 +2771,11 @@ void PromptPanel::triggerDcoReprompt()
     }
     if (dcoBaking_)
     {
-        setLcoStatus("Still writing the instrument");
+        // Words only, NOT setLcoStatus: a full status write clears the live
+        // reasoning and code of the bake that is still running — the click
+        // would blank the very stream the user is watching, and the caption
+        // itself would be overwritten by the next arriving frame anyway.
+        dcoTraceView.setStatusLine("Still writing the instrument");
         return;
     }
     // loopStepInFlight_ added to match triggerDcoBake's identical gate (line

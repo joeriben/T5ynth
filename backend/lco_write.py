@@ -50,6 +50,13 @@ HEADROOM = 0.32      # bounds a single idiom's peak; the voice VCA/DCA shapes th
 # reliably converges rather than as tight as it will usually go.
 MAX_TRIES = int(os.environ.get("T5YNTH_LCO_MAX_TRIES", 6))
 
+# How much of the note the acceptance gate actually plays (see `perform_check`).
+# Long enough that every opcode has run its init pass and several k-cycles;
+# short enough to be free next to a 100-second authoring turn (~0.1 s measured).
+# It is not a listening test and must not become one: it asks whether the
+# orchestra RUNS, never whether it sounds like anything.
+_PERF_SECS = 0.25
+
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -93,13 +100,11 @@ def _indent(code, pad="    "):
 # author still writes whatever it writes and may depart from every suggestion.
 # Reciting all 29 instruments, 51 words and 17 motions cost 60,000 characters on
 # every bake, of which a given prompt needs a handful.
-_WORD = re.compile(r"[a-zà-ÿ0-9']+")
-
-# When a prompt matches little or nothing, the author still needs orientation.
-# These span the families (subtractive, FM, additive, modal) so an unmatched
-# prompt is oriented rather than starved.
-_STARTER = ("saw", "pwm", "fm_bell", "additive", "struck_bar")
-_MAX_INSTRUMENTS = 8
+# `_` is part of a word here. Library keys carry underscores (`fm_ep`,
+# `struck_bar`), the index prints them that way, and that is how the author
+# writes them back — so tokenising `fm_ep` into {fm, ep} would let the bare form
+# `fm` claim a request for the electric piano and open a different instrument.
+_WORD = re.compile(r"[a-zà-ÿ0-9'_]+")
 
 
 def _index(lexicon_section):
@@ -112,18 +117,46 @@ def _index(lexicon_section):
     return idx
 
 
-def _lookup(prompt, index):
-    """Entry keys whose surface forms appear in the prompt. Multi-word forms are
-    matched against the raw text, single words against the tokenised prompt, so
-    "electric piano" hits without "piano" alone dragging in a second entry."""
-    text = " " + (prompt or "").lower() + " "
-    words = set(_WORD.findall(text))
+def _lookup(text_in, index):
+    """Entry keys whose surface forms appear in a text. Multi-word forms are
+    matched against the raw text, single words against the tokenised text, so
+    "electric piano" hits without "piano" alone dragging in a second entry.
+
+    This is READING, never deciding. It used to be run on the USER's prompt, and
+    what it found is what the author was then allowed to see — a word comparison
+    standing between a person's description and the library, with a word
+    matcher's holes in it ("bell" hits, "bells" does not, German nothing at all).
+    It is now run on the AUTHOR's OWN reply, to find out which entries the author
+    said it wanted. Understanding the prompt is the model's job; this only has to
+    recognise the names the model itself wrote down."""
+    text = " " + (text_in or "").lower() + " "
+    # Each token twice: as written, and with any surrounding underscores taken
+    # off. `_` has to be INSIDE a token so `fm_ep` cannot be read as the word
+    # `fm` — and the moment it is, markdown emphasis swallows the word instead
+    # (`_saw_` tokenises to `_saw_`, and 87 of the 98 keys, every one without an
+    # underscore of its own, stopped being reachable when the author wrote them
+    # that way). Stripping the outer underscores restores those without giving
+    # `fm_ep` back to `fm`.
+    words = set()
+    for w in _WORD.findall(text):
+        words.add(w)
+        words.add(w.strip("_"))
+    words.discard("")
     hits = []
     for form, key in index.items():
         if key in hits:
             continue
-        if " " in form or "-" in form:
-            if form in text:
+        # A form that is not a single bare word is matched against the raw text.
+        # UNDERSCORES belong in this branch, and leaving them out was a hole with
+        # teeth: `render_index` prints every entry by its key, so `struck_bar` is
+        # exactly what the author writes when it asks for that entry — and
+        # `_WORD` does not include `_`, so the form `struck_bar` was tested
+        # against the tokens {struck, bar} and could never match. Six keys were
+        # unreachable by their own printed name (`struck_bar`, `ring_mod`,
+        # `analog_osc`, `open_up`), and two opened something ELSE: `fm_ep` and
+        # `metallic_fm` tokenised to `fm` and opened the plain FM instrument.
+        if " " in form or "-" in form or "_" in form:
+            if form in text or form.replace("_", " ") in text:
                 hits.append(key)
         elif form in words:
             hits.append(key)
@@ -144,69 +177,81 @@ def _indexes():
     return _index_cache
 
 
-def select(prompt):
-    """What this prompt pulls off the shelf, and what stays on it.
+def named_entries(text, lib=None):
+    """Which library entries the AUTHOR's own reply asked to have opened.
 
-    Everything is still LISTED — the author sees the whole catalogue and can ask
-    for nothing it doesn't contain. Only the entries the prompt reached are
-    QUOTED in full, with their code, parameters and anchors."""
-    lib = _load_library()
+    The author is shown the index (`render_index`) and reasons about the sound;
+    whatever it names in that reasoning is what gets quoted to it in full. This
+    function does not choose — it recognises names the model itself wrote down,
+    over the same surface forms the lexicon already carries (so "bell" finds
+    `fm_bell` and "electric piano" finds `fm_ep`, whichever way the model said
+    it).
+
+    Nothing here is a fallback: naming nothing is a real answer, and the caller
+    responds to it by opening the WHOLE library rather than by picking a set on
+    the model's behalf."""
+    lib = lib if lib is not None else _load_library()
     t_idx, a_idx, m_idx = _indexes()
-    t_hits = _lookup(prompt, t_idx)
-    a_hits = set(_lookup(prompt, a_idx))
-    m_hits = set(_lookup(prompt, m_idx))
+    have = {s: {e["key"] for e in lib[s]}
+            for s in ("instruments", "adjectives", "motions")}
+    return {
+        "instruments": [k for k in _lookup(text, t_idx) if k in have["instruments"]],
+        "adjectives": [k for k in _lookup(text, a_idx) if k in have["adjectives"]],
+        "motions": [k for k in _lookup(text, m_idx) if k in have["motions"]],
+    }
 
-    # Always give the author something to build from, and never more than a
-    # handful: the matched instruments first, topped up from the starter set.
-    chosen = list(t_hits)
-    for k in _STARTER:
-        if len(chosen) >= _MAX_INSTRUMENTS:
-            break
-        if k not in chosen:
-            chosen.append(k)
-    chosen = set(chosen[:_MAX_INSTRUMENTS])
 
-    def split(entries, hits):
-        return ([e for e in entries if e["key"] in hits],
-                [e for e in entries if e["key"] not in hits])
+def open_entries(named, lib=None):
+    """The library pages the author asked for, in `render_library`'s shape.
 
-    full_i, rest_i = split(lib["instruments"], chosen)
-    full_a, rest_a = split(lib["adjectives"], a_hits)
-    full_m, rest_m = split(lib["motions"], m_hits)
-    return {"instruments": full_i, "adjectives": full_a, "motions": full_m,
-            "catalogue": {"instruments": rest_i, "adjectives": rest_a,
-                          "motions": rest_m},
-            # The consultation, reported so the panel can SHOW it (the LCO
-            # trace). Three disjoint sets, because they mean three different
-            # things and merging any two would let the panel over-claim:
-            #   reached          the user's own words hit it AND the author was
-            #                    quoted it,
-            #   oriented_by      the _STARTER top-up the author was shown ANYWAY
-            #                    because the prompt reached too few instruments —
-            #                    NOT something the prompt said,
-            #   reached_not_shown  the words hit it but it fell past
-            #                    _MAX_INSTRUMENTS, so the author never saw it.
-            #                    Rare, and the one case where the prompt was
-            #                    understood and the understanding still did not
-            #                    travel; silence here would flatter the machine.
-            "consultation": {
-                "reached": {"instruments": sorted(set(t_hits) & chosen),
-                            "adjectives": sorted(a_hits),
-                            "motions": sorted(m_hits)},
-                "oriented_by": sorted(chosen - set(t_hits)),
-                "reached_not_shown": sorted(set(t_hits) - chosen),
-                "library_size": (len(lib["instruments"]) + len(lib["adjectives"])
-                                 + len(lib["motions"])),
-            }}
+    `named` is what `named_entries` recognised. Everything else stays LISTED but
+    unquoted, so the author can still see what exists and ask for it in a later
+    turn.
+
+    NO INSTRUMENT recognised means everything is opened. Two different situations
+    reach that state — the author named no instrument, or it named instruments
+    this reader failed to recognise — and neither one tells Python which subset
+    the author may see. Handing over adjectives and motions with no idiom under
+    them, while the turn says "here are the entries you asked for", would be the
+    one shape that is worse than opening too much: a writing turn that claims to
+    answer a request it dropped. Keyed on instruments rather than on all three
+    sections together because an orchestra is written out of an idiom; a reply
+    that reached only the word `analog` inside `analog_osc` used to satisfy
+    `any()` and open no instrument at all."""
+    lib = lib if lib is not None else _load_library()
+    named = named or {}
+    sections = ("instruments", "adjectives", "motions")
+    have = {s: {e["key"] for e in lib[s]} for s in sections}
+    asked = {s: set(named.get(s) or ()) & have[s] for s in sections}
+    wanted = dict(asked)
+    if not wanted["instruments"]:
+        wanted = dict(have)
+
+    sel = {"catalogue": {}}
+    for s in sections:
+        sel[s] = [e for e in lib[s] if e["key"] in wanted[s]]
+        sel["catalogue"][s] = [e for e in lib[s] if e["key"] not in wanted[s]]
+    # BOTH halves of what happened, because they can differ and the difference is
+    # the interesting fact: `named` is what the author asked for, `opened` what
+    # was actually put in front of it. They part company exactly when the reply
+    # named words and movements but no instrument — the panel would otherwise
+    # have to infer "the author named nothing" from a full `opened`, and say that
+    # over a reply that named three things.
+    sel["consultation"] = {
+        "named": {s: sorted(asked[s]) for s in sections},
+        "opened": {s: sorted(wanted[s]) for s in sections},
+        "library_size": sum(len(lib[s]) for s in sections),
+    }
+    return sel
 
 
 def _catalogue(out, lib, section, intro):
     """The shelf the author did not pull from — listed, so nothing is invisible.
 
-    This is what makes the prompt a LIBRARY CONSULTATION rather than a recital:
-    the author can see the whole vocabulary and knows what it is expected to be
-    able to write, but only carries the weight of the entries this prompt
-    reached."""
+    Redundant with the index in the system prompt and kept anyway: the writing
+    turn is where the author is looking, and an entry it did not think of in the
+    consultation is still nameable — it can write that idiom itself, or ask for
+    it in a repair. The weight of the code stays on the entries it asked for."""
     rest = (lib.get("catalogue") or {}).get(section) or []
     if not rest:
         return
@@ -215,6 +260,51 @@ def _catalogue(out, lib, section, intro):
     for e in rest:
         why = (e.get("why") or "").strip()
         out.append(f"  {e['key']}" + (f" — {why}" if why else ""))
+
+
+def render_index(lib=None):
+    """The whole library as a LIST — every entry, what it is, and what its
+    parameters MEAN sonically. No Csound.
+
+    This is what the author reads before it has decided anything: enough to size
+    up the tools ("does this library have something that rubs? something that
+    beats? something hollow?") without the weight of ninety-eight code blocks.
+    It costs about what the old word-matched excerpt cost (~6k tokens) and shows
+    everything instead of eight entries a word comparison happened to hit.
+
+    The parameter lines are the point, not decoration. `string` is not usable
+    knowledge; `string` with `bow` running from "picked and let go: bright at the
+    front, then darkening" to "drawn with a bow: standing, breathing, the top
+    rubbed off" is — that is the difference between a name and a tool."""
+    lib = lib if lib is not None else _load_library()
+    out = ["## THE LIBRARY — what is on the shelf",
+           "Every entry, what it is, and what its parameters do to the sound. The",
+           "Csound itself is not here: name what you want and it will be opened."]
+
+    out.append("")
+    out.append("### Instruments")
+    for it in lib["instruments"]:
+        out.append(f"  {it['key']} — {it['why']}")
+        for pname, spec in (it.get("params") or {}).items():
+            rng = spec.get("range") or [0.0, 1.0]
+            out.append(f"      {pname} ({rng[0]}..{rng[1]}): {spec.get('note', '')}")
+            for aname, a in (spec.get("anchors") or {}).items():
+                out.append(f"        {aname} — {a['gloss']}")
+
+    out.append("")
+    out.append("### Sound words (they belong IN the generation, not after it)")
+    for adj in lib["adjectives"]:
+        out.append(f"  {adj['key']} — {adj['why']}")
+
+    out.append("")
+    out.append("### Movements")
+    for mot in lib["motions"]:
+        tag = ", ".join(x for x in (
+            f"moves the {mot['moves']}" if mot.get("moves") else "",
+            mot.get("kind") or "",
+            f"around {mot['rate_hz']} Hz" if mot.get("rate_hz") else "") if x)
+        out.append(f"  {mot['key']}{f' ({tag})' if tag else ''} — {mot['why']}")
+    return "\n".join(out)
 
 
 def render_library(sel=None):
@@ -339,7 +429,6 @@ HARD RULES
     (1) writing `asig` twice (`asig = <a>` … later `asig = <b>`): the second assignment ERASES the first, so only b is heard and everything above it is dead code. This is the most common mistake — a and b MUST meet in one crossfade line, not overwrite each other.
     (2) a static layer (`asig = <a> * kvol1 + <b> * kvol2`): that is a and b at once, forever — a LAYER, not a transition.
     (3) a bad `linseg` for the position (`linseg 0, 1, knote` passes a k-variable where linseg needs i-time CONSTANTS). Prefer `kmorph = min(knote / T, 1)`; if you must use linseg every argument is a constant — `kmorph linseg 0, 2, 1`.
-  RENAMING CHANGES THE NAME AND NOTHING ELSE. Both ends live in one instrument, so what you take from the library has to be renamed to keep them apart (`kstr` -> `kstr_g`, `aacc` -> `aacc_base`). The line KEEPS ITS EXACT SHAPE while you do it: `kstr limit kfreq * koct1, 20, 12000` renamed is `kstr_g limit kfreq * koct1, 20, 12000` — never `kstr_g = limit ...`. An opcode line has no `=` before the rename and none after it. Retyping a library line with an `=` added is the single most common way a morph fails to compile, and Csound reports it as a bracket complaint that names neither the `=` nor the opcode, so it is easy to chase for several rounds without seeing it. Each end is fine on its own; only putting two of them in one body makes you retype their lines.
   AN END OF A MORPH IS A WHOLE INSTRUMENT, NOT A ONE-LINER. Each end keeps every line it needs — including its own moving controls. NEVER freeze a k-rate control to a constant to make an end fit on one line: that silently deletes the very thing the user named. If the user asks for "sine > pulse width modulation" (or "sine > pwm"), b IS pulse-width MODULATION — its duty must go on sweeping after the morph arrives, so b keeps its LFO (`klfo oscili 0.5, 0.5`, `kpw = 0.5 + 0.6 * klfo`, `apw vco2 0.6, kfreq * koct1, 2, kpw`) and you write `asigb = apw - 0.6 * (2 * kpw - 1)`. Writing `vco2 …, 2, 0.5` there is a STATIC pulse wave — a different instrument from the one that was asked for, and the DC-correction line then reads `- 0.6 * (2 * 0.5 - 1)`, which is zero: dead code that proves the modulation was dropped. The same holds for every moving instrument used as an end — a bowed string still breathes, an organ still drifts, a filter sweep still sweeps.
   A REPEATING morph (a loop of a>b) drives kmorph from a free-running `oscili` instead of `min(knote…)`, so it sweeps back and forth forever.
 - "a + b" means two layers sounding at once — the static mix of (2), correct ONLY when the user asked to layer, never as a substitute for a transition. You may layer up to THREE oscillators this way.
@@ -357,12 +446,16 @@ AVAILABLE IN SCOPE
   giSine (sine table)  giCos (cosine table, for gbuzz/buzz)
   giCheb (Chebyshev transfer table)  giImp (short strike impulse table)
 
-HOW TO ANSWER
-FIRST THINK, in plain language, and write that thinking down — a short paragraph, not an essay:
-  - What IS this sound? Which instrument, mechanism or physical body comes closest, and what in the library is nearest to it?
+HOW TO ANSWER — you answer TWICE, and the first answer is not code.
+
+FIRST TURN: THINK, in plain language, and write that thinking down — a short paragraph, not an essay:
+  - What IS this sound? Which instrument, mechanism or physical body comes closest?
   - The words are a DESCRIPTION of a sound, not lookup keys. When the prompt names no instrument at all — "a dark growl", "rusty machinery", "like wet glass", "an angry insect" — this is where you work out what it would BE: what excites it, what resonates, what makes it dark or rough or restless. The library has no entry for most of what a player will ask for; you are expected to reason your way there from what the words describe, using the idioms as material.
   - What MOVES in it, and how fast?
-THEN write the orchestra body, in exactly ONE fenced block:
+  - Which library entries do you want OPENED? You are shown the shelf below — what each entry is and what its parameters do — but not the Csound. Name the entries you want to see (instruments, sound words, movements), and their code will be handed to you in the next turn. Name what you actually intend to use or look at; naming everything is as useless as naming nothing. If nothing on the shelf fits, say so and the whole library will be opened.
+Write NO code in this first turn. No fence, no Csound lines. The shelf is a list of names, and you are choosing from it in your own words.
+
+SECOND TURN: the entries you named arrive, quoted in full. NOW write the orchestra body, in exactly ONE fenced block:
 
 ```csound
 <your Csound lines>
@@ -371,18 +464,22 @@ READING: <a short plain-language description of what you built, 5-12 words>
 
 Inside the fence goes ONLY the oscillator body and that final READING line: no <CsoundSynthesizer>, no <CsInstruments>, no header (sr/ksmps/nchnls/0dbfs), no `instr`/`endin`, no `ftgen`, no score, no `out`/`outs`/`outch`. The host supplies all of it. Everything OUTSIDE the fence is your thinking and is discarded — so the fence must be there, and there must be exactly one.
 
-LIBRARY (adapt and combine — do not simply copy one block):
+You have already reasoned about the sound in the first turn. Do not reason it out again in the second: choose, and write.
 """
 
 
 def system_prompt(prompt="", sel=None):
-    """Head + the library entries this prompt reached. The full library stays on
-    disk; what travels is the consultation.
+    """The head plus the library INDEX — what is on the shelf, without the code.
 
-    `sel` lets a caller that already ran select() (build_csound_response, which
-    also REPORTS the consultation) reuse it, so the prompt the author sees and
-    the consultation the panel shows can never describe different lookups."""
-    return _SYSTEM_HEAD + "\n" + render_library(sel if sel is not None else select(prompt))
+    One system prompt for the whole conversation, and it never varies with the
+    prompt: the author sees the entire library listed and decides for itself
+    what it wants opened. `sel` is accepted for callers that already hold an
+    opened selection and want the quoted pages inline instead (offline probes,
+    the parity tools); the live path does not use it, because the pages arrive
+    in their own turn once the author has asked for them."""
+    if sel is not None:
+        return _SYSTEM_HEAD + "\n" + render_library(sel)
+    return _SYSTEM_HEAD + "\n" + render_index()
 
 
 _REPAIR_HEAD = (
@@ -409,25 +506,89 @@ _REPAIR_TAIL = (
 )
 
 
-def _continue(user_turn, prev_raw, seen_errors):
+_CONSULT_TURN = (
+    "\n\nBefore you write anything: think about what this sound IS, and name the "
+    "library entries you want opened. Their Csound will be handed to you in the "
+    "next turn. No code in this answer."
+)
+
+_WRITING_HEAD = (
+    "Here are the entries you asked for, with their real Csound as this build "
+    "produces it. Adapt, combine and depart from them — they are material, not a "
+    "form to fill in.\n\n"
+)
+
+_WRITING_TAIL = (
+    "\n\nNow write the orchestra body for the sound you described, in exactly ONE "
+    "```csound fence with its READING line. You have already worked out what this "
+    "sound is; do not reason it out again."
+)
+
+
+def _consult(user_turn, sysp, llm, on_thinking=None):
+    """The author's own consultation: it reads the shelf and says what it wants.
+
+    Returns `(raw_reply, named, thinking)` — the reply verbatim, so the writing
+    turn can continue the same conversation; the entries `named_entries`
+    recognised in it; and its reasoning, which is now the ONLY place the author
+    says what it thinks this sound is (the writing turn is asked not to reason
+    again, so nothing kept here leaves the panel with an empty THINKING). A reply
+    that names nothing is not an error and is not overridden: the caller opens
+    the whole library, which is the only answer that does not put Python in
+    charge of what the author may see.
+
+    The reasoning goes out live under attempt 0. It is the same THINKING the
+    panel has always shown, arriving earlier — this IS the author choosing, and
+    it would be perverse to hide the one turn that is nothing but reasoning."""
+    watcher = _live_watch(on_thinking, None, 0)
+    turn = user_turn + _CONSULT_TURN
+    raw = llm(turn, sysp, None) if watcher is None else llm(turn, sysp, None, watcher)
+    if watcher is not None:
+        watcher.flush()
+    # Read the author's own words, not the user's. A consultation that answered
+    # with code anyway (it was asked not to) still names its entries in prose
+    # above the fence, and the fenced code is not evidence of a choice — it is a
+    # body written without the pages, which the next turn replaces.
+    body, _, thinking = sanitize(raw)
+    # A consultation normally has NO fence, and `sanitize` then hands the whole
+    # reply back as the body — so the author's prose is in `body`, not in
+    # `thinking`. Taking `thinking` alone would silently read nothing here.
+    prose = thinking.strip() or body.strip()
+    return raw, named_entries(prose or raw), prose
+
+
+def _writing_turn(sel):
+    """The pages the author asked for, as the turn that asks it to write."""
+    return _WRITING_HEAD + render_library(sel) + _WRITING_TAIL
+
+
+def _continue(base, prev_raw, seen_errors):
     """The repair as a CONTINUATION of the same conversation.
 
-    Returns the message list `[user, assistant, user]`: the original request, the
-    author's own failed answer, and the compiler's complaints. The author then
-    edits what it wrote instead of writing the whole sound again from nothing —
-    it keeps the instrument and the movement it already chose, and the reasoning
-    paragraph it produced the first time stays the answer rather than being
-    regenerated on every attempt.
+    `base` is the conversation up to and including the turn that asked for the
+    body — the request, the author's consultation, and the pages it asked for.
+    Appended to it: the author's own failed answer and the compiler's
+    complaints. The author then edits what it wrote instead of writing the whole
+    sound again from nothing — it keeps the instrument and the movement it
+    already chose, and the reasoning it produced in the consultation stays the
+    answer rather than being regenerated on every attempt.
 
-    A caller whose model surface only takes a single string still works: the list
-    carries `_as_single_turn`, and `_flatten_turn` folds it back into exactly the
-    text the loop used to send. Nothing is lost in that fallback except the
-    saving."""
+    A caller whose model surface only takes a single string still works:
+    `_flatten_turn` folds the list back into one text. Nothing is lost in that
+    fallback except the KV-cache saving."""
+    repair = _repair_turn(seen_errors).lstrip("\n")
+    if isinstance(base, str):
+        # A surface that only takes one string still has to carry the failed
+        # answer: `_REPAIR_TAIL` tells the author "your own previous attempt is
+        # above", and without it that sentence points at nothing and the round
+        # is a fresh authoring wearing a repair's words. Same wording
+        # `_flatten_turn` uses, so both surfaces say the same thing.
+        prev = f"Your previous answer was:\n\n{prev_raw}\n\n" if (prev_raw or "").strip() else ""
+        return f"{base}\n\n{prev}{repair}"
     if not (prev_raw or "").strip():
-        return user_turn + _repair_turn(seen_errors)
-    return [{"role": "user", "content": user_turn},
-            {"role": "assistant", "content": prev_raw},
-            {"role": "user", "content": _repair_turn(seen_errors).lstrip("\n")}]
+        return list(base) + [{"role": "user", "content": repair}]
+    return list(base) + [{"role": "assistant", "content": prev_raw},
+                         {"role": "user", "content": repair}]
 
 
 def _flatten_turn(turn):
@@ -689,79 +850,225 @@ def _first_code_run(txt):
     return 0
 
 
-def _live_thinking(on_thinking, attempt):
-    """Wrap a watcher's callback so it is only ever handed THINKING.
+def _live_watch(on_thinking, on_body, attempt):
+    """Split the author's token stream into THINKING and BODY while it arrives.
 
-    The whole reason the reasoning can be shown while it is being written is the
-    order HOW TO ANSWER imposes: the author reasons first and writes the code
-    afterwards, so everything up to the FIRST fence marker is thinking, and it is
-    finished before the body starts. Nothing is sent past that marker — the code
-    is not reasoning, and it has its own page.
-
-    The full cleaned text goes out each time, not the increment: _clean_thinking
-    edits what it has already seen (a control token completes, a run of blank
-    lines collapses), so an appending receiver would drift out of step with what
-    the author actually wrote. It is compared for DIFFERENCE, not for growth — a
-    revision that shortens the text is the correction of something wrong on
-    screen (half a leaked control token, say), and a growth test suppresses
+    THINKING first, exactly as before: the order HOW TO ANSWER imposes means
+    everything up to the first fence marker is reasoning, and it is finished
+    before the code starts. The full cleaned text goes out each time, not the
+    increment — _clean_thinking edits what it has already seen (a control token
+    completes, a run of blank lines collapses), so an appending receiver would
+    drift out of step with what the author actually wrote. It is compared for
+    DIFFERENCE, not for growth: a revision that shortens the text is the
+    correction of something wrong on screen, and a growth test suppresses
     exactly those.
 
     Nothing is judged until its line is COMPLETE. A fence pattern ends in `$`,
     which matches the end of the buffer as readily as the end of a line, so a
-    half-arrived "```mode" reads as a fence that is not there and would close
-    the stream for the rest of the generation. Working in whole lines also keeps
-    this to a few frames a second rather than one per token.
+    half-arrived "```mode" reads as a fence that is not there. Working in whole
+    lines also keeps this to a few frames a second rather than one per token.
 
-    The fence is not the only stop, because it is not always there. The author
-    sometimes opens with no marker at all, or opens at the end of a sentence
-    where a line-anchored pattern cannot see it; the reasoning then simply runs
-    into the orchestra, and every opcode line would be shown as the machine's
-    thinking. So a RUN of code lines closes the stream too, and is held back
-    rather than sent. A run, not a single line: "aexc is the bow, continuous
-    noise" is a sentence about the code and reads as code to any line matcher,
-    and cutting the reasoning at the first such line would truncate most
-    replies."""
-    if on_thinking is None:
+    The BODY (BJ 2026-07-24: minutes of "Writing the instrument" with no sight
+    of the token output — and the code IS most of the generation) is found the
+    way sanitize() finds it, INCREMENTALLY: the reply is split into segments on
+    individual fence-marker lines — never on marker PAIRS, because the author's
+    replies are malformed in exactly the ways pairing mis-binds (a stray closer
+    above the real block, an unclosed final fence; _fence_segments' own rule) —
+    and _pick_body's contract decides which segment is on display: the last one
+    with a READING and code, else the most code, ties to the later. A segment
+    that never shows code (a prose afterthought) can therefore never replace
+    the orchestra on screen, and a stray closer costs nothing because nothing
+    assumes it closed anything. What goes out through ``on_body(attempt,
+    text)`` is the whole displayed body so far, replace-not-append — the
+    thinking's own contract — filtered exactly as sanitize() will filter it
+    (READING out, host lines out), so the live view converges on the very code
+    the card then carries. tools/lco_sanitize_gate.py asserts that convergence
+    over the full malformed-reply corpus, streamed one character at a time.
+
+    With no marker anywhere the body starts at the first RUN of two code lines
+    — a run, not a single line, because "aexc is the bow, continuous noise" is
+    a sentence about the code and reads as code to any line matcher; blank and
+    `;`-comment lines are neutral, exactly as in _first_code_run, so the live
+    cut and sanitize's cannot land on different lines.
+
+    The caller must invoke ``watcher.flush()`` once the generation ends: the
+    reply's last line has no newline behind it (an unclosed final fence is the
+    normal stopped-generation shape), and a line-granular splitter would
+    otherwise hold it back forever."""
+    if on_thinking is None and on_body is None:
         return None
-    state = {"buf": "", "kept": [], "held": [], "closed": False, "sent": None}
+
+    def _segment():
+        # cut/run/runstart implement _first_code_run incrementally, for the
+        # only segment that needs it (the no-marker reply, segment 0).
+        return {"lines": [], "code": 0, "reading": False,
+                "cut": None, "run": 0, "runstart": None}
+
+    segs = [_segment()]
+    state = {"buf": "", "kept": [], "held": [], "closed": False, "sent": None,
+             "dirty": False, "body_dirty": False, "body_sent": None}
+
+    def seg_add(line):
+        seg = segs[-1]
+        seg["lines"].append(line)
+        state["body_dirty"] = True
+        if _READING.match(line):
+            seg["reading"] = True
+        # A blank or `;`-only line is NEUTRAL — it neither starts a code run
+        # nor breaks one (_first_code_run's rule, verbatim).
+        if not line.split(";", 1)[0].strip():
+            return
+        if _codeishness(line):
+            if seg["run"] == 0:
+                seg["runstart"] = len(seg["lines"]) - 1
+            seg["run"] += 1
+            seg["code"] += 1
+            if seg["cut"] is None and seg["run"] >= 2:
+                seg["cut"] = seg["runstart"]
+        else:
+            seg["run"], seg["runstart"] = 0, None
+
+    def picked():
+        # _pick_body's rule over the segments so far.
+        later = range(1, len(segs))
+        for i in reversed(later):
+            if segs[i]["reading"] and segs[i]["code"]:
+                return i
+        best = max(later, key=lambda i: (segs[i]["code"], i), default=0)
+        return best if (later and segs[best]["code"]) else 0
+
+    def flush_body(final=False):
+        if on_body is None or not (state["body_dirty"] or final):
+            return
+        state["body_dirty"] = False
+        i = picked()
+        seg = segs[i]
+        lines = seg["lines"]
+        if i == 0:
+            # Segment 0 is DISPLAYED more cautiously than it is finally parsed.
+            # sanitize hands the whole pre-marker text to the compiler when
+            # nothing after a marker carries code — but WHILE the reply is
+            # arriving that same rule would print the reasoning as the
+            # instrument, and it would do so at the worst moment: the fence has
+            # just opened, its body has not arrived yet, and the panel would
+            # show the whole paragraph in monospace under WRITING while the
+            # identical text stands under THINKING right above it.
+            #
+            # So mid-stream segment 0 shows ONLY from a code RUN of its own
+            # (_first_code_run's two-line rule — one code-ish line is normal in
+            # the reasoning: "attack fast, decay slow" satisfies every
+            # shape-based test there is). The run cut governs whether a marker
+            # has been seen or not; a marker is the strongest evidence yet that
+            # what stands above it was prose, so it must not WEAKEN the guard.
+            #
+            # At the END the ambiguity is over and sanitize's own reading is
+            # the truth: with markers, segment 0 is taken whole; without, from
+            # _first_code_run's cut (none found = from the top).
+            if not final:
+                lines = lines[seg["cut"]:] if seg["cut"] is not None else []
+            elif len(segs) == 1 and seg["cut"] is not None:
+                lines = lines[seg["cut"]:]
+        # sanitize's own steps on its own chosen segment, in its own order, so
+        # the live view converges on the card by construction rather than by
+        # resemblance: fence crumbs out, the READING line out (its pattern
+        # spans the line BREAK when the value sits on the next line, which is
+        # why this runs over the joined text and not line by line), then blank
+        # lines and the host's own lines out.
+        text = _READING.sub("", "\n".join(lines).replace("```", ""))
+        shown = [ln.rstrip() for ln in text.splitlines()
+                 if ln.strip() and not _STRIP.match(ln)]
+        text = "\n".join(shown)
+        # Nothing to say yet is not news: the first frames of a generation are
+        # reasoning, and an empty body frame there would arrive before any code
+        # exists — a wasted frame on the wire, and one that would satisfy a
+        # reader checking "did the code stream at all?".
+        if text == state["body_sent"] or (not text and state["body_sent"] is None):
+            return
+        state["body_sent"] = text
+        on_body(attempt, text)
+
+    def prose_line(line):
+        # The thinking-side rules, unchanged: hold blanks and single code-ish
+        # lines, release prose, close on a RUN of two code lines.
+        if not line.split(";", 1)[0].strip():
+            state["held"].append(line)
+            return
+        if _codeishness(line):
+            state["held"].append(line)
+            if sum(1 for h in state["held"] if _codeishness(h)) >= 2:
+                state["closed"] = True
+            return
+        state["kept"].extend(state["held"])
+        state["held"].clear()
+        state["kept"].append(line)
+        state["dirty"] = True
+
+    def take_line(line):
+        fence = _FENCE_TAIL.search(line)
+        if fence is not None:
+            # The fence can open at the END of a sentence; that head belongs to
+            # the segment (and the thinking) BEFORE the marker, exactly where
+            # _fence_segments' spans put it.
+            head = line[:fence.start()].rstrip()
+            if head:
+                seg_add(head)
+            if not state["closed"]:
+                if head:
+                    state["kept"].extend(state["held"])
+                    state["kept"].append(head)
+                    state["dirty"] = True
+                # Held crumbs before the fence are neither thinking nor body.
+                state["held"].clear()
+                state["closed"] = True
+            segs.append(_segment())
+            state["body_dirty"] = True
+            return
+        seg_add(line)
+        if not state["closed"]:
+            prose_line(line)
 
     def on_delta(piece):
-        if state["closed"]:
-            return
         state["buf"] += piece
         while "\n" in state["buf"]:
             line, _, state["buf"] = state["buf"].partition("\n")
-            fence = _FENCE_TAIL.search(line)
-            if fence is not None:
-                # The fence can open at the END of a sentence, and that sentence
-                # is still reasoning: keep what stands before the backticks, or
-                # the panel loses the last thing the author said.
-                head = line[:fence.start()].rstrip()
-                if head:
-                    state["kept"].extend(state["held"])
-                    state["held"].clear()
-                    state["kept"].append(head)
-                state["closed"] = True
-                break
-            if not line.strip():
-                # Neutral: a blank line inside the body must not break the run,
-                # and one inside the prose must not be released ahead of it.
-                state["held"].append(line)
-                continue
-            if _codeishness(line):
-                state["held"].append(line)
-                if sum(1 for h in state["held"] if _codeishness(h)) >= 2:
-                    state["closed"] = True
-                    break
-                continue
-            state["kept"].extend(state["held"])
-            state["held"].clear()
-            state["kept"].append(line)
-        text = _clean_thinking("\n".join(state["kept"]))
-        if text != state["sent"]:
-            state["sent"] = text
-            on_thinking(attempt, text)
+            take_line(line)
+        flush_body()
+        # Recomputed only when the prose actually changed: during the body —
+        # the long half of the generation — this would otherwise re-clean the
+        # whole unchanged reasoning once per token.
+        if state["dirty"] and on_thinking is not None:
+            state["dirty"] = False
+            text = _clean_thinking("\n".join(state["kept"]))
+            if text != state["sent"]:
+                state["sent"] = text
+                on_thinking(attempt, text)
 
+    def flush():
+        # End of generation: the last line arrives with no newline behind it,
+        # and the segment-0 fallback (_first_code_run's "no run found means the
+        # body IS the whole segment") only exists once the reply is over.
+        #
+        # A watcher that raises must not cost the authoring: the streaming path
+        # already holds that invariant per delta (run_gguf_instruct logs and
+        # drops the callback), and this call sits OUTSIDE that guard — a
+        # display callback failing here would discard a finished orchestra as
+        # an authoring error.
+        try:
+            if state["buf"]:
+                line, state["buf"] = state["buf"], ""
+                take_line(line)
+            flush_body(final=True)
+            if state["dirty"] and on_thinking is not None:
+                state["dirty"] = False
+                text = _clean_thinking("\n".join(state["kept"]))
+                if text != state["sent"]:
+                    state["sent"] = text
+                    on_thinking(attempt, text)
+        except Exception as exc:                    # noqa: BLE001 — see above
+            print(f"lco_write: live watcher flush failed, authoring continues: {exc}",
+                  file=sys.stderr, flush=True)
+
+    on_delta.flush = flush
     return on_delta
 
 
@@ -1125,16 +1432,88 @@ _ASSIGNED_OPCODE = re.compile(
     r"^\s*([A-Za-z]\w*)\s*=\s*([A-Za-z]\w*)\s+(?![-+*/%,)=<>&|?:])\S")
 
 
+# `vco2 kamp, kcps, 1` — the author's second mechanical slip, and the one the
+# compiler cannot catch at all. `imode` is a bit sum whose bit 1 means SKIP
+# INITIALISATION, so an odd imode compiles cleanly and the opcode then dies at
+# the first k-cycle with "vco2: not initialised" — an orchestra that passes every
+# parse and makes no sound. The library only ever uses 0 (saw), 2 (pulse/square)
+# and 4 (triangle), and 2 and 4 additionally REQUIRE the kpw argument; the `1` is
+# invented. Measured 2026-07-24 on the first prompt of tools/lco_morph_corpus.txt.
+_VCO2_CALL = re.compile(r"^\s*\w+\s+vco2\s+(.*)$", re.IGNORECASE)
+
+# `kbow    0.8` — the mirror of the stray `=`: an assignment written WITHOUT one.
+# Csound reads the variable as an opcode name and complains about the number
+# after it ("unexpected NUMBER_TOKEN"), naming neither the variable nor the
+# missing `=`. Measured 2026-07-24 on `a bowed cello`, where it cost the whole
+# authoring: the author reproduced the line and the loop stopped. Detection is
+# narrow on purpose — a Csound variable prefix, then nothing but a number to the
+# end of the line. No library line and no scaffold line but `instr 1` has that
+# shape, and the hint is only ever attached to a line Csound already rejected.
+_BARE_ASSIGN = re.compile(r"^\s*([akig][A-Za-z0-9_]*)\s+(-?\d+(?:\.\d+)?)\s*(?:;.*)?$")
+_NOT_A_VARIABLE = frozenset(("instr", "endin", "igoto", "kgoto", "opcode", "endop"))
+
+
+def _split_args(text):
+    """Top-level comma split — `foo(a, b)` and `(x * y)` stay one argument."""
+    out, depth, cur = [], 0, ""
+    for ch in text:
+        if ch in "([":
+            depth += 1
+        elif ch in ")]":
+            depth = max(0, depth - 1)
+        if ch == "," and depth == 0:
+            out.append(cur.strip())
+            cur = ""
+        else:
+            cur += ch
+    out.append(cur.strip())
+    return out
+
+
+def _vco2_imode_hint(line):
+    """`vco2`'s imode, when the line names one Csound will not play."""
+    m = _VCO2_CALL.match(line or "")
+    if not m:
+        return ""
+    args = _split_args(m.group(1).split(";")[0])
+    if len(args) < 3 or not re.fullmatch(r"\d+", args[2]):
+        return ""
+    imode = int(args[2])
+    if imode % 2 == 1:
+        return (f" — `vco2`'s imode is a BIT SUM, and bit 1 means \"skip "
+                f"initialisation\": with {imode} the oscillator is never "
+                f"initialised and produces nothing, which is why this only "
+                f"fails at performance and not at compile time. The waveforms "
+                f"are 0 (sawtooth), 2 (pulse/square) and 4 (triangle); 2 and 4 "
+                f"take the duty cycle as a fourth argument.")
+    if imode in (2, 4) and len(args) < 4:
+        return (f" — `vco2` imode {imode} needs the pulse width as a FOURTH "
+                f"argument (`vco2 kamp, kcps, {imode}, kpw`); without it the "
+                f"note is deleted at init and nothing sounds.")
+    return ""
+
+
 def _mechanical_hint(line):
     """The one edit that fixes this line, named — never a rewritten line.
 
     Python does not author Csound here and must not start: it says WHICH
     character is wrong and why, and the model writes the correction. That is the
     same division the repair turn already keeps (Python names the compiler's
-    complaints, the model writes the fix) — only precise enough to act on."""
+    complaints, the model writes the fix) — only precise enough to act on.
+
+    Each recognised slip is one Csound FACT the compiler's own message does not
+    state — "brackets" for a stray `=`, "not initialised" for an odd `vco2`
+    imode. Without the fact named, the author reads the complaint literally and
+    repairs the wrong thing until the loop stops."""
     m = _ASSIGNED_OPCODE.match(line or "")
     if not m:
-        return ""
+        b = _BARE_ASSIGN.match(line or "")
+        if b and b.group(1).lower() not in _NOT_A_VARIABLE:
+            return (f" — this line gives `{b.group(1)}` a value, and a value needs "
+                    f"an `=`: `{b.group(1)} = {b.group(2)}`. Without it Csound reads "
+                    f"`{b.group(1)}` as an opcode name, which is why it complains "
+                    f"about the number that follows rather than about the line.")
+        return _vco2_imode_hint(line)
     var, opcode = m.group(1), m.group(2)
     return (f" — `{opcode}` is an OPCODE, so this line is a statement, not an "
             f"assignment: the `=` after `{var}` must go. Csound's complaint about "
@@ -1178,6 +1557,126 @@ def _explain(log, orchestra):
             seen.add(part)
             parts.append(part)
     return "; ".join(parts[:4])
+
+
+# Csound's RUNTIME complaints. They do not match `_ERR_LINE` (there is no colon
+# after "ERROR") and they carry the line inline rather than on a line of their
+# own, so `_explain` cannot read them — a separate shape for a separate pass.
+_PERF_ERR = re.compile(r"\b(?:PERF|INIT)\s+ERROR\b.*", re.IGNORECASE)
+_PERF_LINE = re.compile(r"\bline\s+(\d+)\b", re.IGNORECASE)
+
+
+def _explain_perf(log, csd, body_offset):
+    """A runtime failure, with the author's own line quoted back at it.
+
+    Same division as `_explain`: Csound's words, plus the line of the BODY they
+    point at. `_mechanical_hint` rides along because a runtime error can have the
+    same cause as a parse error.
+
+    Quotes from the CSD that was actually RUN, and takes its body offset — the
+    performance check adds lines above the body, so the offset `_explain` uses
+    would point at the wrong line here. The body itself is copied verbatim, so
+    the quoted text is the author's own either way."""
+    csd_lines = csd.splitlines()
+    clean = _CTRL.sub("", _ANSI.sub("", log))
+    parts, seen = [], set()
+    for ln in clean.splitlines():
+        m = _PERF_ERR.search(ln)
+        if not m:
+            continue
+        msg = m.group(0).strip()
+        n = _PERF_LINE.search(msg)
+        if n:
+            i = int(n.group(1))
+            src = csd_lines[i - 1].strip() if 0 < i <= len(csd_lines) else ""
+            if src and i > body_offset:
+                msg = f"{msg}; your line: {src}{_mechanical_hint(src)}"
+        if msg not in seen:
+            seen.add(msg)
+            parts.append(msg)
+    if not parts:
+        tail = [l for l in clean.strip().splitlines() if l.strip()]
+        parts = [tail[-1]] if tail else ["csound failed during performance"]
+    return "; ".join(parts[:4])
+
+
+def perform_check(orchestra):
+    """(ok, first_error) — does this orchestra actually PLAY?
+
+    A gate that only parses is not the thing that later judges. `vco2 kamp,
+    kcps, 1` parses (imode bit 1 is "skip initialisation"), compiles, and then
+    dies at the first k-cycle with "vco2: not initialised"; `vco2 ..., 2` without
+    its kpw parses and deletes the note at init. Both reach the engine as a
+    successful authoring and are heard as silence, with nothing anywhere saying
+    why (measured 2026-07-24, first prompt of tools/lco_morph_corpus.txt).
+
+    So the check runs the instrument — the real wrapped orchestra, all 16 voices,
+    against a score shortened to a fraction of a second. ~0.1 s. Csound's own exit
+    code is the verdict, and its own message is what goes back to the author.
+
+    CLI only, deliberately: performing means `csoundStart`, and doing that
+    in-process would run an authored orchestra inside the backend that holds the
+    model. A separate process is the whole reason the CLI is preferred for the
+    syntax gate too. Where only CsoundLib64 exists this returns (True, "") —
+    unchecked, never falsely failed."""
+    binary = _csound_binary()
+    if binary is None:
+        return True, ""
+    # Cut at the LAST `<CsScore>`, not by pattern search: the authored body sits
+    # above it and is arbitrary model output, so a comment containing the tag
+    # would otherwise capture the substitution and silently truncate the
+    # instrument — a compile failure this gate would then report as a runtime one.
+    head, sep, _ = orchestra.replace("%SR%", "44100").rpartition("<CsScore>\n")
+    if not sep:
+        return True, ""     # not this module's scaffold; nothing to judge
+    # Play a real note. With no host nothing writes the per-voice channels, so
+    # `chnget` reads 0 and `kfreq limit …, 20, 12000` pins every voice to 20 Hz —
+    # the bottom of the scaffold's own clamp. That is a legitimate pitch, but it
+    # is not the one this orchestra will mostly be played at, and a body whose
+    # delay line or table index depends on frequency would be judged somewhere
+    # else than where it runs. Inserted at a marker the scaffold owns; the
+    # authored body sits AFTER it, so a body quoting the same line cannot capture
+    # the substitution (str.replace takes the first, which is the scaffold's).
+    marker = 'chnset 1.0000, "osc3oct"\n'
+    presets = "".join(f'chnset {v}, "{c}{i}"\n'
+                      for c, v in (("freq", 220.0), ("gate", 1.0), ("vel", 0.8))
+                      for i in range(1, NCHNLS + 1))
+    inserted = 0
+    if marker in head:
+        head = head.replace(marker, marker + presets, 1)
+        inserted = presets.count("\n")
+    score = "".join(f"i 1 0 {_PERF_SECS} {v}\n" for v in range(1, NCHNLS + 1))
+    csd = f"{head}{sep}{score}e {_PERF_SECS}\n</CsScore>\n</CsoundSynthesizer>\n"
+    fh = tempfile.NamedTemporaryFile("w", suffix=".csd", delete=False,
+                                     encoding="utf-8", errors="replace")
+    path = fh.name
+    try:
+        with fh:
+            fh.write(csd)
+        # -n: render nothing to a device. -d: no graphs. -m0: no per-note stats.
+        r = subprocess.run([binary, "-n", "-d", "-m0", path],
+                           capture_output=True, text=True, timeout=90)
+        if r.returncode == 0:
+            return True, ""
+        return False, _explain_perf((r.stderr or "") + (r.stdout or ""), csd,
+                                    _BODY_OFFSET + inserted)
+    except subprocess.TimeoutExpired:
+        # A body that cannot render a quarter of a second in 90 s cannot be
+        # played by the engine either. Naming it as what it is beats a silent pass.
+        return False, ("this orchestra did not finish rendering a fraction of a "
+                       "second in 90 seconds — something in it does not run in "
+                       "real time")
+    except OSError as exc:
+        # Same reasoning as the syntax gate's spawn failure: an environment that
+        # cannot fork must not be reported as the author's mistake.
+        print(f"lco_write: perform check could not run {binary}: {exc}",
+              file=sys.stderr, flush=True)
+        return True, ""
+    finally:
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
 
 
 def syntax_check(orchestra):
@@ -1270,10 +1769,14 @@ def compile_body(body):
         return {"ok": False, "error": str(exc)}
     if not ok:
         return {"ok": False, "error": err}
+    ok, err = perform_check(orchestra)
+    if not ok:
+        return {"ok": False, "error": err}
     return {"ok": True, "orchestra": orchestra, "params_text": body}
 
 
-def build_csound_response(text, llm, correction="", previous="", on_thinking=None):
+def build_csound_response(text, llm, correction="", previous="",
+                          on_thinking=None, on_body=None, on_attempt=None):
     """Prompt -> live Csound orchestra. The REAL pipeline entry
     (pipe_inference mode=="csound" calls this).
 
@@ -1296,6 +1799,17 @@ def build_csound_response(text, llm, correction="", previous="", on_thinking=Non
     along because a repair starts the reasoning over and whoever is showing it
     has to start over too. It is passed on only if ``llm`` was built to take it;
     the returned response is the same either way.
+
+    ``on_body(attempt, text)`` is the same contract for the CODE — the whole
+    body written so far, replace-not-append. It exists because the code is most
+    of the generation: without it the panel goes dark the moment the reasoning
+    ends and stays dark for minutes (BJ 2026-07-24).
+
+    ``on_attempt(attempt, max_tries, errors)`` fires when a REPAIR round
+    starts, before its inference — the attempt number, the ceiling, and every
+    distinct compiler error the author is being shown. Without it the repair
+    loop is invisible while it runs: each round is a full regeneration, and the
+    panel would sit on attempt 1's caption throughout.
     """
     prompt = (text or "").strip()
     if not prompt:
@@ -1313,15 +1827,37 @@ def build_csound_response(text, llm, correction="", previous="", on_thinking=Non
         user_turn = (f"{prompt}\n\nThe previous attempt was described as: "
                      f"{previous}\nCorrect it: {correction}")
 
-    # ONE selection, used twice: it builds the author's prompt AND is reported
-    # back as the consultation the panel shows. Selecting twice would let the two
-    # drift apart, and a trace that describes a lookup the author never got is
-    # worse than no trace.
-    sel = select(prompt)
-    sysp = system_prompt(prompt, sel)
+    # THE CONSULTATION IS THE AUTHOR'S, NOT PYTHON'S. The system prompt carries
+    # the library INDEX — every entry and what its parameters do, no code. The
+    # author reads the shelf, reasons about the sound, and names what it wants
+    # opened; `_consult` runs that turn and `open_entries` fetches exactly what
+    # it named. Python recognises names, it does not choose.
+    #
+    # What this replaces: `select(prompt)` compared the USER's words against the
+    # lexicon's surface forms and quoted the entries that matched, topped up from
+    # a fixed starter set. That put a word comparison between a person's
+    # description and the library, with a word matcher's holes — "bell" hit,
+    # "bells" did not, German nothing — and it decided deterministically what the
+    # author was allowed to see. BJ, 2026-07-24, standing rule: "es ist mir
+    # strikt untersagt das LLM deterministisch einzuschränken, egal in welcher
+    # Form", and on how the consultation must work instead: "Es geht eine Liste
+    # mit Instrumenten und sonischen Beschreibungen der Parameter in den Prompt.
+    # Thinking wird dann nicht-deterministisch entscheiden was im nächsten Zug
+    # dem LLM aus der Bibliothek zur Verfügung gestellt wird."
+    sysp = system_prompt()
+    consult_raw, named, consult_thinking = _consult(user_turn, sysp, llm, on_thinking)
+    sel = open_entries(named)
     attempts = []
     seen_errors = []   # distinct errors, in first-seen order — the whole repair context
-    turn = user_turn
+    # The writing turn CONTINUES the consultation: the author's own choice stays
+    # in the conversation, so the pages arrive as an answer to what it asked for
+    # rather than as a fresh instruction it has to re-motivate.
+    base = [{"role": "user", "content": user_turn},
+            {"role": "assistant", "content": consult_raw},
+            {"role": "user", "content": _writing_turn(sel)}]
+    if not getattr(llm, "accepts_messages", False):
+        base = _flatten_turn(base)
+    turn = base
     # A repair CONTINUES the conversation instead of starting it over. Handing
     # the author only the errors and the original prompt made every retry a
     # fresh authoring: it re-derived the instrument, re-decided the movement and
@@ -1335,14 +1871,26 @@ def build_csound_response(text, llm, correction="", previous="", on_thinking=Non
     # was written against (fix A, break B, fix B, reintroduce A) stays closed.
     prev_raw = ""          # the author's own last reply, quoted back to it
     last_raw = None        # the one before that — a repeat means the loop is stuck
-    first_thinking = ""    # the reasoning is written ONCE and stays the answer
+    tried = 0              # what actually ran, which the early stop makes < MAX_TRIES
+    # The reasoning is written ONCE — in the consultation, which is the turn
+    # that is nothing but reasoning — and stays the answer. The writing turn is
+    # explicitly asked not to reason again, so without this seed the panel's
+    # THINKING would be empty for every orchestra the two-turn path produces.
+    first_thinking = consult_thinking or ""
     for attempt in range(1, MAX_TRIES + 1):
+        # The panel's only sight of the repair loop: which round is starting
+        # and what it was sent back for. BEFORE the inference, because the
+        # round is a full body regeneration — minutes that would otherwise
+        # still be captioned as attempt 1.
+        tried = attempt
+        if attempt > 1 and on_attempt is not None:
+            on_attempt(attempt, MAX_TRIES, list(seen_errors))
         # No token cap: the orchestra is as long as the sound needs. A cap here
         # would cut the body mid-line, and a truncated generation is not an
         # error — it would arrive as a syntax failure with no cause to show.
         # The fourth argument only exists when someone is watching: the offline
         # callers inject a three-argument llm and must keep working untouched.
-        watcher = _live_thinking(on_thinking, attempt)
+        watcher = _live_watch(on_thinking, on_body, attempt)
         # A conversation only goes out to a surface that says it takes one.
         # Offline callers inject a plain `(text, system, max) -> str`; handing
         # one of those a message list would fail deep inside somebody else's
@@ -1350,6 +1898,11 @@ def build_csound_response(text, llm, correction="", previous="", on_thinking=Non
         # than guessed at from an exception.
         sent = turn if getattr(llm, "accepts_messages", False) else _flatten_turn(turn)
         raw = llm(sent, sysp, None) if watcher is None else llm(sent, sysp, None, watcher)
+        if watcher is not None:
+            # The reply's last line has no newline behind it (an unclosed final
+            # fence is the normal stopped-generation shape) — release it, or
+            # the panel ends one line short of the code the card then carries.
+            watcher.flush()
         body, reading, thinking = sanitize(raw)
         # The reasoning belongs to the SOUND, not to the attempt that finally
         # compiled. A repair is asked not to reason again, so a repaired
@@ -1362,7 +1915,7 @@ def build_csound_response(text, llm, correction="", previous="", on_thinking=Non
             attempts.append("the model returned no code")
             if "you returned no code at all" not in seen_errors:
                 seen_errors.append("you returned no code at all")
-            turn = _continue(user_turn, prev_raw, seen_errors)
+            turn = _continue(base, prev_raw, seen_errors)
             continue
 
         orchestra = wrap(body)
@@ -1373,6 +1926,11 @@ def build_csound_response(text, llm, correction="", previous="", on_thinking=Non
             # re-prompting the author with an environment fault would ask it to
             # repair code that may be perfectly good, five more times.
             return {"ok": False, "error": str(exc), "attempts": attempt}
+        if ok:
+            # …and does it play? A body that only parses can still be silence
+            # (see `perform_check`), and silence that reports success is the one
+            # failure the repair loop can neither see nor answer.
+            ok, err = perform_check(orchestra)
         if ok:
             return {"ok": True, "orchestra": orchestra,
                     "reading": reading or _fallback_reading(body),
@@ -1419,7 +1977,7 @@ def build_csound_response(text, llm, correction="", previous="", on_thinking=Non
         if raw == last_raw and len(seen_errors) == n_before:
             break
         last_raw = raw
-        turn = _continue(user_turn, prev_raw, seen_errors)
+        turn = _continue(base, prev_raw, seen_errors)
 
     # Report every DISTINCT error, not just the last one. The two cases look the
     # same from outside and need opposite responses: six times the same complaint
@@ -1437,10 +1995,17 @@ def build_csound_response(text, llm, correction="", previous="", on_thinking=Non
         detail = f"the same error every time: {distinct[0]}"
     else:
         detail = " | ".join(distinct)
+    # The number of attempts that actually RAN, not the ceiling. The early stop
+    # above leaves the loop before MAX_TRIES, and reporting the ceiling anyway
+    # tells the user (and the trace's REPAIRED station) that six authoring rounds
+    # were spent when three were — which is both false and the wrong diagnosis:
+    # "six times the same complaint" and "it stopped repeating after three" are
+    # different situations. Observed exactly so on "bright shimmer degrading to a
+    # dark rumble": three inferences, reported as six.
     return {"ok": False,
-            "error": "the author could not write a compiling orchestra after "
-                     f"{MAX_TRIES} attempts: {detail}",
-            "attempts": MAX_TRIES}
+            "error": f"the author could not write a compiling orchestra after "
+                     f"{tried} attempt{'' if tried == 1 else 's'}: {detail}",
+            "attempts": tried}
 
 
 def _fallback_reading(body):

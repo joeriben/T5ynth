@@ -20,7 +20,7 @@ No model, no compiler, no IPC: this tests the parser, in-process, in a second.
 
 Run:  .venv/bin/python tools/lco_sanitize_gate.py
 """
-import os, sys
+import os, re, sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "backend"))
 import lco_write as L  # noqa: E402
@@ -246,7 +246,7 @@ for name, reply, _, _ in CASES:
         failures.append(f"{name}: thinking IS the body")
 
 # ── The LIVE reasoning has to end up saying the same thing ──────────────────
-# _live_thinking runs on a buffer truncated at an arbitrary character, so it can
+# _live_watch runs on a buffer truncated at an arbitrary character, so it can
 # fail in ways sanitize() cannot: a fence pattern ending in `$` matches the end
 # of the BUFFER as readily as the end of a line, and a reply whose fence is not
 # at a line start (or absent) gives it nothing to stop at. Both are invisible in
@@ -279,13 +279,81 @@ LIVE_CASES = [
      "What IS this sound: a cello\naexc is the bow, continuous noise\n"
      "kstr holds the played note\nand the body is wood\n"
      "```csound\naexc dust 1.0, 3900\nasig mode aexc, kfreq, 240\nREADING: cello\n```\n"),
+    # ONE code-ish line inside the reasoning ("attack fast, decay slow" carries
+    # no English function word, no sentence end, and matches the code shape),
+    # and a fence whose block opens with comments. That combination printed the
+    # ENTIRE paragraph under WRITING in monospace — duplicating the THINKING
+    # station right above it — for as long as the comments took to arrive.
+    ("a code-ish line in the reasoning, then a fence that opens with comments",
+     "What IS this sound: a struck bell, metal\nattack fast, decay slow\n"
+     "no bow, no breath, one impulse and it is over\n"
+     "```csound\n; the strike: one sample of energy\n; then the modes ring\n"
+     "aexc mpulse 1, 0\nasig mode aexc, kfreq, 900\nREADING: bell\n```\n"),
 ]
 
-for name, reply in LIVE_CASES:
-    frames = []
-    on_delta = L._live_thinking(lambda a, t: frames.append(t), 1)
+def stream_live(reply):
+    """The whole reply through _live_watch one CHARACTER at a time — worse than
+    any real token boundary — plus the end-of-generation flush, exactly as
+    build_csound_response drives it."""
+    frames, code_frames = [], []
+    on_delta = L._live_watch(lambda a, t: frames.append(t),
+                             lambda a, t: code_frames.append(t), 1)
     for ch in reply:
         on_delta(ch)
+    on_delta.flush()
+    return frames, code_frames
+
+
+def check_live_body(name, reply):
+    """The BODY stream must end where sanitize ends, line for line: what the
+    panel watched being written has to be the code the card then carries.
+    Compared on non-empty lines (sanitize drops blanks); the one line sanitize
+    ADDS — the trailing `asig = <var>` recovery for a body routed through
+    `out` under another name — never streamed, so it alone may be missing.
+
+    And no frame ON THE WAY there may show the REASONING as code. That is the
+    second assertion and it is not redundant: a splitter can converge perfectly
+    on the last frame and still print the whole paragraph in monospace for
+    seconds in the middle (adversarial-review finding — one code-ish line like
+    "attack fast, decay slow" in the prose was enough to arm it the moment a
+    fence opened, duplicating the THINKING station right below itself).
+    Checking only the final frame cannot see that, and the middle frames ARE
+    the feature."""
+    _, code_frames = stream_live(reply)
+    body, _, thinking = L.sanitize(reply)
+    live_code = code_frames[-1] if code_frames else ""
+    want = [ln for ln in body.splitlines() if ln.strip()]
+    got = [ln for ln in live_code.splitlines() if ln.strip()]
+    if want and re.fullmatch(r"\s*asig\s*=\s*\w+\s*", want[-1]) and got == want[:-1]:
+        want = want[:-1]
+    if "```" in live_code:
+        failures.append(f"live/{name}: a fence marker reached the live code")
+    elif got != want:
+        failures.append(f"live/{name}: the live code ends on {got!r}, "
+                        f"the card carries {want!r}")
+    else:
+        print(f"  ok   live code: {name}", flush=True)
+
+    # An ENGLISH line the finished answer calls reasoning must never have stood
+    # in a body frame. Codeish lines are exempt on purpose: the author quotes
+    # the library idiom it is adapting in a fence of its own, and while that
+    # block is the only one that has arrived it is legitimately what the panel
+    # shows being written — real Csound, replaced by the real body when it
+    # comes. Prose is the thing that must never appear there. (Prose sanitize
+    # ends up treating as the body — the segment-0 fallback — is not in
+    # `thinking`, so this cannot fire on it either.)
+    prose = {ln.strip() for ln in thinking.splitlines()
+             if ln.strip() and not L._codeishness(ln)}
+    for n, frame in enumerate(code_frames):
+        leaked = [ln.strip() for ln in frame.splitlines() if ln.strip() in prose]
+        if leaked:
+            failures.append(f"live/{name}: body frame {n} of {len(code_frames)} showed "
+                            f"the reasoning as code: {leaked[:2]!r}")
+            break
+
+
+for name, reply in LIVE_CASES:
+    frames, _ = stream_live(reply)
     live = frames[-1] if frames else ""
     _, _, final = L.sanitize(reply)
     if "```" in live or L._codeishness(live) >= 2:
@@ -295,6 +363,17 @@ for name, reply in LIVE_CASES:
                         f"the answer carries {final!r}")
     else:
         print(f"  ok   live: {name}", flush=True)
+    check_live_body(name, reply)
+
+# The live body over the FULL malformed-reply corpus, not only the streaming
+# cases above: the stray closer, the unclosed final fence, the quoted idiom
+# before the real block — the shapes _fence_segments exists for are exactly the
+# shapes a live splitter gets wrong first (adversarial-review finding: a parity
+# toggle passed all six easy cases and went dark on four of these sixteen).
+# The live THINKING is asserted only on LIVE_CASES: sanitize counts prose
+# written AFTER the body as thinking, which no live view can know in time.
+for name, reply, _, _ in CASES:
+    check_live_body("corpus/" + name, reply)
 
 print()
 if failures:

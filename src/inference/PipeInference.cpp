@@ -1276,7 +1276,9 @@ PipeInference::InterpretResult PipeInference::interpret(const juce::String& syst
 PipeInference::CsoundAuthorResult PipeInference::authorCsoundOrchestra(const juce::String& text,
                                                                        const juce::String& correction,
                                                                        const juce::String& previous,
-                                                                       std::function<void(int, const juce::String&)> onThinking)
+                                                                       std::function<void(int, const juce::String&)> onThinking,
+                                                                       std::function<void(int, const juce::String&)> onBody,
+                                                                       std::function<void(int, int, const juce::String&)> onAttempt)
 {
     // Same lock/restart/timeout discipline as interpret() (mode "csound" on
     // the wire) — the backend's {ok, orchestra, reading, params_text, spec,
@@ -1328,7 +1330,7 @@ PipeInference::CsoundAuthorResult PipeInference::authorCsoundOrchestra(const juc
     // that does not know \x04 never sets this and never receives one — an
     // unrecognised status byte would not spoil one request but desynchronise the
     // pipe for the rest of the session.
-    if (onThinking)
+    if (onThinking || onBody || onAttempt)
         json->setProperty("stream", true);
 
     auto jsonStr = juce::JSON::toString(juce::var(json.get()), true);
@@ -1380,12 +1382,26 @@ PipeInference::CsoundAuthorResult PipeInference::authorCsoundOrchestra(const juc
             }
             partJson = juce::String::fromUTF8(part.data(), static_cast<int>(partLen));
         }
-        if (onThinking && partJson.isNotEmpty())
+        if (partJson.isNotEmpty())
         {
+            // Dispatch by kind; a kind this build does not know is ignored by
+            // contract (§4.6), never treated as an error.
             const auto part = juce::JSON::parse(partJson);
-            if (part.getProperty("kind", juce::var()).toString() == "thinking")
-                onThinking(static_cast<int>(part.getProperty("attempt", juce::var(1))),
-                           part.getProperty("text", juce::var()).toString());
+            const auto kind = part.getProperty("kind", juce::var()).toString();
+            const int  att  = static_cast<int>(part.getProperty("attempt", juce::var(1)));
+            if (kind == "thinking" && onThinking)
+                onThinking(att, part.getProperty("text", juce::var()).toString());
+            else if (kind == "body" && onBody)
+                onBody(att, part.getProperty("text", juce::var()).toString());
+            else if (kind == "attempt" && onAttempt)
+            {
+                juce::StringArray errs;
+                if (auto* arr = part.getProperty("errors", juce::var()).getArray())
+                    for (auto& e : *arr)
+                        errs.add(e.toString());
+                onAttempt(att, static_cast<int>(part.getProperty("max", juce::var(0))),
+                          errs.joinIntoString("; "));
+            }
         }
     }
 
@@ -1438,13 +1454,15 @@ PipeInference::CsoundAuthorResult PipeInference::authorCsoundOrchestra(const juc
             };
             result.thinking = parsed.getProperty("thinking", juce::var()).toString();
             const auto consultation = parsed.getProperty("consultation", juce::var());
-            const auto reached = consultation.getProperty("reached", juce::var());
-            result.reachedInstruments = toStrings(reached.getProperty("instruments", juce::var()));
-            result.reachedAdjectives  = toStrings(reached.getProperty("adjectives", juce::var()));
-            result.reachedMotions     = toStrings(reached.getProperty("motions", juce::var()));
-            result.orientedBy         = toStrings(consultation.getProperty("oriented_by", juce::var()));
-            result.reachedNotShown    = toStrings(consultation.getProperty("reached_not_shown", juce::var()));
-            result.libraryEntryCount  = static_cast<int>(consultation.getProperty("library_size", juce::var(0)));
+            const auto named = consultation.getProperty("named", juce::var());
+            result.namedInstruments = toStrings(named.getProperty("instruments", juce::var()));
+            result.namedAdjectives  = toStrings(named.getProperty("adjectives", juce::var()));
+            result.namedMotions     = toStrings(named.getProperty("motions", juce::var()));
+            const auto opened = consultation.getProperty("opened", juce::var());
+            result.openedInstruments = toStrings(opened.getProperty("instruments", juce::var()));
+            result.openedAdjectives  = toStrings(opened.getProperty("adjectives", juce::var()));
+            result.openedMotions     = toStrings(opened.getProperty("motions", juce::var()));
+            result.libraryEntryCount = static_cast<int>(consultation.getProperty("library_size", juce::var(0)));
             result.repairs            = toStrings(parsed.getProperty("repairs", juce::var()));
             result.attempts           = static_cast<int>(parsed.getProperty("attempts", juce::var(0)));
 

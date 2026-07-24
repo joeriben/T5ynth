@@ -296,6 +296,14 @@ valid.
   line of the BODY, not of the wrapped CSD, because whoever is editing has never
   seen the wrapper either. No model is loaded, so this answers in milliseconds.
 
+  A body that parses is compiled AND played for a quarter of a second
+  (`lco_write.perform_check`) before it is called ok. Csound accepts several
+  shapes that cannot make a sound — `vco2 kamp, kcps, 1` skips the opcode's
+  initialisation and dies at the first k-cycle — and without that step the answer
+  would report success for an orchestra the engine then runs in silence. The
+  runtime error comes back in the same `{"ok": false, "error": …}` shape,
+  quoting the same body line.
+
 - **`"analyze"`** (`backend/pipe_inference.py`, intercepted at the top of the
   request loop, right after `interpret`): the CLAP machine-listening "ear" of the
   semantic loop. Decodes the audio carried on the init_audio wire keys
@@ -495,21 +503,38 @@ an unrecognised status byte is not a spoiled response, it is a desynchronised
 pipe for the rest of the session, because the client would read the frame's
 length and payload as the next frame's header.
 
-Today one mode emits it. `mode:"csound"` (§3.3) sends the Csound author's
-**reasoning while it is being written**, so the panel shows the machine's own
-words during the generation instead of after it:
+Today one mode emits it. `mode:"csound"` (§3.3) streams the authoring itself,
+in three kinds, so the panel shows what the machine is doing during the
+generation instead of after it:
 
 ```json
 {"kind": "thinking", "attempt": 1, "text": "What IS this sound: a cello, bowed\n…"}
+{"kind": "body",     "attempt": 1, "text": "aexc dust 1.0, 3900\nasig mode aexc, kfreq, 240"}
+{"kind": "attempt",  "attempt": 2, "max": 6, "errors": ["line 4: used before defined: kpos"]}
 ```
 
-`text` is the whole reasoning so far, not the increment — the cleaning applied
-to it can revise what it has already emitted (a control token completes, a run
-of blank lines collapses), so a client that appended would drift out of step
-with what the author actually wrote. `attempt` counts the author's tries: a
-repair restarts the reasoning, and the client must replace rather than
-continue. Streaming stops at the first fence marker — the code is not
-reasoning, and it arrives with the final `\x03`.
+`thinking` is the author's reasoning while it is being written; it stops at the
+first fence marker, where the code begins. `body` continues from there: the
+code while it is being written, which is most of the generation — line-granular,
+without the fence markers and without the `READING:` line (the final body does
+not carry it either). For both kinds, `text` is the WHOLE text so far, not the
+increment — the cleaning applied to it can revise what it has already emitted
+(a control token completes; a later fenced block replaces an earlier quoted
+one), so a client that appended would drift out of step with what the author
+actually wrote. `attempt` counts the author's tries: a repair restarts the
+text, and the client must replace rather than continue.
+
+**`attempt: 0` is the CONSULTATION** — the turn before any code exists, in which
+the author reads the library index and says which entries it wants opened. It
+emits `thinking` frames only, and it is where the reasoning for the whole sound
+is written: the writing turn is asked not to reason it out a second time, so on
+a first-try authoring no `thinking` frame ever arrives under `attempt: 1`. A
+client that only listens from attempt 1 sees no reasoning at all.
+
+`attempt` frames mark a REPAIR round starting, before its inference runs:
+`attempt` is the round now beginning, `max` the configured ceiling
+(`T5YNTH_LCO_MAX_TRIES`), `errors` every distinct compiler error the author is
+being shown, first-seen order. A first authoring that compiles emits none.
 
 `kind` is the discriminator for anything added later; a client MUST ignore an
 interim frame whose `kind` it does not know rather than treat it as an error.

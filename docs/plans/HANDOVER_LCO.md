@@ -18,10 +18,11 @@ The path, end to end:
 | `mode=csound` request over the stdin/stdout IPC | `src/inference/PipeInference.cpp` → `docs/IPC_PROTOCOL.md` |
 | The author model is located | `backend/pipe_inference.py` `_resolve_coder_model_dir` |
 | The single model surface is built (`csound_llm`, `accepts_messages = True`) | `backend/pipe_inference.py`, csound branch |
-| The prompt is assembled, the model writes, the compiler judges | `backend/lco_write.py` `build_csound_response` |
+| The author reads the index and names what it wants opened | `backend/lco_write.py` `_consult` → `named_entries` → `open_entries` |
+| Those entries' Csound is handed over, the model writes, the compiler judges | `backend/lco_write.py` `build_csound_response` |
 | The orchestra is compiled and run live | `src/dsp/CsoundEngine.cpp` |
 
-`build_csound_response` returns `{ok, orchestra, params_text, reading, thinking, consultation, repairs, attempts, author_model}`. `params_text` is the authored body; `orchestra` is that body inside the host scaffold; `consultation` is which library entries the prompt's own words reached and which the author was shown anyway; `repairs` is the list of Csound errors the body had to be repaired past. The LCO panel's trace (HEARD / LOOKED UP / WROTE / REPAIRED / RUNNING) is fed from those last two — `tools/lco_trace_wire_check.py` is what proves they survive the wire.
+`build_csound_response` returns `{ok, orchestra, params_text, reading, thinking, consultation, repairs, attempts, author_model}`. `params_text` is the authored body; `orchestra` is that body inside the host scaffold; `consultation` is `{named, opened, library_size}` — what the AUTHOR asked for and what was actually put in front of it (the same set, unless no instrument was recognised: then the whole library is opened, and the two must stay distinguishable or the panel reads a full `opened` back as "the author chose nothing"); `repairs` is the list of Csound errors the body had to be repaired past. The LCO panel's trace (HEARD / OPENED / WROTE / REPAIRED / RUNNING) is fed from those last two — `tools/lco_trace_wire_check.py` is what proves they survive the wire.
 
 ### The host scaffold — the only contract the model has to meet
 
@@ -66,30 +67,26 @@ Seven of thirty:
 
 The other 23 are fixed idioms. That is the growth axis of the library, and `LCO_CONCEPT.md` §1 is what it is for: „Parametrisierungshinweise wie 'square ist sharp wenn Wert x = y, ist hollow wenn x = y'".
 
-### What the author gets to see — being rebuilt, and why
+### What the author gets to see — the consultation, BUILT 2026-07-24
 
 **The rule (BJ, 2026-07-24, standing): it is strictly forbidden to constrain the LLM deterministically, in any form.**
 
-Today's code violates it. `select(prompt)` matches the prompt's words against the surface forms and **decides by word comparison which library entries the author is allowed to see**; a prompt that matches nothing gets a fixed default set (`_STARTER`: saw, pwm, fm_bell, additive, struck_bar), capped at `_MAX_INSTRUMENTS` (8). It never blocks the writing and never picks the sound — the author writes either way — but it does deterministically decide the orientation, with exactly the holes a word matcher has: `bell` hits, `bells` does not, German nothing.
+The old code violated it. `select(prompt)` matched the prompt's words against the surface forms and **decided by word comparison which library entries the author was allowed to see**; a prompt that matched nothing got a fixed default set (`_STARTER`: saw, pwm, fm_bell, additive, struck_bar), capped at `_MAX_INSTRUMENTS` (8). It never blocked the writing and never picked the sound — the author wrote either way — but it did deterministically decide the orientation, with exactly the holes a word matcher has: `bell` hit, `bells` did not, German nothing.
 
-**The ordered replacement, in BJ's own words (2026-07-24), NOT yet built:**
+**BJ's own words for the replacement (2026-07-24):**
 
 > „Es geht eine Liste mit Instrumenten und sonischen Beschreibungen der Parameter in den Prompt. Thinking wird dann nicht-deterministisch entscheiden was im nächsten Zug dem LLM aus der Bibliothek zur Verfügung gestellt wird."
 
-Two turns:
+Two turns, and both are one authoring of one sound:
 
-1. The author is shown **the list** — every entry's type and what its parameters mean sonically (the `why` line and the anchor glosses: `string` → `bow` "bowed: drawn with a bow: standing, breathing, the top rubbed off", `pick`, `damp`). Not the code. A few thousand tokens, and a stable prefix.
-2. Its **thinking** names which entries it wants opened. Python fetches exactly those curated Csound idioms and hands them over for the writing. **Python decides nothing** — it looks up what the model named.
+1. The system prompt carries **the index** (`render_index`) — every one of the 98 entries, what it is, and what its parameters do sonically (the `why` line and the anchor glosses: `string` → `bow` "bowed: drawn with a bow: standing, breathing, the top rubbed off", `pick`, `damp`). No Csound. **26 965 characters, ~6.7k tokens** — about what the old 8-entry word-matched excerpt cost, and a stable prefix.
+2. `_consult()` asks the author to think about what the sound IS and name what it wants opened. `named_entries()` reads its reply, `open_entries()` fetches exactly those, `_writing_turn()` hands their real Csound over as the next user turn in the same conversation. **Python decides nothing** — it recognises the names the model used. A reply that names nothing opens the WHOLE library; there is no default set any more.
 
-The curated code exists in order to be seen; the question is only *when*, and the answer is "in turn two, chosen by the author". The surface forms stop being a routing mechanism and remain what they always were underneath: the validation canon of the lexicon's own tests.
+The curated code exists in order to be seen; the question was only *when*, and the answer is "in turn two, chosen by the author". The surface forms stop being a routing layer over the user's prompt and remain what they always were underneath: the lexicon's validation canon, now also how Python recognises what the author asked for.
 
-Consequences already known: the LOOKED UP station disappears with its mechanism — what the machine opened is what its THINKING says, live and afterwards as THOUGHT on the card. This rebuild is in flight in a parallel session; **do not build it twice**.
+Consequences, all landed: the panel station is **OPENED**, not LOOKED UP — it lists what the author asked for and says so, and when the author named nothing it says the whole library was opened rather than printing 98 chips as if they had been chosen. The reasoning now arrives in the consultation, which streams as **`attempt: 0`** (§4.6 of `docs/IPC_PROTOCOL.md`); the writing turn is asked not to reason twice, so on a first-try authoring no reasoning frame ever arrives under attempt 1.
 
-Until it lands, to see what a prompt reaches today:
-
-```bash
-.venv/bin/python -c "import sys;sys.path.insert(0,'backend');import lco_write as W;print(W._lookup('accordeon', W._indexes()[0]))"
-```
+To see what the author asked for on a given prompt, read `consultation.opened` in the answer — e.g. from `tools/lco_author_offline.py --out …`.
 
 ---
 
@@ -156,10 +153,26 @@ Csound 6.18, Homebrew, double precision, no STK.
 
 - **The one-line morph template was the single cause of two separate reported defects**: "sine > pwm" rendering as a *static* pulse (b's duty frozen to a constant, with the DC-correction line then reading `- 0.6 * (2 * 0.5 - 1)` — dead code that proves the modulation was dropped), and "harmonic bell > pwm" being read as `+` rather than `>`. Both were fixed by teaching the shape explicitly: each end of a morph is a **whole instrument** with all of its own moving controls, in its own variable, then `kmorph = min(knote / 2.0, 1)` and a crossfade.
 - **An `=` written before an opcode is the author's dominant compile failure, and NOTHING in the system prompt has fixed it.** The shape is `asig_b = tone asig_b, 400` — an opcode statement typed as an assignment. Csound answers with a bracket complaint that names neither the `=` nor the opcode, so it is easy to chase for rounds without seeing it. A paragraph was added to `_SYSTEM_HEAD` in `b3bd2b19` to prevent it, telling the author that for a morph "what you take from the library has to be renamed" and that "the line KEEPS ITS EXACT SHAPE". **Measured across `tools/lco_morph_corpus.txt`, 8 prompts, same model, greedy, with and without that paragraph: 7/8 compile either way, and the `=` failure simply moves** — with the paragraph it kills `bright shimmer degrading to a dark rumble` (the prompt BJ reported), without it, `sine > pwm > bell`. The paragraph was neither the cause nor the cure. Do not add another prose rule about it; the two mechanisms that DO act on it are the repair turn's `_mechanical_hint` (which names that exact line after the fact) and the shape of the library's own self-referencing statements (`asig tone asig, 1200`, 32 of them — the one form where result and first argument share a name, so a line reads like an assignment).
+- **The mirror slip costs just as much: an assignment written WITHOUT its `=`.** `kbow    0.8` — Csound reads the variable as an opcode name and complains about the number after it ("unexpected NUMBER_TOKEN"), naming neither. Measured 2026-07-24 on `a bowed cello`: the author reproduced the line on the retry and the loop stopped, so the whole authoring was lost to two tokens. `_mechanical_hint` recognises it now. Detection is deliberately narrow — a Csound variable prefix, then nothing but a number to the end of the line; no library line and no scaffold line but `instr 1` has that shape, and the hint is only ever attached to a line the compiler already rejected.
 - **A prose instruction to retype library lines is forbidden regardless of its statistics** — it deterministically constrains the author, which the standing rule forbids, and it contradicts the architecture: the model WRITES Csound, it does not transcribe. That is why the paragraph goes, not because the corpus improved.
 - **`ok` is not a passing morph.** Removing the paragraph made `bright shimmer degrading to a dark rumble` compile on the first attempt — with the correct structure (`kmorph = min(knote / 2.0, 1)` and one crossfade) and a colour trajectory of 867 → 937 Hz, then flat. It does not degrade. Compile success and the named sonic behaviour are separate measurements, and only the second one answers the prompt. `tools/lco_author_offline.py --measure` reports both; read `centroid_travel_hz` before calling a morph fixed.
 - **The class a system-prompt change governs must be in the test set, measured BEFORE the change as well as after.** `b3bd2b19` was validated only afterwards, on four compositional prompts chosen after the fact — none of them a morph carrying adjectives, which is exactly what the paragraph was about. `tools/lco_morph_corpus.txt` is the frozen set for this. Note its limit honestly: greedy decoding has no run-to-run variance, but ANY edit to the system prompt reshuffles every generation, so 8 prompts × 1 run cannot separate "this instruction is harmful" from "the outputs moved". Use it to catch a named prompt regressing, not to certify a prompt change as an improvement.
 - Compositional prompts landing first try, measured on the shipped author: `sine > saw + square` (2× `vco2`, a real layer at the far end, 46 s), `accordeon > guitar + bell` (2× `streson`, 2× `foscili`, 16 `alpass`, 105 s), `a bowed violin morphing into a bell` (75 s, colour travelling 4754 → 402 Hz across the note), `sine > pwm > bell` (two nested morph positions via `asig_mid`, 63 s). **The architecture change BJ floated — two inferences with the morph done outside — is not needed for these.**
+
+**The consultation, measured the day it landed (2026-07-24, `tools/lco_morph_corpus.txt`, same model, greedy, one process)**
+
+| | compiled | mean attempts |
+|---|---|---|
+| word-matched `select()`, with the RENAMING paragraph | 7/8 | — |
+| word-matched `select()`, without it | 7/8 | — |
+| the author's own consultation, syntax gate only | 8/8 | 1.50 |
+| **the consultation + the performance gate** | **8/8** | **1.12** |
+
+- Every prompt in the set compiles AND renders, including `sine > pwm > bell`, which failed under both earlier states. Read this as "no regression, one prompt recovered", not as proof the consultation authors better: any prompt change reshuffles every greedy generation (see the corpus's own limit, above).
+- **The author opens 10.5 of 98 entries on average** (6 to 16), and the choices are visibly its own: `an elephant calling` → `bass_saw` + `sub_sine`; `accordeon > guitar` → `brass`, `cheby`, `clarinet`, `string` — it reached for the one reed in the library because there is no accordion entry, which is the same hole §6 item 1 records.
+- **A compiling orchestra was still silent.** `bright shimmer degrading to a dark rumble` passed at attempt 1 and rendered nothing: `vco2 …, 1`, where imode bit 1 means "skip initialisation". `csound --syntax-check-only` accepts it; the first k-cycle raises `vco2: not initialised`. `vco2 …, 2` without its `kpw` is the same class (`INIT ERROR`, note deleted). Both were reaching the engine as successful authorings. `perform_check()` closes it: the wrapped orchestra is played for `_PERF_SECS` (0.25 s, ~0.1 s of wall clock) through the real CLI with the voice channels preset to a played note (220 Hz, gate 1), and Csound's own runtime message goes back to the author as an ordinary repair. All 94 library snippets pass it. It tests whether the orchestra RUNS, never how it sounds — `asig = 0` passes.
+- **The gate alone was not enough.** With it, the author reproduced the same `vco2 …, 1` byte for byte on the retry and the loop stopped: "not initialised" does not tell anyone that a `1` in the third position is the cause. `_mechanical_hint` now recognises that line too and names the one Csound fact the message omits (imode is a bit sum; bit 1 skips initialisation; the waveforms are 0/2/4). With the hint the same prompt repairs on the second attempt — and then authors it on the FIRST, with the colour travelling 1264 → 837 Hz across the note. It degrades.
+- **The gate does not reach an installed T5ynth.** `perform_check` needs the csound CLI, because performing means `csoundStart` and doing that in-process would run model-written Csound inside the backend that holds the 12B model. `tools/bundle_csound_macos.sh` ships only `CsoundLib64`. Where there is no CLI the gate returns "unchecked", never a false failure — so the machine where "reports success, sounds silent" actually happens is the one machine the fix does not yet cover. Decide it with the Csound bundling (§6, release blocker).
 
 ---
 
@@ -169,12 +182,14 @@ Csound 6.18, Homebrew, double precision, no STK.
 
 1. **A reed-instrument entry.** BJ, 2026-07-24: „ja, mache einen eintrag für reed-instrumente". The library has **no reed instrument at all** — no accordion, harmonium, bandoneon, concertina, melodica or harmonica, and none of the blown reeds either (saxophone, oboe, bassoon, bagpipe); `clarinet` is the only one, as its own key, and `organ` carries the words "reed organ". The mallet family has the same hole: no vibraphone and no marimba, while `struck_bar` covers glockenspiel, celesta and kalimba. (`rhodes` and `wurlitzer` are not missing — they are `fm_ep`; the concept document's „Instruments 4–6" never became separate entries.)
 
-   The nuance before treating this as a bug report: the author writes a *good* accordion from its own knowledge (BJ: „das accordeon alleine ist überhaupt kein Problem → s. preset → klingt großartig"). What is missing is a curated, measured, ear-approved idiom for that family — not the ability to make the sound.
+   The nuance before treating this as a bug report: the author writes a *good* accordion from its own knowledge (BJ: „das accordeon alleine ist überhaupt kein Problem → s. preset → klingt großartig"). What is missing is a curated, measured, ear-approved idiom for that family — not the ability to make the sound. The consultation now shows the hole from the inside: asked for `accordeon > guitar`, the author opens `brass`, `cheby`, `clarinet`, `string` — it reaches for the one reed there is.
+
+2. **The performance gate does not reach an installed T5ynth, and that is solved WITH the Csound bundling** (BJ, 2026-07-24). `perform_check` needs a Csound in a separate process, because performing means `csoundStart` and doing that in-process would run model-written Csound inside the backend that holds the 12B model. `tools/bundle_csound_macos.sh` bundles only `CsoundLib64`, and no workflow runs it at all — so no installer carries Csound and the LCO is silent there regardless (the release blocker below). The decided shape: a short-lived CHILD process of the backend (`sys.executable` plus a flag) that loads the already-bundled `CsoundLib64` through ctypes, plays the quarter second and exits with a return code — process isolation without shipping a CLI binary. Whoever takes the bundling blocker takes this with it.
 
 **Waiting on BJ's ear — these cannot be closed by a gate**
 
-2. The FM family's axes (`index`, `ring`, `detune` on `fm`, `fm_bell`, `metallic_fm`) — bite, fade, shimmer. Built, never heard.
-3. The `string`'s three anchors (`bow`, `pick`, `damp`). BJ heard v1 and asked for a more scattered exciter; the current entry is the answer to that and has been heard only as the audition set. Where "plucked", "mixed" and "bowed" sit on the axis is curation, not measurement.
+3. The FM family's axes (`index`, `ring`, `detune` on `fm`, `fm_bell`, `metallic_fm`) — bite, fade, shimmer. Built, never heard.
+4. The `string`'s three anchors (`bow`, `pick`, `damp`). BJ heard v1 and asked for a more scattered exciter; the current entry is the answer to that and has been heard only as the audition set. Where "plucked", "mixed" and "bowed" sit on the axis is curation, not measurement.
 
 **Deferred by BJ, cause known**
 
@@ -183,7 +198,7 @@ Csound 6.18, Homebrew, double precision, no STK.
 
 **Known, not changed because it is runtime semantics and nobody ordered it**
 
-7. `string quartet`, `string ensemble` and `string section` reach **both** `strings` and `string`: the bare word "string" is inside the phrase and `_lookup` collects every match with no longest-wins rule. Harmless today (the author is oriented by both and picks), and it disappears entirely with the rebuild in §2 — the word matcher stops choosing anything. Do not fix it in the matcher; it is a symptom of the mechanism being replaced.
+7. `string quartet`, `string ensemble` and `string section` reach **both** `strings` and `string`: the bare word "string" is inside the phrase and `_lookup` collects every match with no longest-wins rule. It no longer stands between the user and the library — `_lookup` reads the AUTHOR's reply now — so at worst the author is handed one entry it did not ask for. Leave it: a longest-wins rule would start deciding which of two entries the author meant.
 
 **Housekeeping that needs a decision from BJ**
 
@@ -208,6 +223,8 @@ The concept document is authoritative for **the goal (§1), the architecture (§
 | §5 title: „The three instruments (current proof of concept)" | 30 instruments, 7 of them parametrised. §5's *measured facts* about instruments 1–3 all still hold and are still the best record of them. |
 | §8: the ten hand-maintained Python sets, `_ADJ_MAP` as post-mix DSP, `_emit_crossfade_morph` | All of that was `csound_orch.py`. The growth blocker it describes is gone with it; adding an instrument is now one lexicon entry plus a library rebuild. |
 | §9 items 5, 6, 7 (cross-cutting properties into generation; the morph as a real waveform morph; the ten sets) | Answered by the architecture change: the model writes the code, so adjectives and morphs are in the emitted Csound by construction. §9 items 1, 2, 3, 4 and 8 stand. |
+
+**§2 and §3 item 4 were CORRECTED in place on 2026-07-24** to describe the consultation — the index goes into the system prompt, the author names what it wants opened, Python fetches exactly that. Those two passages are BJ's order recorded, not a state report, and are authoritative; the rest of the table above still stands.
 
 Also superseded by the same change: the plan file `/Users/joerissen/.claude/plans/hashed-chasing-snowflake.md` ("LCO v1: Adjektive in die Codegenerierung + 4 Familien parametrisieren") is written entirely against `backend/csound_orch.py`. Its *intent* — many adjectives must move parameters inside the algorithm — is now satisfied by the model writing the code. Its mechanics are not implementable.
 

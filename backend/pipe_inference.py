@@ -3701,17 +3701,41 @@ def main():
                 # to a surface that says it takes one.
                 csound_llm.accepts_messages = True
 
-                # The reasoning, live. Gated on the request so a client that does
+                # The authoring, live. Gated on the request so a client that does
                 # not know the \x04 frame never sees one: the backend ships with
                 # the plugin, but during development the two versions mix freely,
                 # and an unrecognised frame byte would desynchronise the pipe for
-                # the rest of the session, not just for this request.
+                # the rest of the session, not just for this request. Three kinds
+                # (§4.6): the reasoning, the code as it is written, and each
+                # repair round as it starts — a client ignores kinds it does not
+                # know, so the three degrade independently.
                 on_thinking = None
+                on_body = None
+                on_attempt = None
                 if request.get("stream"):
                     def on_thinking(attempt, thinking):
                         send_partial(json.dumps({"kind": "thinking",
                                                  "attempt": attempt,
                                                  "text": thinking}))
+
+                    # The token output itself. The code is most of the
+                    # generation, and it was the invisible part: the panel went
+                    # dark the moment the reasoning ended and stayed dark for
+                    # minutes (BJ 2026-07-24).
+                    def on_body(attempt, code):
+                        send_partial(json.dumps({"kind": "body",
+                                                 "attempt": attempt,
+                                                 "text": code}))
+
+                    # A repair round starting: attempt counter, ceiling, and
+                    # every distinct compiler error the author is being shown.
+                    # Each round regenerates the whole body — without this frame
+                    # those minutes are captioned as attempt 1.
+                    def on_attempt(attempt, max_tries, errors):
+                        send_partial(json.dumps({"kind": "attempt",
+                                                 "attempt": attempt,
+                                                 "max": max_tries,
+                                                 "errors": errors}))
 
                 # DEPRECATED (LCO self-check deactivated 2026-07-21): the product no
                 # longer sends `correction`/`previous` — the C++ bake stopped running
@@ -3721,7 +3745,9 @@ def main():
                 response = build_csound_response(request.get("text") or "", csound_llm,
                                                  request.get("correction") or "",
                                                  request.get("previous") or "",
-                                                 on_thinking=on_thinking)
+                                                 on_thinking=on_thinking,
+                                                 on_body=on_body,
+                                                 on_attempt=on_attempt)
                 # Report WHICH model actually authored. The UI otherwise shows a
                 # hardcoded name and cannot tell that the resolver walked past the
                 # intended slot: an install missing its shard map fails

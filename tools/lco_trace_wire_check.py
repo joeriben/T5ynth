@@ -1,26 +1,27 @@
 """Does the authoring TRACE actually arrive on the wire the plugin drives?
 
-The LCO panel's trace (HEARD / LOOKED UP / WROTE / REPAIRED / RUNNING) is fed by
+The LCO panel's trace (HEARD / OPENED / WROTE / REPAIRED / RUNNING) is fed by
 two fields backend/lco_write.py now reports and previously discarded:
-`consultation` (which library entries the prompt's own words reached, and which
-the author was shown for orientation anyway) and `repairs` (the Csound errors
-the body had to be repaired past). If either is missing or mis-shaped, the panel
-silently degrades to a trace with holes in it — visible only by eye, which is
-exactly what this check exists to avoid.
+`consultation` (which library entries the AUTHOR asked to have opened, having
+read the index and decided for itself) and `repairs` (the Csound errors the body
+had to be repaired past). If either is missing or mis-shaped, the panel silently
+degrades to a trace with holes in it — visible only by eye, which is exactly
+what this check exists to avoid.
 
 So this exercises the ACTUAL wire (mode=csound over the pipe_inference IPC
 subprocess, project rule), not an in-process call, and asserts the SHAPE the C++
 side parses in PipeInference::authorCsoundOrchestra.
 
-What it deliberately does NOT assert: which entries a given prompt reaches, or
-that a body compiles first try. Those are the author's and the library's
-business and change legitimately; the contract under test is that the trace
-travels at all and is shaped as the panel reads it.
+What it deliberately does NOT assert: which entries a given prompt opens, or
+that a body compiles first try. Those are the author's own decisions and change
+legitimately — asserting them here would be this check telling the model what to
+choose. The contract under test is that the trace travels at all and is shaped
+as the panel reads it.
 
 Run:  .venv/bin/python tools/lco_trace_wire_check.py
 Writes tools/lco_trace_wire_out/results.json (untracked, like every *_out).
 """
-import json, struct, subprocess, os, sys
+import json, re, struct, subprocess, os, sys
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT = os.path.join(REPO, "tools", "lco_trace_wire_out")
@@ -67,9 +68,10 @@ def call(payload, partials=None):
     return json.loads(body)
 
 
-# One prompt that reaches a library word ("string") and one that reaches almost
-# nothing: the second is the case where `reached` is thin and `oriented_by`
-# carries the starter top-up, which the panel MUST draw as a different thing.
+# One prompt whose vocabulary the library plainly covers and one whose does not:
+# the second is where the author has nothing obvious to reach for, and either
+# names entries anyway or names none — the branch where the whole library is
+# opened. Both must arrive on the wire in the same shape.
 CASES = ["a bowed cello", "the colour of wet slate at dusk"]
 
 results, failures = [], []
@@ -86,15 +88,15 @@ for prompt in CASES:
     if not isinstance(c, dict):
         failures.append(f"{prompt!r}: no `consultation` on the wire")
         continue
-    reached = c.get("reached")
-    if not isinstance(reached, dict):
-        failures.append(f"{prompt!r}: `consultation.reached` is not an object")
+    opened, named = c.get("opened"), c.get("named")
+    if not isinstance(opened, dict) or not isinstance(named, dict):
+        failures.append(f"{prompt!r}: `consultation.opened`/`named` is not an object")
         continue
     for section in ("instruments", "adjectives", "motions"):
-        if not isinstance(reached.get(section), list):
-            failures.append(f"{prompt!r}: `reached.{section}` is not a list")
-    if not isinstance(c.get("oriented_by"), list):
-        failures.append(f"{prompt!r}: `oriented_by` is not a list")
+        if not isinstance(opened.get(section), list):
+            failures.append(f"{prompt!r}: `opened.{section}` is not a list")
+        if not isinstance(named.get(section), list):
+            failures.append(f"{prompt!r}: `named.{section}` is not a list")
     if not isinstance(c.get("library_size"), int) or c.get("library_size") <= 0:
         failures.append(f"{prompt!r}: `library_size` is not a positive int")
     if not isinstance(r.get("repairs"), list):
@@ -115,45 +117,92 @@ for prompt in CASES:
     elif r["thinking"].strip() == (r.get("params_text") or "").strip():
         failures.append(f"{prompt!r}: `thinking` is a copy of the body, not reasoning")
 
-    # The reasoning has to arrive WHILE it is written, not only with the final
-    # frame — that is the whole point of \x04. Three things can break silently
-    # here and none of them shows by eye until someone watches a live authoring:
-    # no frames at all (streaming off, or the gate not honoured), Csound in a
-    # frame (the fence cut failed and the panel would print code as reasoning),
-    # or a last frame that does not match the thinking the answer carries (the
-    # panel would end on text the author revised away).
+    # The authoring has to arrive WHILE it is written, not only with the final
+    # frame — that is the whole point of \x04. Things that break silently here
+    # show by eye only when someone watches a live authoring: no frames at all
+    # (streaming off, or the gate not honoured), Csound in a thinking frame
+    # (the fence cut failed and the panel would print code as reasoning), a
+    # last frame that does not match what the answer carries (the panel would
+    # end on text the author revised away), or no body frames (the panel goes
+    # dark for the code — the long half of the generation, which is what §4.6's
+    # `body` kind exists for).
     if not partials:
         failures.append(f"{prompt!r}: nothing streamed — no \\x04 frame arrived")
     else:
-        bad = [q for q in partials if q.get("kind") != "thinking"
-               or not isinstance(q.get("text"), str)
-               or not isinstance(q.get("attempt"), int)]
+        # Per-kind shape, per §4.6. A kind this check does not know is what a
+        # CLIENT must ignore; a checker that ignored it too would let a typo'd
+        # kind ship as a frame every client drops on the floor.
+        def misshaped(q):
+            k = q.get("kind")
+            if k in ("thinking", "body"):
+                return not isinstance(q.get("text"), str) or not isinstance(q.get("attempt"), int)
+            if k == "attempt":
+                return (not isinstance(q.get("attempt"), int)
+                        or not isinstance(q.get("max"), int)
+                        or not isinstance(q.get("errors"), list))
+            return True
+        bad = [q for q in partials if misshaped(q)]
         if bad:
             failures.append(f"{prompt!r}: {len(bad)} interim frames are mis-shaped")
-        leaked = [q for q in partials if "```" in q.get("text", "")]
+        thoughts = [q for q in partials if q.get("kind") == "thinking"]
+        bodies   = [q for q in partials if q.get("kind") == "body"]
+        leaked = [q for q in thoughts + bodies if "```" in q.get("text", "")]
         if leaked:
-            failures.append(f"{prompt!r}: a fence reached the live reasoning "
-                            f"({len(leaked)} frames) — the code would be shown as thought")
-        last = partials[-1]
-        if last.get("attempt") == r.get("attempts") and last.get("text") != (r.get("thinking") or ""):
-            failures.append(f"{prompt!r}: the last streamed reasoning is not the "
-                            "reasoning the answer carries")
-        print(f"   streamed {len(partials)} frames, last from attempt "
-              f"{last.get('attempt')} of {r.get('attempts')}", flush=True)
+            failures.append(f"{prompt!r}: a fence marker reached the live stream "
+                            f"({len(leaked)} frames)")
+        if thoughts:
+            last = thoughts[-1]
+            if last.get("attempt") == r.get("attempts") and last.get("text") != (r.get("thinking") or ""):
+                failures.append(f"{prompt!r}: the last streamed reasoning is not the "
+                                "reasoning the answer carries")
+        if not bodies:
+            failures.append(f"{prompt!r}: the code never streamed — no `body` frame")
+        else:
+            # The live code the panel ended on must be the code the card then
+            # carries: every line of the final body has to have streamed. Not
+            # byte equality — sanitize APPENDS one line nothing could have
+            # streamed, the `asig = <var>` recovery for a body that routed its
+            # output through `out` under another name. Only that trailing line
+            # is exempt, and only in that exact shape: excluding every `asig =`
+            # line would hide a real one that failed to stream.
+            streamed = {ln.strip() for ln in bodies[-1].get("text", "").splitlines() if ln.strip()}
+            final = [ln.strip() for ln in (r.get("params_text") or "").splitlines() if ln.strip()]
+            if final and re.fullmatch(r"asig\s*=\s*\w+", final[-1]) and final[-1] not in streamed:
+                final = final[:-1]
+            missing = [ln for ln in final if ln not in streamed]
+            if missing:
+                failures.append(f"{prompt!r}: {len(missing)} of {len(final)} body lines "
+                                f"never streamed (first: {missing[0]!r})")
+        print(f"   streamed {len(partials)} frames ({len(thoughts)} thinking, "
+              f"{len(bodies)} body), attempts {r.get('attempts')}", flush=True)
 
-    # The one SEMANTIC invariant worth asserting: an entry may never be counted
-    # both as something the prompt reached and as orientation it did not. That
-    # distinction is the whole reason the panel draws the two differently, and a
-    # regression in select() would make the trace quietly lie.
-    overlap = set(c.get("oriented_by") or []) & set(reached.get("instruments") or [])
-    if overlap:
-        failures.append(f"{prompt!r}: {sorted(overlap)} counted as BOTH reached and orientation")
+    # The SEMANTIC invariants worth asserting. `named` is read out of the
+    # author's own prose, so a broken reader would happily report entries that
+    # were never fetched — and the panel would show the machine consulting things
+    # it never saw. `named` must therefore be a SUBSET of `opened`: everything
+    # asked for was handed over, and the two differ only by what the backend
+    # added on top (the whole library, when no instrument was recognised).
+    sections = ("instruments", "adjectives", "motions")
+    n_opened = sum(len(opened.get(s) or []) for s in sections)
+    n_named = sum(len(named.get(s) or []) for s in sections)
+    if n_opened > c["library_size"]:
+        failures.append(f"{prompt!r}: {n_opened} entries opened out of a library of "
+                        f"{c['library_size']}")
+    if len(set(sum((opened.get(s) or [] for s in sections), []))) != n_opened:
+        failures.append(f"{prompt!r}: the same entry is listed twice in `opened`")
+    for s in sections:
+        extra = set(named.get(s) or []) - set(opened.get(s) or [])
+        if extra:
+            failures.append(f"{prompt!r}: {sorted(extra)} named in {s} but never opened")
+    # The panel reads a full `opened` as "the whole library was opened"; that is
+    # only ever true when no instrument was named, and it must stay true.
+    if n_opened >= c["library_size"] and (named.get("instruments") or []):
+        failures.append(f"{prompt!r}: the whole library was opened although "
+                        f"{named['instruments']} was named")
 
-    n_reached = sum(len(reached.get(s) or []) for s in ("instruments", "adjectives", "motions"))
-    print(f"   reached {n_reached} of {c.get('library_size')}: "
-          f"{reached.get('instruments')} {reached.get('adjectives')} {reached.get('motions')}",
+    print(f"   named {n_named}, opened {n_opened} of {c.get('library_size')}: "
+          f"{named.get('instruments')} {named.get('adjectives')} {named.get('motions')}",
           flush=True)
-    print(f"   orientation: {c.get('oriented_by')}", flush=True)
     print(f"   attempts {r.get('attempts')}, repairs {len(r.get('repairs') or [])}", flush=True)
     for e in (r.get("repairs") or []):
         print(f"      repaired past: {e}", flush=True)

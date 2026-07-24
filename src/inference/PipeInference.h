@@ -167,20 +167,19 @@ public:
         // one place the machine says WHY this code. Empty when the reply had no
         // prose outside the fence.
         juce::String thinking;
-        // What the prompt's OWN WORDS reached in the library, by section. An
-        // empty motions list is a real finding, not a gap in the data — it says
-        // the prompt named no movement, which movement-by-default then has to
-        // answer for.
-        juce::StringArray reachedInstruments, reachedAdjectives, reachedMotions;
-        // Entries the author was ALSO shown because the prompt reached too few
-        // instruments (lco_write._STARTER). Kept apart from the reached ones:
-        // presenting orientation as understanding is the one lie this surface
-        // exists to prevent.
-        juce::StringArray orientedBy;
-        // Reached by the prompt but past the author's quote limit, so the words
-        // landed and the entry still never travelled. The one case where the
-        // machine understood and the understanding was dropped anyway.
-        juce::StringArray reachedNotShown;
+        // What the AUTHOR ASKED FOR, by section. The write-path reads the shelf
+        // (every entry and what its parameters do, no code), reasons about the
+        // sound, and names what it wants. So this is the model's own choice, not
+        // a word match against the prompt. An empty motions list is a real
+        // finding, not a gap in the data: it says the author asked for no
+        // movement, which movement-by-default then has to answer for.
+        juce::StringArray namedInstruments, namedAdjectives, namedMotions;
+        // What was actually PUT IN FRONT OF IT. Normally the same set; it is the
+        // whole library when the author named no instrument, because neither
+        // "asked for none" nor "named one this reader could not place" tells the
+        // backend which subset the author may see. Kept apart from `named` so the
+        // panel never has to infer one from the other.
+        juce::StringArray openedInstruments, openedAdjectives, openedMotions;
         int libraryEntryCount = 0;  // entries in the whole library, for "n of N"
         // Csound's own errors this body had to be repaired past, in first-seen
         // order; empty when it compiled on the first attempt.
@@ -256,14 +255,27 @@ public:
      *                     reasoning while it is still being written, and with
      *                     the attempt it belongs to — a repair restarts the
      *                     reasoning, so the text replaces rather than continues.
-     *                     Supplying it is what asks the backend to stream at
-     *                     all; without it the wire bytes are exactly what they
-     *                     always were. The callback must marshal to the message
-     *                     thread itself before touching any component. */
+     *                     Supplying any of the three callbacks is what asks the
+     *                     backend to stream at all; without them the wire bytes
+     *                     are exactly what they always were. Every callback must
+     *                     marshal to the message thread itself before touching
+     *                     any component.
+     *  @param onBody      the same contract for the CODE (§4.6 kind "body"):
+     *                     the whole body written so far, replace-not-append.
+     *                     The code is most of the generation — this is what
+     *                     keeps the panel from going dark for minutes the
+     *                     moment the reasoning ends.
+     *  @param onAttempt   a REPAIR round starting (§4.6 kind "attempt"), before
+     *                     its inference runs: the round number, the configured
+     *                     ceiling, and the distinct compiler errors the author
+     *                     is being shown, joined "; " for a status line. A
+     *                     first authoring that compiles never fires it. */
     CsoundAuthorResult authorCsoundOrchestra(const juce::String& text,
                                              const juce::String& correction = {},
                                              const juce::String& previous = {},
-                                             std::function<void(int, const juce::String&)> onThinking = {});
+                                             std::function<void(int, const juce::String&)> onThinking = {},
+                                             std::function<void(int, const juce::String&)> onBody = {},
+                                             std::function<void(int, int, const juce::String&)> onAttempt = {});
 
     /** Preload a model+device combo so first generate is fast.
      *  Blocking — call from background thread. Returns true on success. */

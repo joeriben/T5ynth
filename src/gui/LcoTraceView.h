@@ -9,8 +9,8 @@
 // a rule.
 //
 //   HEARD      the prompt that was authored
-//   LOOKED UP  the library entries the prompt's own WORDS reached, plus the
-//              orientation entries the author was shown anyway
+//   OPENED     the library entries the AUTHOR asked to have opened, having read
+//              the shelf and decided what this sound needs
 //   WROTE      which model wrote it, and its own one-line reading
 //   REPAIRED   the Csound errors it had to be repaired past (absent when it
 //              compiled first try — an absent station is a fact, not a gap)
@@ -22,14 +22,15 @@
 // write-path's own bookkeeping, which used to be discarded inside Python.
 //
 // Two consequences that are deliberate and must not be "tidied away":
-//  - `reached` and `orientedBy` are drawn differently and labelled apart.
-//    lco_write.select() tops the instrument list up from a starter set whenever
-//    a prompt reaches too few, so most entries the author sees for a short
-//    prompt are NOT things the prompt said. Drawing them alike would make the
-//    panel claim an understanding that never happened.
-//  - an empty motions list is shown as such. "No movement word" is exactly the
-//    condition movement-by-default has to answer for, and hiding it would hide
-//    the interesting case.
+//  - the chips are the AUTHOR's choice, and the caption says so. Python no
+//    longer decides what the author may see: the system prompt carries the whole
+//    shelf and the author names what it wants. `named` (the chips) and `opened`
+//    (the count line) are kept apart because they differ exactly when the author
+//    named no instrument — the backend then opens everything, and the station
+//    must not read that back as "the author chose nothing".
+//  - an empty motions list is shown as such. "No movement asked for" is exactly
+//    the condition movement-by-default has to answer for, and hiding it would
+//    hide the interesting case.
 //
 // Idle-cheap: paints only when something is set. No animation, and the only
 // timer runs between a mouse-down and the flip it may become — never at idle.
@@ -57,16 +58,14 @@ public:
         juce::String model;       // the model that actually wrote it
         juce::String reading;     // the author's own READING line
         juce::String thinking;    // its reasoning before the code, verbatim
-        // The consultation. `consultationKnown` is what separates "this prompt
-        // reached nothing in the library" (a finding, drawn as such) from "no
-        // consultation was recorded for this orchestra" (a recall, where the
-        // station is left OUT). Without the flag the two are the same empty
-        // list, and every preset load would accuse its own prompt of being
-        // unknown vocabulary.
+        // The consultation. `consultationKnown` is what separates "the author
+        // asked for nothing" (a finding, drawn as such) from "no consultation
+        // was recorded for this orchestra" (a recall, where the station is left
+        // OUT). Without the flag the two are the same empty list, and every
+        // preset load would report a consultation that never happened.
         bool consultationKnown = false;
-        juce::StringArray reachedInstruments, reachedAdjectives, reachedMotions;
-        juce::StringArray orientedBy;   // shown to the author, NOT reached by the prompt
-        juce::StringArray reachedNotShown;  // reached, but past the author's quote limit
+        juce::StringArray namedInstruments, namedAdjectives, namedMotions;
+        juce::StringArray openedInstruments, openedAdjectives, openedMotions;
         int libraryEntryCount = 0;
         juce::StringArray repairs;      // compiler errors repaired past, first-seen order
         int attempts = 0;               // 1 = compiled on the first pass
@@ -126,6 +125,10 @@ public:
         // twice, once out of date.
         live_.clear();
         liveAttempt_ = 0;
+        liveBody_.clear();
+        liveBodyAttempt_ = 0;
+        followWriting_ = false;
+        lastFollowY_ = 0;
         compile_ = CompileState::Unknown;
         compileDetail_.clear();
         turnToFront();
@@ -152,10 +155,28 @@ public:
         trace_ = {};
         live_.clear();
         liveAttempt_ = 0;
+        liveBody_.clear();
+        liveBodyAttempt_ = 0;
+        followWriting_ = false;
+        lastFollowY_ = 0;
         compile_ = CompileState::Unknown;
         compileDetail_.clear();
         turnToFront();
         relayout();
+    }
+
+    /** Update ONLY the line's words while an authoring runs — "Reading the
+     *  library", "Writing the instrument", "Repairing (attempt 2 of 6): ...".
+     *  setStatus is a STATE CHANGE and clears the live stream with the trace;
+     *  calling it per phase would blank the reasoning and code already on
+     *  screen. This touches nothing but the text. */
+    void setStatusLine(const juce::String& text)
+    {
+        if (trace_.valid || text == status_)
+            return;
+        status_ = text;
+        if (! showBack_)
+            relayout();
     }
 
     /** The author's reasoning WHILE it is being written, above the status line
@@ -182,6 +203,46 @@ public:
         // turns back.
         if (! showBack_)
             relayout();
+    }
+
+    /** The CODE while it is being written, under the reasoning — the long half
+     *  of the generation, and the part that used to be dark (BJ 2026-07-24:
+     *  minutes of "Writing the instrument" with no sight of the token output).
+     *  Same replace-not-append contract as setLiveThinking, same reason; a
+     *  repair's body replaces the failed one's.
+     *
+     *  Ignored once a trace has arrived: only the attempt that compiled may
+     *  caption the sound, and its code is already the back of the card. */
+    void setLiveBody(int attempt, const juce::String& code)
+    {
+        if (trace_.valid || (code == liveBody_ && attempt == liveBodyAttempt_))
+            return;
+        const bool firstCode = liveBody_.isEmpty();
+        liveBodyAttempt_ = attempt;
+        liveBody_ = code;
+        if (showBack_)
+            return;   // held, not drawn — setLiveThinking's own rule
+        // Follow the pen. Engagement is a STATE, not a bottom test: with a
+        // reasoning taller than the viewport the view sits at the top when the
+        // first code arrives, "already at the bottom" can never become true on
+        // its own, and a plain bottom test would simply never engage. So the
+        // first code line engages the follow; scrolling AWAY from where the
+        // follow last put the view disengages it (the reader went back up);
+        // returning to the bottom engages it again.
+        const int posBefore    = viewport_.getViewPositionY();
+        const int bottomBefore = juce::jmax(0, content_.getHeight() - viewport_.getViewHeight());
+        if (firstCode)
+            followWriting_ = true;
+        else if (followWriting_ && posBefore < lastFollowY_ - 4)
+            followWriting_ = false;
+        else if (! followWriting_ && posBefore >= bottomBefore - 4)
+            followWriting_ = true;
+        relayout();
+        if (followWriting_)
+        {
+            lastFollowY_ = juce::jmax(0, content_.getHeight() - viewport_.getViewHeight());
+            viewport_.setViewPosition(0, lastFollowY_);
+        }
     }
 
     /** The RUNNING station: the compile window's own report. Kept separate from
@@ -342,6 +403,11 @@ private:
         // The two sides scroll independently in one viewport, so an arrival at
         // the bottom of a long trace would otherwise open the code halfway down.
         viewport_.setViewPosition(0, 0);
+        // …and that reset is not the reader scrolling up. Without this, coming
+        // back to the front mid-generation would look to setLiveBody like
+        // someone leaving the pen behind, and the follow would stay off for the
+        // rest of the authoring.
+        lastFollowY_ = 0;
         // Code does not wrap — a wrapped Csound line is a different line. The
         // back scrolls sideways instead; the front never needs to.
         viewport_.setScrollBarsShown(true, showBack_);
@@ -523,6 +589,78 @@ private:
         return juce::roundToInt(y + 7.0f);
     }
 
+    /** The code while it is being written, in the back page's own dress —
+     *  monospace, the trailing `;` comment set apart — but only its TAIL.
+     *
+     *  A tail on purpose: this is laid out once per streamed line for the
+     *  length of a 12B generation, and shaping the whole growing body each
+     *  time is the idle-CPU regression class this project keeps having. The
+     *  full text is on the back of the card the moment the trace lands.
+     *
+     *  Ellipsized, never wrapped: a wrapped Csound line is a different line
+     *  (renderBody's own rule), and the front has no horizontal scroll. */
+    float liveCode(juce::Graphics* g, float y0, float ww) const
+    {
+        constexpr int kTail = 14;
+        juce::StringArray lines;
+        lines.addLines(liveBody_);
+        const int from = juce::jmax(0, lines.size() - kTail);
+        const float x = static_cast<float>(textX());
+        // Braces, not parens: `Font f(FontOptions(x))` is a function declaration.
+        const juce::Font f { juce::FontOptions(juce::Font::getDefaultMonospacedFontName(),
+                                               juce::jmax(9.5f, base_ * 0.86f),
+                                               juce::Font::plain) };
+        const float lineH = std::round(f.getHeight() * 1.30f);
+        float y = y0;
+        if (from > 0)
+        {
+            // The hidden head, named — a tail that does not say it is one
+            // reads as the whole body.
+            const juce::Font fHead { juce::FontOptions(hintFont()) };
+            const float headH = std::round(hintFont() * 1.4f);
+            if (g != nullptr)
+            {
+                g->setColour(kDimmer);
+                g->setFont(fHead);
+                g->drawText("... " + juce::String(from) + " lines",
+                            juce::Rectangle<float>(x, y, ww, headH),
+                            juce::Justification::centredLeft, false);
+            }
+            y += headH + 2.0f;
+        }
+        for (int i = from; i < lines.size(); ++i)
+        {
+            const auto& ln = lines.getReference(i);
+            if (g != nullptr && ln.isNotEmpty())
+            {
+                g->setFont(f);
+                const int c = commentStart(ln);
+                const auto code = c < 0 ? ln : ln.substring(0, c);
+                if (code.isNotEmpty())
+                {
+                    g->setColour(kTextSecondary);
+                    g->drawText(code, juce::Rectangle<float>(x, y, ww, lineH),
+                                juce::Justification::centredLeft, true);
+                }
+                if (c >= 0)
+                {
+                    const float cw = juce::GlyphArrangement::getStringWidth(f, code);
+                    // Only where the code left room — overprinting the very
+                    // text it annotates helps nobody.
+                    if (cw < ww - 12.0f)
+                    {
+                        g->setColour(kTextDisabled);
+                        g->drawText(ln.substring(c),
+                                    juce::Rectangle<float>(x + cw, y, ww - cw, lineH),
+                                    juce::Justification::centredLeft, true);
+                    }
+                }
+            }
+            y += lineH;
+        }
+        return y - y0;
+    }
+
     /** Index of the `;` that starts a trailing comment, or -1. A semicolon
      *  inside a string literal (`sprintf "gate%d; ..."`) is not one, so the
      *  quotes before it have to balance. */
@@ -587,11 +725,10 @@ private:
             y += static_cast<float>(stationGap());
         };
 
-        // No trace yet: the status line, and under it the reasoning as it
-        // arrives. The author thinks before it writes, so this is on screen
-        // while the orchestra is still being authored — the panel is not empty
-        // for the length of a 12B generation, and what fills it is the machine's
-        // own words rather than a spinner.
+        // No trace yet: the status line, and under it the authoring as it
+        // arrives — the reasoning first, then the code while it is written. The
+        // panel is not empty for the length of a 12B generation, and what fills
+        // it is the machine's own output rather than a spinner.
         if (! trace_.valid)
         {
             const auto text = status_.isNotEmpty() ? status_ : placeholder_;
@@ -600,14 +737,23 @@ private:
             // whole view through the text shaper with it.
             y += paragraph(g, text, fBody, busy_ ? kTextPrimary : kDim,
                            static_cast<float>(textX()), y, w);
-            if (live_.isNotEmpty())
+            const bool haveCode = liveBody_.isNotEmpty();
+            if (live_.isNotEmpty() || haveCode)
             {
                 y += static_cast<float>(stationGap());
-                station(kWarning, "THINKING", kTextDisabled, false, [&](float ww)
-                {
-                    return paragraph(g, live_, fHint, kDim,
-                                     static_cast<float>(textX()), y, ww);
-                });
+                if (live_.isNotEmpty())
+                    station(kWarning, "THINKING", kTextDisabled, haveCode, [&](float ww)
+                    {
+                        return paragraph(g, live_, fHint, kDim,
+                                         static_cast<float>(textX()), y, ww);
+                    });
+                // WRITING while it happens is provisional by nature — the trace
+                // that lands replaces it with the attempt that compiled.
+                if (haveCode)
+                    station(kWarning, "WRITING", kTextDisabled, false, [&](float ww)
+                    {
+                        return liveCode(g, y, ww);
+                    });
                 return juce::roundToInt(y - static_cast<float>(stationGap()) + 7.0f);
             }
             return juce::roundToInt(y + 7.0f);
@@ -624,58 +770,52 @@ private:
                                  static_cast<float>(textX()), y, ww);
             });
 
-        // ── LOOKED UP ────────────────────────────────────────────────────────
-        // Reached first, then — visibly weaker and separately captioned — what
-        // the author was shown anyway. The count line names both.
+        // ── OPENED ───────────────────────────────────────────────────────────
+        // What the author asked for after reading the shelf. Every chip here is
+        // an entry it named itself.
         //
         // Drawn ONLY when a consultation was actually recorded. A recalled
         // orchestra has none (no preset stores one), and an empty list there
-        // would print "no word of this prompt is in the library" over a prompt
-        // that may be nothing but library vocabulary — the precise false claim
-        // this whole surface exists to avoid.
+        // would print "the author asked for nothing" over an orchestra whose
+        // consultation simply was never kept — the precise false claim this
+        // whole surface exists to avoid.
         if (trace_.consultationKnown)
-        station(kImpulseA, "LOOKED UP", kTextDisabled, true, [&](float ww)
+        station(kImpulseA, "OPENED", kTextDisabled, true, [&](float ww)
         {
             const float y0 = y;
-            juce::StringArray reached;
-            reached.addArray(trace_.reachedInstruments);
-            reached.addArray(trace_.reachedAdjectives);
-            reached.addArray(trace_.reachedMotions);
+            juce::StringArray named;
+            named.addArray(trace_.namedInstruments);
+            named.addArray(trace_.namedAdjectives);
+            named.addArray(trace_.namedMotions);
+            const int openedCount = trace_.openedInstruments.size()
+                                  + trace_.openedAdjectives.size()
+                                  + trace_.openedMotions.size();
+            // The chips are what the author ASKED FOR; the count line says what
+            // was actually put in front of it. The two part company when the
+            // reply named words or movements but no instrument — the backend
+            // then opens everything, and reading "the author named nothing" off
+            // a full library would print that over a reply that named three
+            // things. `named` is carried on the wire precisely so this station
+            // never has to guess one from the other.
+            const bool wholeLibrary = trace_.libraryEntryCount > 0
+                                   && openedCount >= trace_.libraryEntryCount;
 
             float yy = y;
-            if (reached.isEmpty())
-            {
-                yy += paragraph(g, "no word of this prompt is in the library",
-                                fHint, kWarning, static_cast<float>(textX()), yy, ww);
-            }
+            if (named.isEmpty())
+                yy += paragraph(g, "the author named no entry",
+                                fHint, kTextDisabled, static_cast<float>(textX()), yy, ww) + 2.0f;
             else
-            {
-                yy += chips(g, reached, static_cast<float>(textX()), yy, ww, false) + 4.0f;
-            }
+                yy += chips(g, named, static_cast<float>(textX()), yy, ww, false) + 4.0f;
 
             juce::String note;
-            if (trace_.libraryEntryCount > 0)
-                note << reached.size() << " of " << trace_.libraryEntryCount << " entries reached";
-            if (trace_.reachedMotions.isEmpty())
-                note << (note.isEmpty() ? "" : " · ") << "no movement named";
+            if (wholeLibrary)
+                note << "the whole library was opened";
+            else if (trace_.libraryEntryCount > 0)
+                note << openedCount << " of " << trace_.libraryEntryCount << " entries opened";
+            if (trace_.namedMotions.isEmpty())
+                note << (note.isEmpty() ? "" : " · ") << "no movement asked for";
             if (note.isNotEmpty())
                 yy += paragraph(g, note, fHint, kDimmer, static_cast<float>(textX()), yy, ww) + 2.0f;
-
-            if (! trace_.orientedBy.isEmpty())
-            {
-                yy += paragraph(g, "also shown, for orientation:", fHint, kTextDisabled,
-                                static_cast<float>(textX()), yy, ww) + 1.0f;
-                yy += chips(g, trace_.orientedBy, static_cast<float>(textX()), yy, ww, true) + 3.0f;
-            }
-            // Reached, but past the author's quote limit — so the words landed
-            // and the entries still never reached the author. Naming them is the
-            // difference between a full report and a flattering one.
-            if (! trace_.reachedNotShown.isEmpty())
-            {
-                yy += paragraph(g, "reached, but not quoted to the author:", fHint, kWarning,
-                                static_cast<float>(textX()), yy, ww) + 1.0f;
-                yy += chips(g, trace_.reachedNotShown, static_cast<float>(textX()), yy, ww, true);
-            }
             return yy - y0;
         });
 
@@ -845,6 +985,10 @@ private:
     juce::String status_, placeholder_, compileDetail_;
     juce::String live_;             // the reasoning as it streams; empty once traced
     int          liveAttempt_ = 0;
+    juce::String liveBody_;         // the code as it streams; empty once traced
+    int          liveBodyAttempt_ = 0;
+    bool         followWriting_ = false;  // the live-code follow is engaged
+    int          lastFollowY_ = 0;        // where the follow last put the view
     juce::String body_;             // the back of the card: the authored Csound
     juce::String summary_;          // a legacy preset's plain-language account, front side
     bool         showBack_ = false;
