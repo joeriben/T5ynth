@@ -392,8 +392,15 @@ void T5ynthDelayLine::processBlock(juce::AudioBuffer<float>& buffer)
 
             // Cross-coupled feedback: each line is fed from the OTHER line's
             // output; the (mono) dry is injected into the left line only.
-            const float fbToL = dampFilterL.processSample(dr * feedback);
-            const float fbToR = dampFilterR.processSample(dl * feedback);
+            //
+            // Per HOP the gain is sqrt(feedback): one repeat PER SIDE spans two
+            // hops (L→R→L), so each side decays by `feedback` per side-repeat —
+            // the same repeats-per-side as Digital at the same knob. With the
+            // raw knob per hop the side sequence fell at feedback², and each
+            // channel audibly held only half as many strikes as Digital.
+            const float fbHop = std::sqrt(feedback);
+            const float fbToL = dampFilterL.processSample(dr * fbHop);
+            const float fbToR = dampFilterR.processSample(dl * fbHop);
             delayLine.pushSample(0, mono + fbToL);
             delayLine.pushSample(1, fbToR);
 

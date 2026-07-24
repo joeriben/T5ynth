@@ -12,7 +12,10 @@
  *   2 PingPong : true ping-pong. Input summed to mono and injected into the
  *                LEFT line only; feedback cross-coupled (left output → right
  *                line, right output → left line). A mono source bounces cleanly
- *                L/R/L/R at the set time; the dry stays put.
+ *                L/R/L/R at the set time; the dry stays put. Feedback applies
+ *                sqrt(fb) per hop — one repeat per SIDE spans two hops, so each
+ *                side decays by fb per side-repeat, matching Digital's
+ *                repeats-per-channel at the same knob value.
  *   3 Tape     : 3-head tape echo (Roland RE-201's 1:2:3 head spacing). Read
  *                taps at T, 2T, 3T summed and spread across the field; feedback
  *                from the long head through a high-pass + damping low-pass + soft
