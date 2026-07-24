@@ -1029,13 +1029,24 @@ def run_gguf_instruct(text, gguf_path, system_prompt, max_new_tokens=None,
     fragment as it is decoded. The return value is identical either way — the
     caller still gets the whole reply — so nothing downstream has to know whether
     anyone was watching. A callback that raises is logged and dropped: whoever is
-    listening must not be able to break the authoring."""
-    text = (text or "").strip()
-    if not text:
-        return ""
+    listening must not be able to break the authoring.
+
+    `text` may also be a LIST of chat messages instead of a single string, which
+    is how the LCO repairs an orchestra: the author is handed its own failed
+    answer plus the compiler's complaint and edits it, rather than being asked
+    for the whole sound again from nothing. Sharing the leading turns also lets
+    llama.cpp reuse the KV cache it already built for them."""
+    if isinstance(text, (list, tuple)):
+        turns = [dict(m) for m in text if (m.get("content") or "").strip()]
+        if not turns:
+            return ""
+    else:
+        text = (text or "").strip()
+        if not text:
+            return ""
+        turns = [{"role": "user", "content": text}]
     llm = _get_gguf(gguf_path)
-    kw = dict(messages=[{"role": "system", "content": system_prompt},
-                        {"role": "user", "content": text}],
+    kw = dict(messages=[{"role": "system", "content": system_prompt}] + turns,
               temperature=0.0,
               max_tokens=int(max_new_tokens) if max_new_tokens else -1)
     if on_delta is None:
@@ -1142,19 +1153,26 @@ def run_instruct(text, model_dir, device, system_prompt, max_new_tokens=None,
     deterministic logit transforms, so greedy stays deterministic; they exist
     solely so the Re-Prompt path can defeat the degenerate token-cycle a long
     "recombine these freely" palette provokes at the model's default 1.1."""
-    text = (text or "").strip()
-    if not text:
-        return ""
+    # `text` may be a LIST of chat messages instead of one string — the LCO's
+    # repair hands the author its own failed answer plus the compiler's
+    # complaint, so it edits what it wrote instead of authoring the sound again
+    # from nothing. Mirrors run_gguf_instruct.
+    if isinstance(text, (list, tuple)):
+        turns = [dict(m) for m in text if (m.get("content") or "").strip()]
+        if not turns:
+            return ""
+    else:
+        text = (text or "").strip()
+        if not text:
+            return ""
+        turns = [{"role": "user", "content": text}]
 
     # Resolve the translator device ONCE (may pin to CPU on a small CUDA card)
     # and use it for both the model load and the input tensors — otherwise a
     # CPU-pinned model would meet cuda input_ids and raise a device mismatch.
     tdev = _translator_device(device)
     tokenizer, model = _get_translator(model_dir, tdev)
-    messages = [
-        {"role": "system", "content": system_prompt},
-        {"role": "user", "content": text},
-    ]
+    messages = [{"role": "system", "content": system_prompt}] + turns
     input_ids = tokenizer.apply_chat_template(
         messages, add_generation_prompt=True, return_tensors="pt"
     ).to(tdev)
@@ -3676,6 +3694,12 @@ def main():
                                                  on_delta=on_delta)
                     return run_instruct(text, _dir, _dev, system_prompt,
                                         max_new_tokens=max_new_tokens)
+
+                # Both shapes take a conversation, so a repair may CONTINUE the
+                # one that failed instead of starting the sound over. Declared,
+                # not inferred: build_csound_response only sends a message list
+                # to a surface that says it takes one.
+                csound_llm.accepts_messages = True
 
                 # The reasoning, live. Gated on the request so a client that does
                 # not know the \x04 frame never sees one: the backend ships with

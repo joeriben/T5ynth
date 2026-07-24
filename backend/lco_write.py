@@ -323,7 +323,7 @@ HARD RULES
 - An opcode call has NO equals sign: write `asig poscil 0.6, kfreq` — never `asig = poscil 0.6, kfreq`. `=` is only for arithmetic (`kx = 0.5 + klfo`).
 - An opcode STATEMENT names its RESULT VARIABLE first, then the opcode: `ahi atone asig, 2200`. Two consequences you must never break: (a) an opcode that returns audio must have that result variable — `atone asig, 2200` on its own, with nothing on its left, does not compile; (b) the opcode NAME is not a value — never write `aprea = atone`, and never pass a bare `atone`/`rand`/`oscili` as another opcode's argument (`mode rand 0.06, kfreq, kQ` is wrong). To use an opcode's result in an expression, give it its own line first (`ahi atone asig, 2200` then `asig = asig + ahi * 0.3`), or use the functional form WITH parentheses around all arguments (`asig = asig * (1 + oscili(0.18, 5.5, giSine))`).
 - `mode` is a resonant FILTER, not an oscillator: `ares mode aexc, kfreq, kQ`. Its first argument is an audio EXCITATION you must define on its OWN line first — `aexc rand 0.06, 0.5, 1` — never a bare opcode inlined (`mode rand 0.06, kfreq, kQ` is wrong). Build a bell/metal/drum bank by driving several `mode` lines from that SAME `aexc`, exactly as the struck_bar, drum_head and cymbal idioms do.
-- `gbuzz` IS the additive oscillator: `ares gbuzz kamp, kcps, knh, klh, kmul, giCos` — `knh` is how MANY harmonics, `kmul` how fast they fall away (0 = fundamental only, 0.95 = a buzzing reed). Both are k-rate, so both may move over the note. But `gbuzz` normalises to PEAK, not loudness: raising `knh` or `kmul` makes the tone BRIGHTER AND QUIETER — up to 6 dB, which reads as the wrong thing entirely. Hold the level with the exact stack sum, once, and then set `knh`/`kmul` freely: `knrm = ((1-kmul^knh)/(1-kmul)) / sqrt((1-kmul^(2*knh))/(1-kmul*kmul)*0.5)` and pass `0.17 * knrm` as `kamp`. Measured over the whole range (1..24 harmonics, kmul 0.2..0.95, centroid 220..2241 Hz): 0.00 dB. Keep `kmul` below 1 — at 1 the expression divides by zero.
+- `gbuzz` IS the additive oscillator: `ares gbuzz kamp, kcps, knh, klh, kmul, giCos` — `knh` is how MANY harmonics, `kmul` how fast they fall away (0 = fundamental only, 0.95 = a buzzing reed). Both are k-rate, so both may move over the note. But `gbuzz` normalises to PEAK, not loudness: raising `knh` or `kmul` makes the tone BRIGHTER AND QUIETER — up to 6 dB, which reads as the wrong thing entirely. Hold the level with the exact stack sum, once, and then set `knh`/`kmul` freely. These two lines, exactly — the second is an opcode STATEMENT, so the result variable comes first and there is NO `=`, and the amplitude expression is simply its first argument:\n    knrm    = ((1-kmul^knh)/(1-kmul)) / sqrt((1-kmul^(2*knh))/(1-kmul*kmul)*0.5)\n    ares    gbuzz 0.17 * knrm, kfreq * koct1, knh, 1, kmul, giCos\n  Writing `ares = gbuzz (0.17 * knrm) (...)` does not compile: `gbuzz` is an opcode, not a function you assign, and Csound answers with a bracket complaint that hides the real cause. Measured over the whole range (1..24 harmonics, kmul 0.2..0.95, centroid 220..2241 Hz): 0.00 dB. Keep `kmul` below 1 — at 1 the expression divides by zero.
 - You shape SPECTRUM and TIMBRE only. Do NOT write an amplitude envelope on the output (no linen, adsr, madsr, expon on the way to `asig`) — loudness belongs to the player's envelope. The COLOUR may travel over the note; the LOUDNESS may not. A tone that fades out on its own is wrong. There is exactly ONE exception, and only when the user asks for it by name: `tremolo` is a word for a loudness pulsation, so it pulses — regularly, shallowly, and never fading. When a colour movement would drag the level with it (a waveshaper, a filter sweep, a partial fading in), do not chase the level with a follower — build the bright version ONCE, match its level to the clean one ONCE, and then CROSSFADE between them: `adrv = tanh(asig * 4.4)`, `adrv balance adrv, asig, 1`, `asig = asig * (1 - kpos) + adrv * kpos` with `kpos` in 0..1. Every motion example below is built that way and holds the loudness inside 0.05 dB at every pitch, because nothing has to track the movement. Balancing the MOVING signal instead makes the follower run inside the waveform period on bass notes and cancel the very harmonics the drive just made.
 - Keep `asig` near +-0.5 peak. The host applies its own headroom and voice gain.
 - The sound MOVES by default: a sweep, a beat, a shimmer, a morph. Only write a standing tone if the user explicitly asks for something static or still.
@@ -339,6 +339,7 @@ HARD RULES
     (1) writing `asig` twice (`asig = <a>` … later `asig = <b>`): the second assignment ERASES the first, so only b is heard and everything above it is dead code. This is the most common mistake — a and b MUST meet in one crossfade line, not overwrite each other.
     (2) a static layer (`asig = <a> * kvol1 + <b> * kvol2`): that is a and b at once, forever — a LAYER, not a transition.
     (3) a bad `linseg` for the position (`linseg 0, 1, knote` passes a k-variable where linseg needs i-time CONSTANTS). Prefer `kmorph = min(knote / T, 1)`; if you must use linseg every argument is a constant — `kmorph linseg 0, 2, 1`.
+  RENAMING CHANGES THE NAME AND NOTHING ELSE. Both ends live in one instrument, so what you take from the library has to be renamed to keep them apart (`kstr` -> `kstr_g`, `aacc` -> `aacc_base`). The line KEEPS ITS EXACT SHAPE while you do it: `kstr limit kfreq * koct1, 20, 12000` renamed is `kstr_g limit kfreq * koct1, 20, 12000` — never `kstr_g = limit ...`. An opcode line has no `=` before the rename and none after it. Retyping a library line with an `=` added is the single most common way a morph fails to compile, and Csound reports it as a bracket complaint that names neither the `=` nor the opcode, so it is easy to chase for several rounds without seeing it. Each end is fine on its own; only putting two of them in one body makes you retype their lines.
   AN END OF A MORPH IS A WHOLE INSTRUMENT, NOT A ONE-LINER. Each end keeps every line it needs — including its own moving controls. NEVER freeze a k-rate control to a constant to make an end fit on one line: that silently deletes the very thing the user named. If the user asks for "sine > pulse width modulation" (or "sine > pwm"), b IS pulse-width MODULATION — its duty must go on sweeping after the morph arrives, so b keeps its LFO (`klfo oscili 0.5, 0.5`, `kpw = 0.5 + 0.6 * klfo`, `apw vco2 0.6, kfreq * koct1, 2, kpw`) and you write `asigb = apw - 0.6 * (2 * kpw - 1)`. Writing `vco2 …, 2, 0.5` there is a STATIC pulse wave — a different instrument from the one that was asked for, and the DC-correction line then reads `- 0.6 * (2 * 0.5 - 1)`, which is zero: dead code that proves the modulation was dropped. The same holds for every moving instrument used as an end — a bowed string still breathes, an organ still drifts, a filter sweep still sweeps.
   A REPEATING morph (a loop of a>b) drives kmorph from a free-running `oscili` instead of `min(knote…)`, so it sweeps back and forth forever.
 - "a + b" means two layers sounding at once — the static mix of (2), correct ONLY when the user asked to layer, never as a substitute for a transition. You may layer up to THREE oscillators this way.
@@ -398,11 +399,51 @@ _REPAIR_TAIL = (
     "  - an opcode with no result variable (`atone asig, 400` alone), or the opcode NAME used as a value (`asig = asig + atone`) — every opcode names its result first: `ahi atone asig, 400` then `asig = asig + ahi`.\n"
     "  - `mode` called without a named `aexc` excitation line before it.\n"
     "  - a variable used before it is defined, or your final signal not written into `asig`.\n"
-    "Write the WHOLE body again, correctly, in the SAME answer format as before: "
-    "work out the fix in plain language first if it helps you, then the complete "
-    "corrected body in exactly ONE ```csound fence with its READING line. Only "
-    "what is inside the fence is used; do not narrate the error instead of fixing it."
+    "Your own previous attempt is above. Keep everything about it that was right "
+    "— the instrument, the movement, the shape you decided on — and change only "
+    "what the errors name. You have already reasoned about this sound and that "
+    "reasoning still stands: do NOT explain it again. Answer with the complete "
+    "corrected body in exactly ONE ```csound fence with its READING line, and "
+    "nothing before it. Only what is inside the fence is used; do not narrate the "
+    "error instead of fixing it."
 )
+
+
+def _continue(user_turn, prev_raw, seen_errors):
+    """The repair as a CONTINUATION of the same conversation.
+
+    Returns the message list `[user, assistant, user]`: the original request, the
+    author's own failed answer, and the compiler's complaints. The author then
+    edits what it wrote instead of writing the whole sound again from nothing —
+    it keeps the instrument and the movement it already chose, and the reasoning
+    paragraph it produced the first time stays the answer rather than being
+    regenerated on every attempt.
+
+    A caller whose model surface only takes a single string still works: the list
+    carries `_as_single_turn`, and `_flatten_turn` folds it back into exactly the
+    text the loop used to send. Nothing is lost in that fallback except the
+    saving."""
+    if not (prev_raw or "").strip():
+        return user_turn + _repair_turn(seen_errors)
+    return [{"role": "user", "content": user_turn},
+            {"role": "assistant", "content": prev_raw},
+            {"role": "user", "content": _repair_turn(seen_errors).lstrip("\n")}]
+
+
+def _flatten_turn(turn):
+    """A message list folded back into one user turn, for a model surface that
+    cannot take a conversation. The author's previous answer is quoted inside it,
+    so the continuation still says what it means — only the KV cache reuse is
+    lost."""
+    if isinstance(turn, str):
+        return turn
+    parts = []
+    for m in turn:
+        if m["role"] == "assistant":
+            parts.append("Your previous answer was:\n\n" + m["content"])
+        else:
+            parts.append(m["content"])
+    return "\n\n".join(parts)
 
 
 def _repair_turn(seen_errors):
@@ -1065,6 +1106,42 @@ def _check_via_library(csd):
         lib.csoundDestroy(cs)
 
 
+# `kx = limit kfreq, 20, 12000` — an opcode STATEMENT written as an assignment.
+# It is the author's single most frequent mechanical slip and the one it cannot
+# see: Csound answers with a positional complaint ("unexpected NEWLINE, expecting
+# ',' or ')'") that names neither the `=` nor the opcode, so the author reads it
+# as a bracket problem, rewrites the arguments, and produces the same shape
+# again. Measured on "accordeon > guitar": six attempts, three different lines,
+# every one of them this. It appears most when the author RENAMES variables to
+# keep two morph ends apart (`kstr` -> `kstr_g`) and reformats the line while
+# doing so — the library's own `name<spaces>opcode args` is visually an
+# assignment, and the `=` creeps in.
+#
+# Detection is syntactic and needs no opcode list: after `=`, an identifier
+# followed by SPACE and then something that is not an operator is an opcode
+# statement, never arithmetic. `= a + b` (operator follows), `= foo(x)` and
+# `= poscil:k(...)` (no space before the bracket) are all left alone.
+_ASSIGNED_OPCODE = re.compile(
+    r"^\s*([A-Za-z]\w*)\s*=\s*([A-Za-z]\w*)\s+(?![-+*/%,)=<>&|?:])\S")
+
+
+def _mechanical_hint(line):
+    """The one edit that fixes this line, named — never a rewritten line.
+
+    Python does not author Csound here and must not start: it says WHICH
+    character is wrong and why, and the model writes the correction. That is the
+    same division the repair turn already keeps (Python names the compiler's
+    complaints, the model writes the fix) — only precise enough to act on."""
+    m = _ASSIGNED_OPCODE.match(line or "")
+    if not m:
+        return ""
+    var, opcode = m.group(1), m.group(2)
+    return (f" — `{opcode}` is an OPCODE, so this line is a statement, not an "
+            f"assignment: the `=` after `{var}` must go. Csound's complaint about "
+            f"brackets is a consequence of that `=`, not a bracket problem; "
+            f"changing the arguments will not fix it.")
+
+
 def _explain(log, orchestra):
     """Csound's own complaint, plus the line of the AUTHORED body it points at.
 
@@ -1082,14 +1159,15 @@ def _explain(log, orchestra):
             continue
         e = _ECHO.search(ln)
         if e and e.group(1).strip():
-            quoted.append(f"your line: {e.group(1).strip()}")
+            src = e.group(1).strip()
+            quoted.append(f"your line: {src}{_mechanical_hint(src)}")
             continue
         m = _LINE_NO.match(ln)
         if m:
             n = int(m.group(1))
             src = csd_lines[n - 1].strip() if 0 < n <= len(csd_lines) else ""
             if src and n > _BODY_OFFSET:
-                quoted.append(f'your line: {src}')
+                quoted.append(f'your line: {src}{_mechanical_hint(src)}')
     if not msgs:
         tail = [l for l in log.strip().splitlines() if l.strip()]
         msgs = [tail[-1]] if tail else ["csound failed without a message"]
@@ -1244,6 +1322,20 @@ def build_csound_response(text, llm, correction="", previous="", on_thinking=Non
     attempts = []
     seen_errors = []   # distinct errors, in first-seen order — the whole repair context
     turn = user_turn
+    # A repair CONTINUES the conversation instead of starting it over. Handing
+    # the author only the errors and the original prompt made every retry a
+    # fresh authoring: it re-derived the instrument, re-decided the movement and
+    # re-wrote its whole reasoning paragraph before it got anywhere near the one
+    # broken line — the thinking visibly restarting from zero on screen each
+    # time (BJ 2026-07-24: "bei jedem Scheitern startet der KOMPLETTE Prozess
+    # neu inkl. thinking. Das ist ineffizient"). With its own previous answer in
+    # the turn it fixes what the compiler named and keeps the rest, and the
+    # reasoning it already did stays valid instead of being generated again.
+    # `_repair_turn` still shows EVERY distinct error at once, so the 2-cycle it
+    # was written against (fix A, break B, fix B, reintroduce A) stays closed.
+    prev_raw = ""          # the author's own last reply, quoted back to it
+    last_raw = None        # the one before that — a repeat means the loop is stuck
+    first_thinking = ""    # the reasoning is written ONCE and stays the answer
     for attempt in range(1, MAX_TRIES + 1):
         # No token cap: the orchestra is as long as the sound needs. A cap here
         # would cut the body mid-line, and a truncated generation is not an
@@ -1251,13 +1343,26 @@ def build_csound_response(text, llm, correction="", previous="", on_thinking=Non
         # The fourth argument only exists when someone is watching: the offline
         # callers inject a three-argument llm and must keep working untouched.
         watcher = _live_thinking(on_thinking, attempt)
-        raw = llm(turn, sysp, None) if watcher is None else llm(turn, sysp, None, watcher)
+        # A conversation only goes out to a surface that says it takes one.
+        # Offline callers inject a plain `(text, system, max) -> str`; handing
+        # one of those a message list would fail deep inside somebody else's
+        # code, so the capability is DECLARED (`llm.accepts_messages`) rather
+        # than guessed at from an exception.
+        sent = turn if getattr(llm, "accepts_messages", False) else _flatten_turn(turn)
+        raw = llm(sent, sysp, None) if watcher is None else llm(sent, sysp, None, watcher)
         body, reading, thinking = sanitize(raw)
+        # The reasoning belongs to the SOUND, not to the attempt that finally
+        # compiled. A repair is asked not to reason again, so a repaired
+        # orchestra would otherwise carry no reasoning at all -- the panel would
+        # go blank for exactly the sounds that were hardest to write.
+        if thinking.strip() and not first_thinking:
+            first_thinking = thinking
+        prev_raw = raw
         if not body.strip():
             attempts.append("the model returned no code")
             if "you returned no code at all" not in seen_errors:
                 seen_errors.append("you returned no code at all")
-            turn = user_turn + _repair_turn(seen_errors)
+            turn = _continue(user_turn, prev_raw, seen_errors)
             continue
 
         orchestra = wrap(body)
@@ -1284,7 +1389,7 @@ def build_csound_response(text, llm, correction="", previous="", on_thinking=Non
                     # downstream reads it; it never touches the body, the reading
                     # or the compile. From the SUCCESSFUL attempt, so it explains
                     # the orchestra that is actually running.
-                    "thinking": thinking,
+                    "thinking": first_thinking or thinking,
                     # The rest of the authoring trace, so the panel can show HOW
                     # this orchestra came about and not only WHAT came out. Every
                     # field is a record of what actually happened; nothing is
@@ -1299,9 +1404,22 @@ def build_csound_response(text, llm, correction="", previous="", on_thinking=Non
                     "repairs": list(seen_errors),
                     "attempts": attempt}
         attempts.append(err)
+        n_before = len(seen_errors)
         if err not in seen_errors:
             seen_errors.append(err)
-        turn = user_turn + _repair_turn(seen_errors)
+        # A repair round is a function of exactly three things: the request, the
+        # author's last answer and the errors so far. When an attempt reproduces
+        # the previous answer AND raises nothing new, the next round's input is
+        # identical to this one's — and a greedy decoder given identical input
+        # returns identical output. The remaining attempts cannot differ; they
+        # can only cost. Measured on "accordeon > guitar": attempts 3 to 6 were
+        # byte-identical, four inferences of ~50 s each spent re-deriving a
+        # fixed point. Stopping there does not lose a repair that would have
+        # happened; it declines to buy the same one four more times.
+        if raw == last_raw and len(seen_errors) == n_before:
+            break
+        last_raw = raw
+        turn = _continue(user_turn, prev_raw, seen_errors)
 
     # Report every DISTINCT error, not just the last one. The two cases look the
     # same from outside and need opposite responses: six times the same complaint
