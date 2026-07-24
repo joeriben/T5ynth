@@ -105,6 +105,11 @@ public:
         trace_  = std::move(t);
         trace_.valid = true;
         status_.clear();
+        // What streamed came from whichever attempt was running; the trace
+        // carries the one that compiled. Keeping both would show the reasoning
+        // twice, once out of date.
+        live_.clear();
+        liveAttempt_ = 0;
         compile_ = CompileState::Unknown;
         compileDetail_.clear();
         relayout();
@@ -119,8 +124,30 @@ public:
     {
         status_ = text;
         trace_ = {};
+        live_.clear();
+        liveAttempt_ = 0;
         compile_ = CompileState::Unknown;
         compileDetail_.clear();
+        relayout();
+    }
+
+    /** The author's reasoning WHILE it is being written, above the status line
+     *  and before any other station exists — it is the first thing the machine
+     *  produces, so it is the first thing shown.
+     *
+     *  `attempt` counts the author's tries: a repair sends it back to the start
+     *  and it reasons again, so the text does not continue, it REPLACES. Without
+     *  that number the second attempt's first line would append to the first
+     *  attempt's last one and read as one train of thought.
+     *
+     *  Ignored once a trace has arrived: what streamed is provisional, and only
+     *  the attempt that actually compiled is allowed to caption the sound. */
+    void setLiveThinking(int attempt, const juce::String& text)
+    {
+        if (trace_.valid || (text == live_ && attempt == liveAttempt_))
+            return;
+        liveAttempt_ = attempt;
+        live_ = text;
         relayout();
     }
 
@@ -266,14 +293,6 @@ private:
         const float labelH = std::round(labelFont() * 1.5f);
         float y = 7.0f;
 
-        // No trace yet: a single dim line (status, or the empty-state text).
-        if (! trace_.valid)
-        {
-            const auto text = status_.isNotEmpty() ? status_ : placeholder_;
-            y += paragraph(g, text, fBody, kDim, static_cast<float>(textX()), y, w);
-            return juce::roundToInt(y + 7.0f);
-        }
-
         // One station: dot, rubric, body. `hasNext` draws the hairline down to
         // where the next dot will sit; the last station ends the rail instead of
         // trailing a line into empty space.
@@ -306,6 +325,28 @@ private:
             }
             y += static_cast<float>(stationGap());
         };
+
+        // No trace yet: the status line, and under it the reasoning as it
+        // arrives. The author thinks before it writes, so this is on screen
+        // while the orchestra is still being authored — the panel is not empty
+        // for the length of a 12B generation, and what fills it is the machine's
+        // own words rather than a spinner.
+        if (! trace_.valid)
+        {
+            const auto text = status_.isNotEmpty() ? status_ : placeholder_;
+            y += paragraph(g, text, fBody, kDim, static_cast<float>(textX()), y, w);
+            if (live_.isNotEmpty())
+            {
+                y += static_cast<float>(stationGap());
+                station(kWarning, "THINKING", kTextDisabled, false, [&](float ww)
+                {
+                    return paragraph(g, live_, fHint, kDim,
+                                     static_cast<float>(textX()), y, ww);
+                });
+                return juce::roundToInt(y - static_cast<float>(stationGap()) + 7.0f);
+            }
+            return juce::roundToInt(y + 7.0f);
+        }
 
         // ── HEARD ────────────────────────────────────────────────────────────
         // Omitted when the prompt is not known. A Csound-only preset stores no
@@ -472,6 +513,8 @@ private:
     Content content_;
     Trace   trace_;
     juce::String status_, placeholder_, compileDetail_;
+    juce::String live_;             // the reasoning as it streams; empty once traced
+    int          liveAttempt_ = 0;
     CompileState compile_ = CompileState::Unknown;
     float   base_ = 13.0f;
 

@@ -1,6 +1,7 @@
 #pragma once
 #include <JuceHeader.h>
 #include <atomic>
+#include <functional>
 #include <mutex>
 #include <vector>
 #include <utility>
@@ -251,9 +252,18 @@ public:
      *                     listener did not name" points at a patch the model has
      *                     never seen — and it then repairs by deleting what was
      *                     already right. Only read when `correction` is set. */
+    /** @param onThinking  called on THIS (background) thread with the author's
+     *                     reasoning while it is still being written, and with
+     *                     the attempt it belongs to — a repair restarts the
+     *                     reasoning, so the text replaces rather than continues.
+     *                     Supplying it is what asks the backend to stream at
+     *                     all; without it the wire bytes are exactly what they
+     *                     always were. The callback must marshal to the message
+     *                     thread itself before touching any component. */
     CsoundAuthorResult authorCsoundOrchestra(const juce::String& text,
                                              const juce::String& correction = {},
-                                             const juce::String& previous = {});
+                                             const juce::String& previous = {},
+                                             std::function<void(int, const juce::String&)> onThinking = {});
 
     /** Preload a model+device combo so first generate is fast.
      *  Blocking — call from background thread. Returns true on success. */

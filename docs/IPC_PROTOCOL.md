@@ -464,6 +464,43 @@ issues any of these three modes MUST handle `\x03` (success) and `\x00`
 Note the length width differs from the handshake frame (§2.4), which prefixes
 its JSON with a `uint16`.
 
+### 4.6 Interim frame (`\x04`)
+
+Same layout as `\x03`, but it does **not** end the request:
+
+```
+\x04 <uint32 LE length> <UTF-8 JSON bytes>
+```
+
+Any number of these may precede the one frame that does end it (`\x01`, `\x03`
+or `\x00`). Written by `send_partial()`. A reader that expects interim frames
+must therefore loop on the status byte rather than read it once.
+
+Sent **only** when the request asked for it — `"stream": true` — so a client
+that does not know this frame never receives one. That gate is not politeness:
+an unrecognised status byte is not a spoiled response, it is a desynchronised
+pipe for the rest of the session, because the client would read the frame's
+length and payload as the next frame's header.
+
+Today one mode emits it. `mode:"csound"` (§3.3) sends the Csound author's
+**reasoning while it is being written**, so the panel shows the machine's own
+words during the generation instead of after it:
+
+```json
+{"kind": "thinking", "attempt": 1, "text": "What IS this sound: a cello, bowed\n…"}
+```
+
+`text` is the whole reasoning so far, not the increment — the cleaning applied
+to it can revise what it has already emitted (a control token completes, a run
+of blank lines collapses), so a client that appended would drift out of step
+with what the author actually wrote. `attempt` counts the author's tries: a
+repair restarts the reasoning, and the client must replace rather than
+continue. Streaming stops at the first fence marker — the code is not
+reasoning, and it arrives with the final `\x03`.
+
+`kind` is the discriminator for anything added later; a client MUST ignore an
+interim frame whose `kind` it does not know rather than treat it as an error.
+
 ---
 
 ## 5. Determinism guarantees

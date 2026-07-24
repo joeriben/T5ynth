@@ -2617,7 +2617,20 @@ void PromptPanel::triggerDcoBake()
         // listen, no correction. bakeSeq is still bumped at the call site to
         // invalidate any stale in-flight card; nothing here consumes it now.
         juce::ignoreUnused(bakeSeq);
-        auto authored = pipePtr->authorCsoundOrchestra(text);
+        // The reasoning, while it is being written. It arrives on THIS thread,
+        // so it marshals like every other UI-visible result; setLiveThinking
+        // stops accepting it the moment the finished trace lands, which is what
+        // keeps a late frame from overwriting the attempt that actually
+        // compiled.
+        auto onThinking = [safeThis](int attempt, const juce::String& thinking)
+        {
+            juce::MessageManager::callAsync([safeThis, attempt, thinking]()
+            {
+                if (auto* self = safeThis.getComponent())
+                    self->dcoTraceView.setLiveThinking(attempt, thinking);
+            });
+        };
+        auto authored = pipePtr->authorCsoundOrchestra(text, {}, {}, onThinking);
         publish(authored, /*attempt=*/0, /*moreToCome=*/false);
 #endif
     }).detach();

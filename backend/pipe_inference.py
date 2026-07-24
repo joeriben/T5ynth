@@ -1015,25 +1015,49 @@ def _get_gguf(gguf_path):
     return llm
 
 
-def run_gguf_instruct(text, gguf_path, system_prompt, max_new_tokens=None):
+def run_gguf_instruct(text, gguf_path, system_prompt, max_new_tokens=None,
+                      on_delta=None):
     """run_instruct's contract on the llama.cpp path: one short user text under an
     arbitrary system prompt, greedy for determinism, the model's own chat template.
 
     No invented output cap. `max_tokens=-1` means "until EOS or the context ends",
     which is the model's real ceiling; a number here would cut an orchestra off
     mid-line. Callers that pass max_new_tokens are honoured, but nothing in the
-    csound path does."""
+    csound path does.
+
+    `on_delta(piece)` turns the call into a streaming one and is handed each
+    fragment as it is decoded. The return value is identical either way — the
+    caller still gets the whole reply — so nothing downstream has to know whether
+    anyone was watching. A callback that raises is logged and dropped: whoever is
+    listening must not be able to break the authoring."""
     text = (text or "").strip()
     if not text:
         return ""
     llm = _get_gguf(gguf_path)
-    out = llm.create_chat_completion(
-        messages=[{"role": "system", "content": system_prompt},
-                  {"role": "user", "content": text}],
-        temperature=0.0,
-        max_tokens=int(max_new_tokens) if max_new_tokens else -1,
-    )
-    return out["choices"][0]["message"]["content"] or ""
+    kw = dict(messages=[{"role": "system", "content": system_prompt},
+                        {"role": "user", "content": text}],
+              temperature=0.0,
+              max_tokens=int(max_new_tokens) if max_new_tokens else -1)
+    if on_delta is None:
+        out = llm.create_chat_completion(**kw)
+        return out["choices"][0]["message"]["content"] or ""
+
+    parts = []
+    for chunk in llm.create_chat_completion(stream=True, **kw):
+        try:
+            piece = (chunk["choices"][0].get("delta") or {}).get("content") or ""
+        except (KeyError, IndexError, TypeError):
+            continue
+        if not piece:
+            continue
+        parts.append(piece)
+        if on_delta is not None:
+            try:
+                on_delta(piece)
+            except Exception as exc:
+                log.warning(f"streaming callback failed, generation continues: {exc}")
+                on_delta = None
+    return "".join(parts)
 
 
 # Qwen serves BOTH translate and interpret/reprompt — one shared instance. It
@@ -3443,6 +3467,25 @@ def send_text(message):
     sys.stdout.buffer.flush()
 
 
+def send_partial(message):
+    """Send an INTERIM frame: \x04 + uint32 length + UTF-8 message.
+
+    Same layout as \x03, but it does not end the request — any number of these
+    may precede the one frame that does. It exists so the Csound author's
+    reasoning can be shown while it is being written instead of after, and it is
+    sent from inside the generation, on the same thread that will send the final
+    frame, so the two can never interleave.
+
+    Only ever emitted for a request that asked for it, which today means
+    mode="csound" with a client that reads \x04. Every other mode's bytes are
+    unchanged, so a client that does not know this frame never receives one."""
+    msg_bytes = (message or "").encode('utf-8')
+    sys.stdout.buffer.write(b'\x04')
+    sys.stdout.buffer.write(struct.pack('<I', len(msg_bytes)))
+    sys.stdout.buffer.write(msg_bytes)
+    sys.stdout.buffer.flush()
+
+
 # ─── Main loop ──────────────────────────────────────────────────────
 
 def _start_parent_watchdog(poll_seconds=2.0):
@@ -3616,17 +3659,35 @@ def main():
 
                 coder_gguf = _coder_gguf_file(coder_dir)
 
-                def csound_llm(text, system_prompt, max_new_tokens,
+                def csound_llm(text, system_prompt, max_new_tokens, on_delta=None,
                                _dir=coder_dir, _dev=coder_device, _gguf=coder_gguf):
                     """The single model surface build_csound_response needs: one
                     greedy instruct call on the author model. Two shapes reach
                     here — the shipped 4-bit GGUF through llama.cpp, and a
-                    transformers directory (dev drop, or a pre-GGUF install)."""
+                    transformers directory (dev drop, or a pre-GGUF install).
+
+                    Only llama.cpp streams. On the transformers path `on_delta`
+                    is dropped and the reasoning arrives with the final frame, as
+                    it did before — the shipped author is the GGUF, and a
+                    HuggingFace streamer needs its own thread to do the same."""
                     if _gguf is not None:
                         return run_gguf_instruct(text, _gguf, system_prompt,
-                                                 max_new_tokens=max_new_tokens)
+                                                 max_new_tokens=max_new_tokens,
+                                                 on_delta=on_delta)
                     return run_instruct(text, _dir, _dev, system_prompt,
                                         max_new_tokens=max_new_tokens)
+
+                # The reasoning, live. Gated on the request so a client that does
+                # not know the \x04 frame never sees one: the backend ships with
+                # the plugin, but during development the two versions mix freely,
+                # and an unrecognised frame byte would desynchronise the pipe for
+                # the rest of the session, not just for this request.
+                on_thinking = None
+                if request.get("stream"):
+                    def on_thinking(attempt, thinking):
+                        send_partial(json.dumps({"kind": "thinking",
+                                                 "attempt": attempt,
+                                                 "text": thinking}))
 
                 # DEPRECATED (LCO self-check deactivated 2026-07-21): the product no
                 # longer sends `correction`/`previous` — the C++ bake stopped running
@@ -3635,7 +3696,8 @@ def main():
                 # but now resolve to "".
                 response = build_csound_response(request.get("text") or "", csound_llm,
                                                  request.get("correction") or "",
-                                                 request.get("previous") or "")
+                                                 request.get("previous") or "",
+                                                 on_thinking=on_thinking)
                 # Report WHICH model actually authored. The UI otherwise shows a
                 # hardcoded name and cannot tell that the resolver walked past the
                 # intended slot: an install missing its shard map fails

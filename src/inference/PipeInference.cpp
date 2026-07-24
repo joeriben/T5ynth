@@ -1275,7 +1275,8 @@ PipeInference::InterpretResult PipeInference::interpret(const juce::String& syst
 
 PipeInference::CsoundAuthorResult PipeInference::authorCsoundOrchestra(const juce::String& text,
                                                                        const juce::String& correction,
-                                                                       const juce::String& previous)
+                                                                       const juce::String& previous,
+                                                                       std::function<void(int, const juce::String&)> onThinking)
 {
     // Same lock/restart/timeout discipline as interpret() (mode "csound" on
     // the wire) — the backend's {ok, orchestra, reading, params_text, spec,
@@ -1323,6 +1324,12 @@ PipeInference::CsoundAuthorResult PipeInference::authorCsoundOrchestra(const juc
         if (previous.trim().isNotEmpty())
             json->setProperty("previous", previous.trim());
     }
+    // Asking for the interim frames is what makes the backend send them. A build
+    // that does not know \x04 never sets this and never receives one — an
+    // unrecognised status byte would not spoil one request but desynchronise the
+    // pipe for the rest of the session.
+    if (onThinking)
+        json->setProperty("stream", true);
 
     auto jsonStr = juce::JSON::toString(juce::var(json.get()), true);
     jsonStr = jsonStr.removeCharacters("\n\r") + "\n";
@@ -1338,11 +1345,48 @@ PipeInference::CsoundAuthorResult PipeInference::authorCsoundOrchestra(const juc
 
     // First call lazily loads the instruct model (several seconds) — a
     // generous timeout.
+    //
+    // Interim \x04 frames may arrive first, any number of them: the author's
+    // reasoning as it is written. They do not end the request, so each one
+    // restarts the wait for the frame that does — which is also why the timeout
+    // is per-frame and not a budget for the whole authoring.
     char status = 0;
-    if (!readExact(&status, 1, 180000))
+    for (;;)
     {
-        result.errorMessage = handleStatusTimeout("the Csound orchestra");
-        return result;
+        if (!readExact(&status, 1, 180000))
+        {
+            result.errorMessage = handleStatusTimeout("the Csound orchestra");
+            return result;
+        }
+        if (status != '\x04')
+            break;
+
+        juce::uint32 partLen = 0;
+        if (!readExact(&partLen, 4))
+        {
+            result.errorMessage = "Failed to read Csound progress length";
+            return result;
+        }
+        juce::String partJson;
+        if (partLen > 0)
+        {
+            std::vector<char> part(partLen + 1, 0);
+            // The payload must be consumed even if nobody is listening, or the
+            // remaining bytes would be read as the next frame's status.
+            if (!readExact(part.data(), static_cast<int>(partLen)))
+            {
+                result.errorMessage = "Failed to read Csound progress";
+                return result;
+            }
+            partJson = juce::String::fromUTF8(part.data(), static_cast<int>(partLen));
+        }
+        if (onThinking && partJson.isNotEmpty())
+        {
+            const auto part = juce::JSON::parse(partJson);
+            if (part.getProperty("kind", juce::var()).toString() == "thinking")
+                onThinking(static_cast<int>(part.getProperty("attempt", juce::var(1))),
+                           part.getProperty("text", juce::var()).toString());
+        }
     }
 
     if (status == '\x03')   // text result: the {ok, orchestra, reading, spec, error} JSON

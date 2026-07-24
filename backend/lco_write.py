@@ -583,6 +583,45 @@ def _clean_thinking(prose):
     return "\n".join(out).strip()
 
 
+def _live_thinking(on_thinking, attempt):
+    """Wrap a watcher's callback so it is only ever handed THINKING.
+
+    The whole reason the reasoning can be shown while it is being written is the
+    order HOW TO ANSWER imposes: the author reasons first and writes the code
+    afterwards, so everything up to the FIRST fence marker is thinking, and it is
+    finished before the body starts. Nothing is sent past that marker — the code
+    is not reasoning, and it has its own page.
+
+    The full cleaned text goes out each time, not the increment: _clean_thinking
+    edits what it has already seen (a control token completes, a run of blank
+    lines collapses), so an appending receiver would drift out of step with what
+    the author actually wrote. Only whole LINES are released, because a fence
+    marker arrives character by character and would otherwise be shown as
+    reasoning for as long as it takes to finish — which also keeps this to a few
+    frames a second instead of one per token."""
+    if on_thinking is None:
+        return None
+    state = {"buf": "", "closed": False, "shown": 0}
+
+    def on_delta(piece):
+        if state["closed"]:
+            return
+        state["buf"] += piece
+        cut = _FENCE_MARK.search(state["buf"])
+        if cut is not None:
+            state["closed"] = True
+            text = _clean_thinking(state["buf"][:cut.start()])
+        elif "\n" in state["buf"]:
+            text = _clean_thinking(state["buf"].rsplit("\n", 1)[0])
+        else:
+            return
+        if len(text) > state["shown"] or state["closed"]:
+            state["shown"] = len(text)
+            on_thinking(attempt, text)
+
+    return on_delta
+
+
 def sanitize(raw):
     """Model reply -> (body, reading, thinking).
 
@@ -1016,7 +1055,7 @@ def _check_via_cli(binary, csd, orchestra):
 # The entry point
 # ─────────────────────────────────────────────────────────────────────────────
 
-def build_csound_response(text, llm, correction="", previous=""):
+def build_csound_response(text, llm, correction="", previous="", on_thinking=None):
     """Prompt -> live Csound orchestra. The REAL pipeline entry
     (pipe_inference mode=="csound" calls this).
 
@@ -1033,6 +1072,12 @@ def build_csound_response(text, llm, correction="", previous=""):
     ``correction``/``previous`` are accepted for wire compatibility and are
     appended to the user turn when present (the self-listen loop is currently
     deactivated and sends neither).
+
+    ``on_thinking(attempt, text)`` is optional and, when given, is called with
+    the author's reasoning WHILE it is being written — the attempt number rides
+    along because a repair starts the reasoning over and whoever is showing it
+    has to start over too. It is passed on only if ``llm`` was built to take it;
+    the returned response is the same either way.
     """
     prompt = (text or "").strip()
     if not prompt:
@@ -1063,7 +1108,10 @@ def build_csound_response(text, llm, correction="", previous=""):
         # No token cap: the orchestra is as long as the sound needs. A cap here
         # would cut the body mid-line, and a truncated generation is not an
         # error — it would arrive as a syntax failure with no cause to show.
-        raw = llm(turn, sysp, None)
+        # The fourth argument only exists when someone is watching: the offline
+        # callers inject a three-argument llm and must keep working untouched.
+        watcher = _live_thinking(on_thinking, attempt)
+        raw = llm(turn, sysp, None) if watcher is None else llm(turn, sysp, None, watcher)
         body, reading, thinking = sanitize(raw)
         if not body.strip():
             attempts.append("the model returned no code")
