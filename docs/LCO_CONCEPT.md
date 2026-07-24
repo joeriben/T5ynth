@@ -2,7 +2,9 @@
 
 **Status: authoritative.** This document supersedes every earlier description of the LCO in `docs/` (the `DCO_*` and `HANDOVER_DCO_*` files describe the predecessor and are historical). Written 2026-07-19, at BJ's instruction, after a session in which the direction had to be corrected four times because it was not written down anywhere.
 
-Read this before touching `backend/dco_lexicon.json`, `backend/csound_orch.py`, or `backend/dco_llm_map.py`.
+**Implementation note, 2026-07-24.** The design below — the goal, the architecture, what an instrument is, the platform invariants — is unchanged. Its description of the *current implementation* is corrected here, after the 2026-07-22 switch to a model-authored orchestra (§2). For the current code state, read `docs/plans/HANDOVER_LCO.md`.
+
+Read this before touching `backend/dco_lexicon.json` or `backend/lco_write.py`.
 
 ---
 
@@ -30,13 +32,13 @@ BJ, 2026-07-19, verbatim:
 
 There is no frame store, no wavetable bake, no capture buffer, no transport, no runtime machinery wrapped around the generated code. Anything the sound does — including morphing — is expressed *in the emitted Csound source*. If a design requires a mechanism outside the emitted code, that design is wrong.
 
-Concretely, today: the prompt goes to a small model (currently `qwen2.5-7b-instruct`) which sees a catalogue built from `backend/dco_lexicon.json`; `build_orchestra()` in `backend/csound_orch.py` turns the reply into an orchestra with `ksmps=64`, `nchnls=16`, one numeric `instr 1`, `ivoice = p4`, 16 always-on voice instances, per-voice channels (`gate/freq/vel/pres/timb/trig`), and up to three oscillator slots each with its own chain, volume and register. The plugin runs it live against `CsoundLib64.framework`.
+Concretely, today: the prompt goes to the author model (gemma-4-12B QAT 4-bit GGUF via llama.cpp), which is shown a catalogue rendered from `backend/lco_library.json` — assembled from `backend/dco_lexicon.json` by `tools/lco_build_library.py`. The model writes the orchestra body itself: real Csound lines, not a set of keys for Python to assemble. Its one contract: the body writes its output into `asig`. `lco_write.wrap()` puts that body inside a fixed host scaffold — `ksmps=64`, `nchnls=16`, one numeric `instr 1`, `ivoice = p4`, 16 always-on voice instances, per-voice channels (`gate/freq/vel/pres/timb/trig`) — and the compiler judges the result; a failure goes back to the model with Csound's own error. The plugin runs the compiled orchestra live against `CsoundLib64.framework`.
 
 ### Naming
 
 **There is no "DCO."** The LCO is the contemporary version of what a DCO used to be — the predecessor, not a component. Never write "the LCO and the DCO", never ask where the boundary between them runs: there is one oscillator. The name survives on ~53 tracked files (`backend/dco_lexicon.json`, `backend/dco_llm_map.py`, `src/dsp/DcoBaker.*`, `docs/DCO_*`, many `tools/dco_*`); some of those files are live and simply kept the old name. Do not infer a subsystem from a filename.
 
-**Wavetables are dead for the LCO** (BJ, 2026-07-19: „wavetable sind TOT für LCO"). `src/dsp/DcoBaker::bake` has no caller anywhere; `backend/lco_author.py`'s entry points are unreachable from the running path. When reasoning about how an LCO sound is produced, go to the lexicon and the orchestra emitter — not to frames.
+**Wavetables are dead for the LCO** (BJ, 2026-07-19: „wavetable sind TOT für LCO"). `src/dsp/DcoBaker::bake` has no caller anywhere; `backend/lco_author.py`'s entry points are unreachable from the running path. When reasoning about how an LCO sound is produced, go to the lexicon and to `backend/lco_write.py` — not to frames.
 
 ---
 
@@ -84,7 +86,7 @@ These are user-observable fundamentals, not preferences. They disqualify otherwi
   - **The convention, as it now stands.** After hearing instrument 3, BJ named it: **`taiko drum wave` = without envelope, `taiko drum` = the real Csound instrument.** The word `wave` selects the spectrum-source reading; its absence means the instrument with its own decay.
   - **Built 2026-07-20 for the electric pianos and the vibraphone** — `rhodes`, `wurlitzer`, `vibraphone` in §5. `wave` is the first modifier word the routing layer has ever had, and it is implemented WITHOUT a grammar change: the two readings are two separate catalogue keys with their own surface forms, so the model matches a phrase as it always has. A rule in the system prompt names the distinction and explicitly exempts `saw wave` / `square wave` / `sine wave`, where `wave` is just part of the waveform's ordinary name.
   - **A key only gives up a word to a key that exists.** `fm_ep` hands "epiano"/"electric piano"/"rhodes" to the real `rhodes` and keeps them as "epiano wave" etc. `drum_head` deliberately keeps ALL of its bare words — "taiko", "tom", "timpani" — because no struck drum key has been built yet, and stripping them would not hand them to an instrument reading, it would make them unroutable and delete a working sound. That trade is made per key, on the day the counterpart lands, never in advance.
-  - **The rewrite lives on the per-request copy of the lexicon, not in `backend/dco_lexicon.json`** (`_CS_WAVE_READING` in `csound_orch.py`), because `lco_author.py` reads the shared file and has no instrument reading to disambiguate against. His reasoning is the honest objection to the rule above — taking "the other way" can cost effort *to make the result worse*: a continuously excited drum is a noise you then shape back into a drum with filter, pitch and envelope. He was explicit that this is **not important now**, and it is recorded rather than built.
+  - **The rewrite lives on the per-request copy of the lexicon, not in `backend/dco_lexicon.json`** (`_CS_WAVE_READING` in `csound_orch.py` — that mechanism went with the file on 2026-07-22; the convention itself is unbuilt either way), because `lco_author.py` reads the shared file and has no instrument reading to disambiguate against. His reasoning is the honest objection to the rule above — taking "the other way" can cost effort *to make the result worse*: a continuously excited drum is a noise you then shape back into a drum with filter, pitch and envelope. He was explicit that this is **not important now**, and it is recorded rather than built.
   - **What the convention reveals about what has been built.** Hearing instrument 2 the next day, BJ named a second instance unprompted — *„das wäre schon ein kandidat für ‚epiano wave'"* — and that is the remark that makes the pattern visible. **All three instruments are `wave` readings.** Checked, not assumed: none of `analog_osc`, `fm_ep` or `drum_head` emits an amplitude envelope opcode, and all three are continuously sourced. The invariant at the top of this section has been read as *the* rule, and under it every instrument that could be built was a `wave`. The convention's other half — the real instrument, with its own decay — **does not exist at all.** It was never rejected; it was never reachable.
   - **Which is why §6's rejection list is its material, not a dead end.** `fmrhode`/`fmwurlie` were rejected because no decay argument exists in the signature — i.e. they have a decay that cannot be switched off. `marimba`/`vibes` were rejected because `idec` is inert *and* pitch freezes at strike. Every one of those disqualifications is a disqualification **for the `wave` reading only**, and several are the physically correct behaviour for a struck instrument. About a dozen already-measured opcodes are sitting there. The one piece of genuine new work is that the routing layer has no concept of a modifier word today; `wave` would be the first.
 - **Pitch belongs to the synth.** An opcode that invents its own register is unusable however good it sounds. `kfreq` is k-rate and glides; everything must track it.
@@ -95,7 +97,9 @@ These are user-observable fundamentals, not preferences. They disqualify otherwi
 
 ---
 
-## 5. The three instruments (current proof of concept)
+## 5. The first three instruments — the full measurement record
+
+The proof of concept ended here. What follows is the detailed record of the first three instruments and everything measured while building them. The library has since grown to 30 instruments, 7 of which carry parameters (`analog_osc`, `fm_ep`, `drum_head`, `fm`, `fm_bell`, `metallic_fm`, `string`); the rest are fixed idioms. For the current list, see `docs/plans/HANDOVER_LCO.md` §2.
 
 BJ, 2026-07-19: „nein, eigentlich Kernidee zuerst. d.h. wir beginnen mit 3 unterschiedlichen Instrumenten. die parametrisieren wir." And: „Möglicherweise war auch der Fehler von einer quantitativen Mächtigkeit auszugehen statt einem sinnlich-musikalisch getragenen Aufbau dieses Osc. Der kann dann ja auch über Monate wachsen."
 
@@ -243,6 +247,13 @@ Each of these actually happened. They are recorded because prose rules that depe
 
 ## 8. What is structurally in the way
 
+**Historical note, 2026-07-24.** This section was written 2026-07-19 against `backend/csound_orch.py`, deleted 2026-07-22 when the model-authored architecture landed (`docs/plans/HANDOVER_LCO.md` §7). What survives the deletion and what does not:
+
+- The **ten hand-maintained Python sets**, **`_ADJ_MAP`** as post-mix DSP, and **`_emit_crossfade_morph`** all died with the file — there is no Python set to hand-edit, no post-mix adjective stage, and no separate morph emitter: the model writes the key, the adjective and the morph directly into the Csound it emits (§9).
+- **"Much of the curation already exists as prose"** is answered differently, not closed the same way: `csound_orch.py`'s comments are gone, but the model now reads the same kind of measured, specific guidance directly, in `lco_write._SYSTEM_HEAD` and the lexicon's own `why`/anchor text.
+- **"The parametrisation layer was built twice before it was ever connected"** is a lesson about verification, not about `csound_orch.py` — it survives untouched.
+- **"Nine keys with no steerable parameter"** does NOT die with the file: the one-time harvest (`tools/lco_build_library.py`) carried `square`'s and `pulse`'s hardcoded duty into `backend/dco_lexicon.json` verbatim, and `saw`/`square`/`pulse`/`triangle` still have no `params` entry there. 23 of today's 30 lexicon instruments are fixed idioms (`docs/plans/HANDOVER_LCO.md` §2).
+
 - **Adding one key today requires hand-editing ~10 Python sets** that do not derive from the lexicon (`_TONAL_KEYS`, `_NOISE_TECH`, `_MODAL_TECH`+`_MODAL_SPECTRA`+`_MODAL_PARAMS`, `_VOICE_TECH`, `_LIVE_TECH`, `_CHEAP_TECH`, `_SPARSE_TECH`, `_SELF_MOVING_TECH`, `_PULSE_FAMILY`, `_CS_TERMINALS`). Miss one and the key falls through to a bare `poscil` — and a tools file reports the omission only as a non-fatal "GAP". A library of dozens of instruments cannot grow through ten manual edits per entry with a silent failure path.
 - **Cross-cutting properties are on the wrong side.** `_ADJ_MAP` applies `gritty`/`dirty`/`airy` as bounded DSP operations on the **mixed** signal — a waveshaper hung on the end. §1 requires them to flow into the **code generation**, i.e. to move the instrument's own parameters, falling back to a post-effect only where the instrument has no parameter for that quality.
 - **The morph is still an amplitude crossfade** (`_emit_crossfade_morph`): both stages render their full idiom and their audio is equal-power blended, so mid-morph both are heard. The emitter's own docstring says so.
@@ -258,7 +269,7 @@ Each of these actually happened. They are recorded because prose rules that depe
 2. **The proof of concept is complete and all three instruments are ear-approved.** What BJ asked for — „wir beginnen mit 3 unterschiedlichen Instrumenten. die parametrisieren wir" — is done, so **what comes next is a direction decision, not a fourth instrument.** Each still carries one open item of its own: `age` on instrument 1 (item 1), the odd/even travel on instrument 2 (§5), nothing outstanding on instrument 3.
 3. **The `wave` convention** (§4) — named by BJ and explicitly deferred by him, then named again unprompted the next day on a second instrument. It would turn the self-decay rule of thumb into a choice made in the prompt. The reason it ranks this high despite being deferred: **all three built instruments turn out to be `wave` readings, and the convention's other half does not exist** — so this is not a refinement of what has been built, it is the half that has not been. Its material is §6's rejection list, whose disqualifications are disqualifications for the `wave` reading only. Not to be built without BJ's say-so.
 4. The anchors are **calculated, not heard.** Where "sharp", "hollow", "old" sit on each axis is BJ's ear, not a measurement. This is the curation step and it cannot be delegated to a gate.
-5. Cross-cutting properties into generation (§8).
-6. The morph as a real waveform morph (§8) — backlog item #9, reopened.
-7. The ten hand-maintained sets (§8) — the growth blocker.
+5. ~~Cross-cutting properties into generation (§8).~~ **ANSWERED 2026-07-22**: the model writes adjectives directly into the code it generates, not as a post-mix stage (§8).
+6. ~~The morph as a real waveform morph (§8) — backlog item #9, reopened.~~ **ANSWERED 2026-07-22**: the model writes the morph itself in Csound, one instrument crossfading into another inside a single body, not two blocks amplitude-blended after the fact (§8).
+7. ~~The ten hand-maintained sets (§8) — the growth blocker.~~ **ANSWERED 2026-07-22**: there is no Python set left to hand-edit; a new instrument is one lexicon entry plus a library rebuild (§8).
 8. The whole modal family (`glass`, `struck_bar`, `cymbal`, and now `drum_head`) drops ~20 dB and hits the limiter when `kfreq` jumps mid-voice — reachable with legato and glide. Every measurement of this family so far was taken on a *settled* bank, so "1.07 dB of within-note travel" must not be read as "this family has no loudness travel".
