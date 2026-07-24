@@ -31,11 +31,16 @@
 //    condition movement-by-default has to answer for, and hiding it would hide
 //    the interesting case.
 //
-// Idle-cheap: paints only when something is set. No timer, no animation.
-// The Csound body is NOT drawn here — it becomes the back of this card in the
-// next step; this view holds only the trace.
+// Idle-cheap: paints only when something is set. No animation, and the only
+// timer runs between a mouse-down and the flip it may become — never at idle.
+//
+// TWO SIDES (BJ 2026-07-24, step 2). The front is the trace above. The back is
+// the Csound the author actually wrote, and ONLY that — not the host scaffold
+// wrapped around it, which nobody wrote and nobody can change. Click and hold
+// anywhere on the card turns it over, and again to come back.
 class LcoTraceView : public juce::Component,
-                     public juce::SettableTooltipClient
+                     public juce::SettableTooltipClient,
+                     private juce::Timer
 {
 public:
     /** What is known about the orchestra now in the engine. `Unknown` is a real
@@ -80,9 +85,14 @@ public:
                                                    juce::Colours::transparentBlack);
         content_.owner_ = this;
         // Takes its own mouse, exactly as the text box it replaced did: the
-        // scrollbar needs drags, and the card flip lands here next.
+        // scrollbar needs drags, and the card flip lands here.
         setInterceptsMouseClicks(true, true);
     }
+
+    /** Rule 1 of the project's JUCE safety list: stop the timer BEFORE any
+     *  member is destroyed. This one is only ever running mid-press, so the
+     *  window is small — which is exactly the kind that gets missed. */
+    ~LcoTraceView() override { stopTimer(); }
 
     /** The panel's responsive base font — same unit every other LCO widget uses. */
     void setBaseFont(float f)
@@ -173,6 +183,25 @@ public:
     /** Placeholder for the empty panel, before anything has been authored. */
     void setPlaceholder(juce::String text) { placeholder_ = std::move(text); relayout(); }
 
+    /** The back of the card: the Csound the author wrote, verbatim.
+     *
+     *  The BODY, not the orchestra. The scaffold around it — sr, ksmps, the
+     *  sixteen channel reads, the score — is the host's, identical in every
+     *  patch, and nobody authored it; printing it would bury the six lines that
+     *  are actually this sound under sixty that are not. */
+    void setBody(const juce::String& csound)
+    {
+        if (csound == body_)
+            return;
+        body_ = csound;
+        if (showBack_)
+            relayout();
+    }
+
+    /** Which side is up. Set by the click-and-hold, and readable so the panel
+     *  around it can keep its own caption in step. */
+    bool isShowingBody() const noexcept { return showBack_; }
+
     /** The scrolled content sits ON TOP of this view, so it — not this view — is
      *  the component a tooltip lookup finds under the mouse (JUCE asks the
      *  deepest hit component and does not walk up to its parents). Mirror the
@@ -197,6 +226,38 @@ public:
         viewport_.setBounds(getLocalBounds().reduced(1));
         relayout();
     }
+
+    // ── Click and hold turns the card over ───────────────────────────────────
+    // A press, not a click: a click belongs to the scrollbar and to whatever
+    // selection the back grows next, and taking it here would make the card
+    // flip every time the user tried to use it. The timer exists only between
+    // the press and the flip, and a drag of more than a few pixels cancels it —
+    // that is someone scrolling, not someone turning the page.
+    void mouseDown(const juce::MouseEvent&) override        { startTimer(kHoldMs); }
+    void mouseDrag(const juce::MouseEvent& e) override      { if (e.getDistanceFromDragStart() > 6) stopTimer(); }
+    void mouseUp(const juce::MouseEvent&) override          { stopTimer(); }
+
+private:
+    static constexpr int kHoldMs = 400;
+
+    void timerCallback() override
+    {
+        stopTimer();
+        showBack_ = ! showBack_;
+        // The two sides scroll independently in one viewport, so an arrival at
+        // the bottom of a long trace would otherwise open the code halfway down.
+        viewport_.setViewPosition(0, 0);
+        // Code does not wrap — a wrapped Csound line is a different line. The
+        // back scrolls sideways instead; the front never needs to.
+        viewport_.setScrollBarsShown(true, showBack_);
+        relayout();
+        if (onFlip)
+            onFlip(showBack_);
+    }
+
+public:
+    /** Called after a flip, with the side now up. */
+    std::function<void(bool)> onFlip;
 
 private:
     // ── Geometry, in one place so measuring and drawing cannot drift ──────────
@@ -275,6 +336,81 @@ private:
             cx += cw + gap;
         }
         return (cy - y) + h;
+    }
+
+    /** The BACK: the authored body, monospaced and unwrapped.
+     *
+     *  Csound is line-structured — one opcode, one line — so wrapping would
+     *  print lines the author never wrote. In a column this narrow that means
+     *  the card scrolls sideways, which is why `width` is in/out: it comes in as
+     *  the viewport's width and goes out as the longest line, so there is
+     *  something to scroll to.
+     *
+     *  Trailing `; ...` is drawn apart from the code. The library's idioms carry
+     *  their reasoning in exactly those comments ("mode 1 @ x1.00, Q 900"), and
+     *  they are the author talking ABOUT the code rather than the code — the
+     *  same distinction the front of the card is built on. */
+    int renderBody(juce::Graphics* g, int& width) const
+    {
+        const float x = 8.0f;
+        if (body_.trim().isEmpty())
+        {
+            const juce::Font fb { juce::FontOptions(bodyFont()) };
+            const float w = static_cast<float>(width) - x - 11.0f;
+            return juce::roundToInt(7.0f + paragraph(g, "no orchestra has been authored yet",
+                                                     fb, kDim, x, 7.0f, w) + 7.0f);
+        }
+
+        const juce::Font f { juce::FontOptions(juce::Font::getDefaultMonospacedFontName(),
+                                               juce::jmax(9.5f, base_ * 0.86f),
+                                               juce::Font::plain) };
+        const float lineH = std::round(f.getHeight() * 1.30f);
+        float y = 7.0f, widest = 0.0f;
+        juce::StringArray lines;
+        lines.addLines(body_);
+        if (g != nullptr)
+            g->setFont(f);
+        for (const auto& ln : lines)
+        {
+            widest = juce::jmax(widest, juce::GlyphArrangement::getStringWidth(f, ln));
+            if (g != nullptr && ln.isNotEmpty())
+            {
+                const int c = commentStart(ln);
+                const auto code = c < 0 ? ln : ln.substring(0, c);
+                if (code.isNotEmpty())
+                {
+                    g->setColour(kTextSecondary);
+                    g->drawText(code, juce::Rectangle<float>(x, y, widest + 400.0f, lineH),
+                                juce::Justification::centredLeft, false);
+                }
+                if (c >= 0)
+                {
+                    g->setColour(kTextDisabled);
+                    g->drawText(ln.substring(c),
+                                juce::Rectangle<float>(x + juce::GlyphArrangement::getStringWidth(f, code),
+                                                       y, widest + 400.0f, lineH),
+                                juce::Justification::centredLeft, false);
+                }
+            }
+            y += lineH;
+        }
+        width = juce::jmax(width, juce::roundToInt(x + widest + 11.0f));
+        return juce::roundToInt(y + 7.0f);
+    }
+
+    /** Index of the `;` that starts a trailing comment, or -1. A semicolon
+     *  inside a string literal (`sprintf "gate%d; ..."`) is not one, so the
+     *  quotes before it have to balance. */
+    static int commentStart(const juce::String& line)
+    {
+        bool inString = false;
+        for (int i = 0; i < line.length(); ++i)
+        {
+            const auto ch = line[i];
+            if (ch == '"')            inString = ! inString;
+            else if (ch == ';' && ! inString) return i;
+        }
+        return -1;
     }
 
     /** Walks every station. g == nullptr measures, g != nullptr draws — one
@@ -490,8 +626,10 @@ private:
 
     void relayout()
     {
-        const int w = juce::jmax(1, viewport_.getMaximumVisibleWidth());
-        content_.setSize(w, juce::jmax(viewport_.getHeight(), render(nullptr, w)));
+        int w = juce::jmax(1, viewport_.getMaximumVisibleWidth());
+        const int h = showBack_ ? renderBody(nullptr, w)   // widens w to the longest line
+                                : render(nullptr, w);
+        content_.setSize(w, juce::jmax(viewport_.getHeight(), h));
         content_.repaint();
     }
 
@@ -500,9 +638,18 @@ private:
     {
         void paint(juce::Graphics& g) override
         {
-            if (owner_ != nullptr)
-                owner_->render(&g, getWidth());
+            if (owner_ == nullptr)
+                return;
+            int w = getWidth();
+            if (owner_->showBack_) owner_->renderBody(&g, w);
+            else                   owner_->render(&g, w);
         }
+        // The scrolled content sits on top, so the press lands HERE. JUCE does
+        // not pass mouse events up to a parent, so without this the card could
+        // only be flipped by hitting the 1px margin around the viewport.
+        void mouseDown(const juce::MouseEvent& e) override { if (owner_) owner_->mouseDown(e); }
+        void mouseDrag(const juce::MouseEvent& e) override { if (owner_) owner_->mouseDrag(e); }
+        void mouseUp  (const juce::MouseEvent& e) override { if (owner_) owner_->mouseUp(e); }
         LcoTraceView* owner_ = nullptr;
     };
 
@@ -515,6 +662,8 @@ private:
     juce::String status_, placeholder_, compileDetail_;
     juce::String live_;             // the reasoning as it streams; empty once traced
     int          liveAttempt_ = 0;
+    juce::String body_;             // the back of the card: the authored Csound
+    bool         showBack_ = false;
     CompileState compile_ = CompileState::Unknown;
     float   base_ = 13.0f;
 

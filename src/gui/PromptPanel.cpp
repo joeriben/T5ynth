@@ -2458,6 +2458,7 @@ void PromptPanel::triggerDcoBake()
             self->processorRef.requestCsoundOrchestra(authored.orchestra);
             self->processorRef.setCsoundReading(authored.reading);
             self->processorRef.setCsoundParamsText(authored.paramsText);
+            self->dcoTraceView.setBody(authored.paramsText);   // the back of the card
 
             // The engine now holds a new, unsaved sound — drop the loaded/
             // last-saved preset identity (same reason and same siting as the
@@ -2634,6 +2635,24 @@ void PromptPanel::triggerDcoBake()
         publish(authored, /*attempt=*/0, /*moreToCome=*/false);
 #endif
     }).detach();
+}
+
+void PromptPanel::setLcoRecalledTrace(const juce::String& prompt, const juce::String& reading,
+                                      const juce::String& authorModel)
+{
+    ++dcoBakeSeq_;
+    dcoSelfCheck_.clear();
+    LcoTraceView::Trace t;
+    t.prompt  = prompt;
+    t.reading = reading;
+    t.model   = authorModel;
+    dcoTraceView.setTrace(std::move(t));
+    // The back of the card follows the recall too. The processor is the one
+    // place the authored body survives a preset load, and reading it here covers
+    // every recall site at once — a card whose front says "this orchestra" while
+    // its back still shows the previous one would be wrong in exactly the
+    // direction this panel exists to prevent.
+    dcoTraceView.setBody(processorRef.getCsoundParamsText());
 }
 
 // ──────────────────────────────────────────────────────────────────────────────

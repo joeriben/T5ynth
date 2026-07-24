@@ -173,17 +173,10 @@ public:
     //  recall sets the tab AFTER restoring the card, and a preset does not store
     //  an author at all — reading the tab here would caption a recalled orchestra
     //  with the name of whoever wrote the previous one.
+    //  Defined in the .cpp: it reads the authored body back off the processor,
+    //  which is only forward-declared here.
     void setLcoRecalledTrace(const juce::String& prompt, const juce::String& reading,
-                             const juce::String& authorModel)
-    {
-        ++dcoBakeSeq_;
-        dcoSelfCheck_.clear();
-        LcoTraceView::Trace t;
-        t.prompt  = prompt;
-        t.reading = reading;
-        t.model   = authorModel;
-        dcoTraceView.setTrace(std::move(t));
-    }
+                             const juce::String& authorModel);
 
     /** Point the Re-Prompt chain at a prompt that was RECALLED into the editor
      *  rather than typed or baked. With a stance engaged, GENERATE re-reads
