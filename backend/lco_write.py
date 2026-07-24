@@ -345,11 +345,19 @@ AVAILABLE IN SCOPE
   giSine (sine table)  giCos (cosine table, for gbuzz/buzz)
   giCheb (Chebyshev transfer table)  giImp (short strike impulse table)
 
-OUTPUT FORMAT
-Output ONLY Csound code lines. No <CsoundSynthesizer>, no <CsInstruments>, no header (sr/ksmps/nchnls/0dbfs), no `instr`/`endin`, no `ftgen`, no score, no `out`/`outs`/`outch`, no markdown fences, no explanation. The host supplies all of it.
+HOW TO ANSWER
+FIRST THINK, in plain language, and write that thinking down — a short paragraph, not an essay:
+  - What IS this sound? Which instrument, mechanism or physical body comes closest, and what in the library is nearest to it?
+  - The words are a DESCRIPTION of a sound, not lookup keys. When the prompt names no instrument at all — "a dark growl", "rusty machinery", "like wet glass", "an angry insect" — this is where you work out what it would BE: what excites it, what resonates, what makes it dark or rough or restless. The library has no entry for most of what a player will ask for; you are expected to reason your way there from what the words describe, using the idioms as material.
+  - What MOVES in it, and how fast?
+THEN write the orchestra body, in exactly ONE fenced block:
 
-After the code, on ONE final line, write:
+```csound
+<your Csound lines>
 READING: <a short plain-language description of what you built, 5-12 words>
+```
+
+Inside the fence goes ONLY the oscillator body and that final READING line: no <CsoundSynthesizer>, no <CsInstruments>, no header (sr/ksmps/nchnls/0dbfs), no `instr`/`endin`, no `ftgen`, no score, no `out`/`outs`/`outch`. The host supplies all of it. Everything OUTSIDE the fence is your thinking and is discarded — so the fence must be there, and there must be exactly one.
 
 LIBRARY (adapt and combine — do not simply copy one block):
 """
@@ -420,16 +428,24 @@ def sanitize(raw):
     the READING line; recovers `asig` when the model wrote its output through
     `out`/`outch` under another name."""
     txt = raw or ""
-    m = _FENCE.search(txt)
-    if m:
-        txt = m.group(1)
-    txt = txt.replace("```", "")
 
+    # Read READING from the WHOLE reply, BEFORE the fence is cut out. The author
+    # is asked to put it inside the fence, but it costs nothing to also accept it
+    # after — and cutting first would silently throw that one away.
     reading = ""
     rm = _READING.search(txt)
     if rm:
         reading = rm.group(1).strip()
-        txt = _READING.sub("", txt)
+
+    m = _FENCE.search(txt)
+    if m:
+        txt = m.group(1)
+    elif "```" in txt:
+        # An opened but never closed fence. Everything before it is the author's
+        # thinking, which reaches the compiler as prose if it is not cut here.
+        txt = re.sub(r"^[A-Za-z0-9_+#-]*[ \t]*\n", "", txt.split("```", 1)[1])
+    txt = txt.replace("```", "")
+    txt = _READING.sub("", txt)
 
     kept, captured_out = [], None
     for ln in txt.splitlines():
