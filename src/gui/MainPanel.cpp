@@ -2187,25 +2187,31 @@ void MainPanel::applyLoadedPreset(const PresetFormat::LoadResult& result, const 
                                         result.lcoOscBHasContent, result.lcoGainB);
         processorRef.setLastModel("LCO");
         promptPanel.setLcoPrompt(result.lcoPrompt);
-        promptPanel.setLcoReadingA(result.lcoReadingA);
+        // The retired wavetable LCO: no Csound author wrote this, so the trace
+        // names none rather than inheriting whoever wrote the last orchestra.
+        promptPanel.setLcoRecalledTrace(result.lcoPrompt, result.lcoReadingA, {});
     }
 
     // Csound orchestra restore (Phase 5, SPEC_phase4_5_csound_llm_preset.md):
     // importJsonPreset already issued requestCsoundOrchestra()/setCsoundReading()
     // as a side effect of parsing the "engine" block (see its own comment there) —
-    // PromptPanel's reading editor is the one piece importJsonPreset (a plain
+    // PromptPanel's trace view is the one piece importJsonPreset (a plain
     // processor method, no GUI access) cannot reach directly, so push the
-    // now-current stash into the SAME shape the live Csound-authoring flow
-    // leaves behind (PromptPanel::triggerDcoBake). Gated on the just-restored
-    // engine mode rather than a new LoadResult field: exportJsonPreset only
-    // ever writes csound_orchestra/csound_reading together with mode
-    // "csound", so "mode == Csound" IS "there was a csound block" for any
-    // file this build wrote.
+    // now-current stash into it. Gated on the just-restored engine mode rather
+    // than a new LoadResult field: exportJsonPreset only ever writes
+    // csound_orchestra/csound_reading together with mode "csound", so
+    // "mode == Csound" IS "there was a csound block" for any file this build
+    // wrote.
+    //
+    // A preset stores the reading and the body, never the consultation, the
+    // repairs or the author's name — so this restores the stations it HAS and
+    // leaves the rest out. The authored body is not lost: it stays in
+    // csoundParamsText and is what the card's back side shows.
     if (static_cast<int>(processorRef.getValueTreeState().getRawParameterValue(PID::engineMode)->load())
             == static_cast<int>(EngineMode::Csound))
     {
-        promptPanel.setLcoReadingA(PromptPanel::formatLcoDisclosure(
-            processorRef.getCsoundReading(), processorRef.getCsoundParamsText()));
+        promptPanel.setLcoRecalledTrace(promptPanel.getLcoPrompt(),
+                                        processorRef.getCsoundReading(), {});
     }
 
     // Preset selection must ALSO switch the oscillator MODE to match the restored
@@ -3076,8 +3082,10 @@ void MainPanel::restoreLcoSnapshot(const LcoSnapshot& snapshot)
     // recalled sound rather than the last bake's (exportJsonPreset reads these).
     processorRef.setCsoundReading(snapshot.reading);
     processorRef.setCsoundParamsText(snapshot.paramsText);
-    promptPanel.setLcoReadingA(PromptPanel::formatLcoDisclosure(snapshot.reading,
-                                                               snapshot.paramsText));
+    // A slot stores the reading, the body and the author — not the consultation
+    // or the repairs, which happened at bake time. The trace shows what the slot
+    // actually holds; the missing stations stay absent rather than blank.
+    promptPanel.setLcoRecalledTrace(snapshot.prompt, snapshot.reading, snapshot.authorModel);
     // Whoever wrote THIS orchestra — including "not known", which must clear the
     // previous bake's name rather than let it stand over a different sound.
     if (snapshot.authorModel.isNotEmpty())

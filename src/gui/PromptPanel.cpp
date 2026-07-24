@@ -428,7 +428,7 @@ PromptPanel::PromptPanel(T5ynthProcessor& processor)
         // in LCO mode via triggerLcoGenerate(). dcoStatusLabel stays as the
         // logical status/error holder (many call sites write it) but is no
         // longer laid out as its own visible line — its text is routed into
-        // dcoReadingEditorA/B below (setLcoStatus).
+        // dcoTraceView below (setLcoStatus).
         makeLabel(dcoStatusLabel, "LCO: ready", kDim, juce::Justification::centredLeft, this);
 
         // Flags list — the guardrail honesty channel made visible: one
@@ -437,28 +437,15 @@ PromptPanel::PromptPanel(T5ynthProcessor& processor)
         // the layout collapses its row then.
         makeLabel(dcoFlagsLabel, "", kWarning, juce::Justification::topLeft, this);
 
-        // Machine reading: fills the middle where the baked wave used to sit
-        // (the wave now draws in the engine window) — the disclosure the LCO
-        // is FOR (docs/DCO_REPROMPT_CONCEPT.md): what the machine heard, made
-        // visible and negotiable, not a picture of the table. ONE full-width
-        // read-only multiline editor (styled EXACTLY like promptAEditor/
-        // dcoPromptEditor) — reused verbatim rather than a plain label, so it
-        // also doubles as the LCO status/error surface (setLcoStatus) until a
-        // reading exists. The dual A+B/harmonic-inharmonic split this used to
-        // carry (a second, twin editor) is retired — BJ 2026-07-17: "this
-        // split is dead".
-        dcoReadingEditorA.setMultiLine(true, true);
-        dcoReadingEditorA.setReadOnly(true);
-        dcoReadingEditorA.setCaretVisible(false);
-        dcoReadingEditorA.setColour(juce::TextEditor::backgroundColourId, kSurface.brighter(0.08f));
-        dcoReadingEditorA.setColour(juce::TextEditor::textColourId, kImpulseAText);
-        dcoReadingEditorA.setColour(juce::TextEditor::outlineColourId, kBorder);
-        dcoReadingEditorA.setColour(juce::TextEditor::focusedOutlineColourId, kImpulseA);
-        dcoReadingEditorA.setColour(juce::TextEditor::highlightColourId, kImpulseA.withAlpha(0.30f));
-        dcoReadingEditorA.setTextToShowWhenEmpty("The machine's reading appears here after Generate.",
-                                                  kImpulseAText.withAlpha(0.45f));
-        dcoReadingEditorA.setBufferedToImage(true);
-        addAndMakeVisible(dcoReadingEditorA);
+        // The authoring trace: fills the middle where the baked wave used to sit
+        // (the wave now draws in the engine window) — the disclosure the LCO is
+        // FOR (docs/DCO_REPROMPT_CONCEPT.md): what the machine heard, made
+        // visible and negotiable, not a picture of the table. It also doubles as
+        // the LCO status/error surface (setLcoStatus) until a trace exists. The
+        // dual A+B/harmonic-inharmonic split this used to carry (a second, twin
+        // editor) is retired — BJ 2026-07-17: "this split is dead".
+        dcoTraceView.setPlaceholder("The authoring trace appears here after Generate.");
+        addAndMakeVisible(dcoTraceView);
 
         // DCO Re-Prompt (stance-driven self-reading loop, docs/DCO_REPROMPT_CONCEPT.md):
         // a SECOND stance bar bound to its OWN parameter (dcoRepromptStance) — never
@@ -1085,7 +1072,7 @@ void PromptPanel::resized()
     // shown — see setLcoStatus); it is intentionally NOT toggled here.
     dcoPromptEditor.setVisible(!easy);
     for (auto& b : dcoModelBtns) b.setVisible(!easy);
-    dcoReadingEditorA.setVisible(!easy);
+    dcoTraceView.setVisible(!easy);
     dcoFlagsLabel.setVisible(!easy);
     dcoStanceBar.setVisible(!easy);
     dcoRepromptBox.setVisible(!easy);
@@ -1196,34 +1183,25 @@ void PromptPanel::resized()
         // the HEARD AS editor below, which fills whatever `area` remains.
         area.removeFromBottom(gapLco * 3);
 
-        // Flags line directly above the RE-PROMPT card — one "word: reason"
-        // line per approximated/unmappable prompt term (the guardrail honesty
-        // channel). Zero flags = zero height, the HEARD AS box reclaims it.
-        setUiFont(dcoFlagsLabel, TextRole::Hint, fLco);   // honesty channel: small, not body-size
-        const auto flagsText = dcoFlagsLabel.getText();
-        if (flagsText.isNotEmpty())
-        {
-            const int numLines = juce::StringArray::fromLines(flagsText).size();
-            const int lineH = juce::roundToInt(dcoFlagsLabel.getFont().getHeight() + 2.0f);
-            dcoFlagsLabel.setBounds(area.removeFromBottom(juce::jmin(numLines, 4) * lineH));
-            area.removeFromBottom(gapLco);
-        }
-        else
-        {
-            dcoFlagsLabel.setBounds({});
-        }
+        // dcoFlagsLabel is no longer laid out. Under the write-path it only ever
+        // carried the compile state ("compiling..." / the Csound error) — the
+        // per-word guardrail flags it was built for belong to the retired keys
+        // path and were always empty here. That state is now the trace's own
+        // RUNNING station, so the line above the RE-PROMPT card is gone and the
+        // trace reclaims its height. The label survives as the logical holder,
+        // like dcoStatusLabel, because several call sites write it.
+        dcoFlagsLabel.setBounds({});
 
-        // The ONE HEARD AS output editor fills the remaining middle — the
-        // LCO's disclosure surface (docs/DCO_REPROMPT_CONCEPT.md): what the
-        // machine heard, made visible and negotiable. It now takes the FULL
-        // former two-card area (the E↔O oscillator-mix slider and the second,
-        // Inharmonic-engine card it used to sit beside are both retired —
-        // BJ 2026-07-17: "this split is dead"). Flexes to absorb the tall LCO
-        // panel, with the placeholder/status text carried by the editor's own
-        // empty-state string and setLcoStatus.
+        // The trace fills the remaining middle — the LCO's disclosure surface
+        // (docs/DCO_REPROMPT_CONCEPT.md): what the machine heard, made visible
+        // and negotiable. It takes the FULL former two-card area (the E↔O
+        // oscillator-mix slider and the second, Inharmonic-engine card it used
+        // to sit beside are both retired — BJ 2026-07-17: "this split is dead").
+        // Flexes to absorb the tall LCO panel; status and empty-state text are
+        // carried by the view itself (setPlaceholder / setLcoStatus).
         {
-            dcoReadingEditorA.applyFontToAllText(juce::FontOptions(editorFontLco));
-            dcoReadingEditorA.setBounds(area);
+            dcoTraceView.setBaseFont(editorFontLco);
+            dcoTraceView.setBounds(area);
         }
         return;
     }
@@ -2157,20 +2135,21 @@ void PromptPanel::triggerLcoGenerate()
 }
 
 // Route status/error text into both the logical holder (dcoStatusLabel — kept
-// for the many call sites that already write it) and the visible HEARD AS
-// box, which doubles as the LCO status/error channel until an actual reading
-// exists.
+// for the many call sites that already write it) and the visible trace view,
+// which doubles as the LCO status/error channel until an actual trace exists.
 void PromptPanel::setLcoStatus(const juce::String& text, const juce::String& tooltip)
 {
     dcoStatusLabel.setText(text, juce::dontSendNotification);   // keep the logical status holder
-    // Status/error is always DIMMED (kDim), so it never reads as a
-    // successful reading — the completion path re-brightens the box only
-    // once an actual reading exists. setColour before setText so the
-    // replaced text picks up the dim colour (and clears any bright colour a
-    // prior reading left).
-    dcoReadingEditorA.setColour(juce::TextEditor::textColourId, kDim);
-    dcoReadingEditorA.setText(text, juce::dontSendNotification);
-    dcoReadingEditorA.setTooltip(tooltip);
+    // A status REPLACES the trace (the view dims it as a status line, never as a
+    // reading). That replacement is the point: the trace on screen describes an
+    // orchestra that is being superseded, or an attempt that just failed, and
+    // leaving it standing would let it read as the current one.
+    dcoTraceView.setStatus(text);
+    dcoTraceView.setTooltip(tooltip);
+    // A new state supersedes the previous orchestra's compile report too — the
+    // RUNNING station must not keep claiming "compiled" over a failed attempt.
+    dcoTraceView.setCompileState({}, false);
+    dcoFlagsLabel.setText({}, juce::dontSendNotification);
     // Any status write replaces the card, so a self-check still in flight no
     // longer describes what is on screen — including the case this exists for: a
     // REJECTED generate attempt ("prompt is empty") never reaches the bump inside
@@ -2178,6 +2157,16 @@ void PromptPanel::setLcoStatus(const juce::String& text, const juce::String& too
     // the error the user was just shown.
     ++dcoBakeSeq_;
     dcoSelfCheck_.clear();
+}
+
+// The compile window's report — see the declaration comment. Writes the logical
+// holder AND the trace's RUNNING station, so the two can never disagree about
+// what the engine did with the orchestra on screen.
+void PromptPanel::setLcoCompileState(const juce::String& text, bool isError)
+{
+    dcoFlagsLabel.setText(text, juce::dontSendNotification);
+    dcoFlagsLabel.setTooltip(isError ? text : juce::String());
+    dcoTraceView.setCompileState(text, isError);
 }
 
 // Phase 5 compile-window poll (SPEC_phase4_5_csound_llm_preset.md) — see its
@@ -2207,9 +2196,7 @@ void PromptPanel::pollCsoundCompile()
     if (engineModeNow != EngineMode::Csound)
     {
         csoundCompileWatching_ = false;
-        dcoFlagsLabel.setText({}, juce::dontSendNotification);
-        dcoFlagsLabel.setTooltip({});
-        resized();   // flag-area content changed
+        setLcoCompileState({}, false);
         return;
     }
 
@@ -2220,7 +2207,7 @@ void PromptPanel::pollCsoundCompile()
     if (busyNow)
     {
         csoundCompileSeenBusy_ = true;
-        dcoFlagsLabel.setText("compiling...", juce::dontSendNotification);
+        setLcoCompileState("compiling...", false);
         return;   // still going — check again next tick
     }
 
@@ -2237,7 +2224,7 @@ void PromptPanel::pollCsoundCompile()
     if (! csoundCompileSeenBusy_
         && (juce::Time::getMillisecondCounterHiRes() - csoundCompileWatchStartMs_) < kGraceMs)
     {
-        dcoFlagsLabel.setText("compiling...", juce::dontSendNotification);
+        setLcoCompileState("compiling...", false);
         return;
     }
 
@@ -2246,8 +2233,7 @@ void PromptPanel::pollCsoundCompile()
     const juce::String err = processorRef.csoundCompileError();
     if (err.isNotEmpty())
     {
-        dcoFlagsLabel.setText(err, juce::dontSendNotification);
-        dcoFlagsLabel.setTooltip(err);
+        setLcoCompileState(err, true);
         // The swap FAILED: the engine still plays the previous orchestra. An
         // in-flight self-check rendered the NEW text, so its finding describes a
         // sound nobody can hear — drop it. This is the one invalidation that comes
@@ -2257,10 +2243,8 @@ void PromptPanel::pollCsoundCompile()
     }
     else
     {
-        dcoFlagsLabel.setText({}, juce::dontSendNotification);   // clean: nothing to report
-        dcoFlagsLabel.setTooltip({});
+        setLcoCompileState({}, false);   // clean: the RUNNING station says "compiled"
     }
-    resized();   // flag-area content changed
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -2384,33 +2368,38 @@ void PromptPanel::triggerDcoBake()
                 return;
             }
 
-            // The ONE HEARD AS card = the reading ("how it was heard") PLUS
-            // its parametrisation beneath it — the reading alone was a terse
-            // gloss ("saw > fm_bell"); BJ asked for the real parametrisation
-            // (catalogue entry + resolved knob words) to be visible too, not
-            // raw Csound source. The Csound orchestra is one combined
-            // authored voice, not a dual A/B oscillator split (that split is
-            // retired — BJ 2026-07-17: "this split is dead").
-            // Progress goes in the CARD, in the Self-check slot the real finding
-            // will overwrite. Not dcoStatusLabel: that one is never laid out (see
-            // setLcoStatus) and nothing written there is visible. Not setLcoStatus
-            // either: it bumps dcoBakeSeq_, which would make the loop discard its
-            // own finding as stale. Without this the panel looks finished while
-            // GENERATE stays disabled through up to five more author + render +
-            // analyze + compare rounds — minutes of the exact misleading state
-            // triggerDcoBake's gates exist to prevent.
-            juce::String progress;
-            if (moreToCome)
-                progress = (attempt == 0)
-                         ? juce::String("listening to what was built...")
-                         : ("correction " + juce::String(attempt) + " of "
-                            + juce::String(kMaxSelfCorrections) + " — listening...");
+            // The trace: every station is a record the write-path kept on the way
+            // to this orchestra (backend/lco_write.py). Nothing is composed here
+            // and nothing was asked of the author — its system prompt still
+            // forbids explanation (BJ 2026-07-24: "nur was ohnehin passiert
+            // ist"). The Csound orchestra is one combined authored voice, not a
+            // dual A/B oscillator split (retired — BJ 2026-07-17: "this split is
+            // dead"), so there is one trace, not two.
+            //
+            // The authored BODY is deliberately NOT shown here any more. It is
+            // stashed on the processor (setCsoundParamsText, below) and becomes
+            // the back of this card.
+            //
+            // NOTE: the deprecated self-check loop's progress line ("listening to
+            // what was built...", written while moreToCome held) has no station.
+            // That loop is compiled out (T5YNTH_LCO_SELFCHECK 0) and cannot reach
+            // here with moreToCome set; reviving it means giving it a slot rather
+            // than borrowing one that means something else.
+            juce::ignoreUnused(attempt, moreToCome);
 
-            self->dcoReadingEditorA.setColour(juce::TextEditor::textColourId, kImpulseAText);
-            self->dcoReadingEditorA.setText(
-                formatLcoDisclosure(authored.reading, authored.paramsText, progress),
-                juce::dontSendNotification);
-            self->dcoReadingEditorA.setTooltip({});
+            LcoTraceView::Trace tr;
+            tr.prompt             = text;
+            tr.model              = authored.authorModel;
+            tr.reading            = authored.reading;
+            tr.reachedInstruments = authored.reachedInstruments;
+            tr.reachedAdjectives  = authored.reachedAdjectives;
+            tr.reachedMotions     = authored.reachedMotions;
+            tr.orientedBy         = authored.orientedBy;
+            tr.libraryEntryCount  = authored.libraryEntryCount;
+            tr.repairs            = authored.repairs;
+            tr.attempts           = authored.attempts;
+            self->dcoTraceView.setTrace(std::move(tr));
+            self->dcoTraceView.setTooltip({});
             self->dcoStatusLabel.setText("LCO: csound authored", juce::dontSendNotification);
 
             // Re-Prompt bookkeeping (docs/DCO_REPROMPT_CONCEPT.md): the
@@ -2589,17 +2578,15 @@ void PromptPanel::triggerDcoBake()
             self->dcoSelfCheck_ = formatSelfCheck(description, finding);
             if (self->dcoSelfCheck_.isEmpty()) return;
 
-            // Rebuild from the processor's stash rather than appending to the
-            // editor's text, so the section cannot be added twice. The colour has
-            // to be re-asserted: this editor doubles as the LCO status channel and
-            // setLcoStatus leaves it dimmed, which would render a real reading in
-            // the colour reserved for errors.
-            self->dcoReadingEditorA.setColour(juce::TextEditor::textColourId, kImpulseAText);
-            self->dcoReadingEditorA.setText(
-                formatLcoDisclosure(self->processorRef.getCsoundReading(),
-                                    self->processorRef.getCsoundParamsText(),
-                                    self->dcoSelfCheck_),
-                juce::dontSendNotification);
+            // The finding is HELD but not drawn: the trace has no self-check
+            // station, and the surface this used to write into (the HEARD AS text
+            // box, rebuilt as reading + parametrisation + finding) no longer
+            // exists. Reviving this loop therefore means giving the finding a
+            // station of its own in LcoTraceView — it must NOT be smuggled into
+            // WROTE, which reports what the AUTHOR said, while a finding is what a
+            // SECOND model said about the author's sound. Kept as a hold rather
+            // than deleted so re-enabling the switch still compiles and the gap
+            // is visible at exactly the line that has to close it.
         });
 #else
         // ── Deactivated bake: author once, publish, done ────────────────────────

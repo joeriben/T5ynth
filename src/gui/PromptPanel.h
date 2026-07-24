@@ -13,6 +13,7 @@
 // (the baked table is now drawn in the engine window — SynthPanel/WaveformDisplay
 //  wtMode — so the LCO shows the machine's READING here, not the wave)
 #include "RepromptStanceBar.h"    // Re-Prompt stance "symbol slider"
+#include "LcoTraceView.h"         // the LCO authoring trace (replaces the HEARD AS box)
 #include "T5ynthLookAndFeel.h"    // base LnF for the model-switch text override
 
 class T5ynthProcessor;
@@ -154,24 +155,34 @@ public:
     juce::String getLcoPrompt() const { return dcoPromptEditor.getText(); }
     void setLcoPrompt(const juce::String& t) { dcoPromptEditor.setText(t, juce::dontSendNotification); }
 
-    /** Restore the "HEARD AS" reading box on LCO preset load — the same
-     *  text triggerDcoBake's completion lambda writes into it after a
-     *  bake, so a reload shows the original reading rather than an empty
-     *  placeholder or a re-derived one. */
+    /** Restore the trace for an orchestra that was RECALLED rather than authored
+     *  (preset load, SNAP recall), so a reload shows what is actually sounding
+     *  instead of an empty placeholder or a re-derived reading.
+     *
+     *  A recall genuinely knows LESS than a bake: a preset stores the prompt, the
+     *  reading and the author's name, never which library entries the words
+     *  reached or which compiler errors the body was repaired past. Those
+     *  stations are therefore left OUT rather than drawn empty — an absent
+     *  station says "not known here", a blank one would claim "nothing
+     *  happened". */
     // Preset restore writes the card directly. Bumping the bake generation here
     // is what stops an in-flight self-check — started on the PREVIOUS orchestra,
     // still running because CLAP plus an LLM turn take many seconds — from landing
     // on the freshly loaded preset and describing a sound that is no longer loaded.
-    void setLcoReadingA(const juce::String& t)
+    //  `authorModel` is passed in rather than read off the model tab: a SNAP
+    //  recall sets the tab AFTER restoring the card, and a preset does not store
+    //  an author at all — reading the tab here would caption a recalled orchestra
+    //  with the name of whoever wrote the previous one.
+    void setLcoRecalledTrace(const juce::String& prompt, const juce::String& reading,
+                             const juce::String& authorModel)
     {
         ++dcoBakeSeq_;
         dcoSelfCheck_.clear();
-        // Re-assert the reading ink: setLcoStatus leaves the box in kDim, the
-        // colour reserved for "this is a status line, not a reading". Without
-        // this, a reading restored after a failed bake (preset load, SNAP recall)
-        // renders in the failure colour and reads as one.
-        dcoReadingEditorA.setColour(juce::TextEditor::textColourId, kImpulseAText);
-        dcoReadingEditorA.setText(t, juce::dontSendNotification);
+        LcoTraceView::Trace t;
+        t.prompt  = prompt;
+        t.reading = reading;
+        t.model   = authorModel;
+        dcoTraceView.setTrace(std::move(t));
     }
 
     /** Point the Re-Prompt chain at a prompt that was RECALLED into the editor
@@ -216,27 +227,12 @@ public:
      *  reports its compile exactly like a freshly authored one. Message thread. */
     void beginCsoundCompileWatch();
 
-    /** Compose the HEARD AS box's full disclosure text: the short human
-     *  reading followed by its parametrisation — one "<key>: <why>" /
-     *  "params: name=anchor|anchor|..." catalogue block per technique that
-     *  actually resolved into the sound. The reading alone ("saw > fm_bell")
-     *  is a terse gloss; BJ asked for the real parametrisation behind it to
-     *  be visible, not raw Csound source — used both by triggerDcoBake's
-     *  completion lambda and by MainPanel's Csound-preset restore path, so
-     *  the two never drift. */
-    static juce::String formatLcoDisclosure(const juce::String& reading,
-                                            const juce::String& paramsText,
-                                            const juce::String& selfCheck = {})
-    {
-        // fromUTF8: the box-drawing rule (U+2500) is non-ASCII, and a raw literal
-        // mojibakes through juce::String's default narrow-string constructor.
-        juce::String out = reading;
-        if (paramsText.isNotEmpty())
-            out += juce::String::fromUTF8("\n\n── Parametrisation ──\n") + paramsText;
-        if (selfCheck.isNotEmpty())
-            out += juce::String::fromUTF8("\n\n── Self-check ──\n") + selfCheck;
-        return out;
-    }
+    // formatLcoDisclosure (reading + "── Parametrisation ──" + the raw authored
+    // body, as one blob of text) is gone: the disclosure is the LcoTraceView's
+    // stations now, and the Csound body becomes the BACK of that card rather
+    // than a slab printed under a rule (BJ 2026-07-24). The body itself is still
+    // kept — processor-side, in csoundParamsText — because the back side and the
+    // preset round-trip both need it.
 
     /** DEPRECATED (LCO self-check deactivated, BJ 2026-07-21): no longer called
      *  on any live path — see PromptPanel.cpp's T5YNTH_LCO_SELFCHECK switch.
@@ -440,33 +436,34 @@ private:
     std::unique_ptr<SliderRow> magRow, noiseRow;
     // DCO surface — Advanced IS the DCO panel now (a completely different
     // paradigm from the neural Easy view, not a variant of it): a 3-line
-    // prompt editor (panel-local text, NOT bound to Impulse A), the
-    // BAKE/status row, the machine's READING of the prompt (dcoReadingEditorA —
-    // the acoustic interpretation, "how it was heard", where the baked wave
-    // used to sit; the wave itself now draws in the engine window), and the
-    // flags list (the guardrail honesty channel, one "word: reason" line per
-    // approximated/unmappable term). GENERATE authors a Csound orchestra from
-    // the DCO prompt via the backend lexicon router (triggerDcoBake), which
-    // forces the engine into Csound mode and hands the compiled orchestra off
-    // to requestCsoundOrchestra().
+    // prompt editor (panel-local text, NOT bound to Impulse A), and the
+    // AUTHORING TRACE (dcoTraceView — what was heard, what it reached, who wrote
+    // it, what had to be repaired, what is running; where the baked wave used to
+    // sit, the wave itself now drawing in the engine window). GENERATE authors a
+    // Csound orchestra from the DCO prompt (triggerDcoBake), which forces the
+    // engine into Csound mode and hands the compiled orchestra off to
+    // requestCsoundOrchestra().
     juce::TextEditor dcoPromptEditor;
     // Status/error channel — kept as the logical holder (many call sites write
     // it) but no longer laid out as its own visible line; its text is routed
-    // into dcoReadingEditorA below (see setLcoStatus).
+    // into dcoTraceView below (see setLcoStatus).
     juce::Label dcoStatusLabel;
+    // Compile-state holder, likewise no longer laid out: the write-path only ever
+    // put "compiling..." / the Csound error here (the per-word guardrail flags it
+    // was built for belong to the retired keys path), and that state is now the
+    // trace's RUNNING station. Written through setLcoCompileState.
     juce::Label dcoFlagsLabel;
-    // The machine's reading of the prompt, shown prominently in the middle of
-    // the LCO panel in place of the baked wave (which the engine window now
-    // owns) — the ONE full-width "HEARD AS" surface (dcoReadingEditorA,
-    // styled like promptAEditor/dcoPromptEditor): the reading of the
-    // prompt-authored Csound orchestra (triggerDcoBake's completion lambda).
-    // The dual A+B/harmonic-inharmonic split this used to carry (a second,
-    // twin editor) is retired — BJ 2026-07-17: "this split is dead" — one
-    // combined authored voice has no per-engine reading to show. Populated
-    // from the bake's reading text; empty-state placeholder until the first
-    // Generate. Also carries status/error text when there is no reading yet
-    // (setLcoStatus).
-    juce::TextEditor dcoReadingEditorA;
+    // The AUTHORING TRACE, filling the middle of the LCO panel: what was heard,
+    // what the words reached in the library, who wrote it and what they said
+    // they wrote, what the compiler sent back, and what is running now (see
+    // LcoTraceView.h). It replaced the single "HEARD AS" text box, which showed
+    // the reading with the raw Csound body printed under a rule — BJ 2026-07-24:
+    // the authoring is to be transparent, and a slab of code is not that.
+    // The dual A+B/harmonic-inharmonic split this surface used to carry is
+    // retired (BJ 2026-07-17: "this split is dead") — one combined authored
+    // voice has no per-engine reading to show. Also carries status/error text
+    // when there is no trace yet (setLcoStatus).
+    LcoTraceView dcoTraceView;
     bool dcoBaking_ = false;
     /** The LCO GENERATE trigger (SPEC_phase4_5_csound_llm_preset.md, Phase 4):
      *  authors a Csound orchestra from dcoPromptEditor's text via the coder/
@@ -480,6 +477,13 @@ private:
      *  box (which doubles as the LCO status/error channel until a reading
      *  exists). tooltip is optional context shown on the box. */
     void setLcoStatus(const juce::String& text, const juce::String& tooltip = {});
+
+    /** The compile window's report, routed into the trace's RUNNING station (and
+     *  into dcoFlagsLabel, which stays as the logical holder). Kept apart from
+     *  setLcoStatus for one reason: a compile result must NOT wipe the trace of
+     *  the very orchestra it is reporting on. Empty text with isError == false
+     *  means "compiled clean". */
+    void setLcoCompileState(const juce::String& text, bool isError);
 
     /** Phase 5 compile-window poll (SPEC_phase4_5_csound_llm_preset.md):
      *  called from the EXISTING 10Hz timerCallback() (PromptPanel is already
