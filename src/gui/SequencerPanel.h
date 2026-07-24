@@ -93,7 +93,8 @@ private:
 
     // Row 3: Step grid
     struct StepColumn : public juce::Component,
-                        public juce::DragAndDropTarget
+                        public juce::DragAndDropTarget,
+                        public juce::SettableTooltipClient
     {
         int stepIndex = 0;
         T5ynthProcessor* processor = nullptr;

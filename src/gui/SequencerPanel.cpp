@@ -469,6 +469,7 @@ SequencerPanel::SequencerPanel(T5ynthProcessor& p)
     // ── Transport (single toggle) ──
     transportBtn.setColour(juce::TextButton::buttonColourId, kSurface);
     transportBtn.setColour(juce::TextButton::textColourOffId, juce::Colour(0xff4caf50));
+    transportBtn.setTooltip("Start/stop the sequencer transport");
     transportBtn.onClick = [this] {
         auto* par = processorRef.getValueTreeState().getParameter(PID::seqRunning);
         if (!par) return;
@@ -485,6 +486,7 @@ SequencerPanel::SequencerPanel(T5ynthProcessor& p)
         [](double v) { return juce::String(juce::roundToInt(v)); }, kSeqCol);
     seqStepsRow->setInlineLabel(true);
     seqStepsRow->getSlider().setRange(2.0, static_cast<double>(MAX_COLS), 1.0);
+    seqStepsRow->getSlider().setTooltip("Number of steps in the pattern (2-32)");
     addAndMakeVisible(*seqStepsRow);
     seqStepsRow->getSlider().onValueChange = [this] {
         int steps = juce::roundToInt(seqStepsRow->getSlider().getValue());
@@ -523,6 +525,7 @@ SequencerPanel::SequencerPanel(T5ynthProcessor& p)
     // ── BPM ──
     bpmRow = std::make_unique<SliderRow>("BPM", [](double v) { return juce::String(juce::roundToInt(v)); }, kSeqCol);
     bpmRow->setInlineLabel(true);
+    bpmRow->getSlider().setTooltip("Tempo — drives the step sequencer, generative sequencer, and arpeggiator");
     addAndMakeVisible(*bpmRow);
     bpmA = std::make_unique<SA>(apvts, PID::seqBpm, bpmRow->getSlider());
     bpmRow->getSlider().onValueChange = [this] { bpmRow->updateValue(); };
@@ -531,10 +534,12 @@ SequencerPanel::SequencerPanel(T5ynthProcessor& p)
     // ── MIDI monitor ──
     midiMonitor.setColour(juce::Label::textColourId, kSuccess);
     midiMonitor.setJustificationType(juce::Justification::centredRight);
+    midiMonitor.setTooltip("Incoming MIDI activity");
     addAndMakeVisible(midiMonitor);
 
     headerOverflowBtn.setColour(juce::TextButton::buttonColourId, kSurface);
     headerOverflowBtn.setColour(juce::TextButton::textColourOffId, kDim);
+    headerOverflowBtn.setTooltip("More: division, shuffle amount, save/load pattern");
     headerOverflowBtn.onClick = [this] { showHeaderOverflowMenu(); };
     addAndMakeVisible(headerOverflowBtn);
 
@@ -542,6 +547,7 @@ SequencerPanel::SequencerPanel(T5ynthProcessor& p)
     juce::StringArray seqPresetItems;
     for (const auto& e : SeqPreset::kEntries) seqPresetItems.add(e.label);
     presetBox.addItemList(seqPresetItems, 1);
+    presetBox.setTooltip("Load a built-in step pattern into the grid");
     addAndMakeVisible(presetBox);
     presetA = std::make_unique<CA>(apvts, PID::seqPreset, presetBox);
 
@@ -583,6 +589,7 @@ SequencerPanel::SequencerPanel(T5ynthProcessor& p)
     // ── Gate ──
     gateRow = std::make_unique<SliderRow>("Gate", [](double v) { return juce::String(juce::roundToInt(v*100)) + "%"; }, kSeqCol);
     gateRow->setInlineLabel(true);
+    gateRow->getSlider().setTooltip("Note length as a percentage of each step");
     addAndMakeVisible(*gateRow);
     gateA = std::make_unique<SA>(apvts, PID::seqGate, gateRow->getSlider());
     gateRow->getSlider().onValueChange = [this] { gateRow->updateValue(); };
@@ -591,6 +598,7 @@ SequencerPanel::SequencerPanel(T5ynthProcessor& p)
     // ── Shuffle ──
     shuffleRow = std::make_unique<SliderRow>("Shuffle", [](double v) { return juce::String(juce::roundToInt(v * 100.0)) + "%"; }, kSeqCol);
     shuffleRow->setInlineLabel(true);
+    shuffleRow->getSlider().setTooltip("Swing applied to off-beat steps");
     addAndMakeVisible(*shuffleRow);
     shuffleA = std::make_unique<SA>(apvts, PID::seqShuffle, shuffleRow->getSlider());
     shuffleRow->getSlider().onValueChange = [this] { shuffleRow->updateValue(); };
@@ -609,6 +617,7 @@ SequencerPanel::SequencerPanel(T5ynthProcessor& p)
     {
         octShiftBtns[i].setButtonText(seqOctItems[i]);
         styleSwitchButton(octShiftBtns[i], kSeqCol);
+        octShiftBtns[i].setTooltip("Octave shift for the whole step pattern");
         octShiftBtns[i].setClickingTogglesState(true);
         octShiftBtns[i].setRadioGroupId(2004);
         octShiftBtns[i].onClick = [this, i] { octShiftHidden.setSelectedId(i + 1); };
@@ -639,6 +648,8 @@ SequencerPanel::SequencerPanel(T5ynthProcessor& p)
     // segment's colour itself signals which mode you are in.
     styleSwitchButton(modeStepBtn, kSeqCol);
     styleSwitchButton(modeGenBtn,  kSeqFill);
+    modeStepBtn.setTooltip("Step mode: hand-edit the note grid. Double-click to arm step recording (capture incoming MIDI into steps).");
+    modeGenBtn.setTooltip("Gen mode: generative Euclidean/Turing-machine sequencer");
     for (auto* b : { &modeStepBtn, &modeGenBtn })
     {
         b->setClickingTogglesState(true);
@@ -657,18 +668,21 @@ SequencerPanel::SequencerPanel(T5ynthProcessor& p)
 
     auto intFmt = [](double v) { return juce::String(juce::roundToInt(v)); };
     genStepsRow = std::make_unique<SliderRow>("Steps", intFmt, kSeqFill);
+    genStepsRow->getSlider().setTooltip("Number of steps in strand 1's Euclidean rhythm");
     addAndMakeVisible(*genStepsRow);
     genStepsA = std::make_unique<SA>(apvts, PID::genSteps, genStepsRow->getSlider());
     genStepsRow->getSlider().onValueChange = [this] { genStepsRow->updateValue(); };
     genStepsRow->updateValue();
 
     genPulsesRow = std::make_unique<SliderRow>("Pulses", intFmt, kSeqFill);
+    genPulsesRow->getSlider().setTooltip("Number of onsets distributed evenly across the steps");
     addAndMakeVisible(*genPulsesRow);
     genPulsesA = std::make_unique<SA>(apvts, PID::genPulses, genPulsesRow->getSlider());
     genPulsesRow->getSlider().onValueChange = [this] { genPulsesRow->updateValue(); };
     genPulsesRow->updateValue();
 
     genRotationRow = std::make_unique<SliderRow>("Rotation", intFmt, kSeqFill);
+    genRotationRow->getSlider().setTooltip("Rotates the Euclidean pattern's starting offset");
     addAndMakeVisible(*genRotationRow);
     genRotationA = std::make_unique<SA>(apvts, PID::genRotation, genRotationRow->getSlider());
     genRotationRow->getSlider().onValueChange = [this] { genRotationRow->updateValue(); };
@@ -693,6 +707,7 @@ SequencerPanel::SequencerPanel(T5ynthProcessor& p)
         {
             genRangeBtns[i].setButtonText(rangeItems[i]);
             styleSwitchButton(genRangeBtns[i], kSeqFill);   // gen-specific dark green
+            genRangeBtns[i].setTooltip("Octave span of the shared pitch field (all strands)");
             genRangeBtns[i].setClickingTogglesState(true);
             genRangeBtns[i].setRadioGroupId(2011);
             genRangeBtns[i].onClick = [this, i] { genRangeHidden.setSelectedId(i + 1); };
@@ -712,6 +727,9 @@ SequencerPanel::SequencerPanel(T5ynthProcessor& p)
 
     genMutationRow = std::make_unique<SliderRow>("Evolve",
         [](double v) { return juce::String(juce::roundToInt(v * 100)) + "%"; }, kSeqFill);
+    genMutationRow->getSlider().setTooltip(
+        "Probability the pattern mutates each cycle (rotate / add or remove a pulse / steps drift) "
+        "unless the parameter is locked with FIX");
     addAndMakeVisible(*genMutationRow);
     genMutationA = std::make_unique<SA>(apvts, PID::genMutation, genMutationRow->getSlider());
     genMutationRow->getSlider().onValueChange = [this] { genMutationRow->updateValue(); };
@@ -752,6 +770,9 @@ SequencerPanel::SequencerPanel(T5ynthProcessor& p)
         genFieldModeBox.setColour(juce::ComboBox::backgroundColourId, kSurface);
         genFieldModeBox.setColour(juce::ComboBox::textColourId, kSeqCol);
         genFieldModeBox.setColour(juce::ComboBox::outlineColourId, kBorder);
+        genFieldModeBox.setTooltip(
+            "How the shared pitch field evolves over cycles: Static (fixed), Drift (wanders), "
+            "Transform (row transposition/inversion/retrograde), Pivot (rotates by a fixed interval)");
         addAndMakeVisible(genFieldModeBox);
         genFieldModeA = std::make_unique<CA>(apvts, PID::genFieldMode, genFieldModeBox);
 
@@ -763,12 +784,16 @@ SequencerPanel::SequencerPanel(T5ynthProcessor& p)
         genCoordModeBox.setColour(juce::ComboBox::backgroundColourId, kSurface);
         genCoordModeBox.setColour(juce::ComboBox::textColourId, kSeqCol);
         genCoordModeBox.setColour(juce::ComboBox::outlineColourId, kBorder);
+        genCoordModeBox.setTooltip(
+            "How strands relate to each other: Independent, Density Budget (caps simultaneous "
+            "onsets by role), Dialog (per-strand follow/counter stance toward Strand 1)");
         addAndMakeVisible(genCoordModeBox);
         genCoordModeA = std::make_unique<CA>(apvts, PID::genCoordinationMode, genCoordModeBox);
 
         // Cyc — inline slider on the genFieldRate Int param (1..32 cycles).
         genCycRow = std::make_unique<SliderRow>("Cyc", intFmt, kSeqFill);
         genCycRow->setInlineLabel(true);
+        genCycRow->getSlider().setTooltip("Cycles between pitch-field evolution steps (Drift/Transform/Pivot)");
         addAndMakeVisible(*genCycRow);
         genFieldRateA = std::make_unique<SA>(apvts, PID::genFieldRate, genCycRow->getSlider());
         genCycRow->getSlider().onValueChange = [this] { genCycRow->updateValue(); };
@@ -801,6 +826,8 @@ SequencerPanel::SequencerPanel(T5ynthProcessor& p)
             strandRoleBoxes[i].setColour(juce::ComboBox::backgroundColourId, kSurface);
             strandRoleBoxes[i].setColour(juce::ComboBox::textColourId, kSeqCol);
             strandRoleBoxes[i].setColour(juce::ComboBox::outlineColourId, kBorder);
+            strandRoleBoxes[i].setTooltip(juce::String(kStrandLabels[i])
+                + " textural role in the ensemble (Anchor/Line/Density/Gesture)");
             addAndMakeVisible(strandRoleBoxes[i]);
             strandRoleA[i] = std::make_unique<CA>(apvts, kRolePIDs[i], strandRoleBoxes[i]);
         }
@@ -883,6 +910,7 @@ SequencerPanel::SequencerPanel(T5ynthProcessor& p)
     genScaleRootBox.setColour(juce::ComboBox::backgroundColourId, kSurface);
     genScaleRootBox.setColour(juce::ComboBox::textColourId, kSeqCol);
     genScaleRootBox.setColour(juce::ComboBox::outlineColourId, kBorder);
+    genScaleRootBox.setTooltip("Root note the generative pitch field is built on");
     addAndMakeVisible(genScaleRootBox);
     genScaleRootA = std::make_unique<CA>(apvts, PID::scaleRoot, genScaleRootBox);
 
@@ -892,6 +920,7 @@ SequencerPanel::SequencerPanel(T5ynthProcessor& p)
     genScaleTypeBox.setColour(juce::ComboBox::backgroundColourId, kSurface);
     genScaleTypeBox.setColour(juce::ComboBox::textColourId, kSeqCol);
     genScaleTypeBox.setColour(juce::ComboBox::outlineColourId, kBorder);
+    genScaleTypeBox.setTooltip("Scale/mode the generative pitch field is quantized to");
     addAndMakeVisible(genScaleTypeBox);
     genScaleTypeA = std::make_unique<CA>(apvts, PID::scaleType, genScaleTypeBox);
 
@@ -929,6 +958,7 @@ SequencerPanel::SequencerPanel(T5ynthProcessor& p)
     arpRateBox.setColour(juce::ComboBox::backgroundColourId, kSurface);
     arpRateBox.setColour(juce::ComboBox::textColourId, kSeqCol);
     arpRateBox.setColour(juce::ComboBox::outlineColourId, kBorder);
+    arpRateBox.setTooltip("Arpeggiator note rate");
     addAndMakeVisible(arpRateBox);
     arpRateA = std::make_unique<CA>(apvts, PID::arpRate, arpRateBox);
 
@@ -948,6 +978,7 @@ SequencerPanel::SequencerPanel(T5ynthProcessor& p)
     {
         arpOctBtns[i].setButtonText(juce::String(i + 1));
         styleSwitchButton(arpOctBtns[i], kSeqCol);
+        arpOctBtns[i].setTooltip("Arpeggiator octave range — repeats the arpeggio across this many octaves");
         arpOctBtns[i].setClickingTogglesState(true);
         arpOctBtns[i].setRadioGroupId(2002);
         arpOctBtns[i].onClick = [this, i] { arpOctHidden.setSelectedId(i + 1); };
@@ -961,6 +992,12 @@ SequencerPanel::SequencerPanel(T5ynthProcessor& p)
         stepCols[static_cast<size_t>(i)] = std::make_unique<StepColumn>();
         stepCols[static_cast<size_t>(i)]->stepIndex = i;
         stepCols[static_cast<size_t>(i)]->processor = &p;
+        stepCols[static_cast<size_t>(i)]->setTooltip(
+            "Note: drag vertically to set pitch (hold Shift to preview while dragging) \xe2\x80\xa2 "
+            "Sample slots 1-3: click to cycle playback mode, right-click to clear, drag to/from the "
+            "waveform or another slot to capture/copy \xe2\x80\xa2 "
+            "Velocity: drag horizontally \xe2\x80\xa2 "
+            "On/Bind: click to toggle the step; Bind cycles Off \xe2\x86\x92 Bind \xe2\x86\x92 Glide");
         addAndMakeVisible(*stepCols[static_cast<size_t>(i)]);
     }
 
