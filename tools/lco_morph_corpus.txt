@@ -1,0 +1,30 @@
+# The prompts a change to lco_write._SYSTEM_HEAD is measured against —
+# BEFORE the change as well as after it, never only after.
+#
+# This file exists because a system-prompt change was once validated only on
+# prompts chosen after it landed, and all of them were compositional. The class
+# it actually governed -- a morph carrying adjectives -- was not in the set, and
+# a prompt that had authored on the first attempt (67 s) started failing. The
+# regression was found by the maintainer, in the plugin, days later.
+#
+#   .venv/bin/python tools/lco_author_offline.py \
+#       --corpus tools/lco_morph_corpus.txt --measure --out after.json
+#
+# Read the result as three things, not one:
+#   ok        -- did it compile at all
+#   attempts  -- how hard it was; a first-try pass turning into a third-try pass
+#                is a regression even though both say ok
+#   travel    -- centroid_travel_hz / centroid_motion_hz: a morph that compiles
+#                but stands still is not a morph that passed
+#
+# The last line is deliberately NOT a morph: it reaches no library entry at all,
+# so it is the control that says whether the author can still write freely.
+
+bright shimmer degrading to a dark rumble
+accordeon > guitar
+accordeon > guitar + bell
+sine > pwm
+sine > pwm > bell
+sine > saw + square
+a bowed violin morphing into a bell
+an elephant calling

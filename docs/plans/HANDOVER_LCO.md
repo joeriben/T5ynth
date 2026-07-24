@@ -66,9 +66,26 @@ Seven of thirty:
 
 The other 23 are fixed idioms. That is the growth axis of the library, and `LCO_CONCEPT.md` §1 is what it is for: „Parametrisierungshinweise wie 'square ist sharp wenn Wert x = y, ist hollow wenn x = y'".
 
-### What a prompt reaches
+### What the author gets to see — being rebuilt, and why
 
-`select(prompt)` looks its words up in the surface forms. A prompt that reaches **nothing** is not an error and does not fail: the author is still shown a default orientation set (`_STARTER`: saw, pwm, fm_bell, additive, struck_bar) up to `_MAX_INSTRUMENTS` (8), and writes the sound from its own knowledge. So a gap in the library shows up as *unoriented*, never as *broken* — which is exactly why gaps are invisible from the sound. Check with:
+**The rule (BJ, 2026-07-24, standing): it is strictly forbidden to constrain the LLM deterministically, in any form.**
+
+Today's code violates it. `select(prompt)` matches the prompt's words against the surface forms and **decides by word comparison which library entries the author is allowed to see**; a prompt that matches nothing gets a fixed default set (`_STARTER`: saw, pwm, fm_bell, additive, struck_bar), capped at `_MAX_INSTRUMENTS` (8). It never blocks the writing and never picks the sound — the author writes either way — but it does deterministically decide the orientation, with exactly the holes a word matcher has: `bell` hits, `bells` does not, German nothing.
+
+**The ordered replacement, in BJ's own words (2026-07-24), NOT yet built:**
+
+> „Es geht eine Liste mit Instrumenten und sonischen Beschreibungen der Parameter in den Prompt. Thinking wird dann nicht-deterministisch entscheiden was im nächsten Zug dem LLM aus der Bibliothek zur Verfügung gestellt wird."
+
+Two turns:
+
+1. The author is shown **the list** — every entry's type and what its parameters mean sonically (the `why` line and the anchor glosses: `string` → `bow` "bowed: drawn with a bow: standing, breathing, the top rubbed off", `pick`, `damp`). Not the code. A few thousand tokens, and a stable prefix.
+2. Its **thinking** names which entries it wants opened. Python fetches exactly those curated Csound idioms and hands them over for the writing. **Python decides nothing** — it looks up what the model named.
+
+The curated code exists in order to be seen; the question is only *when*, and the answer is "in turn two, chosen by the author". The surface forms stop being a routing mechanism and remain what they always were underneath: the validation canon of the lexicon's own tests.
+
+Consequences already known: the LOOKED UP station disappears with its mechanism — what the machine opened is what its THINKING says, live and afterwards as THOUGHT on the card. This rebuild is in flight in a parallel session; **do not build it twice**.
+
+Until it lands, to see what a prompt reaches today:
 
 ```bash
 .venv/bin/python -c "import sys;sys.path.insert(0,'backend');import lco_write as W;print(W._lookup('accordeon', W._indexes()[0]))"
@@ -138,7 +155,10 @@ Csound 6.18, Homebrew, double precision, no STK.
 **The author**
 
 - **The one-line morph template was the single cause of two separate reported defects**: "sine > pwm" rendering as a *static* pulse (b's duty frozen to a constant, with the DC-correction line then reading `- 0.6 * (2 * 0.5 - 1)` — dead code that proves the modulation was dropped), and "harmonic bell > pwm" being read as `+` rather than `>`. Both were fixed by teaching the shape explicitly: each end of a morph is a **whole instrument** with all of its own moving controls, in its own variable, then `kmorph = min(knote / 2.0, 1)` and a crossfade.
-- **Renaming for a morph is where `=` creeps in.** All three lines that failed to compile in the reported `accordeon > guitar` run carried rename suffixes (`aacc_base`, `kstr_g`, `kbrth_g`). The instrument was never the problem — the accordion alone is one of the good sounds. The system prompt now says renaming changes the name and nothing else, and that the line keeps its exact shape.
+- **An `=` written before an opcode is the author's dominant compile failure, and NOTHING in the system prompt has fixed it.** The shape is `asig_b = tone asig_b, 400` — an opcode statement typed as an assignment. Csound answers with a bracket complaint that names neither the `=` nor the opcode, so it is easy to chase for rounds without seeing it. A paragraph was added to `_SYSTEM_HEAD` in `b3bd2b19` to prevent it, telling the author that for a morph "what you take from the library has to be renamed" and that "the line KEEPS ITS EXACT SHAPE". **Measured across `tools/lco_morph_corpus.txt`, 8 prompts, same model, greedy, with and without that paragraph: 7/8 compile either way, and the `=` failure simply moves** — with the paragraph it kills `bright shimmer degrading to a dark rumble` (the prompt BJ reported), without it, `sine > pwm > bell`. The paragraph was neither the cause nor the cure. Do not add another prose rule about it; the two mechanisms that DO act on it are the repair turn's `_mechanical_hint` (which names that exact line after the fact) and the shape of the library's own self-referencing statements (`asig tone asig, 1200`, 32 of them — the one form where result and first argument share a name, so a line reads like an assignment).
+- **A prose instruction to retype library lines is forbidden regardless of its statistics** — it deterministically constrains the author, which the standing rule forbids, and it contradicts the architecture: the model WRITES Csound, it does not transcribe. That is why the paragraph goes, not because the corpus improved.
+- **`ok` is not a passing morph.** Removing the paragraph made `bright shimmer degrading to a dark rumble` compile on the first attempt — with the correct structure (`kmorph = min(knote / 2.0, 1)` and one crossfade) and a colour trajectory of 867 → 937 Hz, then flat. It does not degrade. Compile success and the named sonic behaviour are separate measurements, and only the second one answers the prompt. `tools/lco_author_offline.py --measure` reports both; read `centroid_travel_hz` before calling a morph fixed.
+- **The class a system-prompt change governs must be in the test set, measured BEFORE the change as well as after.** `b3bd2b19` was validated only afterwards, on four compositional prompts chosen after the fact — none of them a morph carrying adjectives, which is exactly what the paragraph was about. `tools/lco_morph_corpus.txt` is the frozen set for this. Note its limit honestly: greedy decoding has no run-to-run variance, but ANY edit to the system prompt reshuffles every generation, so 8 prompts × 1 run cannot separate "this instruction is harmful" from "the outputs moved". Use it to catch a named prompt regressing, not to certify a prompt change as an improvement.
 - Compositional prompts landing first try, measured on the shipped author: `sine > saw + square` (2× `vco2`, a real layer at the far end, 46 s), `accordeon > guitar + bell` (2× `streson`, 2× `foscili`, 16 `alpass`, 105 s), `a bowed violin morphing into a bell` (75 s, colour travelling 4754 → 402 Hz across the note), `sine > pwm > bell` (two nested morph positions via `asig_mid`, 63 s). **The architecture change BJ floated — two inferences with the morph done outside — is not needed for these.**
 
 ---
@@ -147,9 +167,9 @@ Csound 6.18, Homebrew, double precision, no STK.
 
 **Ordered by BJ, not yet built**
 
-1. **A reed-instrument entry.** BJ, 2026-07-24: „ja, mache einen eintrag für reed-instrumente". Today `accordeon`, `accordion`, `akkordeon`, `harmonium`, `bandoneon`, `concertina`, `melodica` and `harmonica` reach **nothing** in the lexicon; only `reed organ` reaches `organ`. The same hole covers the blown reeds — `saxophone`, `oboe`, `bassoon`, `bagpipe` reach nothing either; `clarinet` exists as its own key. Note the nuance before treating this as a bug report: the author writes a *good* accordion from its own knowledge (BJ: „das accordeon alleine ist überhaupt kein Problem → s. preset → klingt großartig"). What is missing is orientation, not sound.
+1. **A reed-instrument entry.** BJ, 2026-07-24: „ja, mache einen eintrag für reed-instrumente". The library has **no reed instrument at all** — no accordion, harmonium, bandoneon, concertina, melodica or harmonica, and none of the blown reeds either (saxophone, oboe, bassoon, bagpipe); `clarinet` is the only one, as its own key, and `organ` carries the words "reed organ". The mallet family has the same hole: no vibraphone and no marimba, while `struck_bar` covers glockenspiel, celesta and kalimba. (`rhodes` and `wurlitzer` are not missing — they are `fm_ep`; the concept document's „Instruments 4–6" never became separate entries.)
 
-   The mallet family has the same shape of hole: `vibraphone`, `vibes` and `marimba` reach nothing, while `glockenspiel`, `celesta` and `kalimba` reach `struck_bar`. (`rhodes` and `wurlitzer` are fine — they are surface forms of `fm_ep`, not missing instruments; the concept document's „Instruments 4–6" never became separate lexicon entries.)
+   The nuance before treating this as a bug report: the author writes a *good* accordion from its own knowledge (BJ: „das accordeon alleine ist überhaupt kein Problem → s. preset → klingt großartig"). What is missing is a curated, measured, ear-approved idiom for that family — not the ability to make the sound.
 
 **Waiting on BJ's ear — these cannot be closed by a gate**
 
@@ -163,7 +183,7 @@ Csound 6.18, Homebrew, double precision, no STK.
 
 **Known, not changed because it is runtime semantics and nobody ordered it**
 
-7. `string quartet`, `string ensemble` and `string section` reach **both** `strings` and `string`: the bare word "string" is inside the phrase and `_lookup` collects every match with no longest-wins rule. Harmless today (the author is oriented by both and picks), but it is a real ambiguity in the lookup.
+7. `string quartet`, `string ensemble` and `string section` reach **both** `strings` and `string`: the bare word "string" is inside the phrase and `_lookup` collects every match with no longest-wins rule. Harmless today (the author is oriented by both and picks), and it disappears entirely with the rebuild in §2 — the word matcher stops choosing anything. Do not fix it in the matcher; it is a symptom of the mechanism being replaced.
 
 **Housekeeping that needs a decision from BJ**
 
@@ -172,7 +192,7 @@ Csound 6.18, Homebrew, double precision, no STK.
 
 **Traceability gap, reported and not fixable without rewriting history**
 
-10. The morph-template fix to `_SYSTEM_HEAD` was swept into commit `b04c8ef4` ("fix(lco): the trace must not claim what nobody recorded"), whose message does not mention it. Someone bisecting the morph behaviour will not find it there.
+10. The morph **shape** in `_SYSTEM_HEAD` — both ends in their own variables, `kmorph`, one crossfade — was swept into commit `b04c8ef4` ("fix(lco): the trace must not claim what nobody recorded"), whose message does not mention it. Someone bisecting the morph behaviour will not find it there. (`git log -S'asiga   = <a' -- backend/lco_write.py` will.)
 
 ---
 
