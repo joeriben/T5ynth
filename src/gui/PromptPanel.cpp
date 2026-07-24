@@ -2477,6 +2477,7 @@ void PromptPanel::triggerDcoBake()
             if (! self->easyMode_)
                 self->processorRef.forceCsoundEngineMode();
             self->processorRef.requestCsoundOrchestra(authored.orchestra);
+            self->processorRef.setCsoundPrompt(text);   // what was asked for, saved with it
             self->processorRef.setCsoundReading(authored.reading);
             self->processorRef.setCsoundParamsText(authored.paramsText);
             self->dcoTraceView.setBody(authored.paramsText);   // the back of the card

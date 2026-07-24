@@ -287,6 +287,18 @@ public:
     void setCsoundReading(const juce::String& reading) { csoundReading_ = reading; }
     const juce::String& getCsoundReading() const { return csoundReading_; }
 
+    // The prompt that authored the orchestra. It was NOT being saved: a Csound
+    // preset stored the reading and the orchestra but nothing of what was
+    // asked for, so a reload could show the machine's interpretation with no
+    // way to see what it was interpreting — and the prompt box came back with
+    // whatever the user had last typed, which never authored anything. The
+    // "lco" block does carry a prompt, but only for the retired wavetable bake
+    // (exportJsonPreset gates it on hasLcoBakeSnapshot), so a Csound-only
+    // preset never had one. Same stash/persistence shape as the reading below,
+    // set by the same completion lambda. Message-thread only.
+    void setCsoundPrompt(const juce::String& prompt) { csoundPrompt_ = prompt; }
+    const juce::String& getCsoundPrompt() const { return csoundPrompt_; }
+
     // The parametrisation behind that reading (transparency surface for the
     // LCO panel: the reading alone is a terse "saw > fm_bell" gloss; this is
     // the catalogue entry — "<key>: <why>" plus, for a parametrised key, its
@@ -547,6 +559,8 @@ private:
     bool  lcoOscAHasContent_ = false, lcoOscBHasContent_ = false;
     float lcoGainA_ = 1.0f, lcoGainB_ = 1.0f;
     bool  lcoSnapshotValid_ = false;
+    // The prompt that authored the orchestra, cached for preset save (see setCsoundPrompt).
+    juce::String csoundPrompt_;
     // Csound-authored reading cached for preset save (see setCsoundReading).
     juce::String csoundReading_;
     // Csound-authored parametrisation text cached for preset save (see setCsoundParamsText).

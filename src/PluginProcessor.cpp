@@ -6126,6 +6126,7 @@ void T5ynthProcessor::getStateInformation(juce::MemoryBlock& destData)
             pendingOrchestraText = csoundPendingOrchestraText_;
         }
         xml->setAttribute("csoundOrchestra", pendingOrchestraText);
+        xml->setAttribute("csoundPrompt", csoundPrompt_);
         xml->setAttribute("csoundReading", csoundReading_);
         xml->setAttribute("csoundParamsText", csoundParamsText_);
     }
@@ -6294,6 +6295,7 @@ void T5ynthProcessor::setStateInformation(const void* data, int sizeInBytes)
         if (xml->hasAttribute("csoundOrchestra"))
         {
             requestCsoundOrchestra(xml->getStringAttribute("csoundOrchestra"));
+            setCsoundPrompt(xml->getStringAttribute("csoundPrompt"));
             setCsoundReading(xml->getStringAttribute("csoundReading"));
             setCsoundParamsText(xml->getStringAttribute("csoundParamsText"));
         }
@@ -6640,6 +6642,7 @@ juce::String T5ynthProcessor::exportJsonPreset() const
             pendingOrchestraText = csoundPendingOrchestraText_;
         }
         engine->setProperty("csound_orchestra", pendingOrchestraText);
+        engine->setProperty("csound_prompt", csoundPrompt_);
         engine->setProperty("csound_reading", csoundReading_);
         engine->setProperty("csound_params_text", csoundParamsText_);
     }
@@ -7089,6 +7092,9 @@ bool T5ynthProcessor::importJsonPreset(const juce::String& json)
         if (engine->hasProperty("csound_orchestra"))
         {
             requestCsoundOrchestra(engine->getProperty("csound_orchestra").toString());
+            setCsoundPrompt(engine->hasProperty("csound_prompt")
+                                 ? engine->getProperty("csound_prompt").toString()
+                                 : juce::String());
             setCsoundReading(engine->hasProperty("csound_reading")
                                  ? engine->getProperty("csound_reading").toString()
                                  : juce::String());

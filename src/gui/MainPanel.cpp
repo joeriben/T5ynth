@@ -2213,16 +2213,22 @@ void MainPanel::applyLoadedPreset(const PresetFormat::LoadResult& result, const 
     // leaves the rest out. The authored body is not lost: it stays in
     // csoundParamsText and is what the card's back side shows.
     //
-    // The PROMPT is deliberately empty unless the file carried one. A Csound
-    // bake never writes an "lco" block (exportJsonPreset gates that on
-    // hasLcoBakeSnapshot), so for a Csound-only preset `result.hasLco` is false
-    // and the editor still holds whatever the user last typed — passing that in
-    // would caption the restored orchestra with a prompt that never authored it.
-    // With an empty prompt the HEARD station is simply absent.
+    // The PROMPT comes from the file's own csound_prompt, written beside the
+    // orchestra since this build. It is never taken from the editor: that holds
+    // whatever the user last typed, which did not author this sound. A file
+    // saved before csound_prompt existed has none, and the HEARD station is
+    // then simply absent — the preset genuinely does not know what was asked
+    // for, and inventing a prompt for it would be the one thing this panel must
+    // not do.
     if (static_cast<int>(processorRef.getValueTreeState().getRawParameterValue(PID::engineMode)->load())
             == static_cast<int>(EngineMode::Csound))
     {
-        promptPanel.setLcoRecalledTrace(result.hasLco ? result.lcoPrompt : juce::String(),
+        const auto restoredPrompt = processorRef.getCsoundPrompt();
+        // The editor follows it, so pressing Generate again re-authors THIS
+        // sound rather than the last thing that happened to be typed.
+        if (restoredPrompt.isNotEmpty())
+            promptPanel.setLcoPrompt(restoredPrompt);
+        promptPanel.setLcoRecalledTrace(restoredPrompt,
                                         processorRef.getCsoundReading(), {},
                                         processorRef.getCsoundParamsText());
         // The restore issued its own requestCsoundOrchestra() inside
@@ -3098,6 +3104,7 @@ void MainPanel::restoreLcoSnapshot(const LcoSnapshot& snapshot)
     // The disclosure travels with the code, so the card explains the orchestra
     // that is actually sounding — and a Save right after a recall round-trips the
     // recalled sound rather than the last bake's (exportJsonPreset reads these).
+    processorRef.setCsoundPrompt(snapshot.prompt);
     processorRef.setCsoundReading(snapshot.reading);
     processorRef.setCsoundParamsText(snapshot.paramsText);
     // A slot stores the reading, the body and the author — not the consultation
