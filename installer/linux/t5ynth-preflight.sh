@@ -17,32 +17,32 @@ bundle_cuda_version="unknown"
 host_gpu_family="unknown"
 gpu_report=""
 
-echo "T5ynth Linux preflight"
+echo "akroasys Linux preflight"
 echo
 
-if [[ -x /opt/T5ynth/T5ynth ]]; then
-    echo "[ok] standalone binary: /opt/T5ynth/T5ynth"
+if [[ -x /opt/akroasys/akroasys ]]; then
+    echo "[ok] standalone binary: /opt/akroasys/akroasys"
 else
-    echo "[!!] missing standalone binary: /opt/T5ynth/T5ynth"
+    echo "[!!] missing standalone binary: /opt/akroasys/akroasys"
 fi
 
-if [[ -x /opt/T5ynth/backend/pipe_inference ]]; then
-    echo "[ok] bundled backend: /opt/T5ynth/backend/pipe_inference"
+if [[ -x /opt/akroasys/backend/pipe_inference ]]; then
+    echo "[ok] bundled backend: /opt/akroasys/backend/pipe_inference"
 else
-    echo "[!!] missing bundled backend: /opt/T5ynth/backend/pipe_inference"
+    echo "[!!] missing bundled backend: /opt/akroasys/backend/pipe_inference"
 fi
 
-if [[ -f /opt/T5ynth/backend/bundle.env ]]; then
-    echo "[ok] bundle metadata: /opt/T5ynth/backend/bundle.env"
+if [[ -f /opt/akroasys/backend/bundle.env ]]; then
+    echo "[ok] bundle metadata: /opt/akroasys/backend/bundle.env"
     # shellcheck disable=SC1091
-    source /opt/T5ynth/backend/bundle.env
+    source /opt/akroasys/backend/bundle.env
     bundle_gpu_family="${BUNDLE_GPU_FAMILY:-unknown}"
     bundle_torch_version="${BUNDLE_TORCH_VERSION:-unknown}"
     bundle_cuda_version="${BUNDLE_CUDA_VERSION:-unknown}"
     echo "     bundle-id=${BUNDLE_ID:-unknown} arch=${BUNDLE_ARCH:-unknown} distro-family=${BUNDLE_DISTRO_FAMILY:-unknown}"
     echo "     gpu-family=${bundle_gpu_family} torch=${bundle_torch_version} cuda=${bundle_cuda_version}"
 else
-    echo "[warn] bundle metadata missing: /opt/T5ynth/backend/bundle.env"
+    echo "[warn] bundle metadata missing: /opt/akroasys/backend/bundle.env"
 fi
 
 echo
@@ -58,7 +58,7 @@ if command -v nvidia-smi >/dev/null 2>&1; then
         fi
     fi
 else
-    echo "[warn] nvidia-smi not found. T5ynth may still run, but CUDA availability is not confirmed."
+    echo "[warn] nvidia-smi not found. akroasys may still run, but CUDA availability is not confirmed."
 fi
 
 if [[ "$host_gpu_family" == "blackwell" ]]; then
@@ -78,7 +78,7 @@ fi
 
 echo
 echo "Runtime library check:"
-ldd /opt/T5ynth/T5ynth || true
+ldd /opt/akroasys/akroasys || true
 
 if [[ $fatal -ne 0 ]]; then
     exit 1

@@ -1,5 +1,5 @@
 #!/bin/bash
-# Post-install script for T5ynth .pkg installer
+# Post-install script for akroasys .pkg installer
 # Runs after all component packages are installed.
 
 TARGET_VOLUME="${2:-/}"
@@ -14,7 +14,7 @@ target_path() {
 }
 
 APP_SUPPORT="$(target_path "/Library/Application Support/T5ynth")"
-APP_BUNDLE="$(target_path "/Applications/T5ynth.app")"
+APP_BUNDLE="$(target_path "/Applications/akroasys.app")"
 
 # Create models directory (writable by all staff members for in-app downloads)
 mkdir -p "$APP_SUPPORT/models"

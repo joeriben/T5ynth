@@ -23,4 +23,4 @@ labels: enhancement
 
 ## Impact
 
-<!-- Which parts of T5ynth this would touch: UI, DSP, inference, presets, IPC, build, etc. -->
+<!-- Which parts of akroasys this would touch: UI, DSP, inference, presets, IPC, build, etc. -->

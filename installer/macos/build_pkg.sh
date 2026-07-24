@@ -1,10 +1,10 @@
 #!/bin/bash
 set -euo pipefail
 
-# ── T5ynth macOS .pkg Installer Builder ──────────────────────────────
+# ── akroasys macOS .pkg Installer Builder ──────────────────────────────
 # Usage: build_pkg.sh --app <path>
 #                     --version <ver> --output <pkg>
-#                     [--vst3 <T5ynth.vst3>] [--au <T5ynth.component>]
+#                     [--vst3 <akroasys.vst3>] [--au <akroasys.component>]
 #                     [--sign-app-identity <identity>]
 #                     [--sign-pkg-identity <identity>]
 #                     [--notary-keychain-profile <profile>]
@@ -19,7 +19,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 # ── Parse arguments ──────────────────────────────────────────────────
-APP="" VERSION="0.3.0" OUTPUT="T5ynth-macOS-Installer.pkg"
+APP="" VERSION="0.3.0" OUTPUT="akroasys-macOS-Installer.pkg"
 VST3="" AU=""
 APP_SIGN_IDENTITY="${MACOS_APP_SIGN_IDENTITY:-}"
 PKG_SIGN_IDENTITY="${MACOS_PKG_SIGN_IDENTITY:-${MACOS_INSTALLER_SIGN_IDENTITY:-}}"
@@ -136,7 +136,7 @@ fi
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
-echo "==> Building T5ynth installer ${VERSION} (pkg version ${PACKAGE_VERSION})"
+echo "==> Building akroasys installer ${VERSION} (pkg version ${PACKAGE_VERSION})"
 
 # ── Stage: Standalone ────────────────────────────────────────────────
 echo "  Staging Standalone..."
@@ -157,7 +157,7 @@ if [[ -n "$APP_SIGN_IDENTITY" ]]; then
     codesign --verify --deep --strict "$STAGED_APP"
 fi
 
-# Prevent Installer from "following" an existing T5ynth.app with the same
+# Prevent Installer from "following" an existing akroasys.app with the same
 # bundle identifier into a dev/build path. We always want the packaged app to
 # land at /Applications on the selected volume.
 COMPONENT_PLIST="$WORK/standalone-components.plist"
@@ -168,7 +168,7 @@ pkgbuild --analyze --root "$STAGE_APP" "$COMPONENT_PLIST" >/dev/null
 pkgbuild \
     --root "$STAGE_APP" \
     --component-plist "$COMPONENT_PLIST" \
-    --identifier org.ai4artsed.t5ynth.standalone \
+    --identifier org.ai4artsed.akroasys.standalone \
     --version "$PACKAGE_VERSION" \
     --install-location /Applications \
     --scripts "$SCRIPT_DIR/scripts-standalone" \
@@ -201,7 +201,7 @@ done
 
 pkgbuild \
     --root "$STAGE_SUPPORT" \
-    --identifier org.ai4artsed.t5ynth.support-data \
+    --identifier org.ai4artsed.akroasys.support-data \
     --version "$PACKAGE_VERSION" \
     --install-location "/Library/Application Support/T5ynth" \
     --scripts "$SCRIPT_DIR/scripts" \
@@ -229,7 +229,7 @@ if [[ -n "$VST3" ]]; then
 
     pkgbuild \
         --root "$STAGE_VST3" \
-        --identifier org.ai4artsed.t5ynth.vst3 \
+        --identifier org.ai4artsed.akroasys.vst3 \
         --version "$PACKAGE_VERSION" \
         --install-location "/Library/Audio/Plug-Ins/VST3" \
         "$WORK/vst3.pkg"
@@ -257,7 +257,7 @@ if [[ -n "$AU" ]]; then
 
     pkgbuild \
         --root "$STAGE_AU" \
-        --identifier org.ai4artsed.t5ynth.au \
+        --identifier org.ai4artsed.akroasys.au \
         --version "$PACKAGE_VERSION" \
         --install-location "/Library/Audio/Plug-Ins/Components" \
         "$WORK/au.pkg"
@@ -285,31 +285,31 @@ EXTRA_PKG_REFS=""
 if [[ -n "$VST3" ]]; then
     EXTRA_OUTLINE+="        <line choice=\"vst3\"/>"$'\n'
     EXTRA_CHOICES+="    <choice id=\"vst3\" title=\"VST3 Plugin\"
-            description=\"T5ynth VST3 plugin (loads in any DAW that supports VST3). Requires the Standalone for the bundled inference backend.\"
+            description=\"akroasys VST3 plugin (loads in any DAW that supports VST3). Requires the Standalone for the bundled inference backend.\"
             start_selected=\"true\">
-        <pkg-ref id=\"org.ai4artsed.t5ynth.vst3\"/>
+        <pkg-ref id=\"org.ai4artsed.akroasys.vst3\"/>
     </choice>
 
 "
-    EXTRA_PKG_REFS+="    <pkg-ref id=\"org.ai4artsed.t5ynth.vst3\" version=\"$PACKAGE_VERSION\" onConclusion=\"none\">vst3.pkg</pkg-ref>"$'\n'
+    EXTRA_PKG_REFS+="    <pkg-ref id=\"org.ai4artsed.akroasys.vst3\" version=\"$PACKAGE_VERSION\" onConclusion=\"none\">vst3.pkg</pkg-ref>"$'\n'
 fi
 
 if [[ -n "$AU" ]]; then
     EXTRA_OUTLINE+="        <line choice=\"au\"/>"$'\n'
     EXTRA_CHOICES+="    <choice id=\"au\" title=\"Audio Unit Plugin\"
-            description=\"T5ynth Audio Unit (AU) plugin (loads in Logic Pro, GarageBand, etc.). Requires the Standalone for the bundled inference backend.\"
+            description=\"akroasys Audio Unit (AU) plugin (loads in Logic Pro, GarageBand, etc.). Requires the Standalone for the bundled inference backend.\"
             start_selected=\"true\">
-        <pkg-ref id=\"org.ai4artsed.t5ynth.au\"/>
+        <pkg-ref id=\"org.ai4artsed.akroasys.au\"/>
     </choice>
 
 "
-    EXTRA_PKG_REFS+="    <pkg-ref id=\"org.ai4artsed.t5ynth.au\" version=\"$PACKAGE_VERSION\" onConclusion=\"none\">au.pkg</pkg-ref>"$'\n'
+    EXTRA_PKG_REFS+="    <pkg-ref id=\"org.ai4artsed.akroasys.au\" version=\"$PACKAGE_VERSION\" onConclusion=\"none\">au.pkg</pkg-ref>"$'\n'
 fi
 
 cat > "$DIST_XML" <<EOF
 <?xml version="1.0" encoding="utf-8"?>
 <installer-gui-script minSpecVersion="2">
-    <title>T5ynth</title>
+    <title>akroasys</title>
     <license file="LICENSE.txt"/>
     <options customize="allow" require-scripts="false" hostArchitectures="arm64,x86_64"/>
     <domains enable_anywhere="true" enable_currentUserHome="false" enable_localSystem="true"/>
@@ -319,12 +319,12 @@ cat > "$DIST_XML" <<EOF
         <line choice="support-data"/>
 ${EXTRA_OUTLINE}    </choices-outline>
 
-    <choice id="standalone" title="T5ynth App"
-            description="The T5ynth macOS app (required)."
+    <choice id="standalone" title="akroasys App"
+            description="The akroasys macOS app (required)."
             customLocation="/Applications"
             customLocationAllowAlternateVolumes="true"
             start_selected="true" enabled="false">
-        <pkg-ref id="org.ai4artsed.t5ynth.standalone"/>
+        <pkg-ref id="org.ai4artsed.akroasys.standalone"/>
     </choice>
 
     <choice id="support-data" title="Support Data"
@@ -332,16 +332,16 @@ ${EXTRA_OUTLINE}    </choices-outline>
             customLocation="/Library/Application Support/T5ynth"
             customLocationAllowAlternateVolumes="true"
             start_selected="true" enabled="false">
-        <pkg-ref id="org.ai4artsed.t5ynth.support-data"/>
+        <pkg-ref id="org.ai4artsed.akroasys.support-data"/>
     </choice>
 
-${EXTRA_CHOICES}    <pkg-ref id="org.ai4artsed.t5ynth.standalone" version="$PACKAGE_VERSION" onConclusion="none">standalone.pkg</pkg-ref>
-    <pkg-ref id="org.ai4artsed.t5ynth.support-data" version="$PACKAGE_VERSION" onConclusion="none">support-data.pkg</pkg-ref>
+${EXTRA_CHOICES}    <pkg-ref id="org.ai4artsed.akroasys.standalone" version="$PACKAGE_VERSION" onConclusion="none">standalone.pkg</pkg-ref>
+    <pkg-ref id="org.ai4artsed.akroasys.support-data" version="$PACKAGE_VERSION" onConclusion="none">support-data.pkg</pkg-ref>
 ${EXTRA_PKG_REFS}</installer-gui-script>
 EOF
 
 mkdir -p "$(dirname "$OUTPUT")"
-UNSIGNED_PRODUCT="$WORK/T5ynth-macOS-Installer-unsigned.pkg"
+UNSIGNED_PRODUCT="$WORK/akroasys-macOS-Installer-unsigned.pkg"
 productbuild \
     --distribution "$WORK/distribution.xml" \
     --package-path "$WORK" \
@@ -352,7 +352,7 @@ FINAL_PRODUCT="$UNSIGNED_PRODUCT"
 
 if [[ -n "$PKG_SIGN_IDENTITY" ]]; then
     echo "  Signing product installer with Developer ID Installer..."
-    SIGNED_PRODUCT="$WORK/T5ynth-macOS-Installer-signed.pkg"
+    SIGNED_PRODUCT="$WORK/akroasys-macOS-Installer-signed.pkg"
     productsign \
         --sign "$PKG_SIGN_IDENTITY" \
         "$UNSIGNED_PRODUCT" \

@@ -1,11 +1,11 @@
 [Desktop Entry]
 Version=1.0
 Type=Application
-Name=T5ynth
+Name=akroasys
 Comment=Text-to-sound synthesizer
-Exec=@PREFIX@/T5ynth
-Icon=t5ynth
-StartupWMClass=T5ynth
+Exec=@PREFIX@/akroasys
+Icon=akroasys
+StartupWMClass=akroasys
 Terminal=false
 Categories=AudioVideo;Audio;Music;
 Keywords=audio;synth;music;ai;diffusion;

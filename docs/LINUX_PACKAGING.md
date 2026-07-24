@@ -1,6 +1,6 @@
 # Linux Packaging
 
-This document covers the Linux package-layer path for T5ynth.
+This document covers the Linux package-layer path for akróasys.
 
 The important distinction is:
 
@@ -16,7 +16,7 @@ Current scope:
 
 - Fedora RPM for the **standalone app**
 - Ubuntu/Debian `.deb` for the **standalone app**
-- isolated bundled Python backend included under `/opt/T5ynth/backend/`
+- isolated bundled Python backend included under `/opt/akroasys/backend/`
 - desktop entry, icon, wrapper, and a lightweight preflight helper
 - named backend bundle selection via `bundle-id`
 
@@ -29,9 +29,9 @@ Linux packaging is split into two layers:
 
 1. **Base build layer**
    - builds the standalone binary plus isolated backend bundle
-   - preserves the sibling layout `T5ynth + backend/`
+   - preserves the sibling layout `akróasys + backend/`
    - currently produced by the Ubuntu GitHub Actions `linux` job as
-     `T5ynth-Linux-Base-x86_64-*.tar.xz`
+     `akroasys-Linux-Base-x86_64-*.tar.xz`
 2. **Package layer**
    - wraps that app/backend layout for a target distribution
    - adds package metadata, wrappers, desktop integration, and runtime deps
@@ -45,7 +45,7 @@ That keeps Linux packaging coherent:
 
 ## 2. Why RPM first
 
-For T5ynth, Fedora RPMs are a better first Linux package target than AppImage:
+For akróasys, Fedora RPMs are a better first Linux package target than AppImage:
 
 - Fedora 42 is the immediate target environment.
 - RPM can express runtime dependencies like `gtk3` and `webkit2gtk4.1`.
@@ -71,16 +71,16 @@ In other words:
 The current Linux package-layer outputs install:
 
 ```text
-/opt/T5ynth/T5ynth
-/opt/T5ynth/backend/*
-/usr/bin/t5ynth
+/opt/akroasys/akróasys
+/opt/akroasys/backend/*
+/usr/bin/akroasys
 /usr/bin/t5ynth-preflight
 /usr/share/applications/t5ynth.desktop
 /usr/share/icons/hicolor/1024x1024/apps/t5ynth.png
 /usr/share/licenses/t5ynth/{LICENSE.txt,THIRD_PARTY_LICENSES.txt}
 ```
 
-The wrapper at `/usr/bin/t5ynth` simply launches `/opt/T5ynth/T5ynth`.
+The wrapper at `/usr/bin/akroasys` simply launches `/opt/akroasys/akróasys`.
 The app keeps its expected sibling-backend layout, so no runtime path rewrite
 is needed. Bundled presets are baked into the binary via `juce_add_binary_data`
 and seeded into the user preset directory on first launch, so Linux packages
@@ -91,7 +91,7 @@ no longer ship a separate system-wide preset tree.
 The Linux package-layer scripts expect two prebuilt artefacts:
 
 - the standalone app binary:
-  `build_clean/T5ynth_artefacts/Release/Standalone/T5ynth`
+  `build_clean/T5ynth_artefacts/Release/Standalone/akroasys`
 - the isolated backend bundle:
   `archives/linux-bundles/<bundle-id>/backend/pipe_inference`
 
@@ -119,7 +119,7 @@ archives/linux-bundles/fedora42-x86_64-cuda/
 ```
 
 and writes a `bundle.env` metadata file beside it. That metadata is then
-installed into `/opt/T5ynth/backend/bundle.env` for runtime inspection.
+installed into `/opt/akroasys/backend/bundle.env` for runtime inspection.
 
 Bundle ids must encode the runtime class when CUDA compatibility matters. For
 Blackwell, do not stage or package a vague `...-cuda` bundle. Use an explicit
@@ -225,7 +225,7 @@ t5ynth
 ## 9. Runtime model
 
 The RPM and `.deb` do **not** touch or depend on a global Python/Torch
-installation. The bundled backend under `/opt/T5ynth/backend/` carries its own
+installation. The bundled backend under `/opt/akroasys/backend/` carries its own
 isolated ML runtime. The host must still provide:
 
 - a working NVIDIA driver if CUDA is expected
@@ -245,7 +245,7 @@ If `nvidia-smi` fails, do not silently treat that as “CPU is fine”. Fix the
 driver stack first if the target install is meant to be a CUDA machine.
 
 `t5ynth-preflight` also prints the installed `bundle-id` and torch/CUDA bundle
-metadata from `/opt/T5ynth/backend/bundle.env`. On Blackwell hosts it fails
+metadata from `/opt/akroasys/backend/bundle.env`. On Blackwell hosts it fails
 closed if the installed bundle is not explicitly Blackwell-class or if the
 bundled torch runtime is older than CUDA 12.8.
 

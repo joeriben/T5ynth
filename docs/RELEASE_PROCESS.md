@@ -99,7 +99,7 @@ the `macos` and `windows` jobs run, and the `release` job waits for both
 (`needs: [macos, windows]`).
 
 | Job       | Runner           | Targets                                             |
-|-----------|------------------|-----------------------------------------------------|
+|-----------|------------------|-------------------------------------------------------|
 | `macos`   | `macos-14`       | macOS app + `.pkg` installer                        |
 | `linux`   | `ubuntu-latest`  | Linux base standalone + VST3 archives + Ubuntu `.deb` artifact |
 | `windows` | `windows-latest` | Standalone app, VST3, Inno Setup installer          |
@@ -138,7 +138,7 @@ Every job:
    `cmake --build build --config Release -j<ncpu>`.
 6. Assembles a distribution directory containing the built binary plus the
    bundled backend under `backend/`.
-   - The Windows job then smoke-tests `dist/T5ynth/T5ynth.exe` with
+   - The Windows job then smoke-tests `dist/akroasys/akroasys.exe` with
      `T5YNTH_REQUIRE_BUNDLED_BACKEND=1` so the packaged layout is exercised,
      not a repo fallback.
 7. Creates `.tar.xz` archives on the build machine (see §5).
@@ -176,7 +176,7 @@ Every job:
   The re-signing commands run as `POST_BUILD` on `T5ynth_VST3` and
   `T5ynth_AU` after all JUCE manifest / sign steps. Do not remove them.
 - The macOS job also runs a smoke test that launches the built
-  `T5ynth.app` for 5 seconds and fails the job if the process exits
+  `akroasys.app` for 5 seconds and fails the job if the process exits
   early.
 - `installer/macos/build_pkg.sh` accepts signing and notarization options
   either as CLI flags or environment variables:
@@ -187,7 +187,7 @@ Every job:
     `MACOS_NOTARY_TEAM_ID`
   - `MACOS_NOTARY_API_KEY_PATH` / `MACOS_NOTARY_API_KEY_ID` /
     `MACOS_NOTARY_API_ISSUER`
-- The script signs the staged `T5ynth.app` with hardened runtime, signs
+- The script signs the staged `akroasys.app` with hardened runtime, signs
   the final `.pkg` with `Developer ID Installer`, then submits the `.pkg`
   with `xcrun notarytool`, waits for acceptance, and staples the ticket
   before writing the final output archive.
@@ -225,9 +225,9 @@ Linux base archives and Windows archives are built with `tar -cJf`
 (xz-compressed tar, using the workflow's fast multithreaded `XZ_OPT`)
 **before** upload. This is deliberate: `actions/upload-artifact` strips
 Unix permission bits, which would break the executable bit on the
-`T5ynth` binary and on `backend/pipe_inference`. By tarring on the build
+`akroasys` binary and on `backend/pipe_inference`. By tarring on the build
 machine, permissions survive the round-trip. macOS end-user releases are
-currently installer-only (`T5ynth-macOS-Installer.pkg`). Windows installer
+currently installer-only (`akroasys-macOS-Installer.pkg`). Windows installer
 builds use Inno Setup's `lzma2/max` compression and disk spanning, so the
 large CUDA-enabled PyInstaller backend can be published as `Setup-*.bin`
 slices under GitHub's per-asset size limit. GitHub Release assets must be
@@ -243,23 +243,23 @@ Each archive contains the platform binary plus:
 On Windows and in the Linux base archive the backend is copied into the
 distribution alongside the binary:
 
-- Windows: into `T5ynth/backend/` next to `T5ynth.exe`
-- Linux base archive: into `T5ynth/backend/` next to `T5ynth`
+- Windows: into `akroasys/backend/` next to `akroasys.exe`
+- Linux base archive: into `akroasys/backend/` next to `akroasys`
 
 On macOS the backend is embedded directly into
-`T5ynth.app/Contents/Resources/backend/` before the installer is built.
+`akroasys.app/Contents/Resources/backend/` before the installer is built.
 
 The current Linux base-archive filenames are:
 
 ```text
-T5ynth-Linux-Base-x86_64-Standalone.tar.xz
-T5ynth-Linux-Base-x86_64-VST3.tar.xz
+akroasys-Linux-Base-x86_64-Standalone.tar.xz
+akroasys-Linux-Base-x86_64-VST3.tar.xz
 ```
 
 The current Ubuntu package-layer CI artefact is:
 
 ```text
-T5ynth-Ubuntu-x86_64-DEB
+akroasys-Ubuntu-x86_64-DEB
 ```
 
 Those are CI artefacts, not GitHub Release assets. Package-layer outputs such
@@ -267,29 +267,29 @@ as the Fedora RPM and Ubuntu/Debian `.deb` are separate deliverables built from
 the same app/backend layout contract.
 
 The `release` job downloads artifacts with `actions/download-artifact`,
-collects `.pkg` files plus `T5ynth-Windows-Setup.exe` and any
-`T5ynth-Windows-Setup-*.bin` companion slices into `release/`, and passes
+collects `.pkg` files plus `akroasys-Windows-Setup.exe` and any
+`akroasys-Windows-Setup-*.bin` companion slices into `release/`, and passes
 those files to `gh release create`.
 
 ### Expected release asset families for the current tagged release line
 
 ```
-T5ynth-macOS-Installer.pkg
-T5ynth-Windows-Setup.exe
-T5ynth-Windows-Setup-*.bin
+akroasys-macOS-Installer.pkg
+akroasys-Windows-Setup.exe
+akroasys-Windows-Setup-*.bin
 ```
 
 For the current tagged release process, GitHub Releases publish the macOS
 installer plus the Windows installer. The Windows installer may be multipart:
-users must download `T5ynth-Windows-Setup.exe` and every
-`T5ynth-Windows-Setup-*.bin` file into the same directory before running the
+users must download `akroasys-Windows-Setup.exe` and every
+`akroasys-Windows-Setup-*.bin` file into the same directory before running the
 installer. Windows standalone/VST3 `.tar.xz` artefacts, Linux base artefacts,
 Fedora RPMs, Ubuntu/Debian `.deb`, VST3 and AU remain outside the public stable
 release page until each distribution path has been validated and explicitly
 wired into CI release publication.
 
-If the release page does not contain both `T5ynth-macOS-Installer.pkg` and
-`T5ynth-Windows-Setup.exe`, or if it is missing any Windows `.bin` slice
+If the release page does not contain both `akroasys-macOS-Installer.pkg` and
+`akroasys-Windows-Setup.exe`, or if it is missing any Windows `.bin` slice
 created by CI, something went wrong — investigate before announcing the release.
 
 Hard rule: if CI did not publish one of the expected installer assets, do not
@@ -428,7 +428,7 @@ it every time before pushing a release tag — no exceptions.
 Use an annotated tag so the message is preserved in the object store:
 
 ```bash
-git tag -a vX.Y.Z -m "T5ynth vX.Y.Z
+git tag -a vX.Y.Z -m "akróasys vX.Y.Z
 
 - First notable change
 - Second notable change
@@ -472,7 +472,7 @@ versions — it may report success for a failed run. Always verify with
 ### Typical wall-clock times
 
 | Job       | Approximate duration                    |
-|-----------|-----------------------------------------|
+|-----------|-------------------------------------------|
 | `macos`   | ~12 min                                 |
 | `windows` | ~19 min                                 |
 | `linux`   | ~28 min (apt install dominates)         |
@@ -495,7 +495,7 @@ gh release view vX.Y.Z
 
 Check:
 
-- **Title:** `T5ynth vX.Y.Z`.
+- **Title:** `akróasys vX.Y.Z`.
 - **Prerelease flag:** set if and only if the tag matched `-rc*`, `-alpha*`,
   or `-beta*`.
 - **Asset families:** macOS `.pkg`, Windows setup `.exe`, and every Windows

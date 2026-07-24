@@ -1,6 +1,7 @@
 #!/bin/bash
-# Remove previous T5ynth.app before installing new version.
+# Remove previous akroasys.app before installing new version.
 # Prevents stale files from manual installs corrupting the bundle signature.
+# T5ynth 2.5.3 (the pre-rename product) is a separate, still-supported app and must NOT be touched here.
 
 TARGET_VOLUME="${2:-/}"
 
@@ -13,5 +14,5 @@ target_path() {
     fi
 }
 
-rm -rf "$(target_path "/Applications/T5ynth.app")"
+rm -rf "$(target_path "/Applications/akroasys.app")"
 exit 0

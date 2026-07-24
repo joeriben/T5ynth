@@ -5,11 +5,11 @@ usage() {
     cat <<'EOF'
 Usage: installer/linux/build_rpm.sh [--version X.Y.Z] [--build-dir DIR] [--bundle-id ID] [--backend-bundle DIR] [--skip-build]
 
-Build a Fedora RPM for the T5ynth standalone app. The RPM installs:
-  - /opt/T5ynth/T5ynth
-  - /opt/T5ynth/backend/*
-  - /usr/bin/t5ynth
-  - /usr/bin/t5ynth-preflight
+Build a Fedora RPM for the akroasys standalone app. The RPM installs:
+  - /opt/akroasys/akroasys
+  - /opt/akroasys/backend/*
+  - /usr/bin/akroasys
+  - /usr/bin/akroasys-preflight
   - desktop entry + icon
   - license files
 
@@ -91,7 +91,7 @@ done
 require_cmd rpmbuild
 require_cmd tar
 
-standalone_bin="$repo_root/$build_dir/T5ynth_artefacts/Release/Standalone/T5ynth"
+standalone_bin="$repo_root/$build_dir/T5ynth_artefacts/Release/Standalone/akroasys"
 if [[ -z "$backend_bundle_dir" ]]; then
     backend_bundle_arg="archives/linux-bundles/$bundle_id/backend"
 else
@@ -129,35 +129,35 @@ fi
 
 rpm_root="$repo_root/archives/rpm"
 payload_root="$rpm_root/payload"
-payload_tree="$payload_root/t5ynth-$version"
+payload_tree="$payload_root/akroasys-$version"
 topdir="$rpm_root/rpmbuild"
 tmppath="$rpm_root/tmp"
-source_tar="$topdir/SOURCES/t5ynth-$version-linux-bundle.tar.gz"
-specfile="$topdir/SPECS/t5ynth.spec"
+source_tar="$topdir/SOURCES/akroasys-$version-linux-bundle.tar.gz"
+specfile="$topdir/SPECS/akroasys.spec"
 
 rm -rf "$payload_root" "$topdir" "$tmppath"
 mkdir -p \
-    "$payload_tree/opt/T5ynth/backend" \
+    "$payload_tree/opt/akroasys/backend" \
     "$payload_tree/usr/bin" \
     "$payload_tree/usr/share/applications" \
     "$payload_tree/usr/share/icons/hicolor/1024x1024/apps" \
-    "$payload_tree/usr/share/licenses/t5ynth" \
+    "$payload_tree/usr/share/licenses/akroasys" \
     "$topdir/SOURCES" "$topdir/SPECS" "$topdir/BUILD" "$topdir/RPMS" "$topdir/SRPMS" "$topdir/BUILDROOT" \
     "$tmppath"
 
-install -m 0755 "$standalone_bin" "$payload_tree/opt/T5ynth/T5ynth"
-cp -a "$backend_bundle_dir/." "$payload_tree/opt/T5ynth/backend/"
-chmod -R a+rX "$payload_tree/opt/T5ynth/backend"
-install -m 0644 "$bundle_manifest" "$payload_tree/opt/T5ynth/backend/bundle.env"
+install -m 0755 "$standalone_bin" "$payload_tree/opt/akroasys/akroasys"
+cp -a "$backend_bundle_dir/." "$payload_tree/opt/akroasys/backend/"
+chmod -R a+rX "$payload_tree/opt/akroasys/backend"
+install -m 0644 "$bundle_manifest" "$payload_tree/opt/akroasys/backend/bundle.env"
 
-install -m 0644 LICENSE.txt "$payload_tree/usr/share/licenses/t5ynth/LICENSE.txt"
-install -m 0644 THIRD_PARTY_LICENSES.txt "$payload_tree/usr/share/licenses/t5ynth/THIRD_PARTY_LICENSES.txt"
+install -m 0644 LICENSE.txt "$payload_tree/usr/share/licenses/akroasys/LICENSE.txt"
+install -m 0644 THIRD_PARTY_LICENSES.txt "$payload_tree/usr/share/licenses/akroasys/THIRD_PARTY_LICENSES.txt"
 install -m 0644 resources/logos/t5ynth_icon.png \
-    "$payload_tree/usr/share/icons/hicolor/1024x1024/apps/t5ynth.png"
-install -m 0755 installer/linux/t5ynth-wrapper.sh "$payload_tree/usr/bin/t5ynth"
-install -m 0755 installer/linux/t5ynth-preflight.sh "$payload_tree/usr/bin/t5ynth-preflight"
-sed 's|@PREFIX@|/opt/T5ynth|g' installer/linux/t5ynth.desktop.in \
-    > "$payload_tree/usr/share/applications/t5ynth.desktop"
+    "$payload_tree/usr/share/icons/hicolor/1024x1024/apps/akroasys.png"
+install -m 0755 installer/linux/t5ynth-wrapper.sh "$payload_tree/usr/bin/akroasys"
+install -m 0755 installer/linux/t5ynth-preflight.sh "$payload_tree/usr/bin/akroasys-preflight"
+sed 's|@PREFIX@|/opt/akroasys|g' installer/linux/t5ynth.desktop.in \
+    > "$payload_tree/usr/share/applications/akroasys.desktop"
 
 cat > "$specfile" <<EOF
 %global debug_package %{nil}
@@ -166,9 +166,9 @@ cat > "$specfile" <<EOF
 %global __brp_strip_comment_note %{nil}
 %global __brp_strip_lto %{nil}
 %global __brp_strip_static_archive %{nil}
-%global __provides_exclude_from ^/opt/T5ynth/backend/.*$
-%global __requires_exclude_from ^/opt/T5ynth/backend/.*$
-Name:           t5ynth
+%global __provides_exclude_from ^/opt/akroasys/backend/.*$
+%global __requires_exclude_from ^/opt/akroasys/backend/.*$
+Name:           akroasys
 Version:        $version
 Release:        1%{?dist}
 Summary:        Text-to-sound synthesizer standalone app
@@ -185,8 +185,8 @@ Requires:       fontconfig
 Requires:       freetype
 
 %description
-T5ynth is a JUCE-based text-to-sound synthesizer. This Fedora RPM installs the
-standalone app and its isolated bundled Python inference backend under /opt/T5ynth.
+akroasys is a JUCE-based text-to-sound synthesizer. This Fedora RPM installs the
+standalone app and its isolated bundled Python inference backend under /opt/akroasys.
 The backend bundle comes from a release-built bundle set selected by bundle-id.
 Model weights are not bundled and must be installed separately after launch.
 
@@ -200,13 +200,13 @@ mkdir -p %{buildroot}
 cp -a $payload_tree/* %{buildroot}/
 
 %files
-/opt/T5ynth
-/usr/bin/t5ynth
-/usr/bin/t5ynth-preflight
-/usr/share/applications/t5ynth.desktop
-/usr/share/icons/hicolor/1024x1024/apps/t5ynth.png
-/usr/share/licenses/t5ynth/LICENSE.txt
-/usr/share/licenses/t5ynth/THIRD_PARTY_LICENSES.txt
+/opt/akroasys
+/usr/bin/akroasys
+/usr/bin/akroasys-preflight
+/usr/share/applications/akroasys.desktop
+/usr/share/icons/hicolor/1024x1024/apps/akroasys.png
+/usr/share/licenses/akroasys/LICENSE.txt
+/usr/share/licenses/akroasys/THIRD_PARTY_LICENSES.txt
 EOF
 
 QA_RPATHS=$((0x0010)) rpmbuild \

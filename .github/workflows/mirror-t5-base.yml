@@ -1,7 +1,7 @@
 name: Mirror t5-base from HuggingFace to GitHub Release
 
 # One-time (and re-runnable) mirror of google-t5/t5-base into a dedicated
-# release tag, so T5ynth's in-app downloader can fetch the text encoder from
+# release tag, so akroasys's in-app downloader can fetch the text encoder from
 # the GitHub CDN instead of HuggingFace (which is consistently slow for
 # European educators).
 #
@@ -99,7 +99,7 @@ jobs:
         run: |
           {
             echo "One-time mirror of \`google-t5/t5-base\` (Apache License 2.0)"
-            echo "hosted on the T5ynth release CDN to bypass HuggingFace"
+            echo "hosted on the akroasys release CDN to bypass HuggingFace"
             echo "download throttling."
             echo ""
             echo "**Source**: https://huggingface.co/google-t5/t5-base"
@@ -114,7 +114,7 @@ jobs:
             echo ""
             echo "## Consumer"
             echo ""
-            echo "T5ynth's SetupWizard fetches these four files into"
+            echo "akroasys's SetupWizard fetches these four files into"
             echo "\`<T5ynth models dir>/t5-base/\` when the user installs the"
             echo "\"T5-Base text encoder\" entry from the in-plugin Settings page."
           } > release-notes.md

@@ -1,4 +1,4 @@
-name: Build T5ynth
+name: Build akróasys
 
 on:
   push:
@@ -78,7 +78,7 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/v')
         run: |
           EXPECTED=$(echo "${{ github.ref_name }}" | sed -E 's/^v//; s/-.*$//')
-          ACTUAL=$(defaults read "$(pwd)/build/T5ynth_artefacts/Release/Standalone/T5ynth.app/Contents/Info" CFBundleShortVersionString)
+          ACTUAL=$(defaults read "$(pwd)/build/T5ynth_artefacts/Release/Standalone/akroasys.app/Contents/Info" CFBundleShortVersionString)
           if [ "$EXPECTED" != "$ACTUAL" ]; then
             echo "::error::Standalone version mismatch: tag=$EXPECTED, binary=$ACTUAL"
             exit 1
@@ -87,7 +87,7 @@ jobs:
 
       - name: Assemble app bundle
         run: |
-          APP=build/T5ynth_artefacts/Release/Standalone/T5ynth.app
+          APP=build/T5ynth_artefacts/Release/Standalone/akroasys.app
           # Copy bundled backend into app Resources
           mkdir -p "$APP/Contents/Resources/backend"
           cp -R backend/dist/pipe_inference/* "$APP/Contents/Resources/backend/"
@@ -96,15 +96,15 @@ jobs:
 
       - name: Smoke-test app bundle
         run: |
-          APP=build/T5ynth_artefacts/Release/Standalone/T5ynth.app
+          APP=build/T5ynth_artefacts/Release/Standalone/akroasys.app
           # Verify binary is executable
-          test -x "$APP/Contents/MacOS/T5ynth"
+          test -x "$APP/Contents/MacOS/akroasys"
           # Verify backend is executable
           test -x "$APP/Contents/Resources/backend/pipe_inference"
           # Check dylib dependencies resolve
-          otool -L "$APP/Contents/MacOS/T5ynth"
+          otool -L "$APP/Contents/MacOS/akroasys"
           # Try to launch — kill after 5s, exit 0 if it stayed alive (success)
-          "$APP/Contents/MacOS/T5ynth" &
+          "$APP/Contents/MacOS/akroasys" &
           APP_PID=$!
           sleep 5
           if kill -0 "$APP_PID" 2>/dev/null; then
@@ -129,7 +129,7 @@ jobs:
             exit 0
           fi
 
-          KEYCHAIN="$RUNNER_TEMP/t5ynth-signing.keychain-db"
+          KEYCHAIN="$RUNNER_TEMP/akroasys-signing.keychain-db"
           APP_CERT="$RUNNER_TEMP/developer-id-application.p12"
           PKG_CERT="$RUNNER_TEMP/developer-id-installer.p12"
 
@@ -192,17 +192,17 @@ jobs:
         run: |
           chmod +x installer/macos/build_pkg.sh
           installer/macos/build_pkg.sh \
-            --app   build/T5ynth_artefacts/Release/Standalone/T5ynth.app \
-            --vst3  build/T5ynth_artefacts/Release/VST3/T5ynth.vst3 \
-            --au    build/T5ynth_artefacts/Release/AU/T5ynth.component \
+            --app   build/T5ynth_artefacts/Release/Standalone/akroasys.app \
+            --vst3  build/T5ynth_artefacts/Release/VST3/akroasys.vst3 \
+            --au    build/T5ynth_artefacts/Release/AU/akroasys.component \
             --version "${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || '0.0.0-alpha.0' }}" \
-            --output archives/T5ynth-macOS-Installer.pkg
+            --output archives/akroasys-macOS-Installer.pkg
 
       - name: Upload macOS Installer
         uses: actions/upload-artifact@v4
         with:
-          name: T5ynth-macOS-Installer
-          path: archives/T5ynth-macOS-Installer.pkg
+          name: akroasys-macOS-Installer
+          path: archives/akroasys-macOS-Installer.pkg
 
   # ── Windows ─────────────────────────────────────────────────────
   windows:
@@ -239,8 +239,8 @@ jobs:
           T5YNTH_ALLOW_NO_MODELS: "1"
         run: |
           $backendExe = (Resolve-Path ".\dist\pipe_inference\pipe_inference.exe").Path
-          $stdoutLog = Join-Path $env:RUNNER_TEMP "t5ynth_backend_stdout.log"
-          $stderrLog = Join-Path $env:RUNNER_TEMP "t5ynth_backend_stderr.log"
+          $stdoutLog = Join-Path $env:RUNNER_TEMP "akroasys_backend_stdout.log"
+          $stderrLog = Join-Path $env:RUNNER_TEMP "akroasys_backend_stderr.log"
           $proc = Start-Process $backendExe `
             -WorkingDirectory (Get-Location).Path `
             -RedirectStandardOutput $stdoutLog `
@@ -277,7 +277,7 @@ jobs:
         shell: pwsh
         run: |
           $expected = "${{ github.ref_name }}" -replace '^v','' -replace '-.*$',''
-          $infoPath = ".\build\T5ynth_artefacts\Release\VST3\T5ynth.vst3\Contents\Resources\moduleinfo.json"
+          $infoPath = ".\build\T5ynth_artefacts\Release\VST3\akroasys.vst3\Contents\Resources\moduleinfo.json"
           $content = Get-Content $infoPath -Raw
           $pattern = '"Version":\s*"' + [regex]::Escape($expected) + '"'
           if ($content -notmatch $pattern) {
@@ -290,11 +290,11 @@ jobs:
       - name: Assemble distribution
         shell: bash
         run: |
-          mkdir -p dist/T5ynth
-          cp -R build/T5ynth_artefacts/Release/Standalone/* dist/T5ynth/
-          mkdir -p dist/T5ynth/backend
-          cp -R backend/dist/pipe_inference/* dist/T5ynth/backend/
-          cp LICENSE.txt THIRD_PARTY_LICENSES.txt dist/T5ynth/
+          mkdir -p dist/akroasys
+          cp -R build/T5ynth_artefacts/Release/Standalone/* dist/akroasys/
+          mkdir -p dist/akroasys/backend
+          cp -R backend/dist/pipe_inference/* dist/akroasys/backend/
+          cp LICENSE.txt THIRD_PARTY_LICENSES.txt dist/akroasys/
 
       - name: Smoke-test Windows standalone
         shell: powershell
@@ -302,7 +302,7 @@ jobs:
           T5YNTH_ALLOW_NO_MODELS: "1"
         run: |
           $env:T5YNTH_REQUIRE_BUNDLED_BACKEND = "1"
-          $appExe = (Resolve-Path ".\dist\T5ynth\T5ynth.exe").Path
+          $appExe = (Resolve-Path ".\dist\akroasys\akroasys.exe").Path
           $proc = Start-Process $appExe `
             -WorkingDirectory (Split-Path -Parent $appExe) `
             -PassThru
@@ -319,22 +319,22 @@ jobs:
           mkdir -p archives
           export XZ_OPT="-T0 -1"
           cp LICENSE.txt THIRD_PARTY_LICENSES.txt build/T5ynth_artefacts/Release/VST3/
-          tar -cJf archives/T5ynth-Windows-Standalone.tar.xz -C dist T5ynth
-          tar -cJf archives/T5ynth-Windows-VST3.tar.xz \
+          tar -cJf archives/akroasys-Windows-Standalone.tar.xz -C dist akroasys
+          tar -cJf archives/akroasys-Windows-VST3.tar.xz \
             -C build/T5ynth_artefacts/Release/VST3 .
           ls -lh archives/
 
       - name: Upload Standalone
         uses: actions/upload-artifact@v4
         with:
-          name: T5ynth-Windows-Standalone
-          path: archives/T5ynth-Windows-Standalone.tar.xz
+          name: akroasys-Windows-Standalone
+          path: archives/akroasys-Windows-Standalone.tar.xz
 
       - name: Upload VST3
         uses: actions/upload-artifact@v4
         with:
-          name: T5ynth-Windows-VST3
-          path: archives/T5ynth-Windows-VST3.tar.xz
+          name: akroasys-Windows-VST3
+          path: archives/akroasys-Windows-VST3.tar.xz
 
       - name: Ensure Inno Setup is available
         shell: powershell
@@ -357,7 +357,7 @@ jobs:
           if (-not $VERSION) { $VERSION = "0.0.0-dev" }
           $isccPath = Join-Path ${env:ProgramFiles(x86)} "Inno Setup 6\iscc.exe"
           & $isccPath /DAppVersion="$VERSION" `
-               /DStandaloneDir="..\..\dist\T5ynth" `
+               /DStandaloneDir="..\..\dist\akroasys" `
                /DVST3Dir="..\..\build\T5ynth_artefacts\Release\VST3" `
                /O"archives" `
                installer\windows\t5ynth.iss
@@ -365,7 +365,7 @@ jobs:
       - name: Verify Windows installer release asset size
         shell: powershell
         run: |
-          $installerParts = Get-ChildItem "archives\T5ynth-Windows-Setup*"
+          $installerParts = Get-ChildItem "archives\akroasys-Windows-Setup*"
           if (-not $installerParts) {
             Write-Host "::error::Windows installer output was not found."
             exit 1
@@ -382,8 +382,8 @@ jobs:
       - name: Upload Windows Installer
         uses: actions/upload-artifact@v4
         with:
-          name: T5ynth-Windows-Installer
-          path: archives/T5ynth-Windows-Setup*
+          name: akroasys-Windows-Installer
+          path: archives/akroasys-Windows-Setup*
 
   # ── Linux Base Artifacts + Ubuntu DEB (Ubuntu x86_64) ──────────
   linux:
@@ -444,19 +444,19 @@ jobs:
 
       - name: Assemble base distribution
         run: |
-          mkdir -p dist/T5ynth
-          cp build/T5ynth_artefacts/Release/Standalone/T5ynth dist/T5ynth/
-          mkdir -p dist/T5ynth/backend
-          cp -R backend/dist/pipe_inference/* dist/T5ynth/backend/
-          cp LICENSE.txt THIRD_PARTY_LICENSES.txt dist/T5ynth/
+          mkdir -p dist/akroasys
+          cp build/T5ynth_artefacts/Release/Standalone/akroasys dist/akroasys/
+          mkdir -p dist/akroasys/backend
+          cp -R backend/dist/pipe_inference/* dist/akroasys/backend/
+          cp LICENSE.txt THIRD_PARTY_LICENSES.txt dist/akroasys/
 
       - name: Verify Linux artifact architecture
         run: |
-          test -x dist/T5ynth/T5ynth
-          test -x dist/T5ynth/backend/pipe_inference
-          file dist/T5ynth/T5ynth | tee /tmp/t5ynth-file.txt
-          file dist/T5ynth/backend/pipe_inference | tee /tmp/pipe-file.txt
-          grep -Eq 'ELF 64-bit.*x86-64' /tmp/t5ynth-file.txt
+          test -x dist/akroasys/akroasys
+          test -x dist/akroasys/backend/pipe_inference
+          file dist/akroasys/akroasys | tee /tmp/akroasys-file.txt
+          file dist/akroasys/backend/pipe_inference | tee /tmp/pipe-file.txt
+          grep -Eq 'ELF 64-bit.*x86-64' /tmp/akroasys-file.txt
           grep -Eq 'ELF 64-bit.*x86-64' /tmp/pipe-file.txt
 
       - name: Create archives
@@ -464,8 +464,8 @@ jobs:
           mkdir -p archives
           export XZ_OPT="-T0 -1"
           cp LICENSE.txt THIRD_PARTY_LICENSES.txt build/T5ynth_artefacts/Release/VST3/
-          tar -cJf archives/T5ynth-Linux-Base-x86_64-Standalone.tar.xz -C dist T5ynth
-          tar -cJf archives/T5ynth-Linux-Base-x86_64-VST3.tar.xz \
+          tar -cJf archives/akroasys-Linux-Base-x86_64-Standalone.tar.xz -C dist akroasys
+          tar -cJf archives/akroasys-Linux-Base-x86_64-VST3.tar.xz \
             -C build/T5ynth_artefacts/Release/VST3 .
           ls -lh archives/
 
@@ -482,27 +482,27 @@ jobs:
           DEB="$(find archives/deb -maxdepth 1 -type f -name '*.deb' | head -n 1)"
           test -n "$DEB"
           file "$DEB"
-          ar t "$DEB" | tee /tmp/t5ynth-deb-members.txt
-          grep -qx 'debian-binary' /tmp/t5ynth-deb-members.txt
-          grep -qx 'control.tar.gz' /tmp/t5ynth-deb-members.txt
-          grep -qx 'data.tar.xz' /tmp/t5ynth-deb-members.txt
+          ar t "$DEB" | tee /tmp/akroasys-deb-members.txt
+          grep -qx 'debian-binary' /tmp/akroasys-deb-members.txt
+          grep -qx 'control.tar.gz' /tmp/akroasys-deb-members.txt
+          grep -qx 'data.tar.xz' /tmp/akroasys-deb-members.txt
 
       - name: Upload Linux Base Standalone
         uses: actions/upload-artifact@v4
         with:
-          name: T5ynth-Linux-Base-x86_64-Standalone
-          path: archives/T5ynth-Linux-Base-x86_64-Standalone.tar.xz
+          name: akroasys-Linux-Base-x86_64-Standalone
+          path: archives/akroasys-Linux-Base-x86_64-Standalone.tar.xz
 
       - name: Upload Linux Base VST3
         uses: actions/upload-artifact@v4
         with:
-          name: T5ynth-Linux-Base-x86_64-VST3
-          path: archives/T5ynth-Linux-Base-x86_64-VST3.tar.xz
+          name: akroasys-Linux-Base-x86_64-VST3
+          path: archives/akroasys-Linux-Base-x86_64-VST3.tar.xz
 
       - name: Upload Ubuntu DEB
         uses: actions/upload-artifact@v4
         with:
-          name: T5ynth-Ubuntu-x86_64-DEB
+          name: akroasys-Ubuntu-x86_64-DEB
           path: archives/deb/*.deb
 
   # ── Release (only on tags) ──────────────────────────────────────
@@ -524,8 +524,8 @@ jobs:
         run: |
           mkdir -p release
           find artifacts -name '*.pkg' -exec mv {} release/ \;
-          find artifacts -name 'T5ynth-Windows-Setup.exe' -exec mv {} release/ \;
-          find artifacts -name 'T5ynth-Windows-Setup-*.bin' -exec mv {} release/ \;
+          find artifacts -name 'akroasys-Windows-Setup.exe' -exec mv {} release/ \;
+          find artifacts -name 'akroasys-Windows-Setup-*.bin' -exec mv {} release/ \;
           ls -lh release/
 
       - name: Generate release notes
@@ -556,7 +556,7 @@ jobs:
           esac
           gh release create "${{ github.ref_name }}" \
             release/*.pkg \
-            release/T5ynth-Windows-Setup* \
-            --title "T5ynth ${{ github.ref_name }}" \
+            release/akroasys-Windows-Setup* \
+            --title "akróasys ${{ github.ref_name }}" \
             --notes-file release_notes.md \
             $PRERELEASE

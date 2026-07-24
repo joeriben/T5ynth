@@ -1,6 +1,6 @@
 ---
 name: Bug report
-about: Report a problem with T5ynth
+about: Report a problem with akroasys
 title: '[BUG] '
 labels: bug
 ---
@@ -9,7 +9,7 @@ labels: bug
 
 <!-- One-line description of the problem. -->
 
-## T5ynth version
+## akroasys version
 
 <!-- From the status bar, the in-app Manual footer, or the release tag you installed. -->
 

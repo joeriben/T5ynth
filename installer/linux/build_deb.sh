@@ -5,11 +5,11 @@ usage() {
     cat <<'EOF'
 Usage: installer/linux/build_deb.sh [--version X.Y.Z] [--build-dir DIR] [--bundle-id ID] [--backend-bundle DIR] [--skip-build]
 
-Build an Ubuntu/Debian .deb package for the T5ynth standalone app. The package installs:
-  - /opt/T5ynth/T5ynth
-  - /opt/T5ynth/backend/*
-  - /usr/bin/t5ynth
-  - /usr/bin/t5ynth-preflight
+Build an Ubuntu/Debian .deb package for the akroasys standalone app. The package installs:
+  - /opt/akroasys/akroasys
+  - /opt/akroasys/backend/*
+  - /usr/bin/akroasys
+  - /usr/bin/akroasys-preflight
   - desktop entry + icon
   - license files
 
@@ -94,7 +94,7 @@ require_cmd md5sum
 require_cmd tar
 require_cmd xz
 
-standalone_bin="$repo_root/$build_dir/T5ynth_artefacts/Release/Standalone/T5ynth"
+standalone_bin="$repo_root/$build_dir/T5ynth_artefacts/Release/Standalone/akroasys"
 if [[ -z "$backend_bundle_dir" ]]; then
     backend_bundle_arg="archives/linux-bundles/$bundle_id/backend"
 else
@@ -142,33 +142,33 @@ deb_root="$repo_root/archives/deb"
 staging_root="$deb_root/staging"
 payload_tree="$staging_root/data"
 control_tree="$staging_root/control"
-package_name="t5ynth"
+package_name="akroasys"
 arch="amd64"
 package_file="$deb_root/${package_name}_${version}_${arch}.deb"
 
 rm -rf "$staging_root"
 mkdir -p \
-    "$payload_tree/opt/T5ynth/backend" \
+    "$payload_tree/opt/akroasys/backend" \
     "$payload_tree/usr/bin" \
     "$payload_tree/usr/share/applications" \
     "$payload_tree/usr/share/icons/hicolor/1024x1024/apps" \
-    "$payload_tree/usr/share/licenses/t5ynth" \
+    "$payload_tree/usr/share/licenses/akroasys" \
     "$control_tree" \
     "$deb_root"
 
-install -m 0755 "$standalone_bin" "$payload_tree/opt/T5ynth/T5ynth"
-cp -a "$backend_bundle_dir/." "$payload_tree/opt/T5ynth/backend/"
-chmod -R a+rX "$payload_tree/opt/T5ynth/backend"
-install -m 0644 "$bundle_manifest" "$payload_tree/opt/T5ynth/backend/bundle.env"
+install -m 0755 "$standalone_bin" "$payload_tree/opt/akroasys/akroasys"
+cp -a "$backend_bundle_dir/." "$payload_tree/opt/akroasys/backend/"
+chmod -R a+rX "$payload_tree/opt/akroasys/backend"
+install -m 0644 "$bundle_manifest" "$payload_tree/opt/akroasys/backend/bundle.env"
 
-install -m 0644 LICENSE.txt "$payload_tree/usr/share/licenses/t5ynth/LICENSE.txt"
-install -m 0644 THIRD_PARTY_LICENSES.txt "$payload_tree/usr/share/licenses/t5ynth/THIRD_PARTY_LICENSES.txt"
+install -m 0644 LICENSE.txt "$payload_tree/usr/share/licenses/akroasys/LICENSE.txt"
+install -m 0644 THIRD_PARTY_LICENSES.txt "$payload_tree/usr/share/licenses/akroasys/THIRD_PARTY_LICENSES.txt"
 install -m 0644 resources/logos/t5ynth_icon.png \
-    "$payload_tree/usr/share/icons/hicolor/1024x1024/apps/t5ynth.png"
-install -m 0755 installer/linux/t5ynth-wrapper.sh "$payload_tree/usr/bin/t5ynth"
-install -m 0755 installer/linux/t5ynth-preflight.sh "$payload_tree/usr/bin/t5ynth-preflight"
-sed 's|@PREFIX@|/opt/T5ynth|g' installer/linux/t5ynth.desktop.in \
-    > "$payload_tree/usr/share/applications/t5ynth.desktop"
+    "$payload_tree/usr/share/icons/hicolor/1024x1024/apps/akroasys.png"
+install -m 0755 installer/linux/t5ynth-wrapper.sh "$payload_tree/usr/bin/akroasys"
+install -m 0755 installer/linux/t5ynth-preflight.sh "$payload_tree/usr/bin/akroasys-preflight"
+sed 's|@PREFIX@|/opt/akroasys|g' installer/linux/t5ynth.desktop.in \
+    > "$payload_tree/usr/share/applications/akroasys.desktop"
 
 installed_size_kb="$(du -sk "$payload_tree" | awk '{print $1}')"
 
@@ -178,14 +178,14 @@ Version: $version
 Section: sound
 Priority: optional
 Architecture: $arch
-Maintainer: T5ynth Maintainers <noreply@github.com>
+Maintainer: akroasys Maintainers <noreply@github.com>
 Depends: bash, libc6, libgcc-s1, libstdc++6, libgtk-3-0t64 | libgtk-3-0, libwebkit2gtk-4.1-0, libasound2t64 | libasound2, libcurl4t64 | libcurl4, libfontconfig1, libfreetype6, libx11-6, libxrandr2, libxinerama1, libxcursor1, libxcomposite1, libxext6, libxrender1
 Installed-Size: $installed_size_kb
 Homepage: https://github.com/joeriben/t5ynth
 Description: Text-to-sound synthesizer standalone app
- T5ynth is a JUCE-based text-to-sound synthesizer. This Debian package installs
+ akroasys is a JUCE-based text-to-sound synthesizer. This Debian package installs
  the standalone app and its isolated bundled Python inference backend under
- /opt/T5ynth.
+ /opt/akroasys.
  .
  The backend bundle comes from a release-built bundle set selected by bundle-id.
  Model weights are not bundled and must be installed separately after launch.
