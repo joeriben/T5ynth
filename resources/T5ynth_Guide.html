@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>T5ynth — User Guide</title>
+<title>akróasys — User Guide</title>
 <style>
   :root {
     --bg: #1a1a2e;
@@ -201,7 +201,7 @@
   <span class="lab-blue">U</span><span class="lab-magenta">C</span><span class="lab-violet">D</span><span class="lab-orange">C</span><span class="lab-green">A</span><span class="lab-cyan">E</span> <span class="lab-blue">A</span><span class="lab-magenta">I</span> <span class="lab-violet">L</span><span class="lab-orange">A</span><span class="lab-green">B</span>
 </a>
 
-<h1>T5ynth</h1>
+<h1>akróasys</h1>
 <p class="subtitle">
   Resonance with meaning.
 </p>
@@ -209,7 +209,7 @@
 <!-- ═══════════════════════════════════════════ PREAMBLE -->
 <div style="background:var(--bg2); border:1px solid var(--border); border-radius:8px; padding:1.2rem 1.5rem; margin-bottom:2rem;">
 <p>
-T5ynth opens hidden spaces of possible sound. Two short impulses mark the poles
+akróasys opens hidden spaces of possible sound. Two short impulses mark the poles
 of a space of meaning you define. The synth lets you explore what can become
 audible between them. Set those poles as
 textures, transients, patterns, sonic and musical fragments, field recordings,
@@ -225,7 +225,7 @@ the other, and let the space drift over time while it remains open as a space
 of possibilities.
 </p>
 <p style="margin-top:0.6rem;">
-Most AI audio tools hide that space and only return an audio result. T5ynth
+Most AI audio tools hide that space and only return an audio result. akróasys
 turns this space of possible sound into the instrument. Generation is not a
 separate AI step after the synth; the synth reaches into the generation process
 itself. The rendered fragment is one stage in a signal path that continues through
@@ -236,7 +236,7 @@ and reverb.
 That space is not abstract: it was produced by a specific training corpus — recordings,
 archive material, sound libraries — and encodes the model's learned map of which sounds
 are similar, what counts as "music" or "noise", which combinations it renders fluently
-and which are absent. T5ynth deconstructs that map directly: operating on the embedding rather
+and which are absent. akróasys deconstructs that map directly: operating on the embedding rather
 than on words reaches sound regions that prompting alone cannot access. The instrument
 dynamizes this access through embedding manipulation modes, Sound-Character Axes, and
 Drift — and closes it back on itself through Re-Prompt (language &rarr; next inference)
@@ -249,18 +249,35 @@ rather than a tool that returns audio results.
 <p style="margin-top:0.6rem;">
 That the embedding is a trained cultural map — encoding assumptions about what "music" or
 "noise" means, which sonic combinations feel "distant" or "familiar" — is not incidental.
-T5ynth is designed as a critical-aesthetic and pedagogical instrument: not oriented toward
+akróasys is designed as a critical-aesthetic and pedagogical instrument: not oriented toward
 "more" or "better" material, but toward a different relationship to the machine's own
 listening.
 </p>
 <p style="margin-top:0.6rem;">
-T5ynth is a personal side-project by Prof. Dr. Benjamin Jörissen,
+<strong>About the name.</strong> <em>akróasys</em> comes from the Greek
+<em>akróasis</em> (&#7936;&kappa;&rho;&#8057;&alpha;&sigma;&iota;&sigmaf;) &mdash;
+listening, the act of hearing something out. The ending is spelled
+<code>-sys</code> so that the synth is in the word. It replaces the earlier
+name <strong>T5ynth</strong>, which pointed at T5, the text encoder the Stable
+Audio engines use to turn a phrase into control data for the audio model. That
+was accurate while there was one engine. It is not any more: Stable Audio 3
+carries its own encoder, and the Language-Resonant Oscillator has none at all
+&mdash; there a language model writes a Csound instrument, and your words
+become the oscillator itself rather than a marker inside a diffusion model.
+What every path still has in common is the thing T5 was only ever a means to:
+you say something, and then you listen to what the machine makes of it.
+Releases up to <strong>T5ynth&nbsp;2.5.3</strong> keep the old name and do not
+have the new oscillator; the first release called akróasys is
+<strong>3.0.0</strong>.
+</p>
+<p style="margin-top:0.6rem;">
+akróasys is a personal side-project by Prof. Dr. Benjamin Jörissen,
 UNESCO Chair in Digital Culture and Arts in Education (UCDCAE),
 Friedrich-Alexander-Universität Erlangen-Nürnberg, and part of the
 <a href="https://github.com/joeriben/ucdcae-ai-lab">UCDCAE AI Lab Software Collection</a>.
 </p>
 <p style="margin-top:0.6rem;">
-T5ynth is inspired by two research projects:
+akróasys is inspired by two research projects:
 </p>
 <ul style="margin:0.3rem 0 0.6rem 1.5rem;">
   <li><a href="https://kubi-meta.de/ai4artsed">AI for Arts Education (AI4ArtsEd)</a>, conducted together with the University of Cologne and the German Research Institute for Artificial Intelligence (DFKI) Kaiserslautern</li>
@@ -270,7 +287,7 @@ T5ynth is inspired by two research projects:
 Both funded by the Federal Ministry for Education, Family, Senior Citizens, Women and Youth (BMBFSFJ).
 </p>
 <p style="margin-top:0.8rem; color:var(--accent2); font-style:italic;">
-T5ynth is dedicated to my dear colleague at the DFKI, musician and AI researcher Dr. Stephan Baumann,
+akróasys is dedicated to my dear colleague at the DFKI, musician and AI researcher Dr. Stephan Baumann,
 without whom AI4ArtsEd would not have come into being.
 </p>
 </div>
@@ -279,10 +296,10 @@ without whom AI4ArtsEd would not have come into being.
 <div class="toc">
   <strong style="color:var(--accent)">Contents</strong>
   <ul>
-    <li class="sub"><a href="#orientation">Before You Start: What T5ynth Is</a></li>
+    <li class="sub"><a href="#orientation">Before You Start: What akróasys Is</a></li>
     <li class="sub"><a href="#setup">Setup: Model Installation</a></li>
-    <li class="sub"><a href="#lco">The Language-Controlled Oscillator (LCO)</a></li>
-    <li><strong>Part I — How to Use T5ynth</strong></li>
+    <li class="sub"><a href="#lro">The Language-Resonant Oscillator (LRO)</a></li>
+    <li><strong>Part I — How to Use akróasys</strong></li>
     <li class="sub"><a href="#gen">1. The Generation Section (Pre-Audio Space)</a></li>
     <li class="sub"><a href="#axes">2. Sound-Character Axes</a></li>
     <li class="sub"><a href="#dimex">3. Dimension Explorer</a></li>
@@ -310,13 +327,13 @@ without whom AI4ArtsEd would not have come into being.
 <!-- ═══════════════════════════════════════════════════════════════ -->
 <!-- ORIENTATION -->
 <!-- ═══════════════════════════════════════════════════════════════ -->
-<h2 id="orientation">Before You Start: What T5ynth Is</h2>
+<h2 id="orientation">Before You Start: What akróasys Is</h2>
 
 <p>
 If you come from synthesizers, the clearest mental model is simple:
-<strong>T5ynth begins before the oscillator has become audio.</strong> On
+<strong>akróasys begins before the oscillator has become audio.</strong> On
 another synth you might select "saw", load a sample, or scan a wavetable. In
-T5ynth you enter short impulses such as <em>"steady clean saw wave, C3"</em>
+akróasys you enter short impulses such as <em>"steady clean saw wave, C3"</em>
 and <em>"120 bpm syncopated transient pattern"</em>. Those impulses mark a
 hidden sound space inside the selected audio model.
 </p>
@@ -324,7 +341,7 @@ hidden sound space inside the selected audio model.
 <p>
 You do not need to know what "T5" is to use the instrument. In practice, T5 is
 the text-reading part inside the model: it turns words into numbers the audio
-model can respond to. T5ynth opens up musical control over the hidden space
+model can respond to. akróasys opens up musical control over the hidden space
 where the model decides what sound can become. You are not operating a black
 box and waiting for a result; you are exploring the model's space of
 possibilities.
@@ -343,7 +360,7 @@ fragment can become audible.
 <p>
 After the generated fragment enters the playback engine, the tools become more
 familiar: playback mode, pitch, filter, envelopes, modulation, sequencers, and
-effects. Leaving a text field empty is an aesthetic choice which T5ynth will
+effects. Leaving a text field empty is an aesthetic choice which akróasys will
 interpret as an echo chamber for the present impulse. There is no such thing as
 "no meaning" in creative processes.
 </p>
@@ -359,11 +376,11 @@ text-to-audio tools:
 </ol>
 
 <p>
-This is also where T5ynth parts company with tools that let you pick a style and
+This is also where akróasys parts company with tools that let you pick a style and
 shape it from there. Such a tool gives you parameters around a single chosen
 result &mdash; how strictly the style is followed, how much it varies, which
 elements play &mdash; but the result itself stays whatever the model would
-produce. T5ynth's controls act on the <strong>embeddings</strong> instead: Alpha
+produce. akróasys's controls act on the <strong>embeddings</strong> instead: Alpha
 moves through the relation between the two poles, an empty field reflects an
 impulse back as an echo chamber, the Semantic Axes shift along directions in that
 space, and the Dimension Explorer re-weights its individual coordinates. You are
@@ -390,7 +407,7 @@ ending at the model's output.
 
 <h3>Model Download</h3>
 <p>
-T5ynth requires at least one diffusion model. Audio model weights are <strong>not bundled</strong> — they must be downloaded separately. The Stable Audio Open engines (1.0 and Small) also need the auxiliary <strong>T5-Base</strong> text encoder (ungated, Apache-2.0), which installs automatically with the engine; Stable Audio 3 instead uses its own t5gemma encoder, fetched at install.
+akróasys requires at least one diffusion model. Audio model weights are <strong>not bundled</strong> — they must be downloaded separately. The Stable Audio Open engines (1.0 and Small) also need the auxiliary <strong>T5-Base</strong> text encoder (ungated, Apache-2.0), which installs automatically with the engine; Stable Audio 3 instead uses its own t5gemma encoder, fetched at install.
 </p>
 <p>
 Open the <strong>Settings</strong> panel from the status bar. The panel is tabbed: the <strong>Models</strong> tab (default) handles model download and shows per-model instructions; the <strong>Settings</strong> tab (General Settings) contains machine-wide options that are not saved per preset. Currently: <strong>Filter Oversampling</strong> (Off / 2× / 4×) — applies to the Ladder and Warp nonlinear filter stages, default 2×; does not affect SVF. Pick a model from the Models tab; the summary below tells you which to choose.
@@ -398,16 +415,16 @@ Open the <strong>Settings</strong> panel from the status bar. The panel is tabbe
 
 <h4>Stable Audio 3 Small Music &amp; Small SFX</h4>
 <p>
-Stable Audio 3 (SA3) is Stability AI's current small-format generative family, added in T5ynth&nbsp;2.1.0. Two checkpoints are available: <strong>Small Music</strong> for instrumental music and <strong>Small SFX</strong> for sound effects. They share one architecture and one text encoder and differ only in the target modality. SA3 Small Music is T5ynth's default model.
+Stable Audio 3 (SA3) is Stability AI's current small-format generative family, added in T5ynth&nbsp;2.1.0. Two checkpoints are available: <strong>Small Music</strong> for instrumental music and <strong>Small SFX</strong> for sound effects. They share one architecture and one text encoder and differ only in the target modality. SA3 Small Music is akróasys's default model.
 </p>
 <p>
-SA3 is a latent diffusion transformer with a t5gemma text encoder (<code>google/t5gemma-b-b-ul2</code>), 44.1&nbsp;kHz stereo. T5ynth selects the model's published inference settings automatically: <code>pingpong</code> sampler, 8&nbsp;steps, CFG&nbsp;1.0.
+SA3 is a latent diffusion transformer with a t5gemma text encoder (<code>google/t5gemma-b-b-ul2</code>), 44.1&nbsp;kHz stereo. akróasys selects the model's published inference settings automatically: <code>pingpong</code> sampler, 8&nbsp;steps, CFG&nbsp;1.0.
 </p>
 <p>
-<strong>Install.</strong> Select <strong>Stable Audio 3 Small Music</strong> or <strong>Small SFX</strong> in Settings and click <strong>Download</strong>. T5ynth first shows a license dialog; you must accept both the <a href="https://stability.ai/community-license-agreement">Stability AI Community License</a> (the audio model) and the <a href="https://ai.google.dev/gemma/terms">Google Gemma Terms of Use</a> with the Gemma Prohibited Use Policy (the t5gemma text encoder). The download then runs without a HuggingFace account or token, and the full license texts are written into the model folder. If you already downloaded the files from Stability by hand, use <strong>Auto-Scan</strong> instead.
+<strong>Install.</strong> Select <strong>Stable Audio 3 Small Music</strong> or <strong>Small SFX</strong> in Settings and click <strong>Download</strong>. akróasys first shows a license dialog; you must accept both the <a href="https://stability.ai/community-license-agreement">Stability AI Community License</a> (the audio model) and the <a href="https://ai.google.dev/gemma/terms">Google Gemma Terms of Use</a> with the Gemma Prohibited Use Policy (the t5gemma text encoder). The download then runs without a HuggingFace account or token, and the full license texts are written into the model folder. If you already downloaded the files from Stability by hand, use <strong>Auto-Scan</strong> instead.
 </p>
 <p>
-<strong>Prompting.</strong> The t5gemma encoder reads up to 256&nbsp;tokens per impulse. T5ynth prepends the model's required modality prefix (<code>TrackType: Music, VocalType: Instrumental,</code> or <code>TrackType: SFX,</code>) automatically. SA3 was trained on comma-joined, field-tagged metadata (for example <em>Instruments: …, Moods: …</em>), so structured <em>Field: value</em> prompts fit its training distribution; plain descriptions also work.
+<strong>Prompting.</strong> The t5gemma encoder reads up to 256&nbsp;tokens per impulse. akróasys prepends the model's required modality prefix (<code>TrackType: Music, VocalType: Instrumental,</code> or <code>TrackType: SFX,</code>) automatically. SA3 was trained on comma-joined, field-tagged metadata (for example <em>Instruments: …, Moods: …</em>), so structured <em>Field: value</em> prompts fit its training distribution; plain descriptions also work.
 </p>
 <p>
 <strong>Duration.</strong> SA3 generates variable-length audio; with an SA3 model selected the Duration slider reaches 120&nbsp;s. For the other engines it caps at 11&nbsp;s.
@@ -429,20 +446,20 @@ Stable Audio 3 Medium is the larger SA3 checkpoint (about 2.3&nbsp;billion param
 Stable Audio Open 1.0 is the original full-size Stable Audio Open checkpoint, licensed under the <a href="https://stability.ai/community-license-agreement">Stability AI Community License</a>. Like Stable Audio Open Small, it also needs the auxiliary <strong>T5-Base</strong> text encoder (ungated, Apache-2.0), which installs automatically with the engine.
 </p>
 <p>
-<strong>Install.</strong> Select <strong>Stable Audio Open 1.0</strong> in Settings and click <strong>Download</strong>. T5ynth first shows the license dialog; accept it to continue. The ~4.85&nbsp;GB checkpoint then downloads without a HuggingFace account or token, and a copy of the license is written into the model folder. If you already downloaded the files from Stability by hand (<code>model.safetensors</code> and <code>model_config.json</code>), use <strong>Auto-Scan</strong> instead.
+<strong>Install.</strong> Select <strong>Stable Audio Open 1.0</strong> in Settings and click <strong>Download</strong>. akróasys first shows the license dialog; accept it to continue. The ~4.85&nbsp;GB checkpoint then downloads without a HuggingFace account or token, and a copy of the license is written into the model folder. If you already downloaded the files from Stability by hand (<code>model.safetensors</code> and <code>model_config.json</code>), use <strong>Auto-Scan</strong> instead.
 </p>
 
 <h4>Stable Audio Open Small</h4>
 <p>
-The compact, fastest Stable Audio Open checkpoint, licensed under the <a href="https://stability.ai/community-license-agreement">Stability AI Community License</a>. In Settings, select <strong>Stable Audio Open Small</strong> and click <strong>Download</strong>. T5ynth shows the license dialog, then fetches the ~1.68&nbsp;GB checkpoint without a HuggingFace account or token &mdash; from an ungated mirror that redistributes the official weights unmodified &mdash; and writes a license copy into the model folder. The required <strong>T5-Base</strong> text encoder (ungated, Apache-2.0) installs automatically in the same step. If you already downloaded the files from Stability by hand, use <strong>Auto-Scan</strong> instead.
+The compact, fastest Stable Audio Open checkpoint, licensed under the <a href="https://stability.ai/community-license-agreement">Stability AI Community License</a>. In Settings, select <strong>Stable Audio Open Small</strong> and click <strong>Download</strong>. akróasys shows the license dialog, then fetches the ~1.68&nbsp;GB checkpoint without a HuggingFace account or token &mdash; from an ungated mirror that redistributes the official weights unmodified &mdash; and writes a license copy into the model folder. The required <strong>T5-Base</strong> text encoder (ungated, Apache-2.0) installs automatically in the same step. If you already downloaded the files from Stability by hand, use <strong>Auto-Scan</strong> instead.
 </p>
 
 <h4>AudioLDM2</h4>
 <p>
-AudioLDM2 is an academic latent-diffusion text-to-audio model published by the Centre for Vision, Speech and Signal Processing (CVSSP) at the University of Surrey together with collaborators; see the paper <a href="https://arxiv.org/abs/2308.05734">"AudioLDM&nbsp;2: Learning Holistic Audio Generation with Self-supervised Pretraining" (Liu et al., 2023)</a>. It was released as an open research artefact to study generalised audio, music, and speech generation from text, not as a commercial product. It is ungated on HuggingFace and T5ynth can download it directly &mdash; in Settings, select AudioLDM2 and click <strong>Download from HuggingFace</strong>.
+AudioLDM2 is an academic latent-diffusion text-to-audio model published by the Centre for Vision, Speech and Signal Processing (CVSSP) at the University of Surrey together with collaborators; see the paper <a href="https://arxiv.org/abs/2308.05734">"AudioLDM&nbsp;2: Learning Holistic Audio Generation with Self-supervised Pretraining" (Liu et al., 2023)</a>. It was released as an open research artefact to study generalised audio, music, and speech generation from text, not as a commercial product. It is ungated on HuggingFace and akróasys can download it directly &mdash; in Settings, select AudioLDM2 and click <strong>Download from HuggingFace</strong>.
 </p>
 <p>
-Model: <a href="https://huggingface.co/cvssp/audioldm2">cvssp/audioldm2</a>. License: <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/">CC BY-NC-SA 4.0</a> &mdash; <strong>non-commercial use only, no revenue threshold, no exceptions</strong>. T5ynth includes AudioLDM2 as an alternative sound source for non-commercial musical exploration.
+Model: <a href="https://huggingface.co/cvssp/audioldm2">cvssp/audioldm2</a>. License: <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/">CC BY-NC-SA 4.0</a> &mdash; <strong>non-commercial use only, no revenue threshold, no exceptions</strong>. akróasys includes AudioLDM2 as an alternative sound source for non-commercial musical exploration.
 </p>
 <h4>Manual install locations</h4>
 <p>
@@ -455,12 +472,12 @@ If you prefer to place files yourself, use these directories (each model lives i
   <tr><td>Windows 11</td><td><code>%APPDATA%\T5ynth\models\</code></td></tr>
 </table>
 <p>
-T5ynth auto-detects installed models by looking for <code>model_index.json</code> (Diffusers format) or <code>model_config.json</code> (native format) plus Safetensors weight files. After a manual install, click <strong>Auto-Scan</strong> in Settings.
+akróasys auto-detects installed models by looking for <code>model_index.json</code> (Diffusers format) or <code>model_config.json</code> (native format) plus Safetensors weight files. After a manual install, click <strong>Auto-Scan</strong> in Settings.
 </p>
 
 <h3>Device Selection</h3>
 <p>
-T5ynth auto-detects the best available compute device:
+akróasys auto-detects the best available compute device:
 </p>
 <ul>
   <li><strong>Apple Silicon Mac</strong> → MPS (Metal Performance Shaders), ~3× faster than CPU</li>
@@ -481,13 +498,13 @@ On first launch, the status bar shows backend connection status. Once you see <s
 </div>
 
 <!-- ═══════════════════════════════════════════════════════════════ -->
-<!-- LCO -->
+<!-- LRO -->
 <!-- ═══════════════════════════════════════════════════════════════ -->
-<h2 id="lco">The Language-Controlled Oscillator (LCO)</h2>
+<h2 id="lro">The Language-Resonant Oscillator (LRO)</h2>
 
 <p>
-T5ynth's oscillator has a second mode, beside the T5 Oscillator described
-above: the <strong>Language-Controlled Oscillator</strong>, or LCO. Instead
+akróasys's oscillator has a second mode, beside the T5 Oscillator described
+above: the <strong>Language-Resonant Oscillator</strong>, or LRO. Instead
 of marking a hidden sound space inside a diffusion model, you describe an
 instrument in words. A language model writes Csound synthesis code from that
 description, and that code — compiled and run live — becomes the
@@ -495,21 +512,20 @@ oscillator's voice for every note you play. It is not a preset and not a
 rendered sample: it is source code, written for this one prompt.
 </p>
 
-<h3>Switching to the LCO</h3>
+<h3>Switching to the LRO</h3>
 <p>
 The toggle at the top right of the Generation column's header switches
-between the two oscillator paradigms. It reads <strong>» LCO</strong> while
+between the two oscillator paradigms. It reads <strong>» LRO</strong> while
 the neural T5 Oscillator is active — click it to switch. The column header
-itself then changes to <strong>Language-Controlled Oscillator
-(Alpha)</strong>, and the toggle now reads <strong>» T5osc</strong> to switch
-back.
+itself then changes to <strong>Language-Resonant Oscillator</strong>, and the
+toggle now reads <strong>» T5osc</strong> to switch back.
 </p>
 <p>
 Switching replaces the whole Generation column: Impulse A/B, Alpha, the
 Semantic Axes and the Dimension Explorer are gone, and in their place sit a
 single prompt field, the authoring trace described below, and a Re-Prompt
 card of its own. The shared <strong>Generate</strong> button and the SNAP
-slots below it stay in exactly the same place and now drive the LCO instead;
+slots below it stay in exactly the same place and now drive the LRO instead;
 Cache and Resynth, both meaningful only for the neural generator, are shown
 dimmed rather than removed.
 </p>
@@ -519,11 +535,6 @@ placeholder reads <strong>"Describe the oscillator to bake"</strong> — and
 press <strong>Generate</strong>. A single tab above the prompt field names
 the language model that will do the writing; see Requirements, below.
 </p>
-
-<div class="note">
-  <strong>(Alpha)</strong> in the header is literal: this mode is early and
-  under active change.
-</div>
 
 <h3>What you see while it writes</h3>
 <p>
@@ -553,7 +564,7 @@ Once an attempt lands, the trace becomes a fixed sequence of stations:
       this prompt is in the library", and the model writes from its own
       knowledge instead. A count line also flags it when nothing you wrote
       named a movement ("no movement named") — worth watching, since every
-      LCO instrument is meant to move on its own unless you ask for something
+      LRO instrument is meant to move on its own unless you ask for something
       static or still.</td>
   </tr>
   <tr>
@@ -593,7 +604,7 @@ was written.
 Click and hold anywhere on the trace to turn the card over. The back is
 headed <strong>"CSOUND · HOLD TO TURN BACK"</strong> and shows only the
 lines the model actually wrote — not the host scaffolding common to every
-LCO instrument (the sixteen voice channels, the note-age counter, the output
+LRO instrument (the sixteen voice channels, the note-age counter, the output
 stage), which nobody wrote and which stays the same from sound to sound.
 Click and hold again to turn the card back to the trace.
 </p>
@@ -614,7 +625,7 @@ immediately, with no new call to the language model.
 Above <strong>Generate</strong> sits a RE-PROMPT card with the same
 seven-position stance bar as the neural oscillator's <a href="#drift">Re-Prompt
 loop</a>, but it works on different material: it never listens to the
-rendered sound. Each step instead rereads the LCO's own last
+rendered sound. Each step instead rereads the LRO's own last
 <strong>WROTE</strong> reading and rewrites the prompt text under the chosen
 stance:
 </p>
@@ -635,12 +646,12 @@ from scratch: it rewrites the prompt under the current stance, replaces the
 text in the prompt field with the result, and immediately writes a new
 instrument from those words. There is no separate coupling control here —
 the neural loop's B only / AB add / AB replace choice has nothing to attach
-to, since the LCO has no A/B pair to couple.
+to, since the LRO has no A/B pair to couple.
 </p>
 
 <h3>Requirements</h3>
 <p>
-The LCO depends on two things the neural oscillator does not.
+The LRO depends on two things the neural oscillator does not.
 </p>
 <p>
 <strong>The author language model must be installed.</strong> It is listed
@@ -651,21 +662,21 @@ run through llama.cpp rather than the usual transformers library, about
 7&nbsp;GB, downloaded ungated from HuggingFace under the Apache 2.0 license
 (no account needed). The same model also translates prompts to English and
 drives Re-Prompt on both oscillators — there is only ever the one language
-model. Once installed, the LCO's own model tab reads <strong>"Gemma 4 12B —
+model. Once installed, the LRO's own model tab reads <strong>"Gemma 4 12B —
 writes code for Csound"</strong>; until then it reads <strong>"no language
 model"</strong>, and pressing <strong>Generate</strong> answers: <strong>"Load
 the language model in Settings"</strong>.
 </p>
 <p>
-<strong>Csound must be present on the machine T5ynth runs on.</strong> Unlike
-the models above, T5ynth does not download or manage Csound itself: support
-for it is compiled in only if the machine that built your copy of T5ynth had
+<strong>Csound must be present on the machine akróasys runs on.</strong> Unlike
+the models above, akróasys does not download or manage Csound itself: support
+for it is compiled in only if the machine that built your copy of akróasys had
 Csound installed at build time — and, in this build, only on macOS; there is
 no Linux or Windows build path for it yet. The build looks in two places: the
 Homebrew install location, <code>/opt/homebrew/opt/csound/Frameworks</code>,
 and <code>/Library/Frameworks</code>, where Csound's own macOS installer puts
 it. Installing Csound afterward does not help a copy that was already built
-without it — that choice is made once, when T5ynth itself is compiled. When
+without it — that choice is made once, when akróasys itself is compiled. When
 no Csound can be reached at all, authoring fails immediately and plainly
 rather than guessing: <strong>"no Csound compiler reachable: the orchestra
 cannot be checked before it reaches the engine (install Csound, or point
@@ -684,10 +695,10 @@ like"</strong>.
 <h2 id="gen">1. The Generation Section (Possible Sound Space)</h2>
 
 <p>
-T5ynth's Generation section is where the instrument opens a space of possible
+akróasys's Generation section is where the instrument opens a space of possible
 sound. Instead of choosing a sine, saw, sample, or wavetable, you mark a bounded
 hidden sound space inside the selected audio model. In that sense, the
-T5ynth Oscillator is a meta-oscillator: it does not start from one waveform,
+T5 Oscillator is a meta-oscillator: it does not start from one waveform,
 but from a space of possible sounds. The main purpose is to explore that space,
 shape the generation itself, and decide which state becomes a short playable
 fragment.
@@ -704,19 +715,19 @@ are two markers for one inner sound space.
 A and B are equal markers for one hidden sound space. Each impulse is turned
 into internal control data by the model's text-reading stage. That control data
 is not audio; it is the model's way of deciding what kind of sound can become.
-T5ynth changes that internal state so different fragments can become audible.
+akróasys changes that internal state so different fragments can become audible.
 </p>
 <p>
-T5ynth can use Stable Audio 3 Small Music, Stable Audio 3 Small SFX, Stable
+akróasys can use Stable Audio 3 Small Music, Stable Audio 3 Small SFX, Stable
 Audio Open 1.0, Stable Audio Open Small, or AudioLDM2. Each engine opens a
 different learned space. The Stable Audio engines are strongest with English
 sound-oriented phrases: sound effects, field recordings, drum or instrument
 loops, ambient sounds, foley, and production elements. The SA3 engines read up
-to 256 tokens per impulse through their t5gemma encoder, and T5ynth prepends
+to 256 tokens per impulse through their t5gemma encoder, and akróasys prepends
 SA3's required modality prefix automatically.
 AudioLDM2 can also cover sound effects, speech-like material, and music, but it
 is non-commercial only, behaves differently from the Stable Audio engines, and
-is kept in T5ynth mainly for exploratory use rather than as the primary
+is kept in akróasys mainly for exploratory use rather than as the primary
 reference engine.
 </p>
 <p>
@@ -726,14 +737,14 @@ fictional agents, or impossible combinations. A visual phrase such as "a rose
 in a vase" is not a sound by itself; <em>"water in a glass vase, quiet room,
 petals brushed by fingers"</em> gives the model acoustic handles. But the
 abstract phrase can still be used as a strange marker in the model's space.
-T5ynth is where you find out what that marker can become.
+akróasys is where you find out what that marker can become.
 </p>
 <div class="tip">
   <strong>A and B mark a space of possible sound.</strong> In the interface, <em>Alpha</em> is the pull between A and B, <em>Magnitude</em> is how strongly the space is pushed, <em>Noise</em> perturbs it, Semantic Axes bend it along sound qualities, the Dimension Explorer opens individual dimensions, Injection Modes decide where B enters A during generation, and Drift moves the space over time.
 </div>
 <ul>
   <li><strong>Two marked poles</strong> — Impulse A and Impulse B are equal markers for one hidden sound space. The <em>Alpha</em> slider (labeled <strong>A ↔ B</strong>) moves through that space and changes what can become audible when the active <a href="#injection-modes">Injection Mode</a> is <em>Linear</em>; in other modes the slider's role shifts (see the mode-row explanation below).</li>
-  <li><strong>One field empty: Echoraum</strong> — leaving either text field empty is an aesthetic choice. T5ynth interprets the empty side as an echo chamber for the present impulse: a reflection through the model's neutral point. Alpha then traces a path from the impulse through that neutral midpoint to the impulse's tonal antipode — sounds the impulse actively isn't. There is no such thing as "no meaning" in creative processes.</li>
+  <li><strong>One field empty: Echoraum</strong> — leaving either text field empty is an aesthetic choice. akróasys interprets the empty side as an echo chamber for the present impulse: a reflection through the model's neutral point. Alpha then traces a path from the impulse through that neutral midpoint to the impulse's tonal antipode — sounds the impulse actively isn't. There is no such thing as "no meaning" in creative processes.</li>
   <li><strong>Both fields empty</strong> — both sides use the model's neutral point. The model produces its own self-portrait (pure unconditional sampling), varying with the seed.</li>
 </ul>
 
@@ -766,7 +777,7 @@ T5ynth is where you find out what that marker can become.
   <tr>
     <td><strong>Duration</strong></td>
     <td>0.1 … 11 s (120 s with SA3)</td>
-    <td>Length of generated audio. T5ynth targets short playable fragments, so the slider caps at 11&nbsp;s for the Stable Audio Open and AudioLDM2 engines; with an SA3 model selected it extends to 120&nbsp;s. Short values (0.5–3&nbsp;s) work well for loops and wavetable sources. Longer values create evolving textures.</td>
+    <td>Length of generated audio. akróasys targets short playable fragments, so the slider caps at 11&nbsp;s for the Stable Audio Open and AudioLDM2 engines; with an SA3 model selected it extends to 120&nbsp;s. Short values (0.5–3&nbsp;s) work well for loops and wavetable sources. Longer values create evolving textures.</td>
   </tr>
   <tr>
     <td><strong>Steps</strong></td>
@@ -801,7 +812,7 @@ T5ynth is where you find out what that marker can become.
 </table>
 
 <div class="note">
-  <strong>The instrument is built around a space of possible sound.</strong> The generation parameters above — Alpha, Semantic Axes, Noise, Magnitude — can all be modulated by the <a href="#drift">Drift &amp; Regenerate</a> system. With Drift active, these values shift continuously, and T5ynth can automatically re-generate audio as they move. The hidden space keeps evolving instead of behaving like a fixed one-shot source. See <a href="#drift">section 6</a> for details.
+  <strong>The instrument is built around a space of possible sound.</strong> The generation parameters above — Alpha, Semantic Axes, Noise, Magnitude — can all be modulated by the <a href="#drift">Drift &amp; Regenerate</a> system. With Drift active, these values shift continuously, and akróasys can automatically re-generate audio as they move. The hidden space keeps evolving instead of behaving like a fixed one-shot source. See <a href="#drift">section 6</a> for details.
 </div>
 
 <h3>The two views of the column</h3>
@@ -828,13 +839,13 @@ trace that shows what the machine heard, which library entries the words
 reached, which model wrote the Csound, what it had to repair, and what is
 running now. Nothing of the neural surface is shown here, because nothing
 of it applies — this sound is not generated, it is <em>written</em>. See
-<a href="#lco">The Language-Controlled Oscillator</a>.
+<a href="#lro">The Language-Resonant Oscillator</a>.
 </p>
 <div class="note">
   <strong>Steps</strong> (diffusion sampling steps) and <strong>CFG</strong>
   (classifier-free guidance strength) have no control in either view. They
   remain full parameters — automatable from your DAW, stored in presets and
-  snapshots — and each model carries its own defaults, which T5ynth sets when
+  snapshots — and each model carries its own defaults, which akróasys sets when
   you switch engines.
 </div>
 <p>
@@ -875,7 +886,7 @@ stored a snapshot in each (long-click or <strong>Shift+1 ... Shift+4</strong>),
 you have a four-button live setup: hit a number key to switch the entire
 oscillator state — sound material, prompts, axes, dimension offsets, engine
 parameters — without leaving the keyboard. This is the intended way to play
-T5ynth as a multi-character instrument during a take. Two typical workflows:
+akróasys as a multi-character instrument during a take. Two typical workflows:
 </p>
 <ul>
   <li><strong>Live keyboard play:</strong> store four different oscillator
@@ -923,7 +934,7 @@ Five model slots are available: Stable Audio 3 Small Music, Stable Audio 3 Small
 
 <div class="note">
   <strong>AudioLDM2 is an exploratory alternative, not a feature-parity engine.</strong>
-  We keep it in T5ynth because it opens a different learned space and can
+  We keep it in akróasys because it opens a different learned space and can
   sometimes yield useful speech-like, scene-based, or hybrid material that
   differs from the Stable Audio family. It is also ungated, which makes it a
   usable fallback for users who do not want to fetch gated Stable Audio
@@ -931,14 +942,14 @@ Five model slots are available: Stable Audio 3 Small Music, Stable Audio 3 Small
 </div>
 
 <table>
-  <tr><th>AudioLDM2 in T5ynth</th><th>What it means in practice</th></tr>
+  <tr><th>AudioLDM2 in akróasys</th><th>What it means in practice</th></tr>
   <tr>
     <td><strong>What works</strong></td>
     <td>Standard prompt generation, A/B movement in <em>Linear</em> mode, Semantic Axes, Dimension Explorer, Drift, snapshots, and the general short-fragment workflow.</td>
   </tr>
   <tr>
     <td><strong>What does not fully work</strong></td>
-    <td>AudioLDM2 does <strong>not</strong> implement the non-linear Injection Modes. When AudioLDM2 is selected, T5ynth keeps the mode row locked to <em>Linear</em>. AudioLDM2 also does not support the latent-only Stable Audio workflows used by the native SA path.</td>
+    <td>AudioLDM2 does <strong>not</strong> implement the non-linear Injection Modes. When AudioLDM2 is selected, akróasys keeps the mode row locked to <em>Linear</em>. AudioLDM2 also does not support the latent-only Stable Audio workflows used by the native SA path.</td>
   </tr>
   <tr>
     <td><strong>Advantages</strong></td>
@@ -946,11 +957,11 @@ Five model slots are available: Stable Audio 3 Small Music, Stable Audio 3 Small
   </tr>
   <tr>
     <td><strong>Disadvantages</strong></td>
-    <td>Heavier and slower than Stable Audio Open Small, non-commercial only, internally generates at 16 kHz before T5ynth resamples to 44.1 kHz, and often produces less immediate, less punchy results for the short production-oriented prompts that work well on Stable Audio Open Small.</td>
+    <td>Heavier and slower than Stable Audio Open Small, non-commercial only, internally generates at 16 kHz before akróasys resamples to 44.1 kHz, and often produces less immediate, less punchy results for the short production-oriented prompts that work well on Stable Audio Open Small.</td>
   </tr>
   <tr>
     <td><strong>Why it remains in the instrument</strong></td>
-    <td>Mainly for exploratory use. If you want the strongest fit for T5ynth's core interaction design, Stable Audio Open Small is usually the better starting point. AudioLDM2 stays available as an alternate model space, not as the main benchmark for how T5ynth should sound.</td>
+    <td>Mainly for exploratory use. If you want the strongest fit for akróasys's core interaction design, Stable Audio Open Small is usually the better starting point. AudioLDM2 stays available as an alternate model space, not as the main benchmark for how akróasys should sound.</td>
   </tr>
 </table>
 
@@ -968,7 +979,7 @@ enter?". Different answers produce audibly different sounds from the
 Clicking a mode button immediately triggers a fresh generation, and
 each mode keeps its own slider position so A/B-ing the modes by
 clicking buttons does not disturb the others. Only Stable Audio Open
-Small implements the non-linear modes. With AudioLDM2 selected, T5ynth
+Small implements the non-linear modes. With AudioLDM2 selected, akróasys
 disables the non-linear buttons and keeps <em>Linear</em> active.
 </p>
 <table>
@@ -1064,7 +1075,7 @@ The Dimension Explorer gives you direct access to all <strong>768 internal contr
 
 <h4>What You See</h4>
 <p>
-After generating audio, T5ynth receives the 768-dimensional source-control vectors for your A/B markers. The DimExplorer displays these as a row of vertical bars — one per dimension, sorted by magnitude (the most significant dimensions appear on the left).
+After generating audio, akróasys receives the 768-dimensional source-control vectors for your A/B markers. The DimExplorer displays these as a row of vertical bars — one per dimension, sorted by magnitude (the most significant dimensions appear on the left).
 </p>
 <ul>
   <li>Each bar shows the <em>difference</em> between Source A and Source B for that dimension. <span style="color:var(--green)">Green</span> bars point toward A, <span style="color:var(--accent2)">orange</span> bars toward B. The leftmost bars are the dimensions where the two sources differ most — editing here affects the A/B contrast. The rightmost bars are where A and B are nearly identical — editing here changes what both share, often producing more fundamental sonic shifts.</li>
@@ -1079,7 +1090,7 @@ Drag any bar vertically to apply a per-dimension <strong>offset</strong>. Edited
 
 <h4>What This Means</h4>
 <p>
-This is the most granular level of control T5ynth offers. It bypasses language entirely — you are directly sculpting the 768-dimensional control vector that guides the diffusion model. What each dimension "does" sonically is largely opaque: the model was not built as a documented audio control surface. Small changes may do nothing, or they may radically alter the output. This is a research tool for probing the space, not a precision instrument.
+This is the most granular level of control akróasys offers. It bypasses language entirely — you are directly sculpting the 768-dimensional control vector that guides the diffusion model. What each dimension "does" sonically is largely opaque: the model was not built as a documented audio control surface. Small changes may do nothing, or they may radically alter the output. This is a research tool for probing the space, not a precision instrument.
 </p>
 
 <div class="note">
@@ -1089,7 +1100,7 @@ This is the most granular level of control T5ynth offers. It bypasses language e
 <!-- ═══════════════════════════════════════════ -->
 <h2 id="engine">4. Engine Modes: Sampler, Wavetable &amp; Granular</h2>
 
-<p>T5ynth can play back generated audio in three modes:</p>
+<p>akróasys can play back generated audio in three modes:</p>
 
 <h4>Sampler Mode</h4>
 <p>
@@ -1135,7 +1146,7 @@ Before the generated audio reaches the sampler/wavetable/granular source, two fi
 </p>
 <ul>
   <li><strong>Rumble filter</strong> — always on, 2nd-order Butterworth high-pass at 25&nbsp;Hz. Removes the DC offset and sub-bass rumble the VAE decoder tends to add. Not user-switchable; this is a baseline cleanup step.</li>
-  <li><strong>HF</strong> (toggle, in Sampler controls) — two-band high shelf (+3&nbsp;dB @ 4&nbsp;kHz, +4.5&nbsp;dB @ 10&nbsp;kHz) that compensates the high-frequency rolloff inherent to the VAE decoder. Whether you prefer the brighter boosted or the darker raw sound is a matter of taste; T5ynth stores both.</li>
+  <li><strong>HF</strong> (toggle, in Sampler controls) — two-band high shelf (+3&nbsp;dB @ 4&nbsp;kHz, +4.5&nbsp;dB @ 10&nbsp;kHz) that compensates the high-frequency rolloff inherent to the VAE decoder. Whether you prefer the brighter boosted or the darker raw sound is a matter of taste; akróasys stores both.</li>
   <li><strong>Normalize</strong> (toggle, in Sampler controls) — peak-normalizes the play region to 0.95 before playback for quiet generations.</li>
 </ul>
 <p>
@@ -1174,9 +1185,9 @@ selector in the filter header row.
   <strong>Algorithm notes</strong>
 
   <ul>
-    <li><strong>SVF</strong> — linear JUCE <code>StateVariableTPTFilter</code> + one-pole cascade. Clean, cheap on CPU, no character of its own. Keep this on low-powered hardware (similar trade-off to choosing the algorithmic reverb over the convolution reverb). Drive applies a pre-filter <code>tanh</code> + optional oversampling, same as previous T5ynth builds. Credit: JUCE DSP.</li>
-    <li><strong>Ladder</strong> — Huovilainen-style non-linear 4-pole ladder with a half-sample-delay-compensated feedback path. Analog-flavoured growl, self-oscillating at high resonance, and cutoff-tracking compression. Drive feeds the internal <code>tanh</code> stages directly, so turning drive up produces the "pushed into the ladder" warmth rather than a pre-filter flat-clip. Credit: Antti Huovilainen's DAFx-04 ladder-filter formulation; T5ynth's implementation is original.</li>
-    <li><strong>Warp</strong> — zero-delay-feedback 4-pole ladder with a selectable per-pole saturation curve (the <em>Style</em> control). Good for shaping large continuous timbral spaces, which is why it's the recommended target when mapping an internal control dimension to filter character. All six styles are centered at zero, so the feedback loop stays stable under modulation. Warp is the most expensive of the three (~2–3× SVF CPU). Design inspiration: Surge XT Cutoff Warp; T5ynth's implementation is original.</li>
+    <li><strong>SVF</strong> — linear JUCE <code>StateVariableTPTFilter</code> + one-pole cascade. Clean, cheap on CPU, no character of its own. Keep this on low-powered hardware (similar trade-off to choosing the algorithmic reverb over the convolution reverb). Drive applies a pre-filter <code>tanh</code> + optional oversampling, same as previous akróasys builds. Credit: JUCE DSP.</li>
+    <li><strong>Ladder</strong> — Huovilainen-style non-linear 4-pole ladder with a half-sample-delay-compensated feedback path. Analog-flavoured growl, self-oscillating at high resonance, and cutoff-tracking compression. Drive feeds the internal <code>tanh</code> stages directly, so turning drive up produces the "pushed into the ladder" warmth rather than a pre-filter flat-clip. Credit: Antti Huovilainen's DAFx-04 ladder-filter formulation; akróasys's implementation is original.</li>
+    <li><strong>Warp</strong> — zero-delay-feedback 4-pole ladder with a selectable per-pole saturation curve (the <em>Style</em> control). Good for shaping large continuous timbral spaces, which is why it's the recommended target when mapping an internal control dimension to filter character. All six styles are centered at zero, so the feedback loop stays stable under modulation. Warp is the most expensive of the three (~2–3× SVF CPU). Design inspiration: Surge XT Cutoff Warp; akróasys's implementation is original.</li>
   </ul>
 
   <strong>Warp styles</strong> — all bounded, all with <code>sat(0) = 0</code> so the feedback loop has a clean zero equilibrium:
@@ -1245,7 +1256,7 @@ affects stage timing, bipolar (−1.0…+1.0).
 The <strong>AT</strong> panel routes held-phase pressure to twelve independent modulation
 targets simultaneously. Each target has its own signed depth bar — there is no single
 global Amount or shared dropdown. Sources: polyphonic key pressure (per-note), channel
-pressure, Mod Wheel (CC1), and Breath (CC2); T5ynth resolves each voice's pressure as
+pressure, Mod Wheel (CC1), and Breath (CC2); akróasys resolves each voice's pressure as
 the maximum of all applicable sources.
 </p>
 <p>
@@ -1287,7 +1298,7 @@ Without it, you shape one space, generate one fragment, and then process that fr
 Generation is not tied to the audio callback. Depending on model, duration,
 step count, and hardware, a regeneration can arrive in roughly 0.1 seconds on
 an RTX 6000-class GPU or take several seconds on a Mac M-series processor
-without a dedicated AI-capable graphics card. T5ynth creates an
+without a dedicated AI-capable graphics card. akróasys creates an
 <strong>asynchronous feedback loop</strong> between the modulation system and the
 possible-sound space that keeps the instrument playing while new fragments are
 rendered in the background:
@@ -1304,7 +1315,7 @@ will not repeat, but the semantic poles keep the material inside the marked
 space.
 </p>
 <p>
-When an auto regen mode is active, T5ynth monitors how far the modulated
+When an auto regen mode is active, akróasys monitors how far the modulated
 generation controls have drifted from the last generated state. Once the drift
 exceeds a threshold, it fires a new inference request in the background. The
 current sound keeps playing uninterrupted. When the new generation arrives, it
@@ -1371,7 +1382,7 @@ Drift modulation of generation parameters only changes the internal generation c
 Drift moves the generation through its <em>parameters</em>. <strong>Re-Prompt</strong> moves it through <em>language</em>: after each render the machine listens to its own output and rewrites the prompt before the next one. It is a second feedback loop, riding on the same trigger as Auto-Regenerate, but closing through words instead of control values.
 </p>
 <p>
-Each step runs two models. A machine-listening model (<strong>CLAP</strong>, <code>laion/clap-htsat-unfused</code>) hears the rendered audio and ranks it against a fixed tag vocabulary &mdash; it does not <em>describe</em> the sound, it <em>ranks</em> it &mdash; yielding a handful of timbre tags plus a few signal-level spectral words (dark/bright, thin/full-bodied, tonal/textured). Those words are handed to the same local instruct LLM that powers prompt translation (<code>Qwen2.5-1.5B-Instruct</code>), which rewrites the prompt under the stance you chose. The next render is then triggered the usual way &mdash; by Generate, or automatically when an Auto-Regen mode is active &mdash; so the loop only steps when there is fresh audio to listen to. CLAP is fetched automatically from Hugging Face the first time you engage a stance (about 1&nbsp;GB), so the first Re-Prompt step needs an internet connection; the interpreter is the same local model T5ynth installs for prompt translation.
+Each step runs two models. A machine-listening model (<strong>CLAP</strong>, <code>laion/clap-htsat-unfused</code>) hears the rendered audio and ranks it against a fixed tag vocabulary &mdash; it does not <em>describe</em> the sound, it <em>ranks</em> it &mdash; yielding a handful of timbre tags plus a few signal-level spectral words (dark/bright, thin/full-bodied, tonal/textured). Those words are handed to the same local instruct LLM that powers prompt translation (<code>Qwen2.5-1.5B-Instruct</code>), which rewrites the prompt under the stance you chose. The next render is then triggered the usual way &mdash; by Generate, or automatically when an Auto-Regen mode is active &mdash; so the loop only steps when there is fresh audio to listen to. CLAP is fetched automatically from Hugging Face the first time you engage a stance (about 1&nbsp;GB), so the first Re-Prompt step needs an internet connection; the interpreter is the same local model akróasys installs for prompt translation.
 </p>
 <p>
 The point is not to "improve" the sound, and not to correct the model's listening. It is to make that listening &mdash; and your steering of it &mdash; audible. You set two things: <strong>how</strong> the machine re-reads what it hears (the stance), and <strong>how far</strong> it may displace your own words (the coupling).
@@ -1408,7 +1419,7 @@ The <strong>coupling</strong> switch sets how far the rewrite reaches into your 
 <h3>Delay</h3>
 <table>
   <tr><th>Parameter</th><th>Range</th><th>Notes</th></tr>
-  <tr><td><strong>Type</strong></td><td>Off / Stereo</td><td>Stereo dual-tap delay using JUCE <code>dsp::DelayLine</code>; feedback, damping, clock sync, and mix behaviour are implemented in T5ynth.</td></tr>
+  <tr><td><strong>Type</strong></td><td>Off / Stereo</td><td>Stereo dual-tap delay using JUCE <code>dsp::DelayLine</code>; feedback, damping, clock sync, and mix behaviour are implemented in akróasys.</td></tr>
   <tr><td><strong>Time</strong></td><td>1 – 2000 ms</td><td>Logarithmic scaling. Active when Clock is Off. Can be modulated.</td></tr>
   <tr><td><strong>Clock</strong></td><td>Off / Sync</td><td>Toggle (clock-icon button). When Sync is on, the Time slider is replaced by a Division stepper. Same BPM resolution as the LFO/Drift Clock.</td></tr>
   <tr><td><strong>Division</strong></td><td>16/1 … 1/32 (incl. T &amp; Q)</td><td>Active when Clock is Sync. Effective ms = (60000/BPM) × (4/factor).</td></tr>
@@ -1639,7 +1650,7 @@ stutter.
 <h2 id="presets">11. Presets</h2>
 
 <p>
-T5ynth uses <code>.t5p</code> preset files — a binary container that stores:
+akróasys uses <code>.t5p</code> preset files — a binary container that stores:
 </p>
 <ul>
   <li>All parameter values (100+ parameters)</li>
@@ -1664,7 +1675,7 @@ refreshes the curated <em>UCDCAE AI Lab</em> bank in place from
 <h2 id="sweetspots">12. Strategies for Finding Sweet Spots</h2>
 
 <div class="tip">
-  <strong>T5ynth is not a sweet-spot synth.</strong> Unlike subtractive synths where most parameter combinations produce usable sound, T5ynth's generation process is exploratory and unpredictable. Many combinations produce nothing interesting. That's by design — the instrument rewards patient exploration, not preset-surfing.
+  <strong>akróasys is not a sweet-spot synth.</strong> Unlike subtractive synths where most parameter combinations produce usable sound, akróasys's generation process is exploratory and unpredictable. Many combinations produce nothing interesting. That's by design — the instrument rewards patient exploration, not preset-surfing.
 </div>
 
 <h4>1. Start with the source</h4>
@@ -1728,7 +1739,7 @@ Presets include the generated audio, so you never lose a good generation. Export
 <h2 id="bg-axes">13. How Semantic Axes Work</h2>
 
 <p>
-T5ynth's semantic axes are directions in the 768-dimensional embedding space of the T5 text encoder. Here's how they are constructed:
+akróasys's semantic axes are directions in the 768-dimensional embedding space of the T5 text encoder. Here's how they are constructed:
 </p>
 
 <div class="note">
@@ -1764,7 +1775,7 @@ This direction vector is then scaled by the slider value and added to the curren
 
 <h4>Step 4: Validation</h4>
 <p>
-Not all conceptual oppositions produce audible differences. The 8 axes included in T5ynth were validated by generating audio at each pole and measuring <strong>Mel-spectrogram cosine distance</strong>. Only axes with a distance above 0.70 at 1-second duration survived. PCA-based axes (derived from variance in the embedding space rather than semantic opposition) were tested but found to collapse at short durations — they produce near-identical audio regardless of slider position.
+Not all conceptual oppositions produce audible differences. The 8 axes included in akróasys were validated by generating audio at each pole and measuring <strong>Mel-spectrogram cosine distance</strong>. Only axes with a distance above 0.70 at 1-second duration survived. PCA-based axes (derived from variance in the embedding space rather than semantic opposition) were tested but found to collapse at short durations — they produce near-identical audio regardless of slider position.
 </p>
 
 <div class="note">
@@ -2069,7 +2080,7 @@ enters the DiT once per sampler step, gets projected through a
 every block.
 </p>
 <p>
-"Injection" in T5ynth means: instead of conditioning the DiT with a
+"Injection" in akróasys means: instead of conditioning the DiT with a
 single static A↔B blend, we manipulate the conditioning tensor
 along two orthogonal axes:
 </p>
@@ -2201,7 +2212,7 @@ log/preset legibility.
 <!-- ═══════════════════════════════════════════════════════════════ -->
 <h2 id="license">License</h2>
 <p>
-T5ynth is licensed under the <strong>GNU General Public License v3.0</strong>. You are free to use, modify, and redistribute T5ynth, provided that derivative works are also released under GPLv3 with source code available.
+akróasys is licensed under the <strong>GNU General Public License v3.0</strong>. You are free to use, modify, and redistribute akróasys, provided that derivative works are also released under GPLv3 with source code available.
 </p>
 <p>
 Full license text: <a href="https://www.gnu.org/licenses/gpl-3.0.txt">gnu.org/licenses/gpl-3.0.txt</a> — also shipped as <code>LICENSE.txt</code> alongside the source distribution.
@@ -2215,7 +2226,7 @@ Copyright © 2024–2026 Prof. Dr. Benjamin Jörissen / UNESCO Chair in Digital 
 
 <h3>Citation</h3>
 <p>
-If you use T5ynth in academic work, please cite:
+If you use akróasys in academic work, please cite:
 </p>
 <div class="signal-chain">Prof. Dr. Benjamin Jörissen / UNESCO Chair in Digital Culture and Arts in Education — UCDCAE AI Lab
 https://github.com/joeriben/t5ynth</div>
@@ -2225,7 +2236,7 @@ https://github.com/joeriben/t5ynth</div>
 <!-- ═══════════════════════════════════════════════════════════════ -->
 <h2 id="thirdparty">Third-Party Components</h2>
 <p>
-T5ynth incorporates or depends on the following third-party components. The models themselves are <strong>not</strong> bundled with T5ynth — users download them separately and accept the respective model licenses.
+akróasys incorporates or depends on the following third-party components. The models themselves are <strong>not</strong> bundled with akróasys — users download them separately and accept the respective model licenses.
 </p>
 
 <h3>Stable Audio Open 1.0 &amp; Stable Audio Open Small</h3>
@@ -2248,7 +2259,7 @@ Under the Stability AI Community License, the models are free for research, non-
 <strong>URL:</strong> <a href="https://huggingface.co/cvssp/audioldm2">huggingface.co/cvssp/audioldm2</a>.
 </p>
 <p>
-AudioLDM2 is licensed for <strong>non-commercial use only</strong>. There is no revenue threshold; commercial use of any kind is not permitted under this license. Derivative works must be shared under the same license (ShareAlike), and attribution to the original authors is required. T5ynth does not provide the model weights — by downloading AudioLDM2 via the Setup Wizard, users accept the CC BY-NC-SA 4.0 terms and take responsibility for compliance.
+AudioLDM2 is licensed for <strong>non-commercial use only</strong>. There is no revenue threshold; commercial use of any kind is not permitted under this license. Derivative works must be shared under the same license (ShareAlike), and attribution to the original authors is required. akróasys does not provide the model weights — by downloading AudioLDM2 via the Setup Wizard, users accept the CC BY-NC-SA 4.0 terms and take responsibility for compliance.
 </p>
 
 <h3>JUCE Framework</h3>
@@ -2258,7 +2269,7 @@ AudioLDM2 is licensed for <strong>non-commercial use only</strong>. There is no 
 <strong>URL:</strong> <a href="https://juce.com">juce.com</a>.
 </p>
 <p>
-T5ynth uses JUCE under the AGPLv3. The JUCE source is vendored in the <code>JUCE/</code> directory of the T5ynth repository. JUCE itself includes additional third-party components documented in <code>JUCE/LICENSE.md</code> (AudioUnitSDK, Oboe, FLAC, Ogg Vorbis, VST3 SDK, LV2, and others).
+akróasys uses JUCE under the AGPLv3. The JUCE source is vendored in the <code>JUCE/</code> directory of the T5ynth repository. JUCE itself includes additional third-party components documented in <code>JUCE/LICENSE.md</code> (AudioUnitSDK, Oboe, FLAC, Ogg Vorbis, VST3 SDK, LV2, and others).
 </p>
 
 <h3>EMT 140 Plate Reverb Impulse Responses</h3>
@@ -2268,7 +2279,7 @@ T5ynth uses JUCE under the AGPLv3. The JUCE source is vendored in the <code>JUCE
 <strong>Source:</strong> <a href="https://oramics.github.io/sampled/IR/EMT140-Plate/">oramics.github.io/sampled/IR/EMT140-Plate/</a>.
 </p>
 <p>
-Three IR variants (bright / medium / dark) are bundled in the T5ynth binary and used by the convolution reverb.
+Three IR variants (bright / medium / dark) are bundled in the akróasys binary and used by the convolution reverb.
 </p>
 
 <h3>Signalsmith Stretch</h3>
@@ -2277,7 +2288,7 @@ Three IR variants (bright / medium / dark) are bundled in the T5ynth binary and 
 <strong>URL:</strong> <a href="https://github.com/Signalsmith-Audio/signalsmith-stretch">github.com/Signalsmith-Audio/signalsmith-stretch</a>.
 </p>
 <p>
-Pitch-preserving sample transposition (STFT-based pitch shifting). Header-only library, compiled into the T5ynth binary.
+Pitch-preserving sample transposition (STFT-based pitch shifting). Header-only library, compiled into the akróasys binary.
 </p>
 
 <h3>nlohmann/json</h3>
@@ -2365,7 +2376,7 @@ Frozen backend packages also bundle the <code>t5-base</code> text encoder assets
   co-coding tools and edited by the human author.
 </p>
 <p style="text-align:center; color:var(--text-dim); margin-top:1.5rem; font-size:0.85rem;">
-  T5ynth — GPLv3 — <a href="https://github.com/joeriben/t5ynth">github.com/joeriben/t5ynth</a>
+  akróasys — GPLv3 — <a href="https://github.com/joeriben/t5ynth">github.com/joeriben/t5ynth</a>
 </p>
 
 </body>

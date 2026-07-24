@@ -1,8 +1,8 @@
-# T5ynth
+# akróasys
 
 **Resonance with meaning.**
 
-T5ynth opens hidden spaces of possible sound. Two short impulses mark the poles
+akróasys opens hidden spaces of possible sound. Two short impulses mark the poles
 of a space of meaning you define. The synth lets you explore what can become
 audible between them. Set those poles as
 textures, transients, patterns, sonic and musical fragments, field recordings,
@@ -16,7 +16,7 @@ disturb it, bend it along sound qualities, open individual dimensions, change
 where one idea enters the other, and let the space drift over time while it
 remains open as a space of possibilities.
 
-Most AI audio tools hide that space and only return an audio result. T5ynth
+Most AI audio tools hide that space and only return an audio result. akróasys
 turns this space of possible sound into the instrument. Generation is not a
 separate AI step after the synth; the synth reaches into the generation process itself.
 The rendered fragment is one stage in a signal path that continues through
@@ -37,13 +37,13 @@ Current tagged GitHub Releases publish:
 
 ---
 
-## What T5ynth Does
+## What akróasys Does
 
-T5ynth is easiest to understand from its signal flow.
+akróasys is easiest to understand from its signal flow.
 
 In a conventional synth, an oscillator produces audio immediately: sine, saw,
-square, noise, sample, wavetable. T5ynth opens a bounded hidden sound space
-inside the selected audio model. The T5ynth Oscillator is a meta-oscillator:
+square, noise, sample, wavetable. akróasys opens a bounded hidden sound space
+inside the selected audio model. The T5 Oscillator is a meta-oscillator:
 it does not begin with one waveform or one sample, but with a space of possible
 sounds. The main musical act is to explore that space and decide which state
 becomes a short audio fragment.
@@ -61,7 +61,7 @@ B enters A during generation, and **Drift** for movement over time. They do
 not mix audio. They move or reshape the hidden sound space.
 
 **Generate** renders the current state of that space into audio, but it is
-not where the instrument starts. T5ynth has already shaped the generation.
+not where the instrument starts. akróasys has already shaped the generation.
 The rendered fragment is then carried further through
 sampler playback or wavetable extraction, followed by filter, envelopes, LFOs,
 sequencers, delay, reverb, limiter, and presets.
@@ -77,7 +77,7 @@ The instrument flow is therefore:
    envelopes, LFOs, sequencers, delay, reverb, limiter, presets, and
    **Drift Modulators & Auto-Regenerate**.
 
-T5ynth can use **Stable Audio 3 Small Music**, **Stable Audio 3 Small SFX**,
+akróasys can use **Stable Audio 3 Small Music**, **Stable Audio 3 Small SFX**,
 **Stable Audio 3 Medium**, **Stable Audio Open 1.0**, **Stable Audio Open Small**,
 or **AudioLDM2**. Each
 engine has its own learned response profile, so the same A/B pair can open a
@@ -90,22 +90,32 @@ sound effects. A larger **Stable Audio 3 Medium** checkpoint (one model for both
 modalities, deeper transformer, ~16 GB to run) can be installed as a per-machine
 alternative to the Small tiers. AudioLDM2 is broader in its training goal and can cover sound effects,
 speech-like material, and music, but it is non-commercial only and less tied to
-T5ynth's newer injection-mode research.
+akróasys's newer injection-mode research.
 
 The meaning poles do not have to be narrow "sound ideas". They can evoke sound
 sources, materials in motion, acoustic scenes, bodies, gestures, moods,
 fictional agents, or impossible combinations. A visual phrase such as "a rose
 in a vase" is not a sound by itself; "water in a glass vase, quiet room, petals
 brushed by fingers" gives the model acoustic handles. But the abstract phrase
-can still be used as a strange marker in the model's space. T5ynth is where you
+can still be used as a strange marker in the model's space. akróasys is where you
 find out what that marker can become.
 
-About the name: **T5** is the text encoder used by the Stable Audio engines.
-It turns a phrase into control data that the audio model can use. You do not
-need to know T5 to use T5ynth. The practical point is simpler: meaning opens
-a model space of possible sound.
+About the name: **akróasys** comes from the Greek *akróasis* (ἀκρόασις) —
+listening, the act of hearing something out. The ending is spelled `-sys` so
+that the synth is in the word.
 
-From there, T5ynth behaves much more like an instrument than like an audio
+It replaces **T5ynth**. That name pointed at T5, the text encoder the Stable
+Audio engines use to turn a phrase into control data for the audio model, and
+it was accurate while there was one engine. It is not any more: Stable Audio 3
+carries its own encoder, and the Language-Resonant Oscillator has none at all —
+there a language model writes a Csound instrument, and your words become the
+oscillator itself rather than a marker inside a diffusion model. What every
+path still has in common is the thing T5 was only ever a means to: you say
+something, and then you listen to what the machine makes of it. Releases up to
+**T5ynth 2.5.3** keep the old name and do not have the new oscillator; the
+first release called akróasys is **3.0.0**.
+
+From there, akróasys behaves much more like an instrument than like an audio
 generator website:
 
 1. The impulses mark a hidden sound space inside the audio model.
@@ -122,11 +132,11 @@ generator website:
 The generated audio is not the final output. It is a playable fragment inside
 a larger instrument.
 
-This is also where T5ynth parts company with tools that let you pick a style
+This is also where akróasys parts company with tools that let you pick a style
 and shape it from there. Such a tool gives you parameters around a single
 chosen result — how strictly the style is followed, how much it varies, which
 elements play — but the result itself stays whatever the model would produce.
-T5ynth's controls act on the **embeddings** instead: Alpha moves through the
+akróasys's controls act on the **embeddings** instead: Alpha moves through the
 relation between the two poles, an empty field reflects an impulse back as an
 echo chamber, the sound-character axes shift along directions in that space,
 and the Dimension Explorer re-weights its individual coordinates. You work on
@@ -139,23 +149,23 @@ Generative audio systems are often designed as black boxes: enter a request,
 receive a result, consume the output. That positions the musician outside the
 model, after the important decisions have already happened.
 
-T5ynth deliberately inverts that relationship:
+akróasys deliberately inverts that relationship:
 
 - **Standard AI audio workflow:** human writes a request -> model hides the
   internal search -> audio result appears. AI company makes money; musicians
   lose commissions, jobs, and control.
-- **T5ynth workflow:** human marks and moves through the model's hidden sound
+- **akróasys workflow:** human marks and moves through the model's hidden sound
   space -> the model renders a playable fragment -> human plays, shapes,
-  rejects, edits, saves, and composes. T5ynth will by no means address these
+  rejects, edits, saves, and composes. akróasys will by no means address these
   challenges; it only tries to show that it ain't necessarily so.
 
-This is why T5ynth matters even, and maybe especially, for musicians who
+This is why akróasys matters even, and maybe especially, for musicians who
 are skeptical of generative AI music. It does not automate musical judgment. It
 makes the hidden space before the result available for musical judgment.
 
 ## Research Context
 
-T5ynth is a personal side project by Prof. Dr. Benjamin Jörissen, UNESCO Chair
+akróasys is a personal side project by Prof. Dr. Benjamin Jörissen, UNESCO Chair
 in Digital Culture and Arts in Education (UCDCAE),
 Friedrich-Alexander-Universität Erlangen-Nürnberg, and part of the
 [UCDCAE AI Lab Software Collection](https://github.com/joeriben/ucdcae-ai-lab).
@@ -171,7 +181,7 @@ It is inspired by two research projects:
 Both are funded by the Federal Ministry for Education, Family, Senior Citizens,
 Women and Youth (BMBFSFJ).
 
-T5ynth is dedicated to my dear colleague at the DFKI, musician and AI
+akróasys is dedicated to my dear colleague at the DFKI, musician and AI
 researcher Dr. Stephan Baumann, without whom AI4ArtsEd would not have come
 into being.
 
@@ -195,8 +205,8 @@ See [`CHANGELOG.md`](CHANGELOG.md) for the full release history.
 
 ### The Possible Sound Space
 
-The center of T5ynth is the space of possible sound. Traditional oscillators
-generate sine, saw, square, noise, or sample playback. T5ynth starts inside the
+The center of akróasys is the space of possible sound. Traditional oscillators
+generate sine, saw, square, noise, or sample playback. akróasys starts inside the
 model, where meaning shapes what sound can become.
 
 Behind the scenes, that space is numerical. You can ignore that while playing,
@@ -227,7 +237,7 @@ just as you can use FM without solving the equations.
 Drift Modulators & Auto-Regenerate turn the possible-sound space into something
 that can evolve. Three slow Drift LFOs can target generation-level parameters
 such as Alpha, Semantic Axes, Noise, and Magnitude. When Auto-Regenerate is active,
-T5ynth generates new audio in the background as the possible-sound space moves,
+akróasys generates new audio in the background as the possible-sound space moves,
 then crossfades the new fragment into playback. Depending on the host machine,
 regeneration can range from roughly 0.1 seconds on an RTX 6000-class GPU to
 several seconds on a Mac M-series processor without a dedicated AI-capable
@@ -239,7 +249,7 @@ workflow.
 
 ### Sampler and Wavetable Modes
 
-T5ynth can use generated audio in two ways:
+akróasys can use generated audio in two ways:
 
 - **Sampler Mode** plays the generated fragment directly with loop modes,
   crossfade, normalization, and pitch following through time-stretching.
@@ -274,7 +284,7 @@ T5ynth can use generated audio in two ways:
 
 ## Architecture Summary
 
-T5ynth has two main parts:
+akróasys has two main parts:
 
 - A JUCE/C++ synthesizer, UI, preset, modulation, sequencing, and DSP engine.
 - A Python inference subprocess that runs the diffusion model and communicates
@@ -293,7 +303,7 @@ the user guide.
 
 ## Building
 
-If you just want to install T5ynth, use the tagged GitHub Release assets:
+If you just want to install akróasys, use the tagged GitHub Release assets:
 current public releases provide ready-made macOS and Windows installers.
 
 The old minimal snippet in this README was not enough to produce a working
@@ -305,7 +315,7 @@ Linux build. The authoritative build guides now live here:
 
 Linux now has one common build contract and multiple distribution layers:
 
-- the Ubuntu CI `linux` job produces Linux base archives (`T5ynth` plus sibling `backend/`)
+- the Ubuntu CI `linux` job produces Linux base archives (`akroasys` plus sibling `backend/`)
 - Fedora RPM wraps that same app/backend layout for installation on Fedora
 - Ubuntu/Debian `.deb` wraps that same app/backend layout for installation on Ubuntu-family systems
 
@@ -337,10 +347,10 @@ cmake -S . -B build_clean -DCMAKE_BUILD_TYPE=Release
 cmake --build build_clean --config Release
 
 # Linux standalone layout
-mkdir -p dist/T5ynth/backend
-cp build_clean/T5ynth_artefacts/Release/Standalone/T5ynth dist/T5ynth/
-cp -R backend/dist/pipe_inference/* dist/T5ynth/backend/
-./dist/T5ynth/T5ynth
+mkdir -p dist/akroasys/backend
+cp build_clean/T5ynth_artefacts/Release/Standalone/akroasys dist/akroasys/
+cp -R backend/dist/pipe_inference/* dist/akroasys/backend/
+./dist/akroasys/akroasys
 ```
 
 For Linux package-layer installation, do not rebuild Python/Torch on the target
@@ -350,7 +360,7 @@ described in [docs/LINUX_PACKAGING.md](docs/LINUX_PACKAGING.md).
 
 ### Model Download
 
-T5ynth requires at least one diffusion model. Audio model weights are not bundled — they must be downloaded separately. The Stable Audio Open engines (1.0 and Small) also need the auxiliary T5-Base text encoder (ungated, Apache-2.0), which installs automatically with the engine; Stable Audio 3 uses its own t5gemma encoder, fetched at install.
+akróasys requires at least one diffusion model. Audio model weights are not bundled — they must be downloaded separately. The Stable Audio Open engines (1.0 and Small) also need the auxiliary T5-Base text encoder (ungated, Apache-2.0), which installs automatically with the engine; Stable Audio 3 uses its own t5gemma encoder, fetched at install.
 
 Use the **Settings** panel on first launch:
 
@@ -373,9 +383,9 @@ After a manual install, click *Auto-Scan* in Settings to register the model.
 
 ## License
 
-T5ynth is licensed under the **GNU General Public License v3.0** — see [LICENSE](LICENSE).
+akróasys is licensed under the **GNU General Public License v3.0** — see [LICENSE](LICENSE).
 
-This means you are free to use, modify, and redistribute T5ynth, provided that derivative works are also released under GPLv3 with source code available.
+This means you are free to use, modify, and redistribute akróasys, provided that derivative works are also released under GPLv3 with source code available.
 
 ### Third-Party Components
 
@@ -388,16 +398,16 @@ This means you are free to use, modify, and redistribute T5ynth, provided that d
 - **nlohmann/json** — Niels Lohmann, MIT. Used for configuration and preset parsing.
 - **SentencePiece** — Apache 2.0. Used for the native C++ T5 tokenizer.
 - **Python inference stack** — `diffusers`, `transformers`, PyTorch, `torchsde`, `soundfile`, and SciPy provide the model pipeline, tensor runtime, sampler support, audio I/O, and signal-processing utilities used by the backend.
-- **Huovilainen ladder-filter reference** — Antti Huovilainen's DAFx-04 paper is credited for the non-linear digital ladder topology implemented in T5ynth.
-- **Cutoff Warp filter inspiration** — Surge XT is credited for the musical idea of a style-switchable cutoff-warp character control. T5ynth's implementation is written from scratch; no Surge XT source code is copied.
+- **Huovilainen ladder-filter reference** — Antti Huovilainen's DAFx-04 paper is credited for the non-linear digital ladder topology implemented in akróasys.
+- **Cutoff Warp filter inspiration** — Surge XT is credited for the musical idea of a style-switchable cutoff-warp character control. akróasys's implementation is written from scratch; no Surge XT source code is copied.
 
-T5ynth would be much poorer without these projects, papers, impulse responses,
+akróasys would be much poorer without these projects, papers, impulse responses,
 and DSP references. See [THIRD_PARTY_LICENSES.txt](THIRD_PARTY_LICENSES.txt)
 for full license details, URLs, and attribution notes.
 
 ### Citation
 
-If you use T5ynth in academic work:
+If you use akróasys in academic work:
 
 ```text
 Prof. Dr. Benjamin Jörissen / UNESCO Chair in Digital Culture and Arts in Education — UCDCAE AI Lab
