@@ -846,6 +846,44 @@ def beat(y, lo_hz=0.5, hi_hz=25.0, t0=0.5, t1=3.5, at_hz=None, f0_hz=None):
     return amp / mean, float(fq[band][np.argmax(F[band])])
 
 
+# What a STATIONARY noise bed reads on the two statistics that look like liveness.
+# Measured 2026-07-25 over 40 renders: `rand` bare and through `reson` at ten
+# centre/width pairs from 220/40 to 11000/6000, four seeds each, 4 s at a 220 Hz ask.
+# Nothing in any of them moves — the source is stationary and no k-rate value changes.
+#
+#   colour travel   82 .. 1005 cents      worst at reson 300/200
+#   crest           4.78 .. 14.55 dB      worst at reson 300/200
+#
+# Both numbers are large, and that is the point of recording them: a narrowband filter
+# on white noise has a Rayleigh envelope and a centroid that wanders over most of its
+# own passband, so a bed that does nothing at all reads as travelling more than an
+# octave and peaking 14 dB over its own average. Any claim that a body's colour
+# "travels" or that it "has events" has to clear these before it means anything. The
+# library's own beds do not: `rain` reads 217 cents and 10.92 dB, `crackle` 273 and
+# 14.03, `thunder` 1209 and 13.16, `cymbal` 797 and 13.37 — all inside the null on at
+# least one, three of them on both.
+#
+# These constants exist to REFUSE a threshold, not to set one. A real sweep travels
+# 959 cents, less than the bed that does nothing, so the populations overlap and no
+# span bound separates them; the selftest asserts that overlap so it cannot be
+# rediscovered as a threshold later. Coherence is the only statistic in this file that
+# tells movement from variance, and for a stochastic texture it is the wrong question.
+# See `docs/parked/lco_event_texture_vs_movement_gate.md`.
+STATIONARY_SPAN_NULL_CENTS = 1005.0
+STATIONARY_CREST_NULL_DB = 14.55
+
+
+def travel_cents(y, n=128):
+    """How far the colour travels, as an interval rather than in hertz.
+
+    The span is judged in CENTS, not hertz. An absolute hertz bound is the same class
+    of mistake as amplitude weighting was: 8 Hz of travel is nothing on `hiss`'s
+    13.5 kHz centroid and a plainly audible wobble on `sub_sine`'s 205 Hz."""
+    cs, span = travel(y, n)
+    mean = float(np.mean(cs)) if len(cs) else 0.0
+    return (1200 * np.log2(1 + span / mean)) if mean > 1e-9 else 0.0, span
+
+
 def moves(y, n=128, span_cents=60.0, min_coherence=0.35):
     """Does the colour actually travel over the note? Span AND shape must agree.
 
@@ -875,19 +913,14 @@ def moves(y, n=128, span_cents=60.0, min_coherence=0.35):
       * bodies that decay to near silence inside the window, where the late
         centroid is a noise floor: `rhodes` 0.00, `wurlitzer` 0.37.
     """
-    cs, span = travel(y, n)
     r1 = coherence(y, n)
-    # The span is judged in CENTS, not hertz. An absolute hertz bound is the same
-    # class of mistake as the amplitude weighting was: 8 Hz of travel is nothing on
-    # `hiss`'s 13.5 kHz centroid and a plainly audible wobble on `sub_sine`'s 205 Hz.
     # Measured in cents the two populations separate more sharply than in hertz — the
     # eight bodies with nothing to move read 0 to 54 cents (sine 0, triangle 1,
     # square 3, bass_saw 7, the two fixed vowels 21, pulse 25, sub_sine 54) and
     # everything else reads 78 and up — and 60 cents fails exactly the same eight the
     # old 8 Hz bound did, so the change is verdict-neutral on the library and gives
     # the number a meaning. 60 cents of brightness is a bit over a quarter tone.
-    mean = float(np.mean(cs)) if len(cs) else 0.0
-    span_c = 1200 * np.log2(1 + span / mean) if mean > 1e-9 else 0.0
+    span_c, span = travel_cents(y, n)
     return (bool(span_c > span_cents and r1 > min_coherence),
             round(span, 1), round(r1, 3))
 
@@ -937,6 +970,9 @@ def measure(y, asked_freq):
             "centroid": round(centroid(y), 1),
             "centroid_travel_hz": round(span, 1),
             "centroid_motion_hz": round(fast, 1),
+            # The same travel as an interval, which is the form the thresholds use and
+            # the only form comparable across a 13 kHz bed and a 205 Hz drone.
+            "centroid_travel_cents": round(travel_cents(y, 128)[0], 0),
             # The span alone calls static noise the most mobile thing here.
             "motion_coherence": r1,
             "moves": does_move,
@@ -1019,7 +1055,7 @@ asig    streson aex, kfreq * koct1, {fb}"""
 # How many calibration cases there are. Asserted at the end so a group that stops
 # running — an early `return`, a render failure that `continue`s past its check, a
 # refactor that drops a block — is a FAILURE and not a quietly shorter green run.
-_CASES = 69
+_CASES = 73
 
 
 def selftest():
@@ -1116,6 +1152,55 @@ asig    reson anz, 2200 + kcut, 900, 2""")
         check("a swept saw moves", m_m, f"span {sp_m:.0f} Hz, coherence {r_m:+.2f}")
         check("a standing sine does not move", not m_s,
               f"span {sp_s:.0f} Hz, coherence {r_s:+.2f}")
+
+    # …and the size of that trap, because a second route to a movement verdict was
+    # opened for the event-texture class (BJ 2026-07-25: a findable RATE is the right
+    # definition for a sustained tonal body and the wrong one for a stochastic texture,
+    # "where being alive means precisely that there is no rate to find"). That route
+    # cannot rest on the span or the crest without knowing what a bed that does NOTHING
+    # reads on them. A narrowband filter on white noise is the worst case for both, and
+    # it is not a contrived one: half this library's beds are exactly that shape.
+    print("the stationary-noise null is what the texture route has to clear")
+    worst_sp, worst_cr, where = 0.0, 0.0, ""
+    for ctr, wid in ((300, 200), (220, 40), (3000, 100)):
+        for seed in (0.11, 0.32):
+            yq, eq = render(f"""anz     rand 1.0, {seed}, 1
+afl     reson anz, {ctr}, {wid}, 2
+asig    = afl * 0.30""")
+            if eq:
+                check(f"the null renders at {ctr}/{wid}", False, eq)
+                continue
+            spc, _ = travel_cents(yq)
+            cr = crest_db(yq)
+            if spc > worst_sp:
+                worst_sp, where = spc, f"{ctr}/{wid}"
+            worst_cr = max(worst_cr, cr or 0.0)
+    check("a bed that does nothing still reads a huge colour travel",
+          worst_sp > 600.0, f"{worst_sp:.0f} cents at reson {where}")
+    check("...and a large crest with it", worst_cr > 10.0, f"{worst_cr:.2f} dB")
+    check("both stay under the recorded nulls",
+          worst_sp <= STATIONARY_SPAN_NULL_CENTS + 60
+          and worst_cr <= STATIONARY_CREST_NULL_DB + 1.0,
+          f"span {worst_sp:.0f} <= {STATIONARY_SPAN_NULL_CENTS:.0f} cents, "
+          f"crest {worst_cr:.2f} <= {STATIONARY_CREST_NULL_DB:.2f} dB")
+    # THE NEGATIVE RESULT, asserted so no later session re-invents the threshold I
+    # tried here first: the span cannot carry the texture route either. A REAL sweep —
+    # the positive control two blocks up, which `moves` passes at coherence 1.00 —
+    # travels LESS in cents than a stationary narrowband bed does. The two populations
+    # overlap, so no span bound separates them, in either direction.
+    #
+    # That is why the texture class in `lco_axis_probe` is a DECLARED, by-ear exemption
+    # and not a second measurement. Coherence is the only statistic here that separates
+    # movement from variance, dropping it leaves nothing to put in its place, and the
+    # numbers printed beside a declared texture are context, never a pass-stamp. If a
+    # future session wants a mechanical criterion for this class it has to come from a
+    # statistic not in this file — the honest starting point is that the four beds
+    # already shipped (`rain`, `crackle`, `thunder`, `cymbal`) sit inside the null.
+    sp_sweep, _ = travel_cents(ymov)
+    check("no span bound separates a real sweep from a static bed",
+          sp_sweep < STATIONARY_SPAN_NULL_CENTS,
+          f"a real sweep travels {sp_sweep:.0f} cents, a bed that does nothing "
+          f"{STATIONARY_SPAN_NULL_CENTS:.0f}")
     # Movement at every RATE, because the meter this replaced had a null at 8 Hz
     # (a quarter of the 32 Hz centroid-track rate) and read a beating wineglass as
     # standing still. Any single-lag statistic has that null; these three cases

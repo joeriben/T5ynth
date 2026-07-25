@@ -111,6 +111,35 @@ def census():
     return 0
 
 
+TEXTURE = re.compile(r"^\s*;\s*movement\s*:\s*texture\b", re.I)
+
+
+def declares_texture(body):
+    """Does this body declare itself an EVENT TEXTURE rather than a sustained tone?
+
+    A declaration, not a measurement, and deliberately so. BJ, 2026-07-25, on the
+    movement gate: a findable RATE in the colour track "is the right definition for a
+    sustained tonal body and may be the wrong one for a stochastic texture, where being
+    alive means precisely that there is no rate to find" — *„genau. Da haben wir nicht
+    an Natursounds gedacht. Hiermit freigeschaltet. Ich muss ja ohnehin alle neuen
+    instrumente reviewen."*
+
+    So for a declared texture this gate stops FAILING on `moves` and starts REPORTING
+    it. What it does not do is substitute a different number, because there is none:
+    `lco_measure`'s two null constants record that a stationary narrowband noise bed —
+    a body that does nothing whatever — travels up to 1005 cents and crests at 14.55 dB,
+    while a real sweep travels 959. The populations overlap. Coherence is the only
+    statistic that separates movement from variance, and dropping it leaves nothing to
+    put in its place, so the liveness of this class is BJ's ear and this flag says which
+    entries are in it. Everything else the gate checks — one loudness across the cube
+    and the keyboard, the peak, the drift, the pitch — still applies unchanged.
+
+    It is a comment, so it is inert in Csound, it travels with the body into the
+    lexicon, and it is greppable: `grep -c 'movement: texture' backend/dco_lexicon.json`
+    is the count of entries claiming the exemption."""
+    return any(TEXTURE.match(l) for l in (body or "").splitlines())
+
+
 def axes(body):
     """{axis name: (variable, default, line index, (lo, hi))} for every declaration."""
     out = {}
@@ -239,6 +268,7 @@ def gate(body, freq=220.0, steps=3, registers=(55, 110, 220, 440, 880, 1760)):
     run there cannot check nothing.
     """
     declared = axes(body)
+    texture = declares_texture(body)
     names = sorted(declared)
     # each axis stepped across ITS OWN declared range, not 0..1
     def steps_for(n):
@@ -279,7 +309,12 @@ def gate(body, freq=220.0, steps=3, registers=(55, 110, 220, 440, 880, 1760)):
             # were in the list, and at a `--freq` outside the list nothing was checked
             # at all.
             r = M.measure(y, f)
-            if not r["moves"]:
+            # A declared event texture is reported, never failed — see
+            # `declares_texture` for whose decision that is and why no second
+            # measurement replaces it. Its reference-register corners go into neither
+            # list: `stats["texture"]` counts them, and putting them in `elsewhere`
+            # too made the printed tally read "52 of 45".
+            if not r["moves"] and not (texture and f == freq):
                 where = ("moves" if f == freq else "moves elsewhere")
                 (fails if f == freq else elsewhere).append(
                     (where, dict(corner, **{"Hz": f}),
@@ -316,6 +351,19 @@ def gate(body, freq=220.0, steps=3, registers=(55, 110, 220, 440, 880, 1760)):
              "loudness_spread_db": round(max(lv) - min(lv), 2) if lv else None,
              "worst_peak": pk, "worst_travel": tv, "worst_drift": dr,
              "moves_elsewhere": elsewhere}
+    if texture:
+        # What a declared texture reads, printed against the null so the numbers cannot
+        # be mistaken for a verdict. The count of corners `moves` would have failed is
+        # the honest headline: this body is exempt from that question, not passing it.
+        tsp = [r["centroid_travel_cents"] for _, r in at_freq]
+        stats["texture"] = {
+            "would_fail_moves": sum(1 for _, r in at_freq if not r["moves"]),
+            "of_corners": len(at_freq),
+            "travel_cents": (min(tsp), max(tsp)) if tsp else None,
+            "stationary_null_cents": M.STATIONARY_SPAN_NULL_CENTS,
+            "crest_db": (min(r["crest_db"] for _, r in at_freq),
+                         max(r["crest_db"] for _, r in at_freq)),
+            "crest_null_db": M.STATIONARY_CREST_NULL_DB}
     sustained = [(abs(r["loudness_drift_db"] or 0.0), r["loudness_drift_db"], c)
                  for c, r in rows if r["sustain"] > 0.25]
     if sustained:
@@ -480,6 +528,18 @@ def main():
             elif wd[0] <= 6.0:
                 print(f"  note  worst level drift end to end {wd[1]:+.2f} dB at {wd[2]}, "
                       f"on a body that is not decaying")
+        if st.get("texture"):
+            t = st["texture"]
+            print(f"  TEXTURE  this body declares itself an event texture, so `moves` is "
+                  f"REPORTED and not gated: it would have failed at {t['would_fail_moves']} "
+                  f"of {t['of_corners']} corners.")
+            print(f"           colour travel {t['travel_cents'][0]:.0f}.."
+                  f"{t['travel_cents'][1]:.0f} cents against a "
+                  f"{t['stationary_null_cents']:.0f}-cent stationary null, crest "
+                  f"{t['crest_db'][0]:.2f}..{t['crest_db'][1]:.2f} dB against "
+                  f"{t['crest_null_db']:.2f} — these are CONTEXT, not a pass: a bed that "
+                  f"does nothing reads the same, and a real sweep reads less. Liveness "
+                  f"in this class is BJ's ear (see `declares_texture`).")
         for rule, corner, detail in fails:
             print(f"  FAIL  {rule}: {corner}  {detail}")
         # Reported, not gated — see `gate`. Grouped by register, because the shape of
@@ -498,7 +558,10 @@ def main():
                     f"{_MOVE_CENSUS[0] + _MOVE_CENSUS[1]} shipped "
                     f"entries are in the same position at some register, measured "
                     f"{_MOVE_CENSUS[2]} — re-derive with --census)")
-        print("  PASS  every corner renders, moves, and holds one loudness"
+        print(("  PASS  every corner renders and holds one loudness; movement is this "
+               "class's declared exemption and stands on BJ's ear, not on this run"
+               if st.get("texture") else
+               "  PASS  every corner renders, moves, and holds one loudness")
               if ok else f"  -> {len(fails)} failure(s)")
         return 0 if ok else 1
 
