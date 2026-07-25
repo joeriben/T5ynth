@@ -62,26 +62,66 @@ def _sub(text, old, new, what):
     return text.replace(old, new)
 
 
-def scaffold(body, dur=4.0, freq=220.0, glide=None):
+def scaffold(body, dur=4.0, freq=220.0, glide=None, preroll=0.0):
     """The authored body inside the REAL host, driven offline.
 
     glide=(f0, f1) sweeps the note's pitch exponentially over its whole length,
     which is how a body's behaviour across the keyboard gets measured in one
     render instead of twenty.
+
+    preroll runs the instrument for that many seconds BEFORE the note, and the
+    audio is trimmed back to the note. It matters more than it looks, because at
+    preroll=0 this harness does not reproduce the host:
+
+      the host scores `i 1 0 360000 <voice>` — sixteen instances, always on since
+      the plugin loaded, notes signalled through `ktrig`/`kgate`
+      this harness scores `i 1 0 <dur> 1` — the instance BEGINS at the note
+
+    So at preroll=0 every piece of state that is not note-relative starts fresh at
+    note-on, which in the plugin it never does. Two classes of body are measured
+    wrongly, and both were shipped that way:
+
+    - `balance`. Its RMS denominator starts at zero, so a body whose source builds
+      from silence gets an enormous gain for the first milliseconds. `string` reads
+      a true peak of 3.18 at 4.4 ms here and 0.19 with `balance` replaced by a fixed
+      gain; in the plugin the estimator has been settled for as long as the plugin
+      has been open. Two entries were reported as clipping on that artefact.
+    - a free-running LFO. `tanpura` claims to be the one entry in the library whose
+      spectrum climbs after the attack, via `khal poscil 0.5, 0.27`. At preroll=0 the
+      3.70 s cycle starts at phase 0 exactly at note-on and the climb always appears.
+      In the plugin the phase at note-on is the plugin's uptime mod 3.70 s: at a
+      quarter turn the same note DARKENS. A body meant to behave a certain way over
+      its note must key that behaviour to `knote`, which the host does reset.
+
+    preroll stays 0.0 by default so that the recorded calibration keeps meaning what
+    it says. `lco_axis_probe` sweeps it on any body that contains a free-running
+    k-rate oscillator, which is where the difference decides anything.
     """
     head = W._HEAD
     head = _sub(head, "<CsOptions>\n-n -d\n</CsOptions>",
                 "<CsOptions>\n-d\n</CsOptions>", "CsOptions")
     head = _sub(head, "sr = %SR%", f"sr = {SR}", "sample rate")
     head = _sub(head, f"nchnls = {W.NCHNLS}", "nchnls = 1", "channel count")
-    kfreq = (f"expon {glide[0]}, {dur}, {glide[1]}" if glide else f"= {freq}")
+    # With a preroll the note is an EDGE, exactly as in the host: gate and trig go
+    # high at `preroll`, `changed2(ktrig)` fires there, and `knote` resets there. The
+    # glide has to wait too, or it would sweep during the preroll — a flat first
+    # segment does that, and `expseg` interpolates a constant segment as a constant.
+    if preroll > 0:
+        gate_expr = f"  kgateraw = (timeinsts() >= {preroll} ? 1 : 0)\n"
+        trig_expr = f"  ktrig    = (timeinsts() >= {preroll} ? 1 : 0)\n"
+        kfreq = (f"expseg {glide[0]}, {preroll}, {glide[0]}, {dur}, {glide[1]}"
+                 if glide else f"= {freq}")
+    else:
+        gate_expr = "  kgateraw = 1\n"
+        trig_expr = "  ktrig    = 1\n"
+        kfreq = (f"expon {glide[0]}, {dur}, {glide[1]}" if glide else f"= {freq}")
     for old, new, what in (
-        ("  kgateraw chnget Sgate\n", "  kgateraw = 1\n", "gate"),
+        ("  kgateraw chnget Sgate\n", gate_expr, "gate"),
         ("  kfreqraw chnget Sfreq\n", f"  kfreqraw {kfreq}\n", "frequency"),
         ("  kvel     chnget Svel\n", "  kvel     = 1\n", "velocity"),
         ("  kpres    chnget Spres\n", "  kpres    = 0\n", "pressure"),
         ("  ktimb    chnget Stimb\n", "  ktimb    = 0\n", "timbre"),
-        ("  ktrig    chnget Strig\n", "  ktrig    = 1\n", "trigger"),
+        ("  ktrig    chnget Strig\n", trig_expr, "trigger"),
     ):
         head = _sub(head, old, new, what)
 
@@ -92,11 +132,12 @@ def scaffold(body, dur=4.0, freq=220.0, glide=None):
 
     indented = "\n".join(("  " + l) if not l.startswith(" ") else l
                          for l in body.splitlines())
+    total = preroll + dur
     return (head + indented + tail
-            + f"i 1 0 {dur} 1\ne {dur}\n</CsScore>\n</CsoundSynthesizer>\n")
+            + f"i 1 0 {total} 1\ne {total}\n</CsScore>\n</CsoundSynthesizer>\n")
 
 
-def render(body, dur=4.0, freq=220.0, glide=None, keep=None):
+def render(body, dur=4.0, freq=220.0, glide=None, keep=None, preroll=0.0):
     """Render a body. Returns (audio, err); err is None only on a clean render.
 
     A silent or non-finite render is an ERROR, not a result: every spectral number
@@ -105,8 +146,12 @@ def render(body, dur=4.0, freq=220.0, glide=None, keep=None):
     exactly rather than distorted — but one loud enough that the HOST's safety
     clip would act on it is reported too, since that clip is audible and the body
     is then not what was measured.)
+
+    preroll settles the instrument before the note and is trimmed off the returned
+    audio, so the caller always gets exactly the note. See `scaffold` for what it
+    is for and why 0.0 is not what the plugin does.
     """
-    csd = scaffold(body, dur, freq, glide)
+    csd = scaffold(body, dur, freq, glide, preroll)
     d = Path(keep or tempfile.mkdtemp())
     d.mkdir(parents=True, exist_ok=True)
     (d / "x.csd").write_text(csd)
@@ -122,12 +167,27 @@ def render(body, dur=4.0, freq=220.0, glide=None, keep=None):
         y = y[:, 0]
     if not np.isfinite(y).all():
         return None, "NaN/Inf"
+    if preroll > 0:
+        # Trim to the note. Checked before trimming rather than after, so a preroll
+        # that produced garbage cannot be discarded silently.
+        if not np.isfinite(y).all():
+            return None, "NaN/Inf during the preroll"
+        y = y[int(preroll * SR):]
+        if len(y) < int(0.1 * SR):
+            return None, "the preroll consumed the note"
     peak = float(np.abs(y).max())
     if peak < 1e-5:
         return None, "SILENT"
-    if peak * W.HEADROOM > 0.95:
-        return y, (f"HOT (peak {peak:.2f}; the host clips a body above "
-                   f"{0.95 / W.HEADROOM:.2f})")
+    # After the onset, for the reason recorded at ONSET_S: a filter's start-up
+    # sample is not a hot body. The onset is still reported, it just does not
+    # condemn the entry.
+    late = y[int(ONSET_S * SR):]
+    peak_late = float(np.abs(late).max()) if len(late) else peak
+    if peak_late > HOST_TRANSPARENT:
+        limited = " and HARD-LIMITED" if peak_late > HOST_CLIP else ""
+        return y, (f"HOT (peak {peak_late:.2f} after the first "
+                   f"{ONSET_S * 1000:.0f} ms; the host alters a body above "
+                   f"{HOST_TRANSPARENT:.2f}{limited})")
     return y, None
 
 
@@ -167,10 +227,75 @@ def peak_p999(y):
     return float(np.percentile(np.abs(y), 99.9))
 
 
-# What the host does to a body that goes over: `lco_write.wrap` scales `asig` by
-# HEADROOM and the voice clips at 0.95, so this is the largest peak that survives
-# intact. Derived rather than written out, because the literal 2.97 was in two files.
-HOST_CLIP = 0.95 / W.HEADROOM
+# What the host does to a body that goes over. `lco_write.wrap` scales `asig` by
+# HEADROOM and the voice ends on `clip aout, 0, 0.95, 0.85`.
+#
+# That is Csound `clip` method 0, where the FOURTH argument is the fraction of
+# `ilimit` at which limiting BEGINS — not the limit. `0.95 / HEADROOM = 2.97` read
+# the third argument as the ceiling and was wrong by 18 %: the curve, measured by
+# ramping 0..3 through that exact line, is transparent to 0.78, bends at 0.84 and
+# goes STARK FLAT at 0.87875 — it never reaches 0.95 at any input.
+#
+#   input   0.78 -> 0.780000     (untouched)
+#           0.84 -> 0.838393
+#           0.90 -> 0.872578
+#          >0.96 -> 0.878750     (and forever after)
+#
+# So in body units there are two ceilings, and neither is 2.97. The scaffold's own
+# comment ("transparent below ~0.8, asymptotes ~0.88") said so all along.
+HOST_TRANSPARENT = 0.85 * 0.95 / W.HEADROOM   # 2.523 — below this the host is a no-op
+HOST_CLIP = 0.87875 / W.HEADROOM              # 2.746 — nothing above this gets out at all
+# With pressure at maximum (`kpresGain = 1.0 + 0.15 * kpres`) both fall by 1.15.
+HOST_PRES_GAIN_MAX = 1.15
+
+# Judge headroom on the peak AFTER the onset, not on the whole buffer. Measured:
+# `string`'s 3.18 at 69.3 Hz is ONE sample at t = 0.004 s (the `streson` ring-up)
+# against 0.86 for the rest of the note, and `ice`'s 3.61 is 25 samples inside the
+# first 100 ms against 1.18 after. Both were reported as clipping entries; neither
+# is. The percentile was too lenient for a sustained over and the true peak is too
+# strict, because it is dominated by the filter start-up of a body that is fine.
+# 50 ms: long enough to clear a high-Q resonator's ring-up, short enough that a real
+# sustained over cannot hide inside it.
+ONSET_S = 0.050
+
+
+def _clip_transfer():
+    """Measure the host's clip line by ramping through it. None if it cannot run.
+
+    Not derived: the two ceilings above are only as good as this curve, and the way
+    they were wrong the first time was by reading `clip`'s arguments instead of
+    measuring what it does. `render` cannot be used — it outputs `asig`, upstream of
+    the clip — so this builds the smallest orchestra that contains the real line.
+    """
+    line = [l for l in W._TAIL.splitlines() if " clip " in l]
+    if len(line) != 1:
+        return None
+    args = line[0].split("clip", 1)[1].split(";")[0].strip()
+    args = args.split(",", 1)[1].strip()           # drop the input variable
+    csd = ("<CsoundSynthesizer>\n<CsOptions>\n-n -d\n</CsOptions>\n<CsInstruments>\n"
+           f"sr = {SR}\nksmps = 1\nnchnls = 1\n0dbfs = 1\n"
+           "instr 1\n  kin  line 0, p3, 3.0\n  ain  = a(kin)\n"
+           f"  aout clip ain, {args}\n"
+           "  kout downsamp aout\n"
+           "  printks \"%.6f %.6f\\n\", 0.005, kin, kout\nendin\n"
+           "</CsInstruments>\n<CsScore>\ni1 0 1\ne\n</CsScore>\n</CsoundSynthesizer>\n")
+    d = Path(tempfile.mkdtemp())
+    (d / "c.csd").write_text(csd)
+    r = subprocess.run(["csound", "-n", "-d", str(d / "c.csd")],
+                       capture_output=True, text=True, timeout=60)
+    rows = []
+    for raw in (r.stdout + r.stderr).splitlines():
+        parts = re.sub(r"\x1b\[[0-9;]*m", "", raw).split()
+        if len(parts) == 2:
+            try:
+                rows.append((float(parts[0]), float(parts[1])))
+            except ValueError:
+                pass
+    if len(rows) < 20:
+        return None
+    flat = [i for i, o in rows if abs(o - i) < 1e-4]
+    return {"transparent_to": max(flat) if flat else 0.0,
+            "ceiling": max(o for _i, o in rows)}
 
 
 def sustain(y):
@@ -1015,9 +1140,16 @@ def measure(y, asked_freq):
             "centroid_over_note": [round(c) for c in cs],
             "rms_db": round(rms_db(y), 2),
             "peak_p999": round(peak_p999(y), 3),
-            # The true peak, which is the only figure that answers "does the host clip
-            # this" — see `peak_p999` for why the percentile cannot.
+            # The true peak over the whole buffer, including the onset. Report it, but
+            # do NOT judge the host clip on it: see ONSET_S — `string` and `ice` were
+            # both condemned on a filter start-up sample.
             "peak": round(float(np.abs(y).max()), 3),
+            # The peak after the onset. THIS is the figure the host clip is judged on,
+            # against HOST_TRANSPARENT. `peak` minus this is the size of the onset
+            # transient, which the host's soft curve rounds rather than clips flat.
+            "peak_late": round(float(np.abs(y[int(ONSET_S * SR):]).max())
+                               if len(y) > int(ONSET_S * SR)
+                               else float(np.abs(y).max()), 3),
             "sustain": round(sustain(y), 3),
             # Combed at the pitch the signal HAS, not the one it was asked for. Read
             # against the ask, a body that sounds an octave down has its "half-way
@@ -1077,7 +1209,7 @@ asig    streson aex, kfreq * koct1, {fb}"""
 # How many calibration cases there are. Asserted at the end so a group that stops
 # running — an early `return`, a render failure that `continue`s past its check, a
 # refactor that drops a block — is a FAILURE and not a quietly shorter green run.
-_CASES = 73
+_CASES = 81
 
 
 def selftest():
@@ -1125,6 +1257,108 @@ def selftest():
     y, err = render("asig    frobnicate 1, 2")
     check("a broken body is an error", (err or "").startswith("csound:"),
           (err or "no error")[:80])
+
+    # The two ceilings are the numbers every level decision in the library is made
+    # against, and until this group existed nothing read them: the constant could be
+    # 18 % wrong — it WAS — and the suite stayed 73/73. These cases measure the host's
+    # own `clip` line rather than restating the arithmetic, so a change to the scaffold
+    # that moves the ceiling fails here instead of silently reinterpreting the library.
+    print("the host's clip ceiling, measured through the host's own line")
+    _clip_line = [l for l in W._TAIL.splitlines() if " clip " in l]
+    check("the scaffold still ends on a `clip` the ceiling can be derived from",
+          len(_clip_line) == 1 and "0.95, 0.85" in _clip_line[0],
+          _clip_line[0].strip() if _clip_line else "no clip line in _TAIL")
+    # The transfer curve of the host's own clip line, ramped rather than assumed.
+    # `render` outputs `asig` and never passes it through `clip`, so this cannot be
+    # measured through the harness — it has to be the opcode itself, with the exact
+    # arguments read out of `_TAIL` above.
+    _curve = _clip_transfer()
+    check("limiting begins where the FOURTH argument says, not the third",
+          _curve is not None and abs(_curve["transparent_to"] - 0.8075) < 0.03,
+          "could not measure the curve" if _curve is None else
+          f"untouched to {_curve['transparent_to']:.4f}, and 0.85*0.95 = 0.8075")
+    check("the curve asymptotes below `ilimit` and never reaches it",
+          _curve is not None and abs(_curve["ceiling"] - 0.87875) < 0.002
+          and _curve["ceiling"] < 0.95,
+          "could not measure the curve" if _curve is None else
+          f"ceiling {_curve['ceiling']:.5f} against an `ilimit` of 0.95")
+    check("the transparent ceiling is below the absolute one, and both below the old 2.97",
+          HOST_TRANSPARENT < HOST_CLIP < 0.95 / W.HEADROOM,
+          f"transparent {HOST_TRANSPARENT:.3f} < absolute {HOST_CLIP:.3f} < "
+          f"the wrong 0.95/HEADROOM {0.95 / W.HEADROOM:.3f}")
+    # The onset rule, on what actually produces an onset: `balance`, whose RMS
+    # denominator starts at zero. This is the mechanism that had `string` and `ice`
+    # reported as clipping entries. A high-Q filter, which is what I first blamed,
+    # rings UP gradually and shows no spike at all — the case says so, so the wrong
+    # explanation cannot come back.
+    print("headroom is judged after the onset, because `balance` starting up is not a hot body")
+    # The source has to START AT ZERO for the estimator to divide by nothing, which is
+    # `string`'s case: its exciter is scaled by a `poscil` breath, and a poscil at
+    # phase 0 is 0. An always-full source like a bare `rand` shows no spike at all.
+    _bal = ("kbr      poscil 0.30, 0.23\n"
+            "aex      rand 1.0, 0.5, 1\n"
+            "astr     streson aex * a(kbr), kfreq * koct1, 0.995\n"
+            "aref     poscil 0.35, 400\n"
+            "asig     balance astr, aref\n")
+    y, err = render(_bal, dur=4.0)
+    y2, err2 = render(_bal, dur=4.0, preroll=1.0)
+    if y is None or y2 is None:
+        check("a body with `balance` measures differently from a fresh instance",
+              False, err or err2)
+    else:
+        r, r2 = measure(y, 220.0), measure(y2, 220.0)
+        # The load-bearing claim, and the whole reason `preroll` exists: the peak of a
+        # body containing `balance` depends on whether the INSTANCE is fresh, which in
+        # the plugin it never is. How large the difference is depends on the source's
+        # own attack — `string` reads 3.18 against a sustained 0.81 — so this asserts
+        # that the two disagree, not a magnitude that only one body happens to give.
+        check("a body with `balance` measures differently from a fresh instance",
+              abs(r["peak"] - r2["peak"]) > 0.05,
+              f"true peak {r['peak']:.3f} from a fresh instance against "
+              f"{r2['peak']:.3f} with a 1 s preroll — the plugin is always the second")
+    check("the two peak statistics can differ, so judging on the wrong one is possible",
+          y is None or measure(y, 220.0)["peak"] >= measure(y, 220.0)["peak_late"],
+          "the true peak is never below the peak after the onset, by construction")
+    check("a steady body's two peaks agree, so the onset window costs nothing there",
+          abs(measure(render(_SINE)[0], 220.0)["peak"]
+              - measure(render(_SINE)[0], 220.0)["peak_late"]) < 0.01,
+          "a plain sine reads the same before and after the onset window")
+
+    # The preroll's own mechanics: the note must still be a note. If `changed2(ktrig)`
+    # stopped firing at the edge, `knote` would never reset and every note-relative
+    # body in the library would silently read the instrument's uptime instead.
+    print("the preroll reproduces the host: an always-on instance, the note an edge")
+    _knote = "asig     poscil 0.4 * (knote < 1 ? knote : 1), kfreq * koct1, giSine\n"
+    ya, _ = render(_knote, dur=2.0)
+    yb, _ = render(_knote, dur=2.0, preroll=1.5)
+    if ya is None or yb is None:
+        check("`knote` resets at the note, not at the instance", False, "render failed")
+    else:
+        # Compared as an ENVELOPE, not sample by sample: the carrier's own phase is
+        # NOT note-relative — it has been running through the preroll — so identical
+        # samples would be the wrong thing to ask for. What must match is the ramp.
+        def env(y):
+            k = int(0.05 * SR)
+            return np.array([float(np.abs(y[i:i + k]).max())
+                             for i in range(0, min(len(y), SR), k)])
+        ea, eb = env(ya), env(yb)
+        n = min(len(ea), len(eb))
+        worst = float(np.abs(ea[:n] - eb[:n]).max())
+        check("`knote` resets at the note, not at the instance", worst < 0.01,
+              f"a body that ramps over its first second reads the same envelope with "
+              f"and without a 1.5 s preroll (worst window differs by {worst:.4f}) — so "
+              f"the trigger edge fired and knote restarted")
+    _lfo = "asig     poscil 0.4, kfreq * koct1, giSine, 0\nasig     = asig * (0.5 + poscil:k(0.5, 0.27))\n"
+    yc, _ = render(_lfo, dur=2.0)
+    yd, _ = render(_lfo, dur=2.0, preroll=0.925)   # a quarter of the 3.70 s cycle
+    if yc is None or yd is None:
+        check("a free-running LFO does NOT reset at the note", False, "render failed")
+    else:
+        n = min(len(yc), len(yd))
+        check("a free-running LFO does NOT reset at the note — this is the tanpura class",
+              float(np.abs(yc[:n] - yd[:n]).max()) > 0.05,
+              "a quarter turn of preroll changes the note audibly, which is what the "
+              "plugin's arbitrary uptime does to any body keyed to an LFO instead of knote")
 
     print("colour orders as it must")
     ys, _ = render(_SINE)

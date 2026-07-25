@@ -444,22 +444,40 @@ def gate(body, freq=220.0, steps=3, registers=(55, 110, 220, 440, 880, 1760)):
         y, err = M.render(body, dur=4.0, freq=f)
         if y is not None:
             base.append((f, M.rms_db(y), M.measure(y, f)))
-    # The headroom is judged on the TRUE peak, because that is what the host clips, and
-    # counted over the whole sweep rather than read off one render — a stochastic body's
-    # peak is a random variable and the sweep is many draws of it. Reading p99.9 here
-    # instead let `ice` through at four cracks a second: percentile 1.98, true peak 4.03,
-    # clip 2.97. See `lco_measure.peak_p999`.
-    peaks = ([(r["peak"], c) for c, r in rows]
-             + [(r["peak"], {"the defaults": True, "Hz": f}) for f, _v, r in base])
-    over = sorted(((p, c) for p, c in peaks if p > M.HOST_CLIP),
+    # Headroom is judged on `peak_late` — the peak AFTER the first 50 ms — counted over
+    # the whole sweep rather than read off one render, because a stochastic body's peak
+    # is a random variable and the sweep is many draws of it.
+    #
+    # Three measures were tried here and two were wrong. p99.9 is too lenient: it let
+    # `ice` through at four cracks a second. The true peak is too STRICT, and that was
+    # this check's own error — it condemned `string` (3.18 at 69.3 Hz) and `ice` (3.61 at
+    # 27.5 Hz), and in both cases the excursion is the body's filter starting up: one
+    # sample at t = 0.004 s for `string`, 25 samples inside 100 ms for `ice`, against a
+    # sustained 0.86 and 1.18. Relevelling either would have darkened a whole instrument
+    # by 2 dB to tame a start-up sample the host's soft curve rounds off anyway.
+    #
+    # And the ceiling itself was wrong: see `lco_measure.HOST_TRANSPARENT`. 2.97 read
+    # `clip`'s third argument as the limit; the fourth is where limiting begins.
+    peaks = ([(r["peak_late"], r["peak"], c) for c, r in rows]
+             + [(r["peak_late"], r["peak"], {"the defaults": True, "Hz": f})
+                for f, _v, r in base])
+    over = sorted(((pl, pk_all, c) for pl, pk_all, c in peaks if pl > M.HOST_TRANSPARENT),
                   reverse=True, key=lambda t: t[0])
     stats["over_clip"] = (len(over), over[0] if over else None)
+    # The onset is reported even when nothing fails, so that a body whose start-up sample
+    # is 4x its sustained level cannot be invisible here — it is just not a failure.
+    onset = max(peaks, key=lambda t: t[1] - t[0])
+    stats["worst_onset"] = (onset[1], onset[0], onset[2])
     if over:
-        fails.append(("headroom", over[0][1],
-                      f"true peak {over[0][0]:.2f} at the worst of {len(over)} of "
-                      f"{len(peaks)} renders over the host's {M.HOST_CLIP:.2f} clip "
-                      f"(the worst p99.9 anywhere is only {pk[0]:.2f}, which is why this "
-                      f"is not judged on the percentile)"))
+        worst = over[0]
+        limited = (" — past the absolute ceiling, so the host lets NONE of it out"
+                   if worst[0] > M.HOST_CLIP else "")
+        fails.append(("headroom", worst[2],
+                      f"peak {worst[0]:.2f} after the onset at the worst of {len(over)} "
+                      f"of {len(peaks)} renders, over the host's transparent ceiling "
+                      f"{M.HOST_TRANSPARENT:.2f}{limited} (its true peak there is "
+                      f"{worst[1]:.2f}, and the worst p99.9 anywhere {pk[0]:.2f} — this "
+                      f"is judged on neither)"))
     # The register tilt at the DEFAULTS, which is the number the notes quote — so it
     # is measured on the body AS WRITTEN, at its own default values, and not on the
     # nearest grid corner. The defaults need not sit on a 3-step grid at all:
