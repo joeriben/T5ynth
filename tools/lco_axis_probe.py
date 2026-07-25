@@ -189,7 +189,8 @@ def gate(body, freq=220.0, steps=3, registers=(55, 110, 220, 440, 880, 1760)):
     half-turn away at 110 Hz. Two marginals both inside a bound say nothing about the
     joint, and a gate that only ever looked at marginals passed a body that violates
     its own 1.00 dB rule. The cost is real: three axes at three steps over six
-    registers is 162 renders, roughly five times the old gate.
+    registers is 162 renders, roughly five times the old gate, plus six for the
+    tilt at the actual defaults.
     """
     declared = axes(body)
     names = sorted(declared)
@@ -198,8 +199,14 @@ def gate(body, freq=220.0, steps=3, registers=(55, 110, 220, 440, 880, 1760)):
         lo, hi = declared[n][3]
         return ([lo + (hi - lo) * i / (steps - 1) for i in range(steps)]
                 if steps > 1 else [(lo + hi) / 2])
-    regs = [float(f) for f in registers]
-    rows, fails = [], []
+    # `freq` is FORCED into the register set. It is the pitch at which the movement
+    # rule and the corner-loudness rule are read, and both were guarded by `f ==
+    # freq` — so at any --freq outside the default list the gate evaluated `moves`
+    # zero times, left `loudness_spread_db` at None, skipped that check too, and
+    # printed PASS. Measured: the same body at --freq 220 failed three corners and
+    # at --freq 330 passed, over the identical 162 renders.
+    regs = sorted(set(float(f) for f in registers) | {float(freq)})
+    rows, fails, elsewhere = [], [], []
     for combo in itertools.product(*(steps_for(n) for n in names)):
         b = body
         for k, v in zip(names, combo):
@@ -210,17 +217,27 @@ def gate(body, freq=220.0, steps=3, registers=(55, 110, 220, 440, 880, 1760)):
             if y is None:
                 fails.append(("renders", dict(corner, **{"Hz": f}), err))
                 continue
-            # `moves` and the spectral meters are only meaningful about the note
-            # being played, so they are read at `freq`; loudness and peak are read
-            # everywhere, since that is where the cross matters.
-            if f == freq:
-                r = M.measure(y, freq)
-                if not r["moves"]:
-                    fails.append(("moves", corner,
-                                  f"travel {r['centroid_motion_hz']} Hz at coherence "
-                                  f"{r['motion_coherence']} — variance, not motion"))
-            else:
-                r = {"rms_db": M.rms_db(y), "peak_p999": M.peak_p999(y)}
+            # Movement is measured at every register and GATED at `freq`. Not gated
+            # everywhere, on measured grounds: of the 57 shipped entries at their
+            # defaults, only 32 satisfy `moves` at all six registers. The rest are
+            # mostly the three classes `moves` itself documents as beyond it —
+            # `string` and `mbira` travel 2881-11170 Hz at coherence 0.14-0.25 because
+            # a decaying high-Q bank's late window is a noise floor, `pink_noise` and
+            # `cymbal` likewise — plus fixed-formant bodies (`voice`, `saw`,
+            # `sub_sine`) whose travel shrinks in cents as the note rises past their
+            # formants. Gating everywhere would condemn 25 long-shipped entries in the
+            # name of a meter limit, which is a change of standard and BJ's to make,
+            # not a defect to fix. It is REPORTED so the register dependence is
+            # visible: the same body used to pass or fail purely on which registers
+            # were in the list, and at a `--freq` outside the list nothing was checked
+            # at all.
+            r = M.measure(y, f)
+            if not r["moves"]:
+                where = ("moves" if f == freq else "moves elsewhere")
+                (fails if f == freq else elsewhere).append(
+                    (where, dict(corner, **{"Hz": f}),
+                     f"travel {r['centroid_motion_hz']} Hz at coherence "
+                     f"{r['motion_coherence']} — variance, not motion"))
             rows.append((dict(corner, **{"Hz": f}), r))
     if not rows:
         return False, fails, {}
@@ -229,20 +246,25 @@ def gate(body, freq=220.0, steps=3, registers=(55, 110, 220, 440, 880, 1760)):
     pk = max(((r["peak_p999"], c) for c, r in rows), key=lambda t: t[0])
     stats = {"corners": len(at_freq), "renders": len(rows),
              "loudness_spread_db": round(max(lv) - min(lv), 2) if lv else None,
-             "worst_peak": pk}
+             "worst_peak": pk, "moves_elsewhere": elsewhere}
     if stats["loudness_spread_db"] is not None and stats["loudness_spread_db"] > 1.0:
         fails.append(("one loudness", pk[1],
                       f"{stats['loudness_spread_db']:.2f} dB across the corners"))
     if pk[0] > 2.97:
         fails.append(("headroom", pk[1],
                       f"p99.9 {pk[0]:.2f}; the host clips a body above 2.97"))
-    # the register tilt at the DEFAULTS, kept because it is the number the notes
-    # quote, and then the whole cross, which is the one that has to hold.
-    dflt = {n: d for n, (_v, d, _i, _r) in declared.items()}
-    near = min(rows, key=lambda cr: sum(abs(cr[0].get(n, 0) - dflt.get(n, 0))
-                                        for n in names))[0]
-    base = [(c["Hz"], r["rms_db"]) for c, r in rows
-            if all(abs(c[n] - near[n]) < 1e-9 for n in names)]
+    # The register tilt at the DEFAULTS, which is the number the notes quote — so it
+    # is measured on the body AS WRITTEN, at its own default values, and not on the
+    # nearest grid corner. The defaults need not sit on a 3-step grid at all:
+    # `overtone_voice` defaults to select 0.45, focus 0.6, press 0.45, none of them on
+    # the grid, and the nearest corner (0.5, 0.5, 0.5) reads 0.06 dB where the body
+    # itself reads 0.60. Its note shipped the 0.06 — a figure off by ten times, about
+    # a body no one had measured. Six extra renders buy the number its own name.
+    base = []
+    for f in regs:
+        y, err = M.render(body, dur=4.0, freq=f)
+        if y is not None:
+            base.append((f, M.rms_db(y)))
     if len(base) >= 2:
         v = [x for _, x in base]
         stats["register_tilt_db"] = round(max(v) - min(v), 2)
@@ -330,6 +352,20 @@ def main():
               if st else "\ngate: nothing rendered")
         for rule, corner, detail in fails:
             print(f"  FAIL  {rule}: {corner}  {detail}")
+        # Reported, not gated — see `gate`. Grouped by register, because the shape of
+        # the list is the information: "everything at 1760 Hz" is a body whose
+        # movement lives below its formants, and that is a different fact from a
+        # scattered handful.
+        el = st.get("moves_elsewhere") or []
+        if el:
+            by_hz = {}
+            for _rule, corner, _d in el:
+                by_hz[corner["Hz"]] = by_hz.get(corner["Hz"], 0) + 1
+            print(f"  note  {len(el)} of {st['renders'] - st['corners']} corner-renders "
+                  f"away from {args.freq:.0f} Hz do not move: "
+                  + ", ".join(f"{n} at {f:.0f} Hz" for f, n in sorted(by_hz.items()))
+                  + " (reported, not gated: 25 of the 57 shipped entries are in the "
+                    "same position at some register)")
         print("  PASS  every corner renders, moves, and holds one loudness"
               if ok else f"  -> {len(fails)} failure(s)")
         return 0 if ok else 1
