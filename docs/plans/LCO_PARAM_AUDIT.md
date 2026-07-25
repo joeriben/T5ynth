@@ -105,6 +105,16 @@ keyboard, every one renders clean at all six registers, and no axis was found to
 be a fader in disguise — but that last clause is much weaker than it sounds, see
 S4.
 
+**This section is the original run and is kept as written; the counts in it are
+that run's, not today's.** Where it stands now, on 57 instruments: 85 findings, 28
+declared. What has closed since, each with its own commit: the register tilt of
+`struck_bar` / `cymbal` / `glass` / `drum_head` (M7 is now four entries, three of
+them the vowels §5 leaves with BJ and one a declared consequence); `saw` /
+`square` / `pulse` / `triangle` / `pwm` and the wind family parametrised (S1: 38
+of 45 → 29 of 57); the meter's own defects behind several of these numbers (see
+§2). What has NOT closed is S4 — the 17 axes with no exemplar, still §5 item 1 —
+and the two movement questions, which are BJ's.
+
 ### S1 — 38 of 45 instruments have no parameter at all
 
 ```
@@ -280,28 +290,27 @@ byte-for-byte before it will emit anything new.
 
 ## 5. Ranked, what this leaves to do
 
-1. **The modal family's register tilt** (drum_head, cymbal, glass, struck_bar). A
-   level correction against a law §5 already measured; the fix is the f
-   dependence the one-pitch levelling left out.
-2. **`anchor_code` for the 17 axes of 65 that have none**, so M5 and M6 can see
+1. **`anchor_code` for the 17 axes of 65 that have none**, so M5 and M6 can see
    them at all: `fm`, `fm_bell`, `fm_ep`, `metallic_fm` (ring/detune and friends),
    `drum_head` (strikepos/tension/damping), `string` (pick/damp) and `analog_osc`
    (drive/fat/age). Until then "no axis is a fader" is untested for those 17. They
    are the entries that bake an axis into an expression instead of declaring it, so
    each needs the body rewritten to the `k<name> = <default>  ; name [lo..hi]: …`
    form before an anchor can be generated.
-3. **Parametrise the 33 entries that still carry no parameter at all.** The five
-   §8 named — `saw`/`square`/`pulse`/`triangle` duty and `pwm`'s lost `rate` — are
-   done.
-4. **`analog_osc`'s three missing notes**, moved out of §5 into the entry.
-5. **The vowel family's fixed formants** — a real ceiling, and fixing it changes
-   timbre, so it needs BJ's word.
-6. **Sixteen entries stand still** against movement-by-default (§3, M4). Two
+2. **Parametrise the 29 entries that still carry no parameter at all.** Done so
+   far: the five §8 named (`saw`/`square`/`pulse`/`triangle` duty and `pwm`'s lost
+   `rate`) and the wind family (`clarinet`/`flute` breath, `brass` press, `organ`
+   registration).
+3. **`analog_osc`'s three missing notes**, moved out of §5 into the entry.
+4. **The vowel family's fixed formants** — a real ceiling, and fixing it changes
+   timbre, so it needs BJ's word. They are also the only three entries left with a
+   register tilt that is not a declared consequence of something else.
+5. **Sixteen entries stand still** against movement-by-default (§3, M4). Two
    questions for BJ, because both answers change how instruments sound:
    does the plain-waveform family (`sine`, `triangle`, `square`, `pulse`, `saw`'s
    relatives, `sub_sine`, `bass_saw`, the two fixed vowels) get movement added, and
    does a nature bed's non-periodic wander count as movement?
-7. **Does movement-by-default hold at every register, or only at the note being
+6. **Does movement-by-default hold at every register, or only at the note being
    played?** Also BJ's, and the measurement is in hand: of the 57 entries at their
    defaults only 32 satisfy `moves` at all six registers. Most of the other 25 sit
    in classes the meter documents as beyond it — `string` and `mbira` travel
