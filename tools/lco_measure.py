@@ -32,6 +32,7 @@ kvel * kpresGain * HEADROOM` and its final `clip`.
 import argparse
 import json
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -192,9 +193,26 @@ def render(body, dur=4.0, freq=220.0, glide=None, keep=None, preroll=0.0):
     preroll settles the instrument before the note and is trimmed off the returned
     audio, so the caller always gets exactly the note. See `scaffold` for what it
     is for and why 0.0 is not what the plugin does.
+
+    `keep` is a directory to leave the `.csd` and the `.wav` in, for looking at
+    afterwards (`--wav`). Without it they are scratch and are removed on every
+    path out of here, including the error returns. They used not to be: every
+    single call leaked a directory holding a FLOAT wav — 10.6 MiB for a 60 s
+    render — and 267 900 of them, 251 GiB, had collected in the OS temp directory
+    and filled the machine's disk to 100 %, at which point nothing on it could
+    write a file at all. A measurement tool that is run in six-register grids
+    cannot leave its own output behind.
     """
-    csd = scaffold(body, dur, freq, glide, preroll)
     d = Path(keep or tempfile.mkdtemp())
+    try:
+        return _render_into(d, body, dur, freq, glide, preroll)
+    finally:
+        if keep is None:
+            shutil.rmtree(d, ignore_errors=True)
+
+
+def _render_into(d, body, dur, freq, glide, preroll):
+    csd = scaffold(body, dur, freq, glide, preroll)
     d.mkdir(parents=True, exist_ok=True)
     (d / "x.csd").write_text(csd)
     r = subprocess.run(["csound", "-W", "--format=float", "-o", str(d / "o.wav"),
