@@ -659,6 +659,66 @@ def coherence(y, n=128):
     return float(max(0.0, min(1.0, 1.0 - flat / 0.5615)))
 
 
+def crest_db(y, t0=0.5, t1=3.5):
+    """Peak over RMS, in dB — how far the loudest single event stands above the bed.
+
+    The whole spectral half of this meter is blind to EVENT DENSITY, and a class of
+    axis in this library is nothing else. `crackle`'s `blaze` runs its pop rate from
+    under six a second to 170: the centroid moves 54 Hz across all of it, the comb
+    0.7 dB, and by every colour reading in `measure()` the axis is inert — while by
+    ear it is the difference between embers and a bonfire. More of the same event is
+    not a different spectrum, so no spectrum can see it.
+
+    This can. It is a max statistic, which is the point: a sparse transient stays
+    visible here even when its POWER is negligible, and that matches hearing, where
+    a tick 18 dB under a hiss is plainly a tick. Measured across `crackle`'s axis it
+    falls 19.0 dB to 10.8 monotonically. Being a max statistic is also its limit —
+    it reads one sample out of 130 000, so it is noisy run to run and only a large
+    move means anything.
+    """
+    s = _seg(y, t0, t1)
+    s = s - s.mean()
+    r = float(np.sqrt((s ** 2).mean()))
+    if r <= 0.0:
+        return None
+    return float(20 * np.log10(float(np.abs(s).max()) / r))
+
+
+def event_rate_hz(y, t0=0.5, t1=3.5, win=0.005):
+    """Impulses per second, read back from how much the short-time envelope varies.
+
+    An exact law, not a heuristic: the impulses in a window of a Poisson train at
+    rate L are Poisson(L*win), so the envelope's coefficient of variation is
+    1/sqrt(L*win) and L = 1/(win * cv^2). On a bare `dust2` that inversion recovers
+    the rate to within a factor of 1.7 across a 280-fold sweep — 22/s reads 18, 366
+    reads 449, 1400 reads 2427.
+
+    Its limit has to be quoted with it, because it is severe and it is the reason
+    `crest_db` exists beside it: ANY continuous bed swamps this. Inside `rain` the
+    patter sits 13.8 dB under the wash, and a sweep from 366 to 7300 impacts a
+    second moves the body's envelope roughness only 0.057 -> 0.055 — so this reads
+    "already dense" at both ends and sees nothing, while the bare source it is made
+    of moves 0.667 -> 0.108. A reading here that does not move is evidence about
+    what is AUDIBLE in the mix, never evidence that the source did not change.
+
+    Above a few thousand per second the figure stops being a rate and is only a way of
+    saying "continuous" — white noise reads about 200 000/s, which is not a claim about
+    white noise but the inversion running out of resolution once every window is full.
+    """
+    s = _seg(y, t0, t1)
+    n = int(win * SR)
+    if n < 1 or len(s) < 4 * n:
+        return None
+    e = np.sqrt((s[:len(s) // n * n].reshape(-1, n) ** 2).mean(1))
+    m = float(e.mean())
+    if m <= 0.0:
+        return None
+    cv = float(e.std() / m)
+    if cv <= 0.0:
+        return None
+    return float(1.0 / (win * cv * cv))
+
+
 def odd_even_db(y, freq, n=16):
     """Odd-harmonic energy over even-harmonic energy, in dB.
 
@@ -911,6 +971,14 @@ def measure(y, asked_freq):
             # them were wrong by 52 to 85 dB. The ask is the fallback for an unpitched
             # bed, where there is no grid of its own to use.
             "comb_db": round(comb_contrast(y, f or asked_freq), 1),
+            # Event density, which nothing above can see. A whole class of axis here
+            # changes how OFTEN something happens without changing what it is, and
+            # every spectral reading calls that inert: `crackle`'s pop rate runs 30-fold
+            # and moves the centroid 54 Hz. `crest_db` sees a sparse event even at
+            # negligible power; `event_rate_hz` is the honest density of what is audible
+            # and is swamped by any continuous bed. Both, because neither alone is enough.
+            "crest_db": _r2(crest_db(y)),
+            "event_rate_hz": _r2(event_rate_hz(y)),
             "partials": partials(y, asked_freq)}
 
 
@@ -951,7 +1019,7 @@ asig    streson aex, kfreq * koct1, {fb}"""
 # How many calibration cases there are. Asserted at the end so a group that stops
 # running — an early `return`, a render failure that `continue`s past its check, a
 # refactor that drops a block — is a FAILURE and not a quietly shorter green run.
-_CASES = 65
+_CASES = 69
 
 
 def selftest():
@@ -1353,6 +1421,53 @@ asig    poscil 0.4 * (1 + 2 * kam), kfreq * koct1, giSine""", freq=880.0)
         check(label, ok, f"{sp:.2f} dB, the body {'None' if bd is None else f'{bd:+.3f}'} "
               f"(expected {want_span[0]:.1f}..{want_span[1]:.1f} dB, "
               f"{'None' if want_body[0] is None else f'{want_body[0]:+.2f}..{want_body[1]:+.2f}'})")
+
+    print("event density — the axis class no spectrum can see")
+    # A Poisson train at rate L has 1/sqrt(L*win) of envelope variation, so the rate
+    # inverts out of it. What has to be calibrated is not only that the inversion works
+    # on a bare source but that BOTH readings behave on the two cases that matter: a
+    # dense continuous bed, where there is no sparse event and neither number should
+    # claim one, and a sparse train buried under such a bed, where `crest_db` must still
+    # see it and `event_rate_hz` must not pretend to.
+    _dust = "asig    dust2 0.8 * sqrt(22 / {r}.0), {r}"
+    dens = {}
+    bad = False
+    for rate in (22, 366, 7300):
+        yd, ed = render(_dust.format(r=rate), dur=4.0)
+        if ed:
+            check(f"the density calibration renders at {rate}/s", False, ed)
+            bad = True
+            break
+        dens[rate] = (crest_db(yd), event_rate_hz(yd))
+    if not bad:
+        check("a sparse impulse train has a huge crest, a dense one nearly none",
+              dens[22][0] > 30.0 > dens[7300][0] > 6.0
+              and dens[22][0] > dens[366][0] > dens[7300][0],
+              " -> ".join(f"{dens[r][0]:.1f} dB" for r in (22, 366, 7300)))
+        check("the rate inverts out of the envelope to within a factor of 3",
+              all(r / 3.0 < dens[r][1] < r * 3.0 for r in dens),
+              ", ".join(f"{r}/s reads {dens[r][1]:.0f}" for r in (22, 366, 7300)))
+        yw, ew = render(_NOISE, dur=4.0)
+        if ew:
+            check("the dense-bed density case renders", False, ew)
+        else:
+            check("continuous noise has no sparse event to find",
+                  crest_db(yw) < 20.0 and event_rate_hz(yw) > 3000.0,
+                  f"crest {crest_db(yw):.1f} dB, rate {event_rate_hz(yw):.0f}/s")
+        # 22 pops a second, 18 dB under a continuous bed — `crackle`'s own situation.
+        ym, em = render("anz0    rand 1.0, 0.5, 1\n"
+                        "acrk0   dust2 0.8, 22\n"
+                        "apop0   reson acrk0, 1600, 1200, 2\n"
+                        "asig    = apop0 * 1.90 + anz0 * 0.30", dur=4.0)
+        if em:
+            check("the buried-train density case renders", False, em)
+        else:
+            check("a sparse train stays visible in the crest when buried under a bed, "
+                  "and the rate does NOT see it — which is why both are reported",
+                  crest_db(ym) > crest_db(yw) + 2.0 and event_rate_hz(ym) > 3000.0,
+                  f"crest {crest_db(ym):.1f} dB against the bare bed's "
+                  f"{crest_db(yw):.1f}, rate {event_rate_hz(ym):.0f}/s against "
+                  f"{event_rate_hz(yw):.0f} — the rate is swamped, the crest is not")
 
     print("comb contrast tracks the resonator, not the exciter")
     (yn, en), (yh, eh), (yl, el) = (render(_NOISE), render(_comb(0.995)),
