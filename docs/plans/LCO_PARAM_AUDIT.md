@@ -327,7 +327,7 @@ byte-for-byte before it will emit anything new.
 6. **Does movement-by-default hold at every register, or only at the note being
    played?** Also BJ's, and the measurement is in hand — re-derive it any time with
    `tools/lco_axis_probe.py --census`, which is also what keeps this number honest:
-   of the 57 entries at their defaults only **33** satisfy `moves` at all six
+   of the 58 entries at their defaults only **34** satisfy `moves` at all six
    registers. Most of the other 24 sit in classes the meter documents as beyond it —
    `string` travels 2881–3402 Hz at coherence 0.14–0.25 because a decaying high-Q
    bank's late window is a noise floor, and `cymbal`, `drum_head` and `pink_noise`

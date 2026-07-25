@@ -74,7 +74,7 @@ AXIS = re.compile(r"^(?P<pad>\s*)k(?P<var>[a-z][a-z0-9]*)(?P<gap>\s+)=(?P<sp>\s*
 # `mbira` a second mechanism and the comment kept naming mbira as an entry that stands
 # still. Re-derive with `--census`, which recomputes the split over the whole lexicon
 # and says outright whether this line is out of date.
-_MOVE_CENSUS = (33, 24, "2026-07-25")
+_MOVE_CENSUS = (34, 24, "2026-07-25")
 _MOVE_REGISTERS = (55.0, 110.0, 220.0, 440.0, 880.0, 1760.0)
 
 
@@ -264,8 +264,8 @@ def gate(body, freq=220.0, steps=3, registers=(55, 110, 220, 440, 880, 1760)):
                 fails.append(("renders", dict(corner, **{"Hz": f}), err))
                 continue
             # Movement is measured at every register and GATED at `freq`. Not gated
-            # everywhere, on measured grounds: of the 57 shipped entries at their
-            # defaults, only 33 satisfy `moves` at all six registers (`--census`;
+            # everywhere, on measured grounds: of the 58 shipped entries at their
+            # defaults, only 34 satisfy `moves` at all six registers (`--census`;
             # `_MOVE_CENSUS` above). The rest are mostly the three classes `moves`
             # itself documents as beyond it — `string` travels 2881-3402 Hz at
             # coherence 0.14-0.25 because a decaying high-Q bank's late window is a
@@ -494,7 +494,8 @@ def main():
             print(f"  note  {len(el)} of {st['renders'] - st['corners']} corner-renders "
                   f"away from {args.freq:.0f} Hz do not move: "
                   + ", ".join(f"{n} at {f:.0f} Hz" for f, n in sorted(by_hz.items()))
-                  + f" (reported, not gated: {_MOVE_CENSUS[1]} of the 57 shipped "
+                  + f" (reported, not gated: {_MOVE_CENSUS[1]} of the "
+                    f"{_MOVE_CENSUS[0] + _MOVE_CENSUS[1]} shipped "
                     f"entries are in the same position at some register, measured "
                     f"{_MOVE_CENSUS[2]} — re-derive with --census)")
         print("  PASS  every corner renders, moves, and holds one loudness"
