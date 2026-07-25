@@ -186,7 +186,7 @@ this is a structural floor, not a scale fix"*), here as a ceiling. Each entry's
 out. **A real singer moves their formants up with pitch; this bank does not.** That
 is the open question for the family, and it is a timbre change, not a level fix.
 
-### M4 — nineteen of fifty stand still, and the meter had to be fixed twice to say so
+### M4 — sixteen of fifty-seven stand still, and the meter had to be fixed three times
 
 This finding changed twice, both times because the *meter* was wrong, and the first
 two readings should be distrusted rather than averaged with the third. Originally it
@@ -197,18 +197,24 @@ amplitude-weighted centroid on a linear frequency axis let a partial 60 dB down 
 18 kHz carry the verdict: a standing sine plus an inaudible whisper passed with a span
 of 18.7 Hz at coherence 0.996.
 
-On the corrected meter — span ≥ 8 Hz **and** coherence ≥ 0.35, the threshold sitting
+Then the SPAN threshold moved from hertz to cents, because an absolute hertz bound is
+the same mistake in a third place: 8 Hz is nothing on `hiss`'s 13.5 kHz centroid and a
+plainly audible wobble on `sub_sine`'s 205 Hz. In cents the two populations separate
+more sharply, and 60 cents fails exactly the sixteen entries the 8 Hz bound did — so
+that change was verdict-neutral and only made the number mean something.
+
+On the corrected meter — span ≥ 60 cents **and** coherence ≥ 0.35, the threshold sitting
 in an empty band between a noise null whose maximum over 60 renders is 0.188 and the
-0.51–1.00 that everything with a real modulation reads — **19 of the 50 shipped
+0.51–1.00 that everything with a real modulation reads — **16 of the 57 shipped
 instruments do not move**, in two distinct groups:
 
 ```
-they have nothing to move (span, coherence 1.00 — a coherent but tiny travel)
-  sine 0 Hz   triangle 0   square 1   voice_ee 3   voice_oo 3   pulse 4
-  sub_sine 6  bass_saw 1
+they have nothing to move (travel in cents; coherence 1.00 — coherent but tiny)
+  sine 0   triangle 1   square 3   bass_saw 7   voice_ee 21   voice_oo 21
+  pulse 25   sub_sine 54                        (saw and analog_osc pass, at 78)
 their travel is variance, not motion (large span, coherence at or near zero)
-  thunder .00/1186 Hz   rain .00/1565   crackle .00/2125   hiss .06/1416
-  noise .07/1676       drum_head .13/309   pink_noise .15/2580   cymbal .18/876
+  thunder .00/1209 cents   rain .00/217   crackle .00/273   hiss .06/173
+  noise .07/247   drum_head .13/973   pink_noise .15/327   cymbal .18/797
 ```
 
 The two groups are different problems. The first is the plain-waveform family: there
@@ -217,6 +223,20 @@ is sound-shaping and needs BJ's word, not a unilateral fix. The second is the na
 beds, where the sound plainly does change over the note but not periodically; whether
 "movement by default" is satisfied by a noise bed's wander is a question about the
 fundamental's meaning, and also BJ's.
+
+**Two instruments were built and held back for the same reason, which is what makes
+this a question and not a to-do.** `glass_harp` and an earlier `cricket` both passed
+every rule except this one, and in both cases the cause was physical rather than a
+defect: a rubbed wineglass is nearly one sinusoid (partials 0, −48, −67, −68 dB) and a
+cricket's tone is tuned to be nearly a pure sine, so on a power basis neither has a
+colour that CAN move much. The cricket shipped because a real one is not one tone —
+the file scrape is audible and carries the movement. The glass harp has no equivalent:
+its audible movement is the beat between its two quadrupole modes, 0.30 to 0.45 deep at
+0.67 to 8.00 Hz, which lives at the amplitude layer. §4 says loudness may not travel
+within a standing tone, and `fm_bell`'s doublet beat is deliberately protected by
+`ihp=1` — so beats are already treated as texture rather than as loudness somewhere in
+this platform. Which of those two readings governs is BJ's to settle, and until he does
+the entry stays out of the lexicon rather than being forced.
 
 Recorded here rather than acted on. What the meter *cannot* say is separately relevant
 to the beds: at 4 s it cannot resolve movement slower than the window, and `wind`
