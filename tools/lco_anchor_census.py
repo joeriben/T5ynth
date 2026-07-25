@@ -189,8 +189,29 @@ def main():
     rows = out["rows"]
     keys = sorted({r["key"] for r in rows})
     print(f"\n{out['renders']} renders in {out['seconds']} s")
-    print(f"{len(rows)} anchors stand still at one or more registers, across "
-          f"{len(keys)} entries: {', '.join(keys) or 'none'}")
+    # Three different defects, counted separately. Rolling them into one number said
+    # "1 anchors stand still ... bagpipe" about an anchor that does not stand still at
+    # any register — it CLIPS at five of six, which is a worse defect and a different
+    # one. The headline is what a reader takes away, so it may not average a HOT render,
+    # a render that did not happen, and a fader that does nothing into one word.
+    def _kind(row):
+        marks = [b[1] for b in row["bad"]]
+        if any(m.startswith("HOT") for m in marks):
+            return "hot"
+        if any(m.startswith("render:") for m in marks):
+            return "failed"
+        return "still"
+    kinds = {k: [r for r in rows if _kind(r) == k] for k in ("still", "hot", "failed")}
+    still_keys = sorted({r["key"] for r in kinds["still"]})
+    print(f"{len(kinds['still'])} anchors stand still at one or more registers, across "
+          f"{len(still_keys)} entries: {', '.join(still_keys) or 'none'}")
+    for kind, what in (("hot", "clip over the host ceiling"),
+                       ("failed", "did not render")):
+        if kinds[kind]:
+            print(f"{len(kinds[kind])} anchors {what} — a different defect, not "
+                  f"stillness: "
+                  + ", ".join(f"{r['key']}/{r['anchor']}" for r in kinds[kind]))
+    del keys
     print(f"{len(out['texture_rows'])} more do on event-texture bodies "
           f"({', '.join(sorted({r['key'] for r in out['texture_rows']})) or 'none'}) "
           f"-- exempt, not failing")

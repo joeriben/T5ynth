@@ -73,6 +73,16 @@ sys.path.insert(0, str(REPO / "tools"))
 import lco_measure as M  # noqa: E402
 import lco_axis_probe as _P  # noqa: E402
 
+# ONE protocol for every render in this file. The plugin's voices are always on, so a
+# measurement settles the instrument before the note, exactly as `lco_measure.render`'s
+# `preroll` was built to do. This file used to render with none, while the batch work and
+# both censuses use 0.5 — so the same axis published different numbers depending on which
+# tool asked, and neither tool could confirm or refute the other. Measured on the shipped
+# bodies: `supersaw.spread` reads 0.80 dB over its anchors at 220 Hz with no preroll and
+# 0.41 with one; `bass_saw.bite`'s centroid reads 1606.7 against 1488.0. A body being
+# switched on is not a body being played.
+PREROLL = 0.5
+
 LIB = REPO / "backend" / "lco_library.json"
 
 # The registers the audit sweeps. 55 Hz and 1760 Hz are where this project has
@@ -230,7 +240,7 @@ def structure(inst):
 
 
 def render_report(body, freq):
-    y, err = M.render(body, dur=4.0, freq=freq)
+    y, err = M.render(body, dur=4.0, freq=freq, preroll=PREROLL)
     if y is None:
         return {"error": err}
     r = M.measure(y, freq)
@@ -239,7 +249,7 @@ def render_report(body, freq):
         # p99.9 of three renders; keep the peaks so the reading is checkable.
         peaks, p999 = [r["peak_p999"]], [r["peak_p999"]]
         for _ in range(2):
-            y2, e2 = M.render(body, dur=4.0, freq=freq)
+            y2, e2 = M.render(body, dur=4.0, freq=freq, preroll=PREROLL)
             if y2 is None:
                 continue
             peaks.append(round(float(abs(y2).max()), 3))
@@ -267,8 +277,8 @@ def tracking(body, low=110.0, high=880.0):
     per-render variance of `drum_head` said -205 cents of mistracking on an
     instrument whose spectrum in fact scales to within 2% over three.
     """
-    ylo, elo = M.render(body, dur=4.0, freq=low)
-    yhi, ehi = M.render(body, dur=4.0, freq=high)
+    ylo, elo = M.render(body, dur=4.0, freq=low, preroll=PREROLL)
+    yhi, ehi = M.render(body, dur=4.0, freq=high, preroll=PREROLL)
     if ylo is None or yhi is None:
         return {"error": elo or ehi}
     out = M.tracks(ylo, yhi, low, high)
@@ -482,6 +492,21 @@ def main():
     lib = load()
     insts = lib["instruments"]
     if args.key:
+        # A key this tool does not have is an ERROR, never an empty clean pass. Both
+        # censuses had this hole and it was closed there: a mistyped `--key` printed
+        # "0 instruments, 0 findings" and exited 0, which reads as a pass. Since the
+        # withholding there are also two REAL keys — `noise`, `pink_noise` — that are in
+        # the lexicon and absent from the library, so a person will plausibly type one and
+        # be told everything is fine.
+        have = {i["key"] for i in insts}
+        missing = [k for k in args.key if k not in have]
+        if missing:
+            held = (lib.get("withheld") or {})
+            for k in missing:
+                why = held.get(k)
+                print(f"no instrument '{k}' in the library"
+                      + (f" — it is in the lexicon and WITHHELD: {why}" if why else ""))
+            return 2
         insts = [i for i in insts if i["key"] in set(args.key)]
     if args.params_only:
         insts = [i for i in insts if i.get("params")]

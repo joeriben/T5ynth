@@ -20,17 +20,25 @@ number and this prints that instead of picking one.
 Changing the preroll changes which noise samples the note gets, so "uptime" and
 "noise realisation" move together and no amount of grid care separates them. The
 control is `lco_measure.reseed`: hold the age fixed and change only the seed. On
-`glass`, `cymbal` and `bubbles` the seed-only spread is at or ABOVE the four-age
-spread -- their uptime dependence was the exciter's dice all along. `surf` and `wind`
-survive the control (240 and 33 against several hundred), and those are the two the
-claim was ever really about.
+`glass`, `cymbal`, `bubbles` and `ice` the seed-only spread comes within a factor of two
+of the four-age spread, so their uptime dependence cannot be told from the exciter's
+dice -- NOT that the control always reads higher; on `glass` it reads 0.84x of the
+four-age figure, and the verdict is "cannot separate", never "innocent". `surf` and
+`wind` survive the control (240 and 33 against several hundred), and those are the two
+the claim was ever really about.
 
 **3. Never report a verdict for a body that was not rendered.** The first version
 printed `free_running`'s skip list as "not uptime-dependent at all" without a single
-render, and three of the seven were wrong: `noise` 147 Hz, `pink_noise` 250,
-`hiss` 98 -- above the median it published. `free_running`'s `_AGEN` pattern matches
-no a-rate generator, so a bare `anz rand 1.0, 0.5, 1` is invisible to it by
-construction. Every body is rendered here, and where the detector and the
+render, and three of the seven were wrong: `noise`, `pink_noise` and `hiss` all read
+above the median it published. (Their figures are deliberately not quoted here. They
+are the numbers that move most with `--grids`: `noise` reads 147.0 Hz at one grid and
+250.2 at three, `hiss` 98.0 and 165.4, and `pink_noise` does not render the same twice
+at all -- see `not-reproducible`. Quoting a single-grid reading inside the paragraph
+whose lesson is that one grid is a draw and not a statistic is the same mistake in
+smaller print, and it is the one this docstring made until 2026-07-25.)
+
+The mechanism of that first failure: `free_running`'s `_AGEN` pattern matches no a-rate
+generator, so a bare `anz rand 1.0, 0.5, 1` is invisible to it by construction. Every body is rendered here, and where the detector and the
 measurement disagree that disagreement is the finding.
 
 Two more things this reads that the prose around it must not overstate. The tracked
@@ -66,10 +74,21 @@ _FRACTIONS = ((0.00, 0.19, 0.47, 0.81),
               (0.02, 0.41, 0.67, 0.88),
               (0.13, 0.31, 0.59, 0.77))
 # How many times the uptime spread must beat the noise-seed control before the word
-# "uptime" is used at all. 2.0 is a floor, not a confidence: the control is itself a
-# four-sample draw.
+# "uptime" is used at all. 2.0 is a floor, not a confidence.
 CONTROL_FACTOR = 2.0
-SEEDS = (0, 1, 2, 3)
+# The control gets as many seed sets as the uptime side gets grids, and its published
+# figure is the MEDIAN of their spreads — the same statistic, computed the same way.
+# It used to be a single four-sample draw compared against a median over three grids, and
+# the asymmetry decided published classes: holding everything else fixed and changing only
+# the seed set, `glass` moved noise-bound -> uptime (control 240.8 -> 73.8), `bubbles`
+# likewise (348.5 -> 127.9), and `ice` flipped on three of four alternative sets
+# (163.6 -> 66.6 / 59.8 / 59.5). One draw against a median is not a comparison.
+_SEED_SETS = ((0, 1, 2, 3),
+              (4, 5, 6, 7),
+              (8, 9, 10, 11),
+              (12, 13, 14, 15),
+              (16, 17, 18, 19))
+SEEDS = _SEED_SETS[0]
 
 
 def _first_window(body, preroll, freq, dur=4.0):
@@ -91,7 +110,12 @@ def _spread(vals):
 
 
 def one(body, freq=220.0, grids=3):
-    """Uptime spread per grid, and the noise-seed control at a fixed age."""
+    """Uptime spread per grid, and the noise-seed control at a fixed age.
+
+    Both sides are medians over the same number of draws -- see `_SEED_SETS`. Also
+    reports `repeat_hz`, the disagreement between two IDENTICAL renders, because a body
+    that does not render the same twice cannot be classified at all.
+    """
     out = {"grids": [], "hot": [], "render_errors": []}
     for frac in _FRACTIONS[:max(1, grids)]:
         ages = [P._SETTLE_S + f * P._SLOWEST_S for f in frac]
@@ -105,16 +129,33 @@ def one(body, freq=220.0, grids=3):
                              "firsts_hz": [None if v is None else round(v, 2)
                                            for v in vals],
                              "spread_hz": _spread(vals)})
+    # Does the body even render the same twice? Exactly one in the library does not:
+    # `pinkish` seeds itself from the clock, so `pink_noise`'s readings — and with them
+    # its published class — moved between runs of the identical command (five runs gave
+    # 279/369/324/446/397 Hz and the class flipped three times). `lco_param_audit` already
+    # carries a guard for this fact; this tool was written later and did not inherit it.
+    # A verdict about phase cannot be given for a body whose renders are not repeatable.
+    a, _ = _first_window(body, P._SETTLE_S, freq)
+    b, _ = _first_window(body, P._SETTLE_S, freq)
+    out["repeat_hz"] = None if a is None or b is None else round(abs(a - b), 1)
     # The control. Same age for every draw, so uptime is held and only the dice move.
-    seeded = [M.reseed(body, k) for k in SEEDS]
-    if any(s is None for s in seeded):
-        out["control_hz"] = None      # no reachable seed: NOT the same as zero
+    # As many seed sets as there are grids, median of their spreads — see `_SEED_SETS`.
+    controls = []
+    for seeds in _SEED_SETS[:max(1, grids)]:
+        seeded = [M.reseed(body, k) for k in seeds]
+        if any(s is None for s in seeded):
+            controls = None           # no reachable seed: NOT the same as zero
+            break
+        s = _spread([_first_window(s, P._SETTLE_S, freq)[0] for s in seeded])
+        if s is not None:
+            controls.append(s)
+    if not controls:
+        out["control_hz"] = None
+        out["control_lo_hz"] = out["control_hi_hz"] = None
     else:
-        vals = []
-        for s in seeded:
-            v, _ = _first_window(s, P._SETTLE_S, freq)
-            vals.append(v)
-        out["control_hz"] = _spread(vals)
+        out["control_hz"] = statistics.median(controls)
+        out["control_lo_hz"] = round(min(controls), 1)
+        out["control_hi_hz"] = round(max(controls), 1)
     spreads = [g["spread_hz"] for g in out["grids"] if g["spread_hz"] is not None]
     out["uptime_hz"] = round(statistics.median(spreads), 1) if spreads else None
     out["uptime_lo_hz"] = round(min(spreads), 1) if spreads else None
@@ -130,6 +171,10 @@ def one(body, freq=220.0, grids=3):
     u, c = out["uptime_hz"], out["control_hz"]
     if u is None:
         out["verdict"] = "unmeasured"
+    elif out["repeat_hz"] is not None and out["repeat_hz"] > 1.0:
+        # Not reproducible: two identical renders already disagree by more than the
+        # threshold every other comparison here is measured against.
+        out["verdict"] = "not-reproducible"
     elif c is None:
         out["verdict"] = "uptime" if u > 1.0 else "steady"
     elif u > max(c, 1.0) * CONTROL_FACTOR:
@@ -188,7 +233,8 @@ def main():
     for r in rows:
         by.setdefault(r["verdict"], []).append(r["key"])
     print(f"\n{len(rows)} bodies, {out['n_grids']} grids of four ages each at "
-          f"{out['freq']:.0f} Hz, plus a {len(SEEDS)}-seed control at a fixed age "
+          f"{out['freq']:.0f} Hz, plus the same number of {len(SEEDS)}-seed "
+          f"controls at a fixed age "
           f"({out['seconds']} s)")
     print(f"  the grid spans {out['span_s']} s = "
           f"{100.0 * out['span_s'] / out['slowest_s']:.0f} % of the slowest shipped "

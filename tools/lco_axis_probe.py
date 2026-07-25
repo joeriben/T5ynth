@@ -35,6 +35,16 @@ sys.path.insert(0, str(REPO / "tools"))
 
 import lco_measure as M  # noqa: E402
 
+# ONE protocol for every render in this file. The plugin's voices are always on, so a
+# measurement settles the instrument before the note, exactly as `lco_measure.render`'s
+# `preroll` was built to do. This file used to render with none, while the batch work and
+# both censuses use 0.5 — so the same axis published different numbers depending on which
+# tool asked, and neither tool could confirm or refute the other. Measured on the shipped
+# bodies: `supersaw.spread` reads 0.80 dB over its anchors at 220 Hz with no preroll and
+# 0.41 with one; `bass_saw.bite`'s centroid reads 1606.7 against 1488.0. A body being
+# switched on is not a body being played.
+PREROLL = 0.5
+
 # `kvar  = number   ; axisname: what it does` — the one shape an axis may take.
 #
 # The trailing `axisname:` is REQUIRED and it is what names the axis, not the
@@ -78,20 +88,29 @@ AXIS = re.compile(r"^(?P<pad>\s*)k(?P<var>[a-z][a-z0-9]*)(?P<gap>\s+)=(?P<sp>\s*
 # `; MOVEMENT: TEXTURE`. Without it the census was cited in every gate run as "N of the
 # M shipped entries are in the same position" about entries that are not in the same
 # position at all: they are exempt from that rule by BJ's ruling of 2026-07-25.
-_MOVE_CENSUS = (37, 26, 5, "2026-07-25")
+_MOVE_CENSUS = (37, 25, 5, "2026-07-25")
 _MOVE_REGISTERS = (55.0, 110.0, 220.0, 440.0, 880.0, 1760.0)
 
 
 def census():
-    """Recount which shipped entries move at every register. ~378 renders."""
+    """Recount which shipped entries move at every register. ~378 renders.
+
+    SHIPPED, not "in the lexicon". An entry can be present in `dco_lexicon.json` and
+    deliberately withheld from the library (`lco_build_library.assemble`), and a withheld
+    entry never reaches an author, so counting it here reported the lexicon's number as
+    the product's: `noise` and `pink_noise` were quoted in every gate run as two of the
+    entries that stand still, about entries no prompt can reach.
+    """
     import json
     lex = json.loads((REPO / "backend" / "dco_lexicon.json").read_text())
+    withheld = [e["key"] for e in lex["techniques"] if e.get("withheld")]
+    shipped = [e for e in lex["techniques"] if not e.get("withheld")]
     still, exempt = {}, set()
-    declared = [e["key"] for e in lex["techniques"] if declares_texture(e["code"])]
-    for e in lex["techniques"]:
+    declared = [e["key"] for e in shipped if declares_texture(e["code"])]
+    for e in shipped:
         bad = []
         for f in _MOVE_REGISTERS:
-            y, err = M.render(e["code"], dur=4.0, freq=f)
+            y, err = M.render(e["code"], dur=4.0, freq=f, preroll=PREROLL)
             if y is None:
                 bad.append((f, f"render: {err}"))
                 continue
@@ -103,10 +122,13 @@ def census():
             still[e["key"]] = bad
             if declares_texture(e["code"]):
                 exempt.add(e["key"])
-    n = len(lex["techniques"])
-    print(f"{n - len(still)} of {n} entries move at all six registers, "
+    n = len(shipped)
+    print(f"{n - len(still)} of {n} SHIPPED entries move at all six registers, "
           f"{len(still)} do not, of which {len(exempt)} declare the event-texture class "
-          f"and are exempt from the rule rather than failing it")
+          f"and are exempt from the rule rather than failing it"
+          + (f"\n  ({len(withheld)} further entries are in the lexicon and withheld from "
+             f"the library, so they are not counted: {', '.join(withheld)})"
+             if withheld else ""))
     for k, bad in still.items():
         mark = "  [TEXTURE]" if k in exempt else ""
         print(f"  {k:16s}{mark} " + "  ".join(f"{f:.0f}:{d}" for f, d in bad))
@@ -400,7 +422,8 @@ def with_axis(body, name, value):
 def sweep(body, name, values, freq=220.0, dur=4.0):
     rows = []
     for v in values:
-        y, err = M.render(with_axis(body, name, v), dur=dur, freq=freq)
+        y, err = M.render(with_axis(body, name, v), dur=dur, freq=freq,
+                          preroll=PREROLL)
         if y is None:
             rows.append({"value": v, "error": err})
             continue
@@ -512,20 +535,20 @@ def gate(body, freq=220.0, steps=3, registers=(55, 110, 220, 440, 880, 1760)):
             b = with_axis(b, k, v)
         corner = dict(zip(names, combo))
         for f in regs:
-            y, err = M.render(b, dur=4.0, freq=f)
+            y, err = M.render(b, dur=4.0, freq=f, preroll=PREROLL)
             if y is None:
                 fails.append(("renders", dict(corner, **{"Hz": f}), err))
                 continue
             # Movement is measured at every register and GATED at `freq`. Not gated
-            # everywhere, on measured grounds: of the 58 shipped entries at their
-            # defaults, only 34 satisfy `moves` at all six registers (`--census`;
+            # everywhere, on measured grounds: of the 62 shipped entries at their
+            # defaults, only 37 satisfy `moves` at all six registers (`--census`;
             # `_MOVE_CENSUS` above). The rest are mostly the three classes `moves`
             # itself documents as beyond it — `string` travels 2881-3402 Hz at
             # coherence 0.14-0.25 because a decaying high-Q bank's late window is a
             # noise floor, `cymbal`, `drum_head` and `pink_noise` likewise — plus
             # fixed-formant bodies (`voice`, `saw`, `sub_sine`) whose travel shrinks in
             # cents as the note rises past their formants. Gating everywhere would
-            # condemn 24 long-shipped entries in the
+            # condemn 20 long-shipped entries (25 fail, 5 of them declared) in the
             # name of a meter limit, which is a change of standard and BJ's to make,
             # not a defect to fix. It is REPORTED so the register dependence is
             # visible: the same body used to pass or fail purely on which registers
@@ -613,7 +636,7 @@ def gate(body, freq=220.0, steps=3, registers=(55, 110, 220, 440, 880, 1760)):
             b = body
             for k, v in corner.items():
                 b = with_axis(b, k, v)
-            y, err = M.render(b, dur=16.0, freq=wd[2]["Hz"])
+            y, err = M.render(b, dur=16.0, freq=wd[2]["Hz"], preroll=PREROLL)
             long = None if y is None else M.loudness_drift_db(y)
             stats["worst_drift_confirmed"] = long
             if long is not None and abs(long) > 6.0 and (long > 0) == (wd[1] > 0):
@@ -633,7 +656,7 @@ def gate(body, freq=220.0, steps=3, registers=(55, 110, 220, 440, 880, 1760)):
     # 55 Hz is under it, so a check that read only the grid called that body clean.
     base = []
     for f in regs:
-        y, err = M.render(body, dur=4.0, freq=f)
+        y, err = M.render(body, dur=4.0, freq=f, preroll=PREROLL)
         if y is not None:
             base.append((f, M.rms_db(y), M.measure(y, f)))
     # Headroom is judged on `peak_late` — the peak AFTER the first 50 ms — counted over
@@ -734,7 +757,7 @@ def main():
           ", ".join(f"{n}={d:g}" + ("" if (lo, hi) == (0.0, 1.0) else f" [{lo:g}..{hi:g}]")
                     for n, (_v, d, _i, (lo, hi)) in sorted(declared.items())))
 
-    y, err = M.render(body, dur=4.0, freq=args.freq)
+    y, err = M.render(body, dur=4.0, freq=args.freq, preroll=PREROLL)
     if y is None:
         raise SystemExit(f"the body at its defaults does not render: {err}")
     d = M.measure(y, args.freq)
@@ -747,7 +770,7 @@ def main():
         regs = [float(x) for x in args.registers.split(",")]
         lv = []
         for f in regs:
-            yr, er = M.render(body, dur=4.0, freq=f)
+            yr, er = M.render(body, dur=4.0, freq=f, preroll=PREROLL)
             lv.append((f, None if yr is None else M.rms_db(yr), er))
         print("register: " + "  ".join(
             f"{f:.0f}:{'ERR' if v is None else f'{v:+.2f}'}" for f, v, _ in lv))
@@ -762,7 +785,7 @@ def main():
             # told apart from measurement noise (1/f-heavy bodies vary ~1.5 dB)
             rep = []
             for _ in range(3):
-                yr, _e = M.render(body, dur=4.0, freq=regs[0])
+                yr, _e = M.render(body, dur=4.0, freq=regs[0], preroll=PREROLL)
                 if yr is not None:
                     rep.append(M.rms_db(yr))
             if len(rep) >= 2:

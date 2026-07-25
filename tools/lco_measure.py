@@ -224,15 +224,19 @@ def render(body, dur=4.0, freq=220.0, glide=None, keep=None, preroll=0.0):
     peak = float(np.abs(y).max())
     if peak < 1e-5:
         return None, "SILENT"
-    # After the onset, for the reason recorded at ONSET_S: a filter's start-up
-    # sample is not a hot body. The onset is still reported, it just does not
-    # condemn the entry.
+    # Which peak the host clip is judged on depends on whether a preroll was given —
+    # see the block at ONSET_S. With one, the instrument was already running before the
+    # note, so everything in this buffer is the note and the attack counts. Without
+    # one, the buffer still holds the instrument's own start-up and the 50 ms exemption
+    # stands.
     late = y[int(ONSET_S * SR):]
     peak_late = float(np.abs(late).max()) if len(late) else peak
-    if peak_late > HOST_TRANSPARENT:
-        limited = " and HARD-LIMITED" if peak_late > HOST_CLIP else ""
-        return y, (f"HOT (peak {peak_late:.2f} after the first "
-                   f"{ONSET_S * 1000:.0f} ms; the host alters a body above "
+    judged, where = ((peak, "over the note")
+                     if preroll > 0 else
+                     (peak_late, f"after the first {ONSET_S * 1000:.0f} ms"))
+    if judged > HOST_TRANSPARENT:
+        limited = " and HARD-LIMITED" if judged > HOST_CLIP else ""
+        return y, (f"HOT (peak {judged:.2f} {where}; the host alters a body above "
                    f"{HOST_TRANSPARENT:.2f}{limited})")
     return y, None
 
@@ -311,6 +315,24 @@ HOST_PRES_GAIN_MAX = 1.15
 # 50 ms: long enough to clear a high-Q resonator's ring-up, short enough that a real
 # sustained over cannot hide inside it.
 ONSET_S = 0.050
+
+# …and that exemption only applies when there is NO preroll. `preroll` was added after
+# ONSET_S and it models the very thing ONSET_S argues from — "the plugin's instances
+# have been running since load" — so with a preroll the start-up is already outside the
+# returned buffer and whatever is left is the NOTE, attack included. Measured over
+# prerolls 0.0 / 0.5 / 1.3, whole-note peak:
+#   string @ 69.3 Hz   3.179 -> 0.777 / 0.772   the spike is start-up: gone with a preroll
+#   glass  @ 220 Hz    1.266 -> 0.970 / 1.001   likewise
+#   rhodes @ 220 Hz    0.596 -> 0.596 / 0.589   nothing there either way
+#   tom    @ 220 Hz    6.059 -> 3.092 / 4.337   SURVIVES: the mallet, on every note
+# So judging a prerolled render on `peak_late` hid a struck body clipping 3-4x over the
+# host ceiling while reporting 0.70. The library was entirely standing tones until the
+# first struck, decaying entry; `peak_late` cannot see an attack, and an attack keyed to
+# `knote` recurs on every note-on because the host resets that clock.
+#
+# Note also that tom's figure MOVES with the preroll (3.09 vs 4.34): a burst exciter's
+# `rand` realisation differs, so one prerolled render is not the worst case. A struck
+# body has to be sized against several.
 
 
 def _clip_transfer():
@@ -455,7 +477,16 @@ def _loudness_track(y, t0=1.0, win=0.05):
     return e[keep]
 
 
-_RESEED = re.compile(r"(\brand[ih]?\s+[^,\n]+,\s*)(\d*\.?\d+)")
+# `rand`'s seed is its SECOND argument — `ares rand xamp [, iseed] [, isel] [, ioffset]` —
+# but `randi`'s and `randh`'s is their THIRD: `ares randi xamp, xcps [, iseed] [, isize]`.
+# One pattern for all three rewrote the RATE of every `randi` in the library and called it
+# a seed. Measured on `ice`, whose `kjit randi 0.30, 0.7, 0.5, 1` is its crack jitter: the
+# old pattern produced `randi 0.30, 0.0100, 0.5, 1`, taking 0.7 Hz down to 0.01 Hz. So the
+# "different noise realisation" was a differently-MOVING body, and `lco_phase_census` then
+# read that difference as the exciter's dice and classified on it — `ice`'s published class
+# turned on it, 1.5 % from flipping.
+_RESEED_2ND = re.compile(r"(\brand\s+[^,;\n]+,\s*)(\d*\.?\d+)")
+_RESEED_3RD = re.compile(r"(\brand[ih]\s+[^,;\n]+,\s*[^,;\n]+,\s*)(\d*\.?\d+)")
 # Every opcode in Csound that draws a random number. A body containing none of these is
 # fully deterministic, so whatever its level does, it does on purpose.
 _STOCHASTIC = re.compile(
@@ -471,11 +502,17 @@ _BODY_MIN = 0.35
 def reseed(body, k):
     """The same body with a different noise realisation, or None if there is none to change.
 
-    Every stochastic source in the library is one of four opcodes and `rand` — 19 of the
-    25 calls — carries its own explicit seed, so a different realisation is a rewrite of
+    Every stochastic source in the library is one of four opcodes and `rand` — 24 of the
+    27 calls — carries its own explicit seed, so a different realisation is a rewrite of
     that argument and nothing else. `dust`, `dust2` and `pinkish` take the global seed,
     which this cannot reach from here, so a body whose ONLY noise is one of those gets
     None rather than a wrong answer.
+
+    Two things this gets right that a single pattern over the whole text cannot: the seed
+    is a different ARGUMENT for `rand` than for `randi`/`randh` (see above), and only the
+    CODE part of a line is rewritten. `bubbles` carries the text "Written as `randi 0.14,
+    0.19, 2`" in a comment, which the old pattern matched and edited — a comment that then
+    disagreed with the code beside it.
     """
     n = [0]
 
@@ -483,10 +520,15 @@ def reseed(body, k):
         n[0] += 1
         return f"{m.group(1)}{(0.11 + 0.13 * n[0] + 0.37 * k) % 0.98 + 0.01:.4f}"
 
-    out = _RESEED.sub(sub, body)
+    out = []
+    for line in body.split("\n"):
+        code, sep, comment = line.partition(";")
+        code = _RESEED_3RD.sub(sub, code)
+        code = _RESEED_2ND.sub(sub, code)
+        out.append(code + sep + comment)
     if n[0] == 0:
         return None
-    return out
+    return "\n".join(out)
 
 
 def loudness_is_the_body(body, freq=220.0, dur=8.0, k=(0, 1, 2)):
