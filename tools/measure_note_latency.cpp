@@ -10,12 +10,21 @@
 //
 // Reported per mode, all relative to the note-on sample:
 //   onset   first sample above -80 dBFS
-//   t10/t50 first sample at 10 % / 50 % of the peak in the first 300 ms
+//   t10/t50 first sample at 10 % / 50 % of the STEADY level (median of a late
+//           window, so a detuned stack's beat cannot fake a slow attack)
 //
 // The neural engines (Sampler/Wavetable) are fed a synthetic "generated" buffer
 // with an instant onset via loadGeneratedAudio(), so their numbers are a floor,
 // not a property of any particular generated sound. The LCO/LRO runs whatever
 // orchestra is compiled — the built-in one unless a path is passed.
+//
+// One reading of this tool needs its condition stated with it: the sampler's
+// pitch shifter is only late when its start point has no audio in front of it
+// to prime the STFT with. loadGeneratedAudio() trims leading silence and then
+// auto-positions P1 at the first active window, which puts P1 at ~0 — which is
+// the state the scenario table below measures. The dedicated P1 sweep further
+// down is what says how much of that is the shifter and how much is the
+// missing pre-roll; do not quote the table's sampler row without it.
 //
 // Build (same response-file recipe as audition_csound_swap.cpp):
 //   FLAGS=build_clean/CMakeFiles/T5ynth.dir/flags.make
@@ -345,6 +354,38 @@ int main (int argc, char** argv)
         pump (300);
         report (gOrchestraPath.isNotEmpty() ? "LRO (authored)" : "LRO (built-in orch)",
                 measure (proc, sc.note, sc.offset, captureBlocks));
+    }
+
+    // ── the sampler's pitch shifter, against the pre-roll it is given ──
+    // primeStretcher() pays the STFT latency in two steps: seek() fills the
+    // analysis context with audio from BEFORE the start point, then a
+    // process()+discard of inputLatency() samples. Step one can only read what
+    // is THERE — `seekStart = readPosition - seekLen*srRatio`, and a negative
+    // seekStart clamps seekLen down to whatever fits (SamplePlayer.cpp:1093).
+    // With P1 at the very start of the buffer there is no pre-roll at all and
+    // the unpaid remainder shows up as latency, on transposed notes only (the
+    // root takes the nearUnity bypass and never enters the stretcher).
+    //
+    // This sweep is here because the first version of this tool measured only
+    // P1 = 0 and reported its 46 ms as a property of the sampler.
+    std::printf ("\ntransposed note (G4), sampler only, vs. source audio before P1:\n");
+    {
+        setParam (proc, PID::engineMode, 0.0f);   // Sampler
+        pump (200);
+        proc.getSampler().setPointsLocked (true); // keep our P1, don't re-auto-position
+        const float p1s[] = { 0.0f, 0.005f, 0.02f, 0.05f, 0.07f, 0.15f };
+        for (float p1 : p1s)
+        {
+            proc.getSampler().setStartPos (p1);
+            pump (100);
+            char label[64];
+            std::snprintf (label, sizeof (label), "P1 = %.3f  (%.0f ms before)",
+                           p1, p1 * 2000.0);   // the synthetic source is 2 s long
+            report (label, measure (proc, 67, 0, captureBlocks));
+        }
+        proc.getSampler().setStartPos (0.0f);
+        proc.getSampler().setPointsLocked (false);
+        pump (100);
     }
 
     // ── does velocity reach the output the same way in every mode? ──
