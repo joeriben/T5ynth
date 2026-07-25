@@ -2446,9 +2446,10 @@
    "key": "glass",
    "surface_forms": [
     "glass",
-    "glassy",
     "glass pad",
-    "glassy pad"
+    "struck glass",
+    "glas",
+    "glasklang"
    ],
    "priority": 5,
    "why": "struck glass / a glass pad -- a bright inharmonic sheen: six `mode` resonators at glass ratios (1, 2.71, 3.83, 5.17, 6.61, 8.09) at very high Q (1400-2000) under a continuous noise exciter, so a held note stands and the synth's own envelope does the striking. Not a harmonic series: that is the substance of glass, not a detail. Measured on this build: the spectrum follows the keyboard exactly, and like every noise-driven `mode` bank it gets about 1.8 dB quieter per octave upward, because a noise-driven resonator emits power ~ Q/f.",
@@ -2540,9 +2541,9 @@
    "key": "hiss",
    "surface_forms": [
     "hiss",
-    "static",
     "tape hiss",
     "radio static",
+    "dead channel",
     "zischen"
    ],
    "priority": 5,
@@ -2573,7 +2574,6 @@
     "vowel",
     "ahh",
     "aah",
-    "singing",
     "sung",
     "soprano",
     "voix",

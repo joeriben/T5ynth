@@ -98,6 +98,33 @@ def assemble(lex):
     }
 
 
+def narrowing_forms(lex):
+    """Instrument surface forms that are an adjective's or a motion's own key.
+
+    Not a style complaint. `lco_write.open_entries` opens the WHOLE library only
+    when the author's reply named no instrument, so a word that describes a
+    QUALITY but is also registered as an instrument's form silently cuts the
+    author's view from every instrument to that one. Found the hard way: the
+    recovered `hiss` carried the form `static`, which is the motion `static`'s own
+    key, so "a static, dirty analog pad" opened 2 instruments instead of 45 —
+    the word for "does not move" selecting a white-noise bed. `glass` carried
+    `glassy` the same way.
+
+    Only KEYS are checked, because a key is the word the index prints and the
+    author writes back. A shared non-key form merely opens both entries, which
+    costs nothing.
+    """
+    keys = {e["key"].lower(): (sec, e["key"])
+            for sec in ("adjectives", "motions") for e in lex[sec]}
+    bad = []
+    for e in lex["techniques"]:
+        for f in [e["key"]] + list(e.get("surface_forms") or []):
+            hit = keys.get(str(f).strip().lower())
+            if hit:
+                bad.append((e["key"], f, hit[0], hit[1]))
+    return bad
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--check", action="store_true",
@@ -105,6 +132,14 @@ def main():
     args = ap.parse_args()
 
     lex = json.loads(LEXICON.read_text())
+    bad = narrowing_forms(lex)
+    if bad:
+        for inst, form, sec, key in bad:
+            print(f"instrument {inst!r} claims the form {form!r}, which is the "
+                  f"{sec[:-1]} {key!r}'s own key — a prompt using that word would "
+                  f"open only {inst!r} instead of the whole library",
+                  file=sys.stderr)
+        return 1
     lib = assemble(lex)
     text = json.dumps(lib, indent=1, ensure_ascii=False) + "\n"
 
