@@ -9,6 +9,12 @@ This file is the verdict per source, so the question is settled once instead of
 per instrument. It was written after a survey of the field's standard sources;
 every licence below was read on the source's own pages, not inferred.
 
+`docs/LCO_CSOUND_SOURCES_AND_LICENCES.md` answers the same question from the
+other end — the practice that follows for authoring, and what to do if a source
+ever does turn out usable. The two must not disagree: they did, on the manual's
+GFDL version, and the version stated here is the one read from the primary
+source. Where they differ again, this file is the licence record.
+
 ## The rule
 
 **Author fresh against documented opcode argument lists and the acoustics
@@ -22,7 +28,8 @@ here. So the library is authored, and every entry's `why` carries the measuremen
 it was built from rather than a pointer to code somebody else owns.
 
 This is not a limitation in practice: the substrate already knows the domain.
-This build (Csound 6.18, Homebrew, double, **no STK**) carries 7139 opcodes,
+This build (Csound 6.18, Homebrew, double, **no STK**) carries 1607 opcode names
+over 2377 name/signature rows (`csound -z1 | awk '{print $1}' | sort -u | wc -l`),
 including `vco2` with a real duty-cycle input, `gbuzz`, `mode`, `barmodel`,
 `prepiano`, `wgbow`, `wgbowedbar`, `wgclar`, `wgbrass`, `wgflute`, `repluck`,
 `streson`, `marimba`, `gogobel`, `vibes`, `dripwater`, `shaker`, `scanu`,

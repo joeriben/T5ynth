@@ -8,14 +8,17 @@ rather than assumed, and the practice that follows from it.
 akróasys is **GPLv3**. Anything embedded in `backend/dco_lexicon.json` ships inside it, so
 the question is not "may I read this" but "may this be distributed under GPLv3".
 
+`docs/LCO_CODE_PROVENANCE.md` is the per-source licence record and the authority where the
+two files disagree; this one is the practice that follows from it.
+
 ## What was checked
 
 | Source | Licence found | Usable in this library? |
 |---|---|---|
 | Csound itself (the opcodes) | **LGPL 2.1 or later** — stated in the manual's copyright notice | Yes. Calling `vco2`, `mode`, `gbuzz` is use of the software, not copying of code. This is the whole basis of the LCO. |
-| The Canonical Csound Reference Manual, **including its example orchestras** | **GFDL 1.2 or later.** The notice covers "this document" and says nothing separate about the `.csd` examples, so they inherit the documentation licence | **No.** The GFDL is a documentation licence and is not GPL-compatible; there is no clean path from a GFDL example orchestra into a GPLv3 binary. |
-| Amsterdam Catalog of Csound Computer Instruments (Gather, 1995; ~100 instruments incl. all 25 Risset Bell Labs ones) | **None stated.** Neither the catalogue's own site nor the Haskell port carries a LICENSE file, badge or copyright grant | **No.** No stated licence means all rights reserved. |
-| The Csound Book CD-ROMs (Boulanger, MIT Press 2000) | **None stated** for the instrument files | **No.** Same reason, and it is a commercial publication. |
+| The Canonical Csound Reference Manual, **including its example orchestras** | **GFDL 1.3, with no "or later" grant.** Verbatim from `csound/manual`, `docs/intro/copyright-notice.md`: "This version of the Csound Manual ("The Canonical Csound Manual") is released under the [GNU Free Documentation Licence]" — the prose names no version and the link is `fdl-1.3.html`. The notice says nothing separate about the `.csd` examples, so they inherit the documentation licence | **No.** The GFDL is a documentation licence and is not GPL-compatible; there is no clean path from a GFDL example orchestra into a GPLv3 binary. |
+| Amsterdam Catalog of Csound Computer Instruments (Gather, 1995; ~100 instruments incl. all 25 Risset Bell Labs ones) | **None found — and the primary source could not be reached at all.** Its home at `music.buffalo.edu/hiller/accci/` now redirects to the university root and the codemist mirror refuses connections; the Haskell port `spell-music/amsterdam` was cloned and carries no LICENSE, COPYING or copyright grant | **No.** Neither a stated licence nor a reachable source to check one in. |
+| The Csound Book CD-ROMs (Boulanger, MIT Press 2000) | **None found — csounds.com unreachable**, so the instrument files were never inspected | **No.** Same reason, and it is a commercial publication. |
 
 ## The practice that follows
 
