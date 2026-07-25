@@ -1,0 +1,353 @@
+#!/usr/bin/env python3
+"""Audit every library instrument against the parametrisation rules.
+
+The rules are not invented here. They are `docs/LCO_CONCEPT.md` §3 (what an
+instrument IS) and §4 (the platform invariants), plus the two failure modes §7
+records as already committed on this project. This file only turns them into
+checks that fail out loud:
+
+  STRUCTURE — read from `backend/lco_library.json`, no render
+    S1  the entry carries parameters at all                          (§3)
+    S2  every axis has a range, a default inside it, >=2 named
+        anchors, and a perceptual gloss on each anchor               (§3.2, §3.3)
+    S3  every axis carries a `note` saying what it does to the sound (§3.2)
+    S4  every anchor value is inside the declared range, and the
+        anchor_code variants name axes that exist
+
+  RENDERED — through `tools/lco_measure.py`'s calibrated meter
+    M1  the body renders clean at 55 / 220 / 1760 Hz — not silent,
+        not so hot the host's clip would act on it
+    M2  the sound TRACKS the keyboard across those registers        (§4 pitch)
+    M3  a held note STANDS: no self-decay                           (§4 spectrum source)
+    M4  the sound moves                                             (§4 movement by default)
+    M5  an axis is a COLOUR control, not a volume control: the RMS
+        spread across its anchors stays small                       (§4, §7.8)
+    M6  an axis actually DOES something: colour, comb contrast or
+        definiteness has to move across its anchors
+    M7  the KEYBOARD is not a volume control either: loudness must
+        not tilt across the register                          (§5 on `vibes`)
+
+M5 is the one that has already shipped broken once (instrument 3's `damping` was
+a -4 dB fader wearing a colour name), and M6 is its mirror: a control that moves
+nothing is a label, not a parameter.
+
+Two things this file deliberately does NOT do, both because the first draft did
+them and both readings were wrong — the meter is an instrument and needed its own
+calibration here too (`LCO_CONCEPT.md` §7.7):
+
+  - **M2 is TRACKING, not absolute pitch.** An inharmonic bell has no single
+    period, so a period-based f0 locks onto the set's quasi-period and reads
+    -2773 cents against the played note. `fm_bell` is not mistuned; it is a bell.
+    What §4 actually requires is that the sound follow `kfreq` — so the check
+    renders an OCTAVE and asks whether the measured pitch (or, where there is
+    none, the spectral centroid) doubled. That is also the check that catches
+    what §4 is aimed at: an opcode inventing its own register.
+  - **A HOT flag on a randomly-excited body is re-measured before it counts.**
+    `render()`'s guard reads the true peak, and the peak of a dust/rand process
+    is itself random (HANDOVER §5: the same body measured 2.89 and 0.79). So a
+    HOT body is rendered three times and judged on the p99.9 — a systematic 3x
+    is a finding, an occasional transient the host's soft clip catches is not.
+
+The audit renders the DEFAULT body for M1-M4 and the `anchor_code` variants for
+M5/M6 — so M5/M6 can only be judged on axes that have anchor_code. An axis
+without it is reported as UNMEASURABLE rather than passing quietly.
+
+    .venv/bin/python tools/lco_param_audit.py                 # everything
+    .venv/bin/python tools/lco_param_audit.py --key string    # one entry
+    .venv/bin/python tools/lco_param_audit.py --out audit.json
+"""
+import argparse
+import json
+import sys
+from pathlib import Path
+
+REPO = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(REPO / "tools"))
+
+import lco_measure as M  # noqa: E402
+
+LIB = REPO / "backend" / "lco_library.json"
+
+# The registers the audit sweeps. 55 Hz and 1760 Hz are where this project has
+# actually found instruments falling over (fm_ep's tine folds above ~1553 Hz,
+# vibes tilts 15 dB below 440, the modal bank swings at 20 Hz).
+REGISTERS = (55.0, 110.0, 220.0, 440.0, 880.0, 1760.0)
+# M7 is judged over the musically central three octaves, so a structural ceiling
+# at the very top (fm_ep's tine folding above ~1553 Hz) is reported as its own
+# finding rather than swamping the tilt reading.
+TILT_REGISTERS = (110.0, 220.0, 440.0, 880.0)
+TILT_OK_DB = 3.0
+
+# M5: how much loudness an axis may move over its full travel. Not a platform
+# rule about a note's life (HANDOVER §5 corrects that misreading) — a rule about
+# a PARAMETER: instrument 3 was re-levelled until its worst full-travel swing was
+# 0.24 dB at >=110 Hz, so 1.0 dB is a generous pass and 2.0 dB is a fader.
+LOUD_OK_DB = 1.0
+LOUD_BAD_DB = 2.0
+
+# M6: an axis has to move one of the three things a spectrum source can move.
+MOVES_COLOUR_HZ = 40.0    # spectral centroid
+MOVES_COMB_DB = 1.5       # how sharply it rings
+MOVES_MOTION_HZ = 15.0    # how much the colour travels within the note
+
+
+def load():
+    return json.loads(LIB.read_text())
+
+
+def _axis_of(anchor_key):
+    return anchor_key.split("=", 1)[0].strip()
+
+
+def structure(inst):
+    """S1-S4. Returns a list of (level, message)."""
+    out = []
+    params = inst.get("params") or {}
+    ac = inst.get("anchor_code") or {}
+    if not params:
+        out.append(("S1", "no parameters at all — a fixed idiom"))
+        if ac:
+            out.append(("S4", f"anchor_code without params: {sorted(ac)}"))
+        return out
+
+    for name, p in sorted(params.items()):
+        rng = p.get("range")
+        if not (isinstance(rng, list) and len(rng) == 2):
+            out.append(("S2", f"{name}: no usable range ({rng!r})"))
+            rng = None
+        default = p.get("default")
+        if default is None:
+            out.append(("S2", f"{name}: no default"))
+        elif rng and not (rng[0] <= default <= rng[1]):
+            out.append(("S2", f"{name}: default {default} outside range {rng}"))
+
+        anchors = p.get("anchors") or {}
+        if len(anchors) < 2:
+            out.append(("S2", f"{name}: {len(anchors)} anchor(s) — an axis needs "
+                              "at least two named points"))
+        for aname, a in anchors.items():
+            if not (a.get("gloss") or "").strip():
+                out.append(("S2", f"{name}/{aname}: no perceptual gloss"))
+            v = a.get("value")
+            if v is None:
+                out.append(("S2", f"{name}/{aname}: no value"))
+            elif rng and not (rng[0] <= v <= rng[1]):
+                out.append(("S4", f"{name}/{aname}: value {v} outside range {rng}"))
+
+        if not (p.get("note") or "").strip():
+            out.append(("S3", f"{name}: no note — the model is told the anchor "
+                              "words but never what the axis does"))
+
+    axes_with_code = {_axis_of(k) for k in ac}
+    for a in sorted(axes_with_code - set(params)):
+        out.append(("S4", f"anchor_code names axis {a!r}, which has no params entry"))
+    for a in sorted(set(params) - axes_with_code):
+        out.append(("S4", f"{a}: no anchor_code — the model sees the words but "
+                          "never a code exemplar for this axis"))
+    return out
+
+
+def render_report(body, freq):
+    y, err = M.render(body, dur=4.0, freq=freq)
+    if y is None:
+        return {"error": err}
+    r = M.measure(y, freq)
+    if err and err.startswith("HOT"):
+        # The peak of a random-impulse process is random. Judge the level on the
+        # p99.9 of three renders; keep the peaks so the reading is checkable.
+        peaks, p999 = [r["peak_p999"]], [r["peak_p999"]]
+        for _ in range(2):
+            y2, e2 = M.render(body, dur=4.0, freq=freq)
+            if y2 is None:
+                continue
+            peaks.append(round(float(abs(y2).max()), 3))
+            p999.append(M.peak_p999(y2))
+        r["hot_p999_max"] = round(max(p999), 3)
+        r["hot_peaks"] = peaks
+        if max(p999) * M.W.HEADROOM > 0.95:
+            r["error"] = (f"HOT: p99.9 reaches {max(p999):.2f} over three renders; "
+                          f"the host clips above {0.95 / M.W.HEADROOM:.2f}")
+        else:
+            r["note"] = (f"transient peaks only ({err}); p99.9 stays at "
+                         f"{max(p999):.2f} — the host's soft clip catches these")
+    elif err:
+        r["error"] = err
+    return r
+
+
+def tracking(body, low=110.0, high=880.0):
+    """M2 — does the sound follow the keyboard, three octaves apart?
+
+    `lco_measure.tracks` is the meter, and its own docstring records why neither
+    `f0` nor the spectral centroid nor a lag search could do this job. Three
+    octaves rather than one, because a narrowband-noise-driven bank genuinely
+    needs a long span (`LCO_CONCEPT.md` §5 trap b): read over a single octave, the
+    per-render variance of `drum_head` said -205 cents of mistracking on an
+    instrument whose spectrum in fact scales to within 2% over three.
+    """
+    ylo, elo = M.render(body, dur=4.0, freq=low)
+    yhi, ehi = M.render(body, dur=4.0, freq=high)
+    if ylo is None or yhi is None:
+        return {"error": elo or ehi}
+    out = M.tracks(ylo, yhi, low, high)
+    out["span"] = f"{low:.0f}->{high:.0f} Hz"
+    return out
+
+
+def audit_one(inst, registers=REGISTERS, quick=False):
+    key = inst["key"]
+    rep = {"key": key, "structure": structure(inst), "registers": {}, "axes": {}}
+
+    for f in registers:
+        rep["registers"][str(f)] = render_report(inst["code"], f)
+    rep["tracking"] = tracking(inst["code"])
+
+    # M7 — the register tilt. Reported in dB per octave as well as total, because
+    # the shape says what it is: a clean -3 dB/octave is a noise-driven
+    # resonator's Q/f power law uncompensated, not a random imbalance.
+    lv = [(f, rep["registers"][str(f)].get("rms_db"))
+          for f in TILT_REGISTERS if str(f) in rep["registers"]]
+    lv = [(f, v) for f, v in lv if v is not None]
+    if len(lv) >= 2:
+        import math
+        octs = math.log2(lv[-1][0] / lv[0][0])
+        rep["tilt"] = {"rms_db": {str(f): v for f, v in lv},
+                       "spread_db": round(max(v for _, v in lv)
+                                          - min(v for _, v in lv), 2),
+                       "db_per_octave": round((lv[-1][1] - lv[0][1]) / octs, 2)}
+
+    ac = inst.get("anchor_code") or {}
+    params = inst.get("params") or {}
+    by_axis = {}
+    for label, body in ac.items():
+        by_axis.setdefault(_axis_of(label), []).append((label, body))
+
+    for axis, variants in sorted(by_axis.items()):
+        rows = []
+        for label, body in sorted(variants):
+            r = render_report(body, 220.0)
+            r["anchor"] = label
+            rows.append(r)
+        good = [r for r in rows if "f0" in r]
+        a = {"anchors": rows}
+        if len(good) >= 2:
+            def spread(k):
+                vs = [r[k] for r in good if r.get(k) is not None]
+                return (round(max(vs) - min(vs), 2) if len(vs) >= 2 else None)
+            a["rms_spread_db"] = spread("rms_db")
+            a["centroid_spread_hz"] = spread("centroid")
+            a["comb_spread_db"] = spread("comb_db")
+            a["motion_spread_hz"] = spread("centroid_motion_hz")
+            a["sustain_range"] = [min(r["sustain"] for r in good),
+                                  max(r["sustain"] for r in good)]
+        rep["axes"][axis] = a
+
+    for axis in sorted(set(params) - set(by_axis)):
+        rep["axes"][axis] = {"unmeasurable": "no anchor_code"}
+    return rep
+
+
+def verdicts(rep):
+    """Turn the numbers into pass/warn/fail lines. One per rule, per subject."""
+    out = list(rep["structure"])
+
+    for f, r in rep["registers"].items():
+        if "f0" in r or "error" not in r:
+            pass
+        if r.get("error") and "f0" not in r:
+            out.append(("M1", f"{f} Hz: {r['error']}"))
+            continue
+        if r.get("error"):
+            out.append(("M1", f"{f} Hz: {r['error']}"))
+        s = r.get("sustain")
+        if s is not None and s < 0.45:
+            out.append(("M3", f"{f} Hz: does not stand — tail/head {s:.3f}"))
+
+    tk = rep.get("tracking") or {}
+    if tk.get("error"):
+        out.append(("M2", f"tracking cannot be measured — {tk['error']}"))
+    elif tk.get("verdict") != "tracks":
+        out.append(("M2", f"over {tk['span']} the spectrum reads as "
+                          f"{tk['verdict']!r}, not as following the keyboard "
+                          f"(r_note {tk['r_note']} vs r_fixed {tk['r_fixed']})"))
+
+    t = rep.get("tilt")
+    if t and t["spread_db"] > TILT_OK_DB:
+        out.append(("M7", f"loudness follows the keyboard: {t['spread_db']:.1f} dB "
+                          f"across 110-880 Hz ({t['db_per_octave']:+.2f} dB/octave)"))
+
+    mid = rep["registers"].get("220.0", {})
+    mot = mid.get("centroid_motion_hz")
+    if mot is not None and mot < 8.0:
+        out.append(("M4", f"stands still — colour motion {mot:.1f} Hz "
+                          "(movement by default)"))
+
+    for axis, a in rep["axes"].items():
+        if a.get("unmeasurable"):
+            out.append(("M5", f"{axis}: {a['unmeasurable']} — loudness and effect "
+                              "cannot be measured"))
+            continue
+        bad = [r for r in a["anchors"] if "f0" not in r]
+        for r in bad:
+            out.append(("M1", f"{axis}/{r['anchor']}: {r.get('error')}"))
+        sp = a.get("rms_spread_db")
+        if sp is not None and sp >= LOUD_BAD_DB:
+            out.append(("M5", f"{axis}: moves loudness {sp:.2f} dB over its "
+                              "travel — this is a volume control"))
+        elif sp is not None and sp > LOUD_OK_DB:
+            out.append(("M5", f"{axis}: moves loudness {sp:.2f} dB over its travel"))
+        moved = ((a.get("centroid_spread_hz") or 0) > MOVES_COLOUR_HZ
+                 or (a.get("comb_spread_db") or 0) > MOVES_COMB_DB
+                 or (a.get("motion_spread_hz") or 0) > MOVES_MOTION_HZ)
+        if a.get("centroid_spread_hz") is not None and not moved:
+            out.append(("M6", f"{axis}: changes nothing measurable — centroid "
+                              f"{a.get('centroid_spread_hz')} Hz, comb "
+                              f"{a.get('comb_spread_db')} dB, motion "
+                              f"{a.get('motion_spread_hz')} Hz"))
+    return out
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--key", action="append", help="audit only these keys")
+    ap.add_argument("--out", help="write the full JSON here")
+    ap.add_argument("--params-only", action="store_true",
+                    help="only entries that already carry parameters")
+    args = ap.parse_args()
+
+    lib = load()
+    insts = lib["instruments"]
+    if args.key:
+        insts = [i for i in insts if i["key"] in set(args.key)]
+    if args.params_only:
+        insts = [i for i in insts if i.get("params")]
+
+    reports = []
+    for inst in insts:
+        rep = audit_one(inst)
+        rep["verdicts"] = verdicts(rep)
+        reports.append(rep)
+        mid = rep["registers"].get("220.0", {})
+        tr = rep["tracking"]
+        tilt = rep.get("tilt") or {}
+        head = (f"{inst['key']:14s} "
+                f"track={tr.get('verdict', 'error')!s:>14} "
+                f"tilt={tilt.get('db_per_octave')!s:>6}dB/oct "
+                f"centroid={mid.get('centroid')!s:>7} "
+                f"sustain={mid.get('sustain')!s:>6} "
+                f"motion={mid.get('centroid_motion_hz')!s:>7}")
+        print(head, flush=True)
+        for level, msg in rep["verdicts"]:
+            print(f"    {level}  {msg}", flush=True)
+
+    if args.out:
+        Path(args.out).write_text(json.dumps(reports, indent=1))
+        print(f"\nwrote {args.out}")
+
+    n = sum(len(r["verdicts"]) for r in reports)
+    print(f"\n{len(reports)} instruments, {n} findings")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
