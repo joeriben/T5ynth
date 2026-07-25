@@ -403,20 +403,41 @@ def coherence(y, n=128):
     built on the span alone passes every noise bed in the library and would certify
     "movement by default" on a body that provably cannot move.
 
-    What separates them is the SHAPE of the centroid track, not its range. A track
-    driven by an LFO or an envelope is smooth — successive windows are near each
-    other because the thing moving them is slow relative to the window. A track
-    that is only variance is white: each window is independent of the last. The
-    lag-1 autocorrelation reads exactly that, near 1 for the first and near 0 for
-    the second, and it is scale-free, so it needs no threshold per instrument.
+    What separates them is the SHAPE of the centroid track, not its range: a track
+    driven by an LFO or an envelope has its energy in a FEW rates, a track that is
+    only variance spreads it over all of them. So this is one minus the spectral
+    flatness of the track — 1 for a track that moves at some definite rate, 0 for
+    white wandering, and free of any assumption about WHICH rate.
+
+    It was the lag-1 autocorrelation, which is the same idea done cheaply, and the
+    cheapness cost real answers. Lag-1 on an n=128 track over 4 s samples the track
+    at 32 Hz, and the autocorrelation of a component at rate f is cos(2*pi*f/32) —
+    which is exactly ZERO at 8 Hz and NEGATIVE above it. A wineglass whose two
+    quadrupole modes beat 8 Hz apart therefore read as having no movement at all,
+    in 6 of its 27 parameter corners, while beating audibly. Flatness has no such
+    null: a peak anywhere in the track spectrum counts.
     """
     cs, _ = travel(y, n)
     a = np.asarray(cs, dtype=float)
+    span = float(a.max() - a.min()) if len(a) else 0.0
     a = a - a.mean()
-    den = float((a * a).sum())
-    if den <= 0 or len(a) < 4:
+    if len(a) < 8 or span < 1.0:
+        # Under a hertz of travel there is no shape to characterise, and the
+        # flatness of a float noise floor is a number about nothing. A standing
+        # sine read 0.98 through this before the guard was absolute.
         return 0.0
-    return float((a[:-1] * a[1:]).sum() / den)
+    P = np.abs(np.fft.rfft(a * np.hanning(len(a)))) ** 2
+    P = P[1:]                       # drop DC: the mean is already removed
+    P = P[P > 0]
+    if P.size < 4:
+        return 0.0
+    flat = float(np.exp(np.log(P).mean()) / P.mean())
+    # A single periodogram of white noise does NOT read flatness 1: its bins are
+    # exponentially distributed, whose geometric mean is exp(-gamma) = 0.5615 of
+    # their arithmetic mean. Uncorrected, genuinely static noise measured 0.64 and
+    # would have passed as movement. Dividing by that expectation puts white at 0
+    # and a single-rate modulation at 1, which is what the number claims to mean.
+    return float(max(0.0, min(1.0, 1.0 - flat / 0.5615)))
 
 
 def odd_even_db(y, freq, n=16):
@@ -444,7 +465,7 @@ def odd_even_db(y, freq, n=16):
     return float(20 * np.log10(max(odd, 1e-12) / max(even, 1e-12)))
 
 
-def beat(y, lo_hz=0.5, hi_hz=25.0, t0=0.5, t1=3.5):
+def beat(y, lo_hz=0.5, hi_hz=25.0, t0=0.5, t1=3.5, at_hz=None):
     """The slow amplitude beat: how deep it is, and how fast.
 
     Two sources a few cents apart beat, and that beat is the whole substance of a
@@ -459,6 +480,15 @@ def beat(y, lo_hz=0.5, hi_hz=25.0, t0=0.5, t1=3.5):
     component in the beat band relative to the mean level, so `depth` comes out on
     the same scale as an asked-for AM depth. Calibrated against exactly that:
     asked 0.00 / 0.10 / 0.30 / 0.60 read 0.000 / 0.100 / 0.299 / 0.599.
+
+    `at_hz` asks about ONE rate instead of the strongest, because the strongest hides
+    the others. A rubbed wineglass has two independent amplitude motions at once —
+    the two quadrupole modes beating, and the finger passing four antinodes a lap —
+    and searching for the maximum reported only the beat, at a depth that did not
+    budge when the pulsation axis was swept from 0 to 1. The instrument then reads
+    as inert on exactly the axis it is named for. Calibrated on a sum of two AMs
+    where one is deliberately the louder: asked 0.30 at 3 Hz alongside 0.45 at
+    9 Hz, `at_hz=3` reads 0.299 while the plain call reports the 9 Hz line.
     """
     s = y[int(t0 * SR):int(t1 * SR)]
     if len(s) < SR // 4:
@@ -471,6 +501,15 @@ def beat(y, lo_hz=0.5, hi_hz=25.0, t0=0.5, t1=3.5):
     env = env - env.mean()
     F = np.abs(np.fft.rfft(env * np.hanning(len(env))))
     fq = np.fft.rfftfreq(len(env), 1 / sr2)
+    if at_hz is not None:
+        # one rate, widened by the window's own resolution so a slightly-off rate
+        # is still found: a Hann window spreads a line over ~2 bins each side.
+        w = 2.5 * sr2 / len(env)
+        band = (fq >= at_hz - w) & (fq <= at_hz + w)
+        if not band.any() or mean <= 0:
+            return 0.0, 0.0
+        amp = 2 * float(F[band].max()) / (len(env) / 2)
+        return amp / mean, float(at_hz)
     band = (fq >= lo_hz) & (fq <= hi_hz)
     if not band.any() or mean <= 0:
         return 0.0, 0.0
@@ -479,7 +518,33 @@ def beat(y, lo_hz=0.5, hi_hz=25.0, t0=0.5, t1=3.5):
 
 
 def moves(y, n=128, span_hz=8.0, min_coherence=0.35):
-    """Does the colour actually travel over the note? Span AND shape must agree."""
+    """Does the colour actually travel over the note? Span AND shape must agree.
+
+    The threshold is calibrated on the shipped library rather than chosen, and the
+    calibration also says what this test CANNOT do. Measured over all 50 entries at
+    4 s and n=128:
+
+      unpitched beds            0.01 - 0.20   (thunder .01, crackle .02, noise .06,
+                                               pink_noise .10, rain .12, hiss .20)
+      a deliberate modulation   0.86 - 1.00   (free_reed .86, bagpipe .97, pwm .97,
+                                               harmonica .99, double_reed 1.00)
+
+    and the null distribution over 70 renders of unmodulated noise, both bare and
+    filtered, is mean 0.028, sd 0.049, MAX 0.154. So 0.35 sits in the empty space
+    between the two populations at better than twice the largest false reading noise
+    alone produced, which is why it is the threshold.
+    But the band 0.20-0.86 is not empty in general: it holds three classes this
+    meter cannot resolve at 4 s, and a reading in it means "not demonstrated in four
+    seconds", never "static".
+
+      * movement slower than the window. `wind` gusts at 0.071 Hz and reads 0.34;
+        `surf` swells at 0.055 Hz and reads 0.57. Both move audibly. A quarter of a
+        cycle cannot be told from a trend.
+      * low-Q noise-driven mode banks, which ARE mostly filtered noise: `drum_head`
+        (Q 7-20) reads 0.00, `cymbal` 0.24, against `glass` (Q 1400-2000) at 0.73.
+      * bodies that decay to near silence inside the window, where the late
+        centroid is a noise floor: `rhodes` 0.00, `wurlitzer` 0.37.
+    """
     _, span = travel(y, n)
     r1 = coherence(y, n)
     return bool(span > span_hz and r1 > min_coherence), round(span, 1), round(r1, 3)
@@ -523,7 +588,12 @@ asig    gbuzz 0.17 * knrm, kfreq * koct1, knh, 1, kmul, giCos"""
 _MISSING = """a2      poscil 0.3, kfreq * koct1 * 2, giSine
 a3      poscil 0.3, kfreq * koct1 * 3, giSine
 asig    = a2 + a3"""
-_NOISE = "asig    rand 0.4"
+# The 31-bit generator (isel=1), which is what every body in the library uses. The
+# default 16-bit one repeats every 1.365 s, and that is a real 0.73 Hz periodicity:
+# `coherence` reads it as 0.358 against 0.060 for this form, correctly, since the
+# signal genuinely does repeat. Calling that "static noise" in a calibration made
+# the meter look wrong when it was the test signal that was moving.
+_NOISE = "asig    rand 0.4, 0.5, 1"
 
 
 def _comb(fb):
@@ -612,6 +682,20 @@ asig    reson anz, 2200 + kcut, 900, 2""")
         check("a swept saw moves", m_m, f"span {sp_m:.0f} Hz, coherence {r_m:+.2f}")
         check("a standing sine does not move", not m_s,
               f"span {sp_s:.0f} Hz, coherence {r_s:+.2f}")
+    # Movement at every RATE, because the meter this replaced had a null at 8 Hz
+    # (a quarter of the 32 Hz centroid-track rate) and read a beating wineglass as
+    # standing still. Any single-lag statistic has that null; these three cases
+    # bracket it, and a modulation rate is the last thing a candidate should have
+    # to avoid.
+    for rate in (0.7, 4.0, 8.0, 13.0):
+        yr, er = render(f"""anz     rand 0.4
+kcut    poscil 1500, {rate}
+asig    reson anz, 2200 + kcut, 900, 2""")
+        if er:
+            check(f"movement at {rate} Hz", False, er)
+            continue
+        ok, sp, r1 = moves(yr)
+        check(f"movement at {rate} Hz is seen", ok, f"span {sp:.0f} Hz, coherence {r1:+.2f}")
 
     print("tracking sees what follows the keyboard and what does not")
     _FIXED = "asig    poscil 0.4, 800, giSine"          # a fixed register: ignores kfreq
@@ -676,6 +760,24 @@ asig    = a1 + a2""")
         # 1.36 % of 220 Hz is 2.99 Hz; the beat is at the difference frequency.
         check("two detuned sines beat at their difference", abs(r - 2.99) < 0.3 and d > 0.5,
               f"depth {d:.2f} at {r:.2f} Hz (asked 2.99)")
+    # Two amplitude motions at once, the WEAKER one being the question. Searching
+    # for the maximum answers about the loud one and says nothing about the other,
+    # which is how a two-motion instrument reads as inert on one of its own axes.
+    ytm, etm = render("""ka      poscil 0.150, 3.0
+kb      poscil 0.225, 9.0
+asig    poscil 0.4 * (1 + 2 * ka + 2 * kb), kfreq * koct1, giSine""")
+    if etm:
+        check("two beats at once", False, etm)
+    else:
+        dmax, rmax = beat(ytm)
+        d3, _ = beat(ytm, at_hz=3.0)
+        d9, _ = beat(ytm, at_hz=9.0)
+        check("the strongest of two beats is the one reported by default",
+              abs(rmax - 9.0) < 0.4 and abs(dmax - 0.45) < 0.03,
+              f"read {dmax:.3f} at {rmax:.2f} Hz (asked 0.45 at 9 Hz)")
+        check("at_hz finds the quieter beat the maximum hides",
+              abs(d3 - 0.30) < 0.03 and abs(d9 - 0.45) < 0.03,
+              f"3 Hz reads {d3:.3f} (asked 0.30), 9 Hz reads {d9:.3f} (asked 0.45)")
 
     print("comb contrast tracks the resonator, not the exciter")
     (yn, en), (yh, eh), (yl, el) = (render(_NOISE), render(_comb(0.995)),
