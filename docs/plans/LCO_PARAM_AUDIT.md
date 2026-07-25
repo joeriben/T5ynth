@@ -344,11 +344,34 @@ byte-for-byte before it will emit anything new.
    it (50 ms RMS in dB, linearly detrended so an exponential decay cancels exactly)
    and the gate reports the worst corner. Two things for BJ:
    - **Does a beat count?** The number cannot tell a defect from a deliberate beat,
-     and 15 of 57 entries read above 6 dB because a detune beat IS loudness moving
-     inside the note — `supersaw` 14.3, `strings` 12.6, `free_reed` 8.9, and
-     `fm_bell`'s doublet 9.8, which is a protected platform invariant. This is the
-     same beat-versus-loudness question §2 records, now with a number on it. Until
-     it is answered the measurement is reported and not gated.
+     and 15 of 57 entries read above 6 dB somewhere in the register range because a
+     detune beat IS loudness moving inside the note — at 220 Hz `supersaw` 14.98 dB,
+     `strings` 13.95, `fm_bell`'s doublet 9.76 (a protected platform invariant) and
+     `free_reed` 8.20. `loudness_is_the_body` settles that these four are not meter
+     artefacts: none of them has a stochastic source at all, so it returns 1.0 and the
+     movement is deliberate by construction. This is the same beat-versus-loudness
+     question §2 records, now with a number and a verdict on it. Until it is answered
+     the measurement is reported and not gated.
+   - **The span is meaningless on a narrowband body, and was published anyway.** A
+     narrow filter fed noise has a fluctuating envelope with nothing modulating it:
+     `mode aex, 880, Q` reads 5.86 dB at Q 10, 14.92 at Q 200, 18.43 at Q 700 and
+     24.14 at that Q over twelve seconds rather than four, while a deliberate 3.00 dB
+     tremolo on a wide band reads 4.88. So every figure quoted here for `glass`,
+     `struck_bar`, `cymbal`, `drum_head`, `mbira` or `pink_noise` was a statement about
+     bandwidth. `loudness_is_the_body` re-renders with other seeds and correlates the
+     envelopes: those six read −0.02 to +0.11 (their own noise), while `free_reed`,
+     `surf`, `crackle`, `wind` and `thunder` read +0.62 to +1.00 and every one of them
+     is SUPPOSED to move in level. The test is one-sided — above 0.35 is proof, below
+     it is "not demonstrated", because a modulation whose rate comes from the pitch
+     decorrelates too.
+   - **A monotone swell was invisible and is now gated.** `loudness_travel` detrends
+     the dB envelope, so a straight line is removed exactly: a note that swells 20 dB
+     from one end to the other read 0.00 dB and passed the crossed gate with every
+     printed number clean, which is the one case §4 names outright. `loudness_drift_db`
+     reads it, a decaying body is judged on its travel alone, and a candidate failure
+     is confirmed on a note four times as long — one slow cycle inside a short window
+     is a straight line, and without that confirmation the new gate condemned `crackle`
+     and `supersaw` for the length of its own window.
    - **`overtone_voice`'s 6.66 dB is a defect and not a beat**, and it does not
      yield to a constant. The lift that cancels the drone's roll-off changes the
      picked harmonic's level as the melody steps from one harmonic to the next, and

@@ -725,8 +725,8 @@ def beat(y, lo_hz=0.5, hi_hz=25.0, t0=0.5, t1=3.5, at_hz=None, f0_hz=None):
     for, and the difference is the whole point: an entry that plays an octave below the
     asked note has its own ripple at the asked pitch, so a cap derived from the ask
     excludes nothing. Measured at an asked 220 Hz — `bass_saw` sounds 109.9 and read a
-    beat of 0.434 at 110.0 Hz, `sub_sine` 0.372, `organ` 0.142, and `bagpipe`, which
-    sounds two octaves down, 0.213 at 109 Hz. None of those bodies modulates anything
+    beat of 0.434 at 110.0 Hz, `sub_sine` 0.372 at 110.0, `organ` 0.145 at 110.67, and
+    `bagpipe`, which sounds two octaves down, 0.213 at 109 Hz. None of those bodies modulates anything
     near those rates; `bass_saw`'s only LFO is at 0.043 Hz. Off the measured
     fundamental they read 0.019 / 0.020 / 0.084 / 0.212 — and bagpipe's is its real
     drone beat, at 2.33 Hz, which is what this meter was written for.
@@ -734,7 +734,7 @@ def beat(y, lo_hz=0.5, hi_hz=25.0, t0=0.5, t1=3.5, at_hz=None, f0_hz=None):
     The cap is 2 Hz below the fundamental and not half of it, because half throws away
     a whole octave of genuine beat: an asked 0.30 at 115 Hz on a 220 Hz carrier read
     0.003 at the half-cap and reads 0.300 now, `didgeridoo`'s 97 Hz vocal hum went from
-    0.155 to 0.541 at a 110 Hz note, and `sax`'s 74 Hz growl from nothing to its own
+    0.155 to 0.533 at a 110 Hz note, and `sax`'s 74 Hz growl from nothing to its own
     line. 2 Hz is six bins of the 3 s window against a Hann main lobe two bins wide,
     which is what it takes to keep the fundamental's own line out.
 

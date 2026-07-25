@@ -291,13 +291,16 @@ def gate(body, freq=220.0, steps=3, registers=(55, 110, 220, 440, 880, 1760)):
     at_freq = [(c, r) for c, r in rows if c["Hz"] == freq]
     lv = [r["rms_db"] for _, r in at_freq]
     pk = max(((r["peak_p999"], c) for c, r in rows), key=lambda t: t[0])
-    # Loudness travelling INSIDE a note, reported and not gated — for the same reason
-    # movement everywhere is reported: the number does not distinguish a defect from a
-    # deliberate beat, and 15 shipped entries read above 6 dB because a detune beat IS
-    # loudness moving within the note (`supersaw` 14.3, `strings` 12.6, and `fm_bell`'s
-    # doublet 9.8, which is a protected invariant). Whether a beat counts against §4 is
-    # the question `LCO_PARAM_AUDIT.md` already records as BJ's. What this DOES do is
-    # make the class visible: `overtone_voice`'s 6.08 dB step train was invisible to
+    # Loudness travelling INSIDE a note, reported and not gated — the span alone cannot
+    # tell a defect from a deliberate beat, and 15 shipped entries read above 6 dB
+    # somewhere in the register range because a detune beat IS loudness moving within the
+    # note: `supersaw` 14.98 dB, `strings` 13.95, `fm_bell`'s protected doublet 9.76,
+    # `free_reed` 8.20, all at 220 Hz. None of those four has a stochastic source, so
+    # `loudness_is_the_body` returns 1.0 for each and the movement is theirs by
+    # construction — which is exactly why the span is printed with that verdict beside
+    # it. Whether a beat counts against §4 is the question `LCO_PARAM_AUDIT.md` records
+    # as BJ's. What this DOES do is make the class visible: `overtone_voice`'s 6.08 dB
+    # step train was invisible to
     # every number this gate printed, because each corner's MEAN was steady.
     tv = max(((r["loudness_travel_db"] or 0.0, c) for c, r in rows), key=lambda t: t[0])
     # The DRIFT is gated, and unlike the span above it is not ambiguous. §4 names this
