@@ -139,7 +139,31 @@ DECLARED = {
     **{k: {"M3": "it is a struck instrument and dying is what it does. Released "
                  "by BJ 2026-07-20; the `why` names the standing-tone "
                  "counterpart for the other reading."}
-       for k in ("rhodes", "wurlitzer", "vibraphone")},
+       for k in ("rhodes", "wurlitzer", "vibraphone", "tom")},
+    # `tom` is the fourth struck body and the first whose decay is short enough to
+    # fall OUTSIDE this file's loudness window entirely. M5/M7 here are not defects,
+    # they are the wrong meter: `lco_measure.rms_db` reads a hard-coded 0.5-3.5 s,
+    # and a tom at `ring` = 0 has a T60 of 0.15 s, so that window contains silence
+    # and the ratio between silence and a 4 s timpani is the 203 dB below. The
+    # invariant for a struck body is the STRIKE -- the RMS a mallet actually
+    # delivers. Measured over the first 100 ms, every axis over its own anchors:
+    # ring 0.02 / 0.06 / 0.14 dB, strike 0.46 / 0.04 / 0.13, pitched 0.40 / 0.01 /
+    # 0.09, strikepos 0.27 / 0.07 / 0.08, at 220 / 55 / 1760 Hz -- all inside the
+    # 0.5 dB bound at 220 Hz and the 1.0 dB bound elsewhere. `ring`'s 3.9 dB of
+    # whole-note spread is the model, not a fault: a 0.15 s tom and a 4 s timpani
+    # cannot integrate to the same energy, and forcing them to would push the whole
+    # correction into the transient. See HANDOVER_LCO.md §5 on choosing the meter.
+    "tom": {
+        "M3": "it is a struck instrument and dying is what it does. Released by "
+              "BJ 2026-07-20; `drum_head` is the standing-tone counterpart -- the "
+              "same eight membrane modes, continuously excited.",
+        "M5": "the wrong meter, not a fader: `rms_db`'s 0.5-3.5 s window opens "
+              "after this body is over at short `ring`. On the STRIKE (first "
+              "100 ms) the four axes spread 0.02-0.46 dB at 220 Hz and 0.01-0.14 "
+              "elsewhere, inside bound.",
+        "M7": "same window. The register tilt on the strike is -0.05 dB/octave "
+              "over 110-880 Hz.",
+    },
     "vibraphone": {
         "M3": "it is a struck instrument and dying is what it does. Released by "
               "BJ 2026-07-20; `struck_bar` is the standing-tone counterpart.",
