@@ -228,19 +228,74 @@ claim below verified against source by file and line.
 - [x] Backend draws a fresh seed only when `seed < 0` (pipe_inference.py:2604-2606, native path)
 - [x] Realized seed written back after each generation (PromptPanel.cpp:3477, 3633)
 
-## Documented defect (present in code, NOT fixed here)
+## Why a Resynth loop can repeat (corrected 2026-07-25 after adversarial review)
 
-The Resynth loop sets only the Resynth amount per round (PromptPanel.cpp:4121-4139); it
-never overrides the seed. With VAR at `none` (default) or `last`, an unchanged prompt and
-an unchanged incoming waveform, the request is byte-identical to the previous round, so the
-render is too. This is the reported "alte Samples hängen" symptom on the **ext** path, where
-a static/held input keeps the seed audio constant; **int** is unaffected because its own
-output becomes the next seed. The Guide states this behaviour and names VAR `auto` as the
-way out, rather than describing the loop as self-evolving unconditionally.
+An earlier draft of this note and of the Guide claimed the loop repeats because "with VAR
+none/last and an unchanged ext input the request is **byte-identical** each round." Two
+independent adversarial passes (Opus, reading the current tree) refuted the byte-identity
+framing and narrowed the mechanism. What is code-provable vs. what needs a model run:
 
-## Pre-existing errors found while writing (NOT fixed — outside this task)
+**Code-provable (holds):**
+- The loop sets only the Resynth amount per round and leaves the seed to VAR
+  (PromptPanel.cpp:4098-4139); the sole seed source is `getLastRandomSeed() ? -1 : getLastSeed()`
+  (PromptPanel.cpp:2960).
+- SA3 + init_audio routes through `_generate_native`, which re-draws only for `seed < 0`
+  (pipe_inference.py:2604); the legacy-SAO draw site (~3266) is never reached by SA3. So in
+  `none`/`last` the same fixed seed is used verbatim every round.
+- No anti-convergence / seed-perturbation controller exists anywhere in `src/` (grep empty).
 
-| Section | Claim in Guide | Actual (Code) | Source |
-|---------|---------------|---------------|--------|
-| 6. Drift & Regenerate | Regen Mode = "Manual / Auto / max 1♩ / 4♩ / 16♩" | manual / a.s.a.p. / 1 / 2 / 4 / 8 / 16 **bars** | BlockParams.h:1088-1103; PromptPanel.cpp:3926-3935 |
-| 1. Generation Section | "Seed −1 … 999 999 999" + a "Random" button; Easy vs. Advanced view with a numeric seed editor | The seed editor and Random toggle were removed; the VAR switchbox (none/last/auto) is the seed control, and Advanced is now the LCO panel | PromptPanel.h:147-149; PromptPanel.cpp:326-335, 373-374 |
+**The byte-identity claim was wrong for an audible static input.** `snapshotExternalCapture`
+copies the last N samples of a *live rolling ring* ending at the current write position and
+peak-normalises to that window's own magnitude (PluginProcessor.cpp:2747, gain `0.95/mag`
+at :2807). Successive loop rounds are seconds apart, so each captures a different,
+phase-shifted, differently-scaled slice — the request is **not** byte-identical for a held
+chord / static pad. The only byte-identical ext case is **silence**, where the silence guard
+attaches no init_audio (PluginProcessor.cpp:2788) and the round renders deterministically
+**text-only**; a pinned seed then reproduces it.
+
+**The audible "hang" is the low-init_noise mechanism, not the seed.** At high Resynth the
+denoise start is very low (Full → 0.05, PromptPanel.cpp:3127), so a spectrally-static input
+dominates the diffusion and successive renders sound the same even with a fresh seed. This is
+a model-behaviour statement, provable only by running (the reference measurement is
+`tools/test_resynth_loop_hang.py`; note that memory's earlier "defeats the anti-convergence
+controller" framing predates the controller's removal from the tree). For `int`, the fed-back
+audio changes each round, so the loop generally moves; at very high Resynth it too can settle.
+
+**Separate, seed-independent path:** when the inference cache is full, both manual and
+auto-regen short-circuit into `playNextCachedInference()` (PromptPanel.cpp:3406, 3565) and
+replay a fixed rotating set without generating — the most literal "stuck samples." Off by
+default (capacity 0), but a preset can restore a full cache.
+
+**Is it a defect?** For the truly fixed case (same seed, silent or high-Resynth-dominated
+input) identical output is the deterministic behaviour VAR `none` promises ("no variation"),
+not a malfunction. The Guide now frames it that way and names VAR `auto` as the control that
+introduces variation.
+
+## Proposed seed fix — REVIEWED AND REJECTED (2026-07-25)
+
+A proposed fix ("while the standing loop is engaged, force `req.seed = -1` for the round") was
+adversarially reviewed and rejected:
+- It contradicts VAR `none`'s documented "no variation" and defeats seed determinism, which is
+  load-bearing here (event-log replay via `realizedSeed` PromptPanel.cpp:3755; presets
+  PresetFormat.cpp:180).
+- Decisive: the unconditional `setLastSeed(result.seed)` writeback (PromptPanel.cpp:3633/3639)
+  would overwrite `kBaseSeed` with the drawn random seed in the durable store while VAR still
+  shows "none" (`syncSeedModeFromCurrentState` is not re-run after a generation) — the next
+  manual Generate silently uses the leftover random seed, and a preset saved mid-loop reloads
+  `none` → `last` with a random number.
+- It over-fires (int and live-changing ext already evolve), and "input is static" is not a
+  state the code can read without diffing captured buffers.
+- VAR `auto` already delivers fresh-seed-per-round under user control with correct state. The
+  real gap is discoverability, which the Guide now addresses.
+
+## Pre-existing errors found while writing (since FIXED on main by 3ec03b3d)
+
+Both were flagged here as outside the original task, then corrected on main by
+`3ec03b3d docs(guide): the manual described controls that are no longer in the instrument`
+(landed via the parallel akróasys-rename line, separate from this audit's branch). Recorded
+for the trail; verified fixed in the current file.
+
+| Section | Old claim in Guide | Actual (Code) | Now |
+|---------|---------------|---------------|-----|
+| Drift & Regenerate | Regen Mode = "Manual / Auto / max 1♩ / 4♩ / 16♩" | manual / a.s.a.p. / 1 / 2 / 4 / 8 / 16 **bars** (BlockParams.h:1088-1103; PromptPanel.cpp:3926-3935) | Table now lists the bar-based modes |
+| Generation Section | "Seed −1 … 999 999 999" + a "Random" button; Easy/Advanced with a numeric seed editor | The seed editor and Random toggle were removed; the VAR switchbox (none/last/auto) is the seed control, and Advanced is the written-oscillator (LRO) panel (PromptPanel.h:147-149; PromptPanel.cpp:326-335) | VAR row + the "two views / two sound sources" section |

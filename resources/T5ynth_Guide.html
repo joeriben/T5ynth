@@ -1509,9 +1509,10 @@ regeneration uses.
 Resynth also acts as a <em>standing</em> trigger for auto-regeneration: with
 an SA3 model, a Resynth amount above zero and any Regen Mode other than
 manual, akróasys keeps regenerating at the chosen cadence without any control
-having to move. Each round re-feeds the audio, so the sound evolves by
-itself. In manual mode nothing auto-regenerates, but Resynth still applies to
-every Generate you press.
+having to move. Each round re-feeds the audio; when that audio changes from
+one round to the next, the sound evolves on its own — see the seed note below
+for when it does not. In manual mode nothing auto-regenerates, but Resynth
+still applies to every Generate you press.
 </p>
 <p>
 One round in that loop behaves differently. When you move a generation
@@ -1522,31 +1523,53 @@ next round re-attaches at your setting and the loop continues from the new
 material. While the loop runs, the effective amount has a floor of 0.05.
 </p>
 
-<h3>Seed: why a Resynth loop can repeat itself</h3>
+<h3>Seed: when a Resynth loop repeats itself</h3>
 <p>
 The <strong>VAR</strong> switchbox, to the right of Duration, decides which
 seed each generation uses: <strong>none</strong> (the default) sends a fixed
 base seed, <strong>last</strong> reuses the previous generation's seed, and
-<strong>auto</strong> sends a fresh random seed every time. The backend only
-draws a new seed when the request asks for one, which is what
+<strong>auto</strong> sends a fresh random seed every time. The backend draws
+a new seed only when the request asks for one, which is what
 <strong>auto</strong> does; the other two settings pin it.
 </p>
 <p>
-The Resynth loop does not override this. Each round it sets the Resynth amount
-and nothing else — the seed stays whatever VAR selected. So when the seed, the
-prompt, the amount and the incoming audio are all unchanged from the previous
-round, the render is identical to the previous round. With <strong>ext</strong>
-and a source that does not change — a held chord, a static pad, a stopped
-player — that is exactly the situation, and the loop appears to hang on one
-sound. With <strong>int</strong> the incoming audio is the previous output, so
-it differs each round and the loop keeps moving even with a pinned seed.
+The Resynth loop does not change this — each round it sets the Resynth amount
+and leaves the seed to VAR. With <strong>none</strong> or <strong>last</strong>
+the seed is therefore the same every round, and a fixed seed with an unchanging
+input renders the same audio. That is what <strong>none</strong> means
+("no variation"), not a fault; it becomes noticeable in two cases:
+</p>
+<ul>
+  <li><strong>A silent or stopped ext source.</strong> When the captured window
+    is effectively silent, no audio is attached and the round renders text-only
+    from the prompt. With a pinned seed that text-only render is identical every
+    round.</li>
+  <li><strong>A high Resynth amount.</strong> Near Full the denoising starts
+    very late (Full &rarr; 0.05), so the incoming sound dominates the diffusion
+    and successive renders come out the same — here it is the input holding the
+    result, not the seed.</li>
+</ul>
+<p>
+A live, audible ext input is <em>not</em> captured identically from round to
+round: the capture window is always moving and is levelled to its own peak, so
+at a low or medium Resynth amount the render keeps changing even with a pinned
+seed. With <strong>int</strong> the fed-back audio is the previous output and
+changes each round, so the loop generally keeps moving; only at very high
+Resynth amounts can it settle onto one sound.
 </p>
 <div class="note">
-  If an <strong>ext</strong> loop stops evolving, set VAR to
-  <strong>auto</strong> so every round gets a fresh seed. The further right the
-  Resynth slider sits, the less that helps: at high amounts the render is
-  determined by the incoming audio rather than by the seed, which is what the
-  setting is for.
+  If a loop stops evolving and you want it to move, set VAR to
+  <strong>auto</strong> so every round draws a fresh seed. This helps most at
+  low to medium Resynth, where prompt and seed still shape the render; the
+  further right the slider sits, the less it changes, because the incoming
+  sound — not the seed — is then deciding the result.
+</div>
+<div class="note">
+  A full <a href="#gen">inference cache</a> is a separate reason a loop repeats.
+  Once the cache is full, Generate and auto-regeneration play back the stored
+  results in turn instead of running the model, so the loop cycles a fixed set
+  of sounds regardless of seed or source. Clear or resize the cache to generate
+  fresh audio again.
 </div>
 
 <!-- ═══════════════════════════════════════════ -->
