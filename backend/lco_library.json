@@ -1,6 +1,6 @@
 {
  "generated_from": {
-  "lexicon_version": 54
+  "lexicon_version": 55
  },
  "instruments": [
   {
@@ -345,11 +345,11 @@
       1.0
      ],
      "default": 0.6,
-     "note": "a second voice offset a fixed few Hz above the first, so the two drift against each other and the tone undulates. At 0 it stands perfectly still (the static escape); higher is a wider, more present movement. The offset is fixed in HERTZ, so it is the same at every pitch -- not a cent detune that scales with the note, and not pitch vibrato, which belongs to the synth.",
+     "note": "a second voice offset a fixed few Hz above the first, so the two drift against each other and the tone undulates. At 0 it stands perfectly still (the static escape); higher is a wider, more present movement. The offset is fixed in HERTZ, so it is the same at every pitch -- not a cent detune that scales with the note, and not pitch vibrato, which belongs to the synth. `pure` is not a static escape and cannot be one: measured at 220 hz over a 4 s note, mean of three plugin ages, detune=0 still travels 0.72 octaves of power-weighted colour and reads moves=True at coherence 1.00. what the axis removes is the amplitude beat between the two voices -- level swing 0.7 db against 6.7 at `gentle` -- and the gloss said \"a single still tone\", which this platform does not have.",
      "anchors": {
       "pure": {
        "value": 0.0,
-       "gloss": "a single still tone, the two voices locked together"
+       "gloss": "the two voices locked to one pitch -- the BEATING stops (level swing 0.7 dB over the note against 6.7 at `gentle`), not the sound: its colour still travels 0.72 octaves, as every sound on this platform does"
       },
       "gentle": {
        "value": 0.4,
@@ -439,11 +439,11 @@
       1.0
      ],
      "default": 0.55,
-     "note": "a second voice offset a fixed few Hz above the first, so the two drift against each other and the tone undulates. At 0 it stands perfectly still (the static escape); higher is a wider, more present movement. The offset is fixed in HERTZ, so it is the same at every pitch -- not a cent detune that scales with the note, and not pitch vibrato, which belongs to the synth.",
+     "note": "a second voice offset a fixed few Hz above the first, so the two drift against each other and the tone undulates. At 0 it stands perfectly still (the static escape); higher is a wider, more present movement. The offset is fixed in HERTZ, so it is the same at every pitch -- not a cent detune that scales with the note, and not pitch vibrato, which belongs to the synth. `pure` is not a static escape and cannot be one: measured at 220 hz over a 4 s note, mean of three plugin ages, detune=0 still travels 1.56 octaves of power-weighted colour and reads moves=True at coherence 1.00. what the axis removes is the amplitude beat between the two voices -- level swing 0.0 db against 5.6 at `gentle` -- and the gloss said \"a single still tone\", which this platform does not have.",
      "anchors": {
       "pure": {
        "value": 0.0,
-       "gloss": "a single still tone, the two voices locked together"
+       "gloss": "the two voices locked to one pitch -- the BEATING stops (level swing 0.0 dB over the note against 5.6 at `gentle`), not the sound: its colour still travels 1.56 octaves, as every sound on this platform does"
       },
       "gentle": {
        "value": 0.4,
@@ -761,11 +761,11 @@
       1.0
      ],
      "default": 0.65,
-     "note": "a second voice offset a fixed few Hz above the first, so the two drift against each other and the tone undulates. At 0 it stands perfectly still (the static escape); higher is a wider, more present movement. The offset is fixed in HERTZ, so it is the same at every pitch -- not a cent detune that scales with the note, and not pitch vibrato, which belongs to the synth.",
+     "note": "a second voice offset a fixed few Hz above the first, so the two drift against each other and the tone undulates. At 0 it stands perfectly still (the static escape); higher is a wider, more present movement. The offset is fixed in HERTZ, so it is the same at every pitch -- not a cent detune that scales with the note, and not pitch vibrato, which belongs to the synth. `pure` is not a static escape and cannot be one: measured at 220 hz over a 4 s note, mean of three plugin ages, detune=0 still travels 1.33 octaves of power-weighted colour and reads moves=True at coherence 1.00. what the axis removes is the amplitude beat between the two voices -- level swing 0.0 db against 3.0 at `gentle` -- and the gloss said \"a single still tone\", which this platform does not have.",
      "anchors": {
       "pure": {
        "value": 0.0,
-       "gloss": "a single still tone, the two voices locked together"
+       "gloss": "the two voices locked to one pitch -- the BEATING stops (level swing 0.0 dB over the note against 3.0 at `gentle`), not the sound: its colour still travels 1.33 octaves, as every sound on this platform does"
       },
       "gentle": {
        "value": 0.4,
