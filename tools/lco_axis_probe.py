@@ -51,18 +51,35 @@ import lco_measure as M  # noqa: E402
 # The name is capped at 16 characters so an ordinary prose comment that happens to
 # contain a colon ("a steel tongue through a narrow slit: bright") is not read as
 # a declaration.
+# An axis may declare its own RANGE when that range is not 0..1:
+#
+#     kduty   = 0.5   ; duty [0.05..0.5]: the ON fraction of the cycle
+#
+# Needed because a physical quantity has to stay itself. BJ's convention is that duty
+# IS the ON fraction, so a `duty` axis cannot be a normalised knob that means 0.5 at
+# one end — and `gate()` used to step every axis 0, 0.5, 1 whatever it was declared to
+# be, which on a duty axis renders SILENCE at 0. Any axis whose range is not 0..1 was
+# being gated on values it never legitimately takes.
 AXIS = re.compile(r"^(?P<pad>\s*)k(?P<var>[a-z][a-z0-9]*)(?P<gap>\s+)=(?P<sp>\s*)"
                   r"(?P<val>-?\d+(?:\.\d+)?)(?P<pre>\s*;\s*)"
-                  r"(?P<name>[a-z][a-z0-9 _-]{0,15}):(?P<tail>.*)$")
+                  r"(?P<name>[a-z][a-z0-9 _-]{0,15})"
+                  r"(?:\s*\[(?P<lo>-?\d+(?:\.\d+)?)\.\."
+                  r"(?P<hi>-?\d+(?:\.\d+)?)\])?:(?P<tail>.*)$")
 
 
 def axes(body):
-    """{axis name: (variable, default, line index)} for every declaration."""
+    """{axis name: (variable, default, line index, (lo, hi))} for every declaration."""
     out = {}
     for i, line in enumerate(body.splitlines()):
         m = AXIS.match(line)
         if m:
-            out[m.group("name").strip()] = (m.group("var"), float(m.group("val")), i)
+            lo = 0.0 if m.group("lo") is None else float(m.group("lo"))
+            hi = 1.0 if m.group("hi") is None else float(m.group("hi"))
+            if hi <= lo:
+                raise SystemExit(f"axis {m.group('name').strip()!r} declares the "
+                                 f"range [{lo}..{hi}], which is empty or reversed")
+            out[m.group("name").strip()] = (m.group("var"), float(m.group("val")),
+                                            i, (lo, hi))
     return out
 
 
@@ -72,9 +89,11 @@ def with_axis(body, name, value):
     for i, line in enumerate(lines):
         m = AXIS.match(line)
         if m and m.group("name").strip() == name:
+            rng = ("" if m.group("lo") is None
+                   else f"[{m.group('lo')}..{m.group('hi')}]")
             lines[i] = (f"{m.group('pad')}k{m.group('var')}{m.group('gap')}="
                         f"{m.group('sp')}{value:g}{m.group('pre')}"
-                        f"{m.group('name')}:{m.group('tail')}")
+                        f"{m.group('name')}{rng}:{m.group('tail')}")
             found += 1
     if found != 1:
         raise SystemExit(f"axis {name!r} is declared {found} times — an axis has to "
@@ -172,11 +191,16 @@ def gate(body, freq=220.0, steps=3, registers=(55, 110, 220, 440, 880, 1760)):
     its own 1.00 dB rule. The cost is real: three axes at three steps over six
     registers is 162 renders, roughly five times the old gate.
     """
-    names = sorted(axes(body))
-    vals = [i / (steps - 1) for i in range(steps)] if steps > 1 else [0.5]
+    declared = axes(body)
+    names = sorted(declared)
+    # each axis stepped across ITS OWN declared range, not 0..1
+    def steps_for(n):
+        lo, hi = declared[n][3]
+        return ([lo + (hi - lo) * i / (steps - 1) for i in range(steps)]
+                if steps > 1 else [(lo + hi) / 2])
     regs = [float(f) for f in registers]
     rows, fails = [], []
-    for combo in itertools.product(vals, repeat=len(names)):
+    for combo in itertools.product(*(steps_for(n) for n in names)):
         b = body
         for k, v in zip(names, combo):
             b = with_axis(b, k, v)
@@ -214,7 +238,7 @@ def gate(body, freq=220.0, steps=3, registers=(55, 110, 220, 440, 880, 1760)):
                       f"p99.9 {pk[0]:.2f}; the host clips a body above 2.97"))
     # the register tilt at the DEFAULTS, kept because it is the number the notes
     # quote, and then the whole cross, which is the one that has to hold.
-    dflt = {n: d for n, (_v, d, _i) in axes(body).items()}
+    dflt = {n: d for n, (_v, d, _i, _r) in declared.items()}
     near = min(rows, key=lambda cr: sum(abs(cr[0].get(n, 0) - dflt.get(n, 0))
                                         for n in names))[0]
     base = [(c["Hz"], r["rms_db"]) for c, r in rows
@@ -256,7 +280,8 @@ def main():
         raise SystemExit("no axis declarations found. An axis is a line of the "
                          "shape `kname  = 0.45   ; what it does`.")
     print(f"{args.body}: axes " +
-          ", ".join(f"{n}={d:g}" for n, (_v, d, _i) in sorted(declared.items())))
+          ", ".join(f"{n}={d:g}" + ("" if (lo, hi) == (0.0, 1.0) else f" [{lo:g}..{hi:g}]")
+                    for n, (_v, d, _i, (lo, hi)) in sorted(declared.items())))
 
     y, err = M.render(body, dur=4.0, freq=args.freq)
     if y is None:

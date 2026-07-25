@@ -1,5 +1,5 @@
 {
- "lexicon_version": 14,
+ "lexicon_version": 15,
  "techniques": [
   {
    "key": "saw",
@@ -31,7 +31,46 @@
    },
    "priority": 5,
    "why": "sawtooth wave -- the canonical bright analogue waveform: every harmonic present, decaying 1/h; the raw material of brass-like, string-like and lead sounds",
-   "code": "ivph0   = frac(ivoice * 0.6180339887)   ; per-voice phase\nkvdr0   poscil 0.00245, 0.043 + 0.0037 * ivoice, giSine, ivph0\nkdty0   poscil 0.0042, 0.057     ; age: shape/duty wobble on kpw\nkpw0s0   = 0.02 + kdty0\naao0s0u0  vco2 0.6, (kfreq * koct1) * (1 + kvdr0), 4, kpw0s0, 0   ; wave seg0 imode4 copy 0\nacln0   = aao0s0u0 * 1.000000    ; clean oscillator (pre-drive)\nadrv0   = acln0                     ; drive 0: clean, no saturator stage\nkagw0   oscili 0.0105, 0.7        ; age: amplitude wobble\nasig    = adrv0 * (1 + kagw0)"
+   "code": "kskew   = 0.02                              ; skew [0.02..0.5]: 0.5 a symmetric triangle, 0.02 a sawtooth\nivph0   = frac(ivoice * 0.6180339887)   ; per-voice phase\nkvdr0   poscil 0.00245, 0.043 + 0.0037 * ivoice, giSine, ivph0\nkdty0   poscil 0.0042, 0.057     ; age: shape/duty wobble on kpw\nkpw0s0   = kskew + kdty0\naao0s0u0  vco2 0.6, (kfreq * koct1) * (1 + kvdr0), 4, kpw0s0, 0   ; wave seg0 imode4 copy 0\nacln0   = aao0s0u0 * 1.000000    ; clean oscillator (pre-drive)\nadrv0   = acln0                     ; drive 0: clean, no saturator stage\nkagw0   oscili 0.0105, 0.7        ; age: amplitude wobble\nasig    = adrv0 * (1 + kagw0)",
+   "params": {
+    "skew": {
+     "range": [
+      0.02,
+      0.5
+     ],
+     "default": 0.02,
+     "note": "how far the symmetric triangle is skewed towards a sawtooth. One `vco2 imode 4` call does the whole travel and converges EXACTLY on `imode 0`'s saw spectrum at 0.02, which is measured in LCO_CONCEPT §5 and is why `triangle` and `saw` are the same body with different defaults rather than two instruments. Centroid 759 -> 2467 Hz and odd/even +39.9 -> +3.3 dB: a triangle has almost only odd harmonics, a saw has all of them, and the axis is the continuous path between. Comb contrast holds near 110 dB throughout -- both ends are exact waveforms, not filtered ones. Loudness 0.01 dB over the whole range.",
+     "anchors": {
+      "triangle": {
+       "value": 0.5,
+       "gloss": "symmetric -- dark, hollow, few harmonics"
+      },
+      "leaning": {
+       "value": 0.38,
+       "gloss": "just off symmetric, a little bite"
+      },
+      "ramp": {
+       "value": 0.26,
+       "gloss": "halfway -- a soft sawtooth"
+      },
+      "keen": {
+       "value": 0.14,
+       "gloss": "nearly a saw, still rounded"
+      },
+      "sawtooth": {
+       "value": 0.02,
+       "gloss": "the exact saw spectrum"
+      }
+     }
+    }
+   },
+   "anchor_code": {
+    "skew=triangle": "kskew   = 0.5                              ; skew [0.02..0.5]: 0.5 a symmetric triangle, 0.02 a sawtooth\nivph0   = frac(ivoice * 0.6180339887)   ; per-voice phase\nkvdr0   poscil 0.00245, 0.043 + 0.0037 * ivoice, giSine, ivph0\nkdty0   poscil 0.0042, 0.057     ; age: shape/duty wobble on kpw\nkpw0s0   = kskew + kdty0\naao0s0u0  vco2 0.6, (kfreq * koct1) * (1 + kvdr0), 4, kpw0s0, 0   ; wave seg0 imode4 copy 0\nacln0   = aao0s0u0 * 1.000000    ; clean oscillator (pre-drive)\nadrv0   = acln0                     ; drive 0: clean, no saturator stage\nkagw0   oscili 0.0105, 0.7        ; age: amplitude wobble\nasig    = adrv0 * (1 + kagw0)",
+    "skew=leaning": "kskew   = 0.38                              ; skew [0.02..0.5]: 0.5 a symmetric triangle, 0.02 a sawtooth\nivph0   = frac(ivoice * 0.6180339887)   ; per-voice phase\nkvdr0   poscil 0.00245, 0.043 + 0.0037 * ivoice, giSine, ivph0\nkdty0   poscil 0.0042, 0.057     ; age: shape/duty wobble on kpw\nkpw0s0   = kskew + kdty0\naao0s0u0  vco2 0.6, (kfreq * koct1) * (1 + kvdr0), 4, kpw0s0, 0   ; wave seg0 imode4 copy 0\nacln0   = aao0s0u0 * 1.000000    ; clean oscillator (pre-drive)\nadrv0   = acln0                     ; drive 0: clean, no saturator stage\nkagw0   oscili 0.0105, 0.7        ; age: amplitude wobble\nasig    = adrv0 * (1 + kagw0)",
+    "skew=ramp": "kskew   = 0.26                              ; skew [0.02..0.5]: 0.5 a symmetric triangle, 0.02 a sawtooth\nivph0   = frac(ivoice * 0.6180339887)   ; per-voice phase\nkvdr0   poscil 0.00245, 0.043 + 0.0037 * ivoice, giSine, ivph0\nkdty0   poscil 0.0042, 0.057     ; age: shape/duty wobble on kpw\nkpw0s0   = kskew + kdty0\naao0s0u0  vco2 0.6, (kfreq * koct1) * (1 + kvdr0), 4, kpw0s0, 0   ; wave seg0 imode4 copy 0\nacln0   = aao0s0u0 * 1.000000    ; clean oscillator (pre-drive)\nadrv0   = acln0                     ; drive 0: clean, no saturator stage\nkagw0   oscili 0.0105, 0.7        ; age: amplitude wobble\nasig    = adrv0 * (1 + kagw0)",
+    "skew=keen": "kskew   = 0.14                              ; skew [0.02..0.5]: 0.5 a symmetric triangle, 0.02 a sawtooth\nivph0   = frac(ivoice * 0.6180339887)   ; per-voice phase\nkvdr0   poscil 0.00245, 0.043 + 0.0037 * ivoice, giSine, ivph0\nkdty0   poscil 0.0042, 0.057     ; age: shape/duty wobble on kpw\nkpw0s0   = kskew + kdty0\naao0s0u0  vco2 0.6, (kfreq * koct1) * (1 + kvdr0), 4, kpw0s0, 0   ; wave seg0 imode4 copy 0\nacln0   = aao0s0u0 * 1.000000    ; clean oscillator (pre-drive)\nadrv0   = acln0                     ; drive 0: clean, no saturator stage\nkagw0   oscili 0.0105, 0.7        ; age: amplitude wobble\nasig    = adrv0 * (1 + kagw0)",
+    "skew=sawtooth": "kskew   = 0.02                              ; skew [0.02..0.5]: 0.5 a symmetric triangle, 0.02 a sawtooth\nivph0   = frac(ivoice * 0.6180339887)   ; per-voice phase\nkvdr0   poscil 0.00245, 0.043 + 0.0037 * ivoice, giSine, ivph0\nkdty0   poscil 0.0042, 0.057     ; age: shape/duty wobble on kpw\nkpw0s0   = kskew + kdty0\naao0s0u0  vco2 0.6, (kfreq * koct1) * (1 + kvdr0), 4, kpw0s0, 0   ; wave seg0 imode4 copy 0\nacln0   = aao0s0u0 * 1.000000    ; clean oscillator (pre-drive)\nadrv0   = acln0                     ; drive 0: clean, no saturator stage\nkagw0   oscili 0.0105, 0.7        ; age: amplitude wobble\nasig    = adrv0 * (1 + kagw0)"
+   }
   },
   {
    "key": "square",
@@ -61,7 +100,46 @@
    },
    "priority": 5,
    "why": "square wave -- odd harmonics only, decaying 1/h: hollow and woody, the clarinet and stopped-organ-pipe family of colour",
-   "code": "ivph0   = frac(ivoice * 0.6180339887)   ; per-voice phase\nkvdr0   poscil 0.00245, 0.043 + 0.0037 * ivoice, giSine, ivph0\nkdty0   poscil 0.0042, 0.057     ; age: shape/duty wobble on kpw\nkpw0s0   = 0.5 + kdty0\naao0s0u0  vco2 0.6, (kfreq * koct1) * (1 + kvdr0), 2, kpw0s0, 0   ; wave seg0 imode2 copy 0\nacln0   = aao0s0u0 * 0.578000    ; clean oscillator (pre-drive)\nadrv0   = acln0                     ; drive 0: clean, no saturator stage\nkagw0   oscili 0.0105, 0.7        ; age: amplitude wobble\nasig    = adrv0 * (1 + kagw0)"
+   "code": "kduty   = 0.5                               ; duty [0.05..0.5]: the ON fraction of the cycle\nivph0   = frac(ivoice * 0.6180339887)   ; per-voice phase\nkvdr0   poscil 0.00245, 0.043 + 0.0037 * ivoice, giSine, ivph0\nkdty0   poscil 0.0042, 0.057     ; age: shape/duty wobble on kpw\nkpw0s0   = kduty + kdty0\naao0s0u0  vco2 0.6, (kfreq * koct1) * (1 + kvdr0), 2, kpw0s0, 0   ; wave seg0 imode2 copy 0\nacln0   = aao0s0u0 * 0.578000    ; clean oscillator (pre-drive)\nadrv0   = acln0                     ; drive 0: clean, no saturator stage\nkagw0   oscili 0.0105, 0.7        ; age: amplitude wobble\nasig    = adrv0 * (1 + kagw0)",
+   "params": {
+    "duty": {
+     "range": [
+      0.05,
+      0.5
+     ],
+     "default": 0.5,
+     "note": "the ON fraction of the cycle, which is what duty means. This is the axis BJ's own example asks for — sharp at one duty, hollow at another — and it was impossible while the width was a structural constant. Its objective mark is the odd/even balance, not the centroid: at 0.5 the even harmonics are absent and odd/even reads +29.4 dB (that IS a square), and by 0.05 they are level with the odd ones at +0.8 dB. The centroid is deliberately NOT monotone with it (6304, 5398, 5262, 5148, 5373 Hz at 0.50, 0.35, 0.25, 0.15, 0.05) because a narrowing pulse first loses its top and then spreads energy back up. `vco2 imode 2` holds the level itself: 0.01 dB over the whole range, with no compensation applied.",
+     "anchors": {
+      "square": {
+       "value": 0.5,
+       "gloss": "a true square -- hollow, odd harmonics only"
+      },
+      "fat": {
+       "value": 0.38,
+       "gloss": "just off square, the evens creeping in"
+      },
+      "reedy": {
+       "value": 0.25,
+       "gloss": "a quarter cycle -- reedy and forward"
+      },
+      "nasal": {
+       "value": 0.15,
+       "gloss": "narrow, thin and nasal"
+      },
+      "sharp": {
+       "value": 0.05,
+       "gloss": "a spike -- bright, papery, almost a click"
+      }
+     }
+    }
+   },
+   "anchor_code": {
+    "duty=square": "kduty   = 0.5                               ; duty [0.05..0.5]: the ON fraction of the cycle\nivph0   = frac(ivoice * 0.6180339887)   ; per-voice phase\nkvdr0   poscil 0.00245, 0.043 + 0.0037 * ivoice, giSine, ivph0\nkdty0   poscil 0.0042, 0.057     ; age: shape/duty wobble on kpw\nkpw0s0   = kduty + kdty0\naao0s0u0  vco2 0.6, (kfreq * koct1) * (1 + kvdr0), 2, kpw0s0, 0   ; wave seg0 imode2 copy 0\nacln0   = aao0s0u0 * 0.578000    ; clean oscillator (pre-drive)\nadrv0   = acln0                     ; drive 0: clean, no saturator stage\nkagw0   oscili 0.0105, 0.7        ; age: amplitude wobble\nasig    = adrv0 * (1 + kagw0)",
+    "duty=fat": "kduty   = 0.38                               ; duty [0.05..0.5]: the ON fraction of the cycle\nivph0   = frac(ivoice * 0.6180339887)   ; per-voice phase\nkvdr0   poscil 0.00245, 0.043 + 0.0037 * ivoice, giSine, ivph0\nkdty0   poscil 0.0042, 0.057     ; age: shape/duty wobble on kpw\nkpw0s0   = kduty + kdty0\naao0s0u0  vco2 0.6, (kfreq * koct1) * (1 + kvdr0), 2, kpw0s0, 0   ; wave seg0 imode2 copy 0\nacln0   = aao0s0u0 * 0.578000    ; clean oscillator (pre-drive)\nadrv0   = acln0                     ; drive 0: clean, no saturator stage\nkagw0   oscili 0.0105, 0.7        ; age: amplitude wobble\nasig    = adrv0 * (1 + kagw0)",
+    "duty=reedy": "kduty   = 0.25                               ; duty [0.05..0.5]: the ON fraction of the cycle\nivph0   = frac(ivoice * 0.6180339887)   ; per-voice phase\nkvdr0   poscil 0.00245, 0.043 + 0.0037 * ivoice, giSine, ivph0\nkdty0   poscil 0.0042, 0.057     ; age: shape/duty wobble on kpw\nkpw0s0   = kduty + kdty0\naao0s0u0  vco2 0.6, (kfreq * koct1) * (1 + kvdr0), 2, kpw0s0, 0   ; wave seg0 imode2 copy 0\nacln0   = aao0s0u0 * 0.578000    ; clean oscillator (pre-drive)\nadrv0   = acln0                     ; drive 0: clean, no saturator stage\nkagw0   oscili 0.0105, 0.7        ; age: amplitude wobble\nasig    = adrv0 * (1 + kagw0)",
+    "duty=nasal": "kduty   = 0.15                               ; duty [0.05..0.5]: the ON fraction of the cycle\nivph0   = frac(ivoice * 0.6180339887)   ; per-voice phase\nkvdr0   poscil 0.00245, 0.043 + 0.0037 * ivoice, giSine, ivph0\nkdty0   poscil 0.0042, 0.057     ; age: shape/duty wobble on kpw\nkpw0s0   = kduty + kdty0\naao0s0u0  vco2 0.6, (kfreq * koct1) * (1 + kvdr0), 2, kpw0s0, 0   ; wave seg0 imode2 copy 0\nacln0   = aao0s0u0 * 0.578000    ; clean oscillator (pre-drive)\nadrv0   = acln0                     ; drive 0: clean, no saturator stage\nkagw0   oscili 0.0105, 0.7        ; age: amplitude wobble\nasig    = adrv0 * (1 + kagw0)",
+    "duty=sharp": "kduty   = 0.05                               ; duty [0.05..0.5]: the ON fraction of the cycle\nivph0   = frac(ivoice * 0.6180339887)   ; per-voice phase\nkvdr0   poscil 0.00245, 0.043 + 0.0037 * ivoice, giSine, ivph0\nkdty0   poscil 0.0042, 0.057     ; age: shape/duty wobble on kpw\nkpw0s0   = kduty + kdty0\naao0s0u0  vco2 0.6, (kfreq * koct1) * (1 + kvdr0), 2, kpw0s0, 0   ; wave seg0 imode2 copy 0\nacln0   = aao0s0u0 * 0.578000    ; clean oscillator (pre-drive)\nadrv0   = acln0                     ; drive 0: clean, no saturator stage\nkagw0   oscili 0.0105, 0.7        ; age: amplitude wobble\nasig    = adrv0 * (1 + kagw0)"
+   }
   },
   {
    "key": "pulse",
@@ -93,7 +171,46 @@
    },
    "priority": 5,
    "why": "narrow rectangular wave (~10% duty) -- the thin, nasal, reedy end of the analogue waveform axis; oboe- and harpsichord-adjacent thinness",
-   "code": "ivph0   = frac(ivoice * 0.6180339887)   ; per-voice phase\nkvdr0   poscil 0.00245, 0.043 + 0.0037 * ivoice, giSine, ivph0\nkdty0   poscil 0.0042, 0.057     ; age: shape/duty wobble on kpw\nkpw0s0   = 0.1 + kdty0\naao0s0u0  vco2 0.6, (kfreq * koct1) * (1 + kvdr0), 2, kpw0s0, 0   ; wave seg0 imode2 copy 0\nacln0   = aao0s0u0 * 0.578000    ; clean oscillator (pre-drive)\nadrv0   = acln0                     ; drive 0: clean, no saturator stage\nkagw0   oscili 0.0105, 0.7        ; age: amplitude wobble\nasig    = adrv0 * (1 + kagw0)"
+   "code": "kduty   = 0.1                               ; duty [0.05..0.5]: the ON fraction of the cycle\nivph0   = frac(ivoice * 0.6180339887)   ; per-voice phase\nkvdr0   poscil 0.00245, 0.043 + 0.0037 * ivoice, giSine, ivph0\nkdty0   poscil 0.0042, 0.057     ; age: shape/duty wobble on kpw\nkpw0s0   = kduty + kdty0\naao0s0u0  vco2 0.6, (kfreq * koct1) * (1 + kvdr0), 2, kpw0s0, 0   ; wave seg0 imode2 copy 0\nacln0   = aao0s0u0 * 0.578000    ; clean oscillator (pre-drive)\nadrv0   = acln0                     ; drive 0: clean, no saturator stage\nkagw0   oscili 0.0105, 0.7        ; age: amplitude wobble\nasig    = adrv0 * (1 + kagw0)",
+   "params": {
+    "duty": {
+     "range": [
+      0.05,
+      0.5
+     ],
+     "default": 0.1,
+     "note": "the ON fraction of the cycle, which is what duty means. This is the axis BJ's own example asks for — sharp at one duty, hollow at another — and it was impossible while the width was a structural constant. Its objective mark is the odd/even balance, not the centroid: at 0.5 the even harmonics are absent and odd/even reads +29.4 dB (that IS a square), and by 0.05 they are level with the odd ones at +0.8 dB. The centroid is deliberately NOT monotone with it (6304, 5398, 5262, 5148, 5373 Hz at 0.50, 0.35, 0.25, 0.15, 0.05) because a narrowing pulse first loses its top and then spreads energy back up. `vco2 imode 2` holds the level itself: 0.01 dB over the whole range, with no compensation applied.",
+     "anchors": {
+      "square": {
+       "value": 0.5,
+       "gloss": "a true square -- hollow, odd harmonics only"
+      },
+      "fat": {
+       "value": 0.38,
+       "gloss": "just off square, the evens creeping in"
+      },
+      "reedy": {
+       "value": 0.25,
+       "gloss": "a quarter cycle -- reedy and forward"
+      },
+      "nasal": {
+       "value": 0.15,
+       "gloss": "narrow, thin and nasal"
+      },
+      "sharp": {
+       "value": 0.05,
+       "gloss": "a spike -- bright, papery, almost a click"
+      }
+     }
+    }
+   },
+   "anchor_code": {
+    "duty=square": "kduty   = 0.5                               ; duty [0.05..0.5]: the ON fraction of the cycle\nivph0   = frac(ivoice * 0.6180339887)   ; per-voice phase\nkvdr0   poscil 0.00245, 0.043 + 0.0037 * ivoice, giSine, ivph0\nkdty0   poscil 0.0042, 0.057     ; age: shape/duty wobble on kpw\nkpw0s0   = kduty + kdty0\naao0s0u0  vco2 0.6, (kfreq * koct1) * (1 + kvdr0), 2, kpw0s0, 0   ; wave seg0 imode2 copy 0\nacln0   = aao0s0u0 * 0.578000    ; clean oscillator (pre-drive)\nadrv0   = acln0                     ; drive 0: clean, no saturator stage\nkagw0   oscili 0.0105, 0.7        ; age: amplitude wobble\nasig    = adrv0 * (1 + kagw0)",
+    "duty=fat": "kduty   = 0.38                               ; duty [0.05..0.5]: the ON fraction of the cycle\nivph0   = frac(ivoice * 0.6180339887)   ; per-voice phase\nkvdr0   poscil 0.00245, 0.043 + 0.0037 * ivoice, giSine, ivph0\nkdty0   poscil 0.0042, 0.057     ; age: shape/duty wobble on kpw\nkpw0s0   = kduty + kdty0\naao0s0u0  vco2 0.6, (kfreq * koct1) * (1 + kvdr0), 2, kpw0s0, 0   ; wave seg0 imode2 copy 0\nacln0   = aao0s0u0 * 0.578000    ; clean oscillator (pre-drive)\nadrv0   = acln0                     ; drive 0: clean, no saturator stage\nkagw0   oscili 0.0105, 0.7        ; age: amplitude wobble\nasig    = adrv0 * (1 + kagw0)",
+    "duty=reedy": "kduty   = 0.25                               ; duty [0.05..0.5]: the ON fraction of the cycle\nivph0   = frac(ivoice * 0.6180339887)   ; per-voice phase\nkvdr0   poscil 0.00245, 0.043 + 0.0037 * ivoice, giSine, ivph0\nkdty0   poscil 0.0042, 0.057     ; age: shape/duty wobble on kpw\nkpw0s0   = kduty + kdty0\naao0s0u0  vco2 0.6, (kfreq * koct1) * (1 + kvdr0), 2, kpw0s0, 0   ; wave seg0 imode2 copy 0\nacln0   = aao0s0u0 * 0.578000    ; clean oscillator (pre-drive)\nadrv0   = acln0                     ; drive 0: clean, no saturator stage\nkagw0   oscili 0.0105, 0.7        ; age: amplitude wobble\nasig    = adrv0 * (1 + kagw0)",
+    "duty=nasal": "kduty   = 0.15                               ; duty [0.05..0.5]: the ON fraction of the cycle\nivph0   = frac(ivoice * 0.6180339887)   ; per-voice phase\nkvdr0   poscil 0.00245, 0.043 + 0.0037 * ivoice, giSine, ivph0\nkdty0   poscil 0.0042, 0.057     ; age: shape/duty wobble on kpw\nkpw0s0   = kduty + kdty0\naao0s0u0  vco2 0.6, (kfreq * koct1) * (1 + kvdr0), 2, kpw0s0, 0   ; wave seg0 imode2 copy 0\nacln0   = aao0s0u0 * 0.578000    ; clean oscillator (pre-drive)\nadrv0   = acln0                     ; drive 0: clean, no saturator stage\nkagw0   oscili 0.0105, 0.7        ; age: amplitude wobble\nasig    = adrv0 * (1 + kagw0)",
+    "duty=sharp": "kduty   = 0.05                               ; duty [0.05..0.5]: the ON fraction of the cycle\nivph0   = frac(ivoice * 0.6180339887)   ; per-voice phase\nkvdr0   poscil 0.00245, 0.043 + 0.0037 * ivoice, giSine, ivph0\nkdty0   poscil 0.0042, 0.057     ; age: shape/duty wobble on kpw\nkpw0s0   = kduty + kdty0\naao0s0u0  vco2 0.6, (kfreq * koct1) * (1 + kvdr0), 2, kpw0s0, 0   ; wave seg0 imode2 copy 0\nacln0   = aao0s0u0 * 0.578000    ; clean oscillator (pre-drive)\nadrv0   = acln0                     ; drive 0: clean, no saturator stage\nkagw0   oscili 0.0105, 0.7        ; age: amplitude wobble\nasig    = adrv0 * (1 + kagw0)"
+   }
   },
   {
    "key": "pwm",
@@ -141,7 +258,41 @@
    },
    "priority": 10,
    "why": "pulse-width modulation -- classic PWM: the duty cycle sweeps continuously from 80% down to 20% and back, ~2 s per round trip by default (1 s per half-cycle); slow/fast stretch or compress it to 4 s / 1 s, so the tone hollows out and fills back in",
-   "code": "klfo0    oscili 0.5, 0.5            ; -0.5..0.5, 1s per half-cycle\nkpw0     = 0.5 + 0.6 * klfo0     ; duty 0.20..0.80, square at centre\nivph0   = frac(ivoice * 0.6180339887)   ; per-voice phase\nkvdr0   poscil 0.0007, 0.043 + 0.0037 * ivoice, giSine, ivph0\napw0     vco2 0.6, (kfreq * koct1) * (1 + kvdr0), 2, kpw0 ; imode 2 = pulse, kpw = width\nasig    = apw0 - 0.6 * (2 * kpw0 - 1) ; remove the duty's DC offset, A*(2d-1)"
+   "code": "krate   = 0.5                               ; rate [0.1..8]: how fast the duty sweeps, in Hz\nklfo0    oscili 0.5, krate           ; -0.5..0.5, one half-cycle per 1/rate seconds\nkpw0     = 0.5 + 0.6 * klfo0     ; duty 0.20..0.80, square at centre\nivph0   = frac(ivoice * 0.6180339887)   ; per-voice phase\nkvdr0   poscil 0.0007, 0.043 + 0.0037 * ivoice, giSine, ivph0\napw0     vco2 0.6, (kfreq * koct1) * (1 + kvdr0), 2, kpw0 ; imode 2 = pulse, kpw = width\nasig    = apw0 - 0.6 * (2 * kpw0 - 1) ; remove the duty's DC offset, A*(2d-1)",
+   "params": {
+    "rate": {
+     "range": [
+      0.1,
+      8.0
+     ],
+     "default": 0.5,
+     "note": "how fast the duty sweeps, in Hz. Restored: the parked emitter carried this axis and the harvest dropped it, so `pwm` shipped as a fixed 0.5 Hz sweep. Its signature is the BEAT and not the colour, and the beat comes back at exactly TWICE the rate -- 0.5 Hz reads 1.00, 1.0 reads 2.00, 8.0 reads 16.01 -- because the sweep is symmetric about the square, so the brightness peaks on both sides of every cycle. Depth is constant at 0.22 from 0.5 Hz up. Loudness 0.41 dB across the axis and 0.60 dB crossed with the register; the 0.1 Hz end reads 0.4 dB quieter only because less than half a cycle fits in a four-second render.",
+     "anchors": {
+      "slow": {
+       "value": 0.15,
+       "gloss": "a long breathing sweep, one pass a note"
+      },
+      "medium": {
+       "value": 0.5,
+       "gloss": "the classic PWM pad motion"
+      },
+      "fast": {
+       "value": 2.0,
+       "gloss": "a visible wobble, four brightness peaks a second"
+      },
+      "vibrato": {
+       "value": 8.0,
+       "gloss": "at tremolo speed -- the duty as a texture"
+      }
+     }
+    }
+   },
+   "anchor_code": {
+    "rate=slow": "krate   = 0.15                               ; rate [0.1..8]: how fast the duty sweeps, in Hz\nklfo0    oscili 0.5, krate           ; -0.5..0.5, one half-cycle per 1/rate seconds\nkpw0     = 0.5 + 0.6 * klfo0     ; duty 0.20..0.80, square at centre\nivph0   = frac(ivoice * 0.6180339887)   ; per-voice phase\nkvdr0   poscil 0.0007, 0.043 + 0.0037 * ivoice, giSine, ivph0\napw0     vco2 0.6, (kfreq * koct1) * (1 + kvdr0), 2, kpw0 ; imode 2 = pulse, kpw = width\nasig    = apw0 - 0.6 * (2 * kpw0 - 1) ; remove the duty's DC offset, A*(2d-1)",
+    "rate=medium": "krate   = 0.5                               ; rate [0.1..8]: how fast the duty sweeps, in Hz\nklfo0    oscili 0.5, krate           ; -0.5..0.5, one half-cycle per 1/rate seconds\nkpw0     = 0.5 + 0.6 * klfo0     ; duty 0.20..0.80, square at centre\nivph0   = frac(ivoice * 0.6180339887)   ; per-voice phase\nkvdr0   poscil 0.0007, 0.043 + 0.0037 * ivoice, giSine, ivph0\napw0     vco2 0.6, (kfreq * koct1) * (1 + kvdr0), 2, kpw0 ; imode 2 = pulse, kpw = width\nasig    = apw0 - 0.6 * (2 * kpw0 - 1) ; remove the duty's DC offset, A*(2d-1)",
+    "rate=fast": "krate   = 2                               ; rate [0.1..8]: how fast the duty sweeps, in Hz\nklfo0    oscili 0.5, krate           ; -0.5..0.5, one half-cycle per 1/rate seconds\nkpw0     = 0.5 + 0.6 * klfo0     ; duty 0.20..0.80, square at centre\nivph0   = frac(ivoice * 0.6180339887)   ; per-voice phase\nkvdr0   poscil 0.0007, 0.043 + 0.0037 * ivoice, giSine, ivph0\napw0     vco2 0.6, (kfreq * koct1) * (1 + kvdr0), 2, kpw0 ; imode 2 = pulse, kpw = width\nasig    = apw0 - 0.6 * (2 * kpw0 - 1) ; remove the duty's DC offset, A*(2d-1)",
+    "rate=vibrato": "krate   = 8                               ; rate [0.1..8]: how fast the duty sweeps, in Hz\nklfo0    oscili 0.5, krate           ; -0.5..0.5, one half-cycle per 1/rate seconds\nkpw0     = 0.5 + 0.6 * klfo0     ; duty 0.20..0.80, square at centre\nivph0   = frac(ivoice * 0.6180339887)   ; per-voice phase\nkvdr0   poscil 0.0007, 0.043 + 0.0037 * ivoice, giSine, ivph0\napw0     vco2 0.6, (kfreq * koct1) * (1 + kvdr0), 2, kpw0 ; imode 2 = pulse, kpw = width\nasig    = apw0 - 0.6 * (2 * kpw0 - 1) ; remove the duty's DC offset, A*(2d-1)"
+   }
   },
   {
    "key": "triangle",
@@ -171,7 +322,46 @@
    },
    "priority": 5,
    "why": "triangle wave -- odd harmonics decaying 1/h^2: the softest of the classic analogue waves, nearest to a flute or a soft whistle",
-   "code": "ivph0   = frac(ivoice * 0.6180339887)   ; per-voice phase\nkvdr0   poscil 0.00245, 0.043 + 0.0037 * ivoice, giSine, ivph0\nkdty0   poscil 0.0042, 0.057     ; age: shape/duty wobble on kpw\nkpw0s0   = 0.5 + kdty0\naao0s0u0  vco2 0.6, (kfreq * koct1) * (1 + kvdr0), 4, kpw0s0, 0   ; wave seg0 imode4 copy 0\nacln0   = aao0s0u0 * 1.000000    ; clean oscillator (pre-drive)\nadrv0   = acln0                     ; drive 0: clean, no saturator stage\nkagw0   oscili 0.0105, 0.7        ; age: amplitude wobble\nasig    = adrv0 * (1 + kagw0)"
+   "code": "kskew   = 0.5                               ; skew [0.02..0.5]: 0.5 a symmetric triangle, 0.02 a sawtooth\nivph0   = frac(ivoice * 0.6180339887)   ; per-voice phase\nkvdr0   poscil 0.00245, 0.043 + 0.0037 * ivoice, giSine, ivph0\nkdty0   poscil 0.0042, 0.057     ; age: shape/duty wobble on kpw\nkpw0s0   = kskew + kdty0\naao0s0u0  vco2 0.6, (kfreq * koct1) * (1 + kvdr0), 4, kpw0s0, 0   ; wave seg0 imode4 copy 0\nacln0   = aao0s0u0 * 1.000000    ; clean oscillator (pre-drive)\nadrv0   = acln0                     ; drive 0: clean, no saturator stage\nkagw0   oscili 0.0105, 0.7        ; age: amplitude wobble\nasig    = adrv0 * (1 + kagw0)",
+   "params": {
+    "skew": {
+     "range": [
+      0.02,
+      0.5
+     ],
+     "default": 0.5,
+     "note": "how far the symmetric triangle is skewed towards a sawtooth. One `vco2 imode 4` call does the whole travel and converges EXACTLY on `imode 0`'s saw spectrum at 0.02, which is measured in LCO_CONCEPT §5 and is why `triangle` and `saw` are the same body with different defaults rather than two instruments. Centroid 759 -> 2467 Hz and odd/even +39.9 -> +3.3 dB: a triangle has almost only odd harmonics, a saw has all of them, and the axis is the continuous path between. Comb contrast holds near 110 dB throughout -- both ends are exact waveforms, not filtered ones. Loudness 0.01 dB over the whole range.",
+     "anchors": {
+      "triangle": {
+       "value": 0.5,
+       "gloss": "symmetric -- dark, hollow, few harmonics"
+      },
+      "leaning": {
+       "value": 0.38,
+       "gloss": "just off symmetric, a little bite"
+      },
+      "ramp": {
+       "value": 0.26,
+       "gloss": "halfway -- a soft sawtooth"
+      },
+      "keen": {
+       "value": 0.14,
+       "gloss": "nearly a saw, still rounded"
+      },
+      "sawtooth": {
+       "value": 0.02,
+       "gloss": "the exact saw spectrum"
+      }
+     }
+    }
+   },
+   "anchor_code": {
+    "skew=triangle": "kskew   = 0.5                               ; skew [0.02..0.5]: 0.5 a symmetric triangle, 0.02 a sawtooth\nivph0   = frac(ivoice * 0.6180339887)   ; per-voice phase\nkvdr0   poscil 0.00245, 0.043 + 0.0037 * ivoice, giSine, ivph0\nkdty0   poscil 0.0042, 0.057     ; age: shape/duty wobble on kpw\nkpw0s0   = kskew + kdty0\naao0s0u0  vco2 0.6, (kfreq * koct1) * (1 + kvdr0), 4, kpw0s0, 0   ; wave seg0 imode4 copy 0\nacln0   = aao0s0u0 * 1.000000    ; clean oscillator (pre-drive)\nadrv0   = acln0                     ; drive 0: clean, no saturator stage\nkagw0   oscili 0.0105, 0.7        ; age: amplitude wobble\nasig    = adrv0 * (1 + kagw0)",
+    "skew=leaning": "kskew   = 0.38                               ; skew [0.02..0.5]: 0.5 a symmetric triangle, 0.02 a sawtooth\nivph0   = frac(ivoice * 0.6180339887)   ; per-voice phase\nkvdr0   poscil 0.00245, 0.043 + 0.0037 * ivoice, giSine, ivph0\nkdty0   poscil 0.0042, 0.057     ; age: shape/duty wobble on kpw\nkpw0s0   = kskew + kdty0\naao0s0u0  vco2 0.6, (kfreq * koct1) * (1 + kvdr0), 4, kpw0s0, 0   ; wave seg0 imode4 copy 0\nacln0   = aao0s0u0 * 1.000000    ; clean oscillator (pre-drive)\nadrv0   = acln0                     ; drive 0: clean, no saturator stage\nkagw0   oscili 0.0105, 0.7        ; age: amplitude wobble\nasig    = adrv0 * (1 + kagw0)",
+    "skew=ramp": "kskew   = 0.26                               ; skew [0.02..0.5]: 0.5 a symmetric triangle, 0.02 a sawtooth\nivph0   = frac(ivoice * 0.6180339887)   ; per-voice phase\nkvdr0   poscil 0.00245, 0.043 + 0.0037 * ivoice, giSine, ivph0\nkdty0   poscil 0.0042, 0.057     ; age: shape/duty wobble on kpw\nkpw0s0   = kskew + kdty0\naao0s0u0  vco2 0.6, (kfreq * koct1) * (1 + kvdr0), 4, kpw0s0, 0   ; wave seg0 imode4 copy 0\nacln0   = aao0s0u0 * 1.000000    ; clean oscillator (pre-drive)\nadrv0   = acln0                     ; drive 0: clean, no saturator stage\nkagw0   oscili 0.0105, 0.7        ; age: amplitude wobble\nasig    = adrv0 * (1 + kagw0)",
+    "skew=keen": "kskew   = 0.14                               ; skew [0.02..0.5]: 0.5 a symmetric triangle, 0.02 a sawtooth\nivph0   = frac(ivoice * 0.6180339887)   ; per-voice phase\nkvdr0   poscil 0.00245, 0.043 + 0.0037 * ivoice, giSine, ivph0\nkdty0   poscil 0.0042, 0.057     ; age: shape/duty wobble on kpw\nkpw0s0   = kskew + kdty0\naao0s0u0  vco2 0.6, (kfreq * koct1) * (1 + kvdr0), 4, kpw0s0, 0   ; wave seg0 imode4 copy 0\nacln0   = aao0s0u0 * 1.000000    ; clean oscillator (pre-drive)\nadrv0   = acln0                     ; drive 0: clean, no saturator stage\nkagw0   oscili 0.0105, 0.7        ; age: amplitude wobble\nasig    = adrv0 * (1 + kagw0)",
+    "skew=sawtooth": "kskew   = 0.02                               ; skew [0.02..0.5]: 0.5 a symmetric triangle, 0.02 a sawtooth\nivph0   = frac(ivoice * 0.6180339887)   ; per-voice phase\nkvdr0   poscil 0.00245, 0.043 + 0.0037 * ivoice, giSine, ivph0\nkdty0   poscil 0.0042, 0.057     ; age: shape/duty wobble on kpw\nkpw0s0   = kskew + kdty0\naao0s0u0  vco2 0.6, (kfreq * koct1) * (1 + kvdr0), 4, kpw0s0, 0   ; wave seg0 imode4 copy 0\nacln0   = aao0s0u0 * 1.000000    ; clean oscillator (pre-drive)\nadrv0   = acln0                     ; drive 0: clean, no saturator stage\nkagw0   oscili 0.0105, 0.7        ; age: amplitude wobble\nasig    = adrv0 * (1 + kagw0)"
+   }
   },
   {
    "key": "sine",
