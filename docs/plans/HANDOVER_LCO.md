@@ -153,6 +153,24 @@ drives the **real** author over a whole corpus in one process — the exact call
 
 **Why the movement reading matters, and why one window length is not enough.** Movement by default is a platform fundamental, and a corpus of standing tones passes an implementation that cannot move at all — that is exactly how a static-partial reimplementation once certified itself green while pwm, morph and dirt were silently gone. `pwm`'s duty sweep reads 48 Hz of travel in 0.5 s windows (a full LFO cycle per window, averaged flat) and 696 Hz in 31 ms ones; a standing sine reads 0 at every window length, which is what makes the fast reading evidence rather than noise. Both are reported.
 
+### The question none of the above asks — 2026-07-26
+
+Every meter listed so far measures a body **against itself**: loudness spread across its own axis, headroom against the host's ceiling, movement across its own note, partial levels relative to its own fundamental. All of them are satisfied by a body that is internally consistent and *not the instrument it is named after*. Measured on 2026-07-25, three entries were green on every one of them and wrong: `vibraphone` was a decaying sine (×4 partial 34 dB down, half-life 0.30 s), `rain` sat 1.6 dB from plain `noise`, `crackle` 1.9 dB. BJ heard the first from outside the numbers and said so. A green suite over the wrong question reads as proof, which makes it worse than no suite.
+
+**The rule that follows (BJ, 2026-07-26):** an entry is finished when it has been held next to a real recording of its instrument — a real WAV, or one generated with SA3 — or it is not built at all. The library's own bounds are not a substitute.
+
+```bash
+.venv/bin/python tools/lco_reference.py generate --keys vibraphone,flute --n 4
+.venv/bin/python tools/lco_reference.py compare  --keys vibraphone,flute
+```
+
+`generate` writes SA3 references into `tools/lco_reference_out/<key>/`; a real recording dropped into the same folder is read identically. `compare` renders the **whole library** and asks one question: against that reference, where does the body that *claims* the name rank? Absolute similarities from a pretrained model are not interpretable — a rank among 69 candidates is. If `struck_bar` sits closer to a real vibraphone than `vibraphone` does, the claim is not carried by the sound. Two distances are reported side by side and never averaged: a CLAP audio-embedding cosine (hears the whole character, including the room and the performance a bare oscillator has none of) and a pitch-robust spectral-envelope distance (cepstrally liftered log spectrum on a log-frequency grid, level-normalised — resonance structure only). A disagreement between them is the finding, not a number to split.
+
+Two mechanical traps, both hit on the first run and both now guarded in the tool:
+
+- **The reference prompt must not say "no music".** The backend picks `TrackType: Instrument` vs `Music` with a string classifier (`_looks_like_music`) that matches the words *music* / *drums* / *percussion* and understands no negation, so a prompt asking for no music is routed to Music. The first reference generated here came back as an arrangement for exactly that reason. `lco_reference.py` re-resolves the prefix per key and refuses the key rather than generating an arrangement.
+- **CLAP cannot be read as a text judge of these renders, and `tools/lco_resemblance.py` refuses to let it.** Asked which of the 69 bodies best matches the caption for its own name, the two checkpoints that pass the backend's sanity gate disagree almost completely — `laion/clap-htsat-unfused` puts cymbal #2, organ #18, flute #6, harpsichord #28, thunder #3, cricket #51; `laion/larger_clap_music_and_speech` puts cymbal #18, organ #3, flute #24, harpsichord #4, thunder #12, cricket #45. Where one is right the other is wrong. The cause is the domain gap: these are dry, roomless, performerless single notes at three fixed pitches, nothing like the recordings CLAP was trained on. The tool runs a control set whose identity is not in doubt and **refuses to report the rest of the ranking when the controls fail** — a ranking from a meter that puts a cricket 51st out of 69 for "the sound of a cricket" is not evidence about a waterphone. (A third cached checkpoint, `laion/larger_clap_music`, fails the backend's own sanity gate outright — text-text 1.000, every similarity 0.006, a collapsed text tower — and is excluded by name so it cannot vote silently.)
+
 ---
 
 ## 5. Measured facts — do not re-derive these
@@ -350,14 +368,18 @@ Nothing here is a measurement failure — every one of these axes passes M5 and 
 18. `analog_osc`'s `age` is inaudible on a held single note: two of its three instabilities run at 0.043 and 0.057 Hz and are a static offset over a few seconds. The fix is a second, faster instability layer — not more depth. (`LCO_CONCEPT.md` §5.)
 19. `fm_ep`'s odd/even balance does not travel over the note.
 
+**Needs a sound decision from BJ — a default, not a mechanism**
+
+20. **`analog_osc` and `saw` render BIT-IDENTICAL at their defaults** — max|a−b| = 0.0, and 0.00 dB apart on both the colour and the rhythm metric, the only such pair in the library (`noise`/`pink_noise` is the next closest at 0.73 dB colour but 7.21 apart in rhythm). It is not a copy-paste: it is construction. `saw`'s three drift depths are 0.00245 / 0.0042 / 0.0105, which is exactly `analog_osc`'s 0.0070 / 0.0120 / 0.0300 evaluated at its `age` default of 0.35; and `analog_osc`'s `wave` default of 0.45 lands `kpwr` on 0.02, a sawtooth, with `kmix` = 0 so the pulse branch is silent. With `fat` = 0 and `drive` = 0 there is nothing left that is analogue about it. **An analog oscillator whose defaults are a plain saw is not answering the word it was asked for** — a prompt saying "minimoog" or "vintage synth" gets the same samples as one saying "sawtooth". The fix is a default, `fat` and `drive` off zero, which is sound-shaping and therefore BJ's call, not mine. The alternative — leaving it — means the author's choice between the two entries is meaningless until it moves an axis.
+
 **Known, not changed because it is runtime semantics and nobody ordered it**
 
-20. `string quartet`, `string ensemble` and `string section` reach **both** `strings` and `string`: the bare word "string" is inside the phrase and `_lookup` collects every match with no longest-wins rule. It no longer stands between the user and the library — `_lookup` reads the AUTHOR's reply now — so at worst the author is handed one entry it did not ask for. Leave it: a longest-wins rule would start deciding which of two entries the author meant.
+21. `string quartet`, `string ensemble` and `string section` reach **both** `strings` and `string`: the bare word "string" is inside the phrase and `_lookup` collects every match with no longest-wins rule. It no longer stands between the user and the library — `_lookup` reads the AUTHOR's reply now — so at worst the author is handed one entry it did not ask for. Leave it: a longest-wins rule would start deciding which of two entries the author meant.
 
 **Housekeeping that needs a decision from BJ**
 
-21. ~457 MB of untracked `tools/*_out/` render directories (over 1 GB counting the ignored ones) and a set of untracked one-off scripts. Deleting anything under `tools/` is BJ's call, not mine. Note before deciding: `backend/dco_frames.py` is untracked but **is imported by the tracked test** `tools/test_dco_author.py:1312`.
-22. `docs/plans/HANDOVER_lco_selfcorrect.md` is untracked and describes the self-check/self-correction loop, which was **deactivated 2026-07-21** (`dbd6c153`, `T5YNTH_LCO_SELFCHECK = 0`). It is history, not a plan.
+22. ~457 MB of untracked `tools/*_out/` render directories (over 1 GB counting the ignored ones) and a set of untracked one-off scripts. Deleting anything under `tools/` is BJ's call, not mine. Note before deciding: `backend/dco_frames.py` is untracked but **is imported by the tracked test** `tools/test_dco_author.py:1312`.
+23. `docs/plans/HANDOVER_lco_selfcorrect.md` is untracked and describes the self-check/self-correction loop, which was **deactivated 2026-07-21** (`dbd6c153`, `T5YNTH_LCO_SELFCHECK = 0`). It is history, not a plan.
 
 **Traceability gap, reported and not fixable without rewriting history**
 
