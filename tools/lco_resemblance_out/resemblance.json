@@ -1,0 +1,1667 @@
+{
+ "lexicon_version": 64,
+ "results": {
+  "laion/clap-htsat-unfused": {
+   "saw": {
+    "name": "saw",
+    "rank": 15,
+    "of": 69,
+    "own_similarity": 0.13846419751644135,
+    "top": [
+     "sub_sine",
+     "rhodes",
+     "wurlitzer"
+    ],
+    "best_similarity": 0.23994141817092896
+   },
+   "square": {
+    "name": "square",
+    "rank": 11,
+    "of": 69,
+    "own_similarity": 0.21907147765159607,
+    "top": [
+     "wurlitzer",
+     "rhodes",
+     "vibraphone"
+    ],
+    "best_similarity": 0.3300153613090515
+   },
+   "pulse": {
+    "name": "pulse",
+    "rank": 51,
+    "of": 69,
+    "own_similarity": 0.018531866371631622,
+    "top": [
+     "sub_sine",
+     "sine",
+     "rhodes"
+    ],
+    "best_similarity": 0.3824608325958252
+   },
+   "pwm": {
+    "name": "pwm",
+    "rank": 34,
+    "of": 69,
+    "own_similarity": 0.43496865034103394,
+    "top": [
+     "frog",
+     "sync",
+     "hurdy_gurdy"
+    ],
+    "best_similarity": 0.5691968202590942
+   },
+   "triangle": {
+    "name": "triangle",
+    "rank": 26,
+    "of": 69,
+    "own_similarity": 0.18245844542980194,
+    "top": [
+     "vibraphone",
+     "ring_mod",
+     "rhodes"
+    ],
+    "best_similarity": 0.5021060705184937
+   },
+   "sine": {
+    "name": "sine",
+    "rank": 1,
+    "of": 69,
+    "own_similarity": 0.7148565649986267,
+    "top": [
+     "sine",
+     "ring_mod",
+     "sub_sine"
+    ],
+    "best_similarity": 0.7148565649986267
+   },
+   "additive": {
+    "name": "additive",
+    "rank": 24,
+    "of": 69,
+    "own_similarity": 0.30000820755958557,
+    "top": [
+     "vibraphone",
+     "wurlitzer",
+     "cheby"
+    ],
+    "best_similarity": 0.46734219789505005
+   },
+   "fm": {
+    "name": "fm",
+    "rank": 23,
+    "of": 69,
+    "own_similarity": 0.2243812084197998,
+    "top": [
+     "sub_sine",
+     "ring_mod",
+     "sine"
+    ],
+    "best_similarity": 0.36433547735214233
+   },
+   "fm_bell": {
+    "name": "bell",
+    "rank": 13,
+    "of": 69,
+    "own_similarity": 0.23565304279327393,
+    "top": [
+     "handpan",
+     "rhodes",
+     "vibraphone"
+    ],
+    "best_similarity": 0.3468250334262848
+   },
+   "fm_ep": {
+    "name": "electric piano",
+    "rank": 20,
+    "of": 69,
+    "own_similarity": 0.2801508605480194,
+    "top": [
+     "wurlitzer",
+     "rhodes",
+     "vibraphone"
+    ],
+    "best_similarity": 0.45921891927719116
+   },
+   "drum_head": {
+    "name": "drum",
+    "rank": 10,
+    "of": 69,
+    "own_similarity": 0.1328948587179184,
+    "top": [
+     "rhodes",
+     "vibraphone",
+     "hurdy_gurdy"
+    ],
+    "best_similarity": 0.2841746509075165
+   },
+   "metallic_fm": {
+    "name": "metal",
+    "rank": 33,
+    "of": 69,
+    "own_similarity": 0.054131269454956055,
+    "top": [
+     "rhodes",
+     "handpan",
+     "wurlitzer"
+    ],
+    "best_similarity": 0.3396894931793213
+   },
+   "struck_bar": {
+    "name": "music box",
+    "rank": 14,
+    "of": 69,
+    "own_similarity": 0.10007868707180023,
+    "top": [
+     "overtone_voice",
+     "tanpura",
+     "vibraphone"
+    ],
+    "best_similarity": 0.3128429353237152
+   },
+   "cymbal": {
+    "name": "cymbal",
+    "rank": 2,
+    "of": 69,
+    "own_similarity": 0.29715704917907715,
+    "top": [
+     "ring_mod",
+     "cymbal",
+     "handpan"
+    ],
+    "best_similarity": 0.29835301637649536
+   },
+   "ring_mod": {
+    "name": "ring mod",
+    "rank": 1,
+    "of": 69,
+    "own_similarity": 0.5474125146865845,
+    "top": [
+     "ring_mod",
+     "cheby",
+     "theremin"
+    ],
+    "best_similarity": 0.5474125146865845
+   },
+   "cheby": {
+    "name": "waveshaper",
+    "rank": 8,
+    "of": 69,
+    "own_similarity": 0.26884904503822327,
+    "top": [
+     "handpan",
+     "ring_mod",
+     "sub_sine"
+    ],
+    "best_similarity": 0.31615543365478516
+   },
+   "organ": {
+    "name": "organ",
+    "rank": 18,
+    "of": 69,
+    "own_similarity": 0.20304344594478607,
+    "top": [
+     "cymbal",
+     "handpan",
+     "hurdy_gurdy"
+    ],
+    "best_similarity": 0.35884585976600647
+   },
+   "clarinet": {
+    "name": "clarinet",
+    "rank": 9,
+    "of": 69,
+    "own_similarity": 0.23104988038539886,
+    "top": [
+     "handpan",
+     "singing_bowl",
+     "flute"
+    ],
+    "best_similarity": 0.2836562395095825
+   },
+   "flute": {
+    "name": "flute",
+    "rank": 6,
+    "of": 69,
+    "own_similarity": 0.2678658068180084,
+    "top": [
+     "handpan",
+     "sub_sine",
+     "ring_mod"
+    ],
+    "best_similarity": 0.3254799246788025
+   },
+   "brass": {
+    "name": "brass",
+    "rank": 20,
+    "of": 69,
+    "own_similarity": 0.24156887829303741,
+    "top": [
+     "hurdy_gurdy",
+     "bagpipe",
+     "frog"
+    ],
+    "best_similarity": 0.39788055419921875
+   },
+   "strings": {
+    "name": "strings",
+    "rank": 29,
+    "of": 69,
+    "own_similarity": 0.08714467287063599,
+    "top": [
+     "cymbal",
+     "rhodes",
+     "wurlitzer"
+    ],
+    "best_similarity": 0.2982009947299957
+   },
+   "string": {
+    "name": "string",
+    "rank": 41,
+    "of": 69,
+    "own_similarity": 0.0725766196846962,
+    "top": [
+     "rhodes",
+     "sub_sine",
+     "vibraphone"
+    ],
+    "best_similarity": 0.3147748112678528
+   },
+   "bass_saw": {
+    "name": "moog",
+    "rank": 14,
+    "of": 69,
+    "own_similarity": 0.3557868003845215,
+    "top": [
+     "hurdy_gurdy",
+     "double_reed",
+     "frog"
+    ],
+    "best_similarity": 0.42157867550849915
+   },
+   "supersaw": {
+    "name": "supersaw",
+    "rank": 26,
+    "of": 69,
+    "own_similarity": 0.257415771484375,
+    "top": [
+     "handpan",
+     "wurlitzer",
+     "sync"
+    ],
+    "best_similarity": 0.4162495732307434
+   },
+   "sync": {
+    "name": "sync",
+    "rank": 35,
+    "of": 69,
+    "own_similarity": 0.2335170954465866,
+    "top": [
+     "ring_mod",
+     "sub_sine",
+     "sine"
+    ],
+    "best_similarity": 0.5257692337036133
+   },
+   "harpsichord": {
+    "name": "harpsichord",
+    "rank": 28,
+    "of": 69,
+    "own_similarity": 0.036951739341020584,
+    "top": [
+     "wurlitzer",
+     "vibraphone",
+     "rhodes"
+    ],
+    "best_similarity": 0.31269705295562744
+   },
+   "chiptune": {
+    "name": "chiptune",
+    "rank": 1,
+    "of": 69,
+    "own_similarity": 0.4500651955604553,
+    "top": [
+     "chiptune",
+     "rhodes",
+     "sync"
+    ],
+    "best_similarity": 0.4500651955604553
+   },
+   "theremin": {
+    "name": "theremin",
+    "rank": 25,
+    "of": 69,
+    "own_similarity": 0.32161885499954224,
+    "top": [
+     "cuica",
+     "bullroarer",
+     "sync"
+    ],
+    "best_similarity": 0.4404918849468231
+   },
+   "sub_sine": {
+    "name": "sub bass",
+    "rank": 1,
+    "of": 69,
+    "own_similarity": 0.5101999640464783,
+    "top": [
+     "sub_sine",
+     "rhodes",
+     "sine"
+    ],
+    "best_similarity": 0.5101999640464783
+   },
+   "analog_osc": {
+    "name": "analog oscillator",
+    "rank": 15,
+    "of": 69,
+    "own_similarity": 0.4298108220100403,
+    "top": [
+     "chiptune",
+     "hurdy_gurdy",
+     "crackle"
+    ],
+    "best_similarity": 0.5091774463653564
+   },
+   "glass": {
+    "name": "glass",
+    "rank": 28,
+    "of": 69,
+    "own_similarity": 0.17397385835647583,
+    "top": [
+     "sub_sine",
+     "ring_mod",
+     "sine"
+    ],
+    "best_similarity": 0.4266047775745392
+   },
+   "struck_glass": {
+    "name": "struck glass",
+    "rank": 20,
+    "of": 69,
+    "own_similarity": 0.2138986438512802,
+    "top": [
+     "rhodes",
+     "vibraphone",
+     "wurlitzer"
+    ],
+    "best_similarity": 0.43805283308029175
+   },
+   "noise": {
+    "name": "white noise",
+    "rank": 1,
+    "of": 69,
+    "own_similarity": 0.4874741733074188,
+    "top": [
+     "noise",
+     "surf",
+     "thunder"
+    ],
+    "best_similarity": 0.4874741733074188
+   },
+   "pink_noise": {
+    "name": "pink noise",
+    "rank": 10,
+    "of": 69,
+    "own_similarity": 0.27003416419029236,
+    "top": [
+     "noise",
+     "surf",
+     "thunder"
+    ],
+    "best_similarity": 0.4739990532398224
+   },
+   "wind": {
+    "name": "wind",
+    "rank": 2,
+    "of": 69,
+    "own_similarity": 0.28827476501464844,
+    "top": [
+     "drum_head",
+     "wind",
+     "rhodes"
+    ],
+    "best_similarity": 0.2899034321308136
+   },
+   "rain": {
+    "name": "rain",
+    "rank": 13,
+    "of": 69,
+    "own_similarity": 0.1156386062502861,
+    "top": [
+     "noise",
+     "thunder",
+     "surf"
+    ],
+    "best_similarity": 0.20729272067546844
+   },
+   "surf": {
+    "name": "surf",
+    "rank": 4,
+    "of": 69,
+    "own_similarity": 0.2737217843532562,
+    "top": [
+     "wind",
+     "thunder",
+     "drum_head"
+    ],
+    "best_similarity": 0.34068089723587036
+   },
+   "thunder": {
+    "name": "thunder",
+    "rank": 3,
+    "of": 69,
+    "own_similarity": 0.16760234534740448,
+    "top": [
+     "drum_head",
+     "wind",
+     "thunder"
+    ],
+    "best_similarity": 0.22796545922756195
+   },
+   "hiss": {
+    "name": "hiss",
+    "rank": 3,
+    "of": 69,
+    "own_similarity": 0.45052435994148254,
+    "top": [
+     "surf",
+     "noise",
+     "hiss"
+    ],
+    "best_similarity": 0.46806448698043823
+   },
+   "crackle": {
+    "name": "crackle",
+    "rank": 4,
+    "of": 69,
+    "own_similarity": 0.18700620532035828,
+    "top": [
+     "pink_noise",
+     "ice",
+     "rhodes"
+    ],
+    "best_similarity": 0.23886236548423767
+   },
+   "voice": {
+    "name": "voice",
+    "rank": 23,
+    "of": 69,
+    "own_similarity": 0.2539868950843811,
+    "top": [
+     "cheby",
+     "sub_sine",
+     "flute"
+    ],
+    "best_similarity": 0.35780268907546997
+   },
+   "voice_ee": {
+    "name": "eee vowel",
+    "rank": 1,
+    "of": 69,
+    "own_similarity": 0.5216137170791626,
+    "top": [
+     "voice_ee",
+     "voice_oo",
+     "harpsichord"
+    ],
+    "best_similarity": 0.5216137170791626
+   },
+   "voice_oo": {
+    "name": "ooh vowel",
+    "rank": 8,
+    "of": 69,
+    "own_similarity": 0.40507790446281433,
+    "top": [
+     "flute",
+     "theremin",
+     "cheby"
+    ],
+    "best_similarity": 0.4688367247581482
+   },
+   "rhodes": {
+    "name": "rhodes",
+    "rank": 5,
+    "of": 69,
+    "own_similarity": 0.37719428539276123,
+    "top": [
+     "hurdy_gurdy",
+     "wurlitzer",
+     "vibraphone"
+    ],
+    "best_similarity": 0.45775148272514343
+   },
+   "wurlitzer": {
+    "name": "wurlitzer",
+    "rank": 9,
+    "of": 69,
+    "own_similarity": 0.23936112225055695,
+    "top": [
+     "bullroarer",
+     "fm_ep",
+     "cheby"
+    ],
+    "best_similarity": 0.2824147343635559
+   },
+   "vibraphone": {
+    "name": "vibraphone",
+    "rank": 1,
+    "of": 69,
+    "own_similarity": 0.5074338316917419,
+    "top": [
+     "vibraphone",
+     "ring_mod",
+     "cheby"
+    ],
+    "best_similarity": 0.5074338316917419
+   },
+   "free_reed": {
+    "name": "accordion",
+    "rank": 13,
+    "of": 69,
+    "own_similarity": 0.18927600979804993,
+    "top": [
+     "harpsichord",
+     "hurdy_gurdy",
+     "cymbal"
+    ],
+    "best_similarity": 0.2936895787715912
+   },
+   "harmonica": {
+    "name": "harmonica",
+    "rank": 44,
+    "of": 69,
+    "own_similarity": 0.11715777218341827,
+    "top": [
+     "string",
+     "harpsichord",
+     "hurdy_gurdy"
+    ],
+    "best_similarity": 0.2814151644706726
+   },
+   "bagpipe": {
+    "name": "bagpipe",
+    "rank": 21,
+    "of": 69,
+    "own_similarity": 0.192719966173172,
+    "top": [
+     "hurdy_gurdy",
+     "string",
+     "handpan"
+    ],
+    "best_similarity": 0.37886905670166016
+   },
+   "sax": {
+    "name": "saxophone",
+    "rank": 10,
+    "of": 69,
+    "own_similarity": 0.24488350749015808,
+    "top": [
+     "hurdy_gurdy",
+     "harpsichord",
+     "double_reed"
+    ],
+    "best_similarity": 0.36931800842285156
+   },
+   "double_reed": {
+    "name": "oboe",
+    "rank": 14,
+    "of": 69,
+    "own_similarity": 0.23950406908988953,
+    "top": [
+     "handpan",
+     "flute",
+     "sub_sine"
+    ],
+    "best_similarity": 0.29692554473876953
+   },
+   "mbira": {
+    "name": "mbira",
+    "rank": 38,
+    "of": 69,
+    "own_similarity": 0.10360400378704071,
+    "top": [
+     "vibraphone",
+     "sub_sine",
+     "fm_ep"
+    ],
+    "best_similarity": 0.26764851808547974
+   },
+   "jaw_harp": {
+    "name": "jaw harp",
+    "rank": 18,
+    "of": 69,
+    "own_similarity": 0.10155482590198517,
+    "top": [
+     "vibraphone",
+     "rhodes",
+     "wurlitzer"
+    ],
+    "best_similarity": 0.24747833609580994
+   },
+   "didgeridoo": {
+    "name": "didgeridoo",
+    "rank": 2,
+    "of": 69,
+    "own_similarity": 0.22016291320323944,
+    "top": [
+     "jaw_harp",
+     "didgeridoo",
+     "voice"
+    ],
+    "best_similarity": 0.22130727767944336
+   },
+   "overtone_voice": {
+    "name": "overtone singing",
+    "rank": 23,
+    "of": 69,
+    "own_similarity": 0.19605593383312225,
+    "top": [
+     "cymbal",
+     "handpan",
+     "singing_bowl"
+    ],
+    "best_similarity": 0.3744885325431824
+   },
+   "cicada": {
+    "name": "cicada",
+    "rank": 27,
+    "of": 69,
+    "own_similarity": -0.018147198483347893,
+    "top": [
+     "sine",
+     "sub_sine",
+     "rhodes"
+    ],
+    "best_similarity": 0.10261725634336472
+   },
+   "cricket": {
+    "name": "cricket",
+    "rank": 51,
+    "of": 69,
+    "own_similarity": -0.1278894990682602,
+    "top": [
+     "rhodes",
+     "sine",
+     "sub_sine"
+    ],
+    "best_similarity": 0.13289925456047058
+   },
+   "frog": {
+    "name": "frog",
+    "rank": 33,
+    "of": 69,
+    "own_similarity": -0.017952948808670044,
+    "top": [
+     "ice",
+     "crackle",
+     "sine"
+    ],
+    "best_similarity": 0.13645713031291962
+   },
+   "handpan": {
+    "name": "handpan",
+    "rank": 4,
+    "of": 69,
+    "own_similarity": 0.39069679379463196,
+    "top": [
+     "rhodes",
+     "wurlitzer",
+     "vibraphone"
+    ],
+    "best_similarity": 0.4794309735298157
+   },
+   "tanpura": {
+    "name": "tanpura",
+    "rank": 48,
+    "of": 69,
+    "own_similarity": 0.021609367802739143,
+    "top": [
+     "additive",
+     "organ",
+     "cymbal"
+    ],
+    "best_similarity": 0.25655484199523926
+   },
+   "ocarina": {
+    "name": "ocarina",
+    "rank": 49,
+    "of": 69,
+    "own_similarity": 0.10311266779899597,
+    "top": [
+     "handpan",
+     "ring_mod",
+     "sub_sine"
+    ],
+    "best_similarity": 0.37809398770332336
+   },
+   "hurdy_gurdy": {
+    "name": "hurdy gurdy",
+    "rank": 1,
+    "of": 69,
+    "own_similarity": 0.4219406247138977,
+    "top": [
+     "hurdy_gurdy",
+     "overtone_voice",
+     "cymbal"
+    ],
+    "best_similarity": 0.4219406247138977
+   },
+   "bubbles": {
+    "name": "bubbles",
+    "rank": 1,
+    "of": 69,
+    "own_similarity": 0.3063421845436096,
+    "top": [
+     "bubbles",
+     "thunder",
+     "ice"
+    ],
+    "best_similarity": 0.3063421845436096
+   },
+   "ice": {
+    "name": "ice",
+    "rank": 9,
+    "of": 69,
+    "own_similarity": 0.181474968791008,
+    "top": [
+     "rhodes",
+     "handpan",
+     "wurlitzer"
+    ],
+    "best_similarity": 0.2625446021556854
+   },
+   "waterphone": {
+    "name": "waterphone",
+    "rank": 25,
+    "of": 69,
+    "own_similarity": 0.1861090362071991,
+    "top": [
+     "singing_bowl",
+     "handpan",
+     "mbira"
+    ],
+    "best_similarity": 0.44131413102149963
+   },
+   "singing_bowl": {
+    "name": "tibetan singing bowl",
+    "rank": 1,
+    "of": 69,
+    "own_similarity": 0.5861911773681641,
+    "top": [
+     "singing_bowl",
+     "struck_bar",
+     "fm"
+    ],
+    "best_similarity": 0.5861911773681641
+   },
+   "bonang": {
+    "name": "bonang",
+    "rank": 26,
+    "of": 69,
+    "own_similarity": 0.08074713498353958,
+    "top": [
+     "vibraphone",
+     "wurlitzer",
+     "rhodes"
+    ],
+    "best_similarity": 0.2623055875301361
+   },
+   "bullroarer": {
+    "name": "bullroarer",
+    "rank": 67,
+    "of": 69,
+    "own_similarity": -0.0012345784343779087,
+    "top": [
+     "hurdy_gurdy",
+     "ice",
+     "string"
+    ],
+    "best_similarity": 0.2858002483844757
+   },
+   "cuica": {
+    "name": "cuica",
+    "rank": 45,
+    "of": 69,
+    "own_similarity": 0.03316649794578552,
+    "top": [
+     "handpan",
+     "singing_bowl",
+     "flute"
+    ],
+    "best_similarity": 0.2541675567626953
+   }
+  },
+  "laion/clap-htsat-unfused::controls_ok": false,
+  "laion/larger_clap_music_and_speech": {
+   "saw": {
+    "name": "saw",
+    "rank": 11,
+    "of": 69,
+    "own_similarity": 0.21537885069847107,
+    "top": [
+     "string",
+     "harmonica",
+     "sax"
+    ],
+    "best_similarity": 0.25346872210502625
+   },
+   "square": {
+    "name": "square",
+    "rank": 6,
+    "of": 69,
+    "own_similarity": 0.2554098963737488,
+    "top": [
+     "bass_saw",
+     "pwm",
+     "analog_osc"
+    ],
+    "best_similarity": 0.3121200203895569
+   },
+   "pulse": {
+    "name": "pulse",
+    "rank": 27,
+    "of": 69,
+    "own_similarity": 0.20917069911956787,
+    "top": [
+     "sine",
+     "clarinet",
+     "cheby"
+    ],
+    "best_similarity": 0.34890052676200867
+   },
+   "pwm": {
+    "name": "pwm",
+    "rank": 17,
+    "of": 69,
+    "own_similarity": 0.49465450644493103,
+    "top": [
+     "bagpipe",
+     "hurdy_gurdy",
+     "voice"
+    ],
+    "best_similarity": 0.5744298100471497
+   },
+   "triangle": {
+    "name": "triangle",
+    "rank": 38,
+    "of": 69,
+    "own_similarity": 0.04859772324562073,
+    "top": [
+     "fm_ep",
+     "rhodes",
+     "wurlitzer"
+    ],
+    "best_similarity": 0.30089738965034485
+   },
+   "sine": {
+    "name": "sine",
+    "rank": 1,
+    "of": 69,
+    "own_similarity": 0.5722900629043579,
+    "top": [
+     "sine",
+     "ring_mod",
+     "clarinet"
+    ],
+    "best_similarity": 0.5722900629043579
+   },
+   "additive": {
+    "name": "additive",
+    "rank": 37,
+    "of": 69,
+    "own_similarity": 0.07738526910543442,
+    "top": [
+     "hiss",
+     "noise",
+     "surf"
+    ],
+    "best_similarity": 0.3704012930393219
+   },
+   "fm": {
+    "name": "fm",
+    "rank": 45,
+    "of": 69,
+    "own_similarity": 0.1422032117843628,
+    "top": [
+     "overtone_voice",
+     "harpsichord",
+     "vibraphone"
+    ],
+    "best_similarity": 0.35378485918045044
+   },
+   "fm_bell": {
+    "name": "bell",
+    "rank": 4,
+    "of": 69,
+    "own_similarity": 0.3587442636489868,
+    "top": [
+     "wurlitzer",
+     "fm_ep",
+     "fm"
+    ],
+    "best_similarity": 0.4355718195438385
+   },
+   "fm_ep": {
+    "name": "electric piano",
+    "rank": 9,
+    "of": 69,
+    "own_similarity": 0.2343459576368332,
+    "top": [
+     "wurlitzer",
+     "organ",
+     "glass"
+    ],
+    "best_similarity": 0.3703342080116272
+   },
+   "drum_head": {
+    "name": "drum",
+    "rank": 34,
+    "of": 69,
+    "own_similarity": 0.03194792568683624,
+    "top": [
+     "hurdy_gurdy",
+     "vibraphone",
+     "rhodes"
+    ],
+    "best_similarity": 0.22772960364818573
+   },
+   "metallic_fm": {
+    "name": "metal",
+    "rank": 40,
+    "of": 69,
+    "own_similarity": 0.12075452506542206,
+    "top": [
+     "wurlitzer",
+     "singing_bowl",
+     "struck_bar"
+    ],
+    "best_similarity": 0.32472726702690125
+   },
+   "struck_bar": {
+    "name": "music box",
+    "rank": 20,
+    "of": 69,
+    "own_similarity": -0.05059800297021866,
+    "top": [
+     "vibraphone",
+     "rhodes",
+     "overtone_voice"
+    ],
+    "best_similarity": 0.2446337342262268
+   },
+   "cymbal": {
+    "name": "cymbal",
+    "rank": 18,
+    "of": 69,
+    "own_similarity": 0.07796823233366013,
+    "top": [
+     "singing_bowl",
+     "struck_bar",
+     "hiss"
+    ],
+    "best_similarity": 0.16056668758392334
+   },
+   "ring_mod": {
+    "name": "ring mod",
+    "rank": 11,
+    "of": 69,
+    "own_similarity": 0.26617053151130676,
+    "top": [
+     "overtone_voice",
+     "rhodes",
+     "tanpura"
+    ],
+    "best_similarity": 0.4379318952560425
+   },
+   "cheby": {
+    "name": "waveshaper",
+    "rank": 20,
+    "of": 69,
+    "own_similarity": 0.16403546929359436,
+    "top": [
+     "pink_noise",
+     "wind",
+     "rain"
+    ],
+    "best_similarity": 0.254668265581131
+   },
+   "organ": {
+    "name": "organ",
+    "rank": 3,
+    "of": 69,
+    "own_similarity": 0.34772059321403503,
+    "top": [
+     "harpsichord",
+     "glass",
+     "organ"
+    ],
+    "best_similarity": 0.3615635931491852
+   },
+   "clarinet": {
+    "name": "clarinet",
+    "rank": 19,
+    "of": 69,
+    "own_similarity": 0.20076073706150055,
+    "top": [
+     "glass",
+     "struck_glass",
+     "harmonica"
+    ],
+    "best_similarity": 0.3184663951396942
+   },
+   "flute": {
+    "name": "flute",
+    "rank": 24,
+    "of": 69,
+    "own_similarity": 0.1439192146062851,
+    "top": [
+     "glass",
+     "singing_bowl",
+     "cymbal"
+    ],
+    "best_similarity": 0.30869385600090027
+   },
+   "brass": {
+    "name": "brass",
+    "rank": 35,
+    "of": 69,
+    "own_similarity": 0.18181096017360687,
+    "top": [
+     "harmonica",
+     "harpsichord",
+     "free_reed"
+    ],
+    "best_similarity": 0.34784644842147827
+   },
+   "strings": {
+    "name": "strings",
+    "rank": 4,
+    "of": 69,
+    "own_similarity": 0.20636260509490967,
+    "top": [
+     "supersaw",
+     "free_reed",
+     "singing_bowl"
+    ],
+    "best_similarity": 0.28044676780700684
+   },
+   "string": {
+    "name": "string",
+    "rank": 56,
+    "of": 69,
+    "own_similarity": 0.10804802179336548,
+    "top": [
+     "cheby",
+     "flute",
+     "singing_bowl"
+    ],
+    "best_similarity": 0.33659467101097107
+   },
+   "bass_saw": {
+    "name": "moog",
+    "rank": 24,
+    "of": 69,
+    "own_similarity": 0.2200874388217926,
+    "top": [
+     "voice_ee",
+     "voice",
+     "voice_oo"
+    ],
+    "best_similarity": 0.43340933322906494
+   },
+   "supersaw": {
+    "name": "supersaw",
+    "rank": 11,
+    "of": 69,
+    "own_similarity": 0.22137628495693207,
+    "top": [
+     "string",
+     "cricket",
+     "pwm"
+    ],
+    "best_similarity": 0.3277515470981598
+   },
+   "sync": {
+    "name": "sync",
+    "rank": 43,
+    "of": 69,
+    "own_similarity": 0.10573265701532364,
+    "top": [
+     "rhodes",
+     "overtone_voice",
+     "vibraphone"
+    ],
+    "best_similarity": 0.3865029215812683
+   },
+   "harpsichord": {
+    "name": "harpsichord",
+    "rank": 4,
+    "of": 69,
+    "own_similarity": 0.21339528262615204,
+    "top": [
+     "wurlitzer",
+     "rhodes",
+     "organ"
+    ],
+    "best_similarity": 0.4017583131790161
+   },
+   "chiptune": {
+    "name": "chiptune",
+    "rank": 1,
+    "of": 69,
+    "own_similarity": 0.31399962306022644,
+    "top": [
+     "chiptune",
+     "overtone_voice",
+     "tanpura"
+    ],
+    "best_similarity": 0.31399962306022644
+   },
+   "theremin": {
+    "name": "theremin",
+    "rank": 20,
+    "of": 69,
+    "own_similarity": 0.35512906312942505,
+    "top": [
+     "cuica",
+     "voice_ee",
+     "voice"
+    ],
+    "best_similarity": 0.5000762939453125
+   },
+   "sub_sine": {
+    "name": "sub bass",
+    "rank": 1,
+    "of": 69,
+    "own_similarity": 0.47644564509391785,
+    "top": [
+     "sub_sine",
+     "flute",
+     "sine"
+    ],
+    "best_similarity": 0.47644564509391785
+   },
+   "analog_osc": {
+    "name": "analog oscillator",
+    "rank": 14,
+    "of": 69,
+    "own_similarity": 0.3884078562259674,
+    "top": [
+     "voice_ee",
+     "triangle",
+     "strings"
+    ],
+    "best_similarity": 0.4661121070384979
+   },
+   "glass": {
+    "name": "glass",
+    "rank": 10,
+    "of": 69,
+    "own_similarity": 0.2695006728172302,
+    "top": [
+     "singing_bowl",
+     "struck_bar",
+     "struck_glass"
+    ],
+    "best_similarity": 0.40675973892211914
+   },
+   "struck_glass": {
+    "name": "struck glass",
+    "rank": 5,
+    "of": 69,
+    "own_similarity": 0.2667134702205658,
+    "top": [
+     "singing_bowl",
+     "struck_bar",
+     "wurlitzer"
+    ],
+    "best_similarity": 0.3250212073326111
+   },
+   "noise": {
+    "name": "white noise",
+    "rank": 7,
+    "of": 69,
+    "own_similarity": 0.2652890086174011,
+    "top": [
+     "drum_head",
+     "wind",
+     "thunder"
+    ],
+    "best_similarity": 0.3671475350856781
+   },
+   "pink_noise": {
+    "name": "pink noise",
+    "rank": 38,
+    "of": 69,
+    "own_similarity": 0.14252567291259766,
+    "top": [
+     "thunder",
+     "rain",
+     "hiss"
+    ],
+    "best_similarity": 0.2605554163455963
+   },
+   "wind": {
+    "name": "wind",
+    "rank": 1,
+    "of": 69,
+    "own_similarity": 0.29754769802093506,
+    "top": [
+     "wind",
+     "handpan",
+     "bonang"
+    ],
+    "best_similarity": 0.29754769802093506
+   },
+   "rain": {
+    "name": "rain",
+    "rank": 1,
+    "of": 69,
+    "own_similarity": 0.257791668176651,
+    "top": [
+     "rain",
+     "thunder",
+     "wind"
+    ],
+    "best_similarity": 0.257791668176651
+   },
+   "surf": {
+    "name": "surf",
+    "rank": 3,
+    "of": 69,
+    "own_similarity": 0.24874892830848694,
+    "top": [
+     "wind",
+     "thunder",
+     "surf"
+    ],
+    "best_similarity": 0.2901696562767029
+   },
+   "thunder": {
+    "name": "thunder",
+    "rank": 12,
+    "of": 69,
+    "own_similarity": 0.1610793024301529,
+    "top": [
+     "rain",
+     "handpan",
+     "wind"
+    ],
+    "best_similarity": 0.22897009551525116
+   },
+   "hiss": {
+    "name": "hiss",
+    "rank": 1,
+    "of": 69,
+    "own_similarity": 0.32976034283638,
+    "top": [
+     "hiss",
+     "rain",
+     "thunder"
+    ],
+    "best_similarity": 0.32976034283638
+   },
+   "crackle": {
+    "name": "crackle",
+    "rank": 1,
+    "of": 69,
+    "own_similarity": 0.28367194533348083,
+    "top": [
+     "crackle",
+     "rain",
+     "wurlitzer"
+    ],
+    "best_similarity": 0.28367194533348083
+   },
+   "voice": {
+    "name": "voice",
+    "rank": 12,
+    "of": 69,
+    "own_similarity": 0.2607840895652771,
+    "top": [
+     "cheby",
+     "clarinet",
+     "singing_bowl"
+    ],
+    "best_similarity": 0.3389298915863037
+   },
+   "voice_ee": {
+    "name": "eee vowel",
+    "rank": 2,
+    "of": 69,
+    "own_similarity": 0.28800326585769653,
+    "top": [
+     "flute",
+     "voice_ee",
+     "clarinet"
+    ],
+    "best_similarity": 0.30460670590400696
+   },
+   "voice_oo": {
+    "name": "ooh vowel",
+    "rank": 3,
+    "of": 69,
+    "own_similarity": 0.32839587330818176,
+    "top": [
+     "flute",
+     "voice",
+     "voice_oo"
+    ],
+    "best_similarity": 0.3765968680381775
+   },
+   "rhodes": {
+    "name": "rhodes",
+    "rank": 2,
+    "of": 69,
+    "own_similarity": 0.3999055027961731,
+    "top": [
+     "vibraphone",
+     "rhodes",
+     "wurlitzer"
+    ],
+    "best_similarity": 0.40315255522727966
+   },
+   "wurlitzer": {
+    "name": "wurlitzer",
+    "rank": 6,
+    "of": 69,
+    "own_similarity": 0.21221338212490082,
+    "top": [
+     "pink_noise",
+     "overtone_voice",
+     "rain"
+    ],
+    "best_similarity": 0.3205757141113281
+   },
+   "vibraphone": {
+    "name": "vibraphone",
+    "rank": 1,
+    "of": 69,
+    "own_similarity": 0.5567864775657654,
+    "top": [
+     "vibraphone",
+     "rhodes",
+     "wurlitzer"
+    ],
+    "best_similarity": 0.5567864775657654
+   },
+   "free_reed": {
+    "name": "accordion",
+    "rank": 22,
+    "of": 69,
+    "own_similarity": 0.11180377006530762,
+    "top": [
+     "harpsichord",
+     "organ",
+     "voice"
+    ],
+    "best_similarity": 0.2721877694129944
+   },
+   "harmonica": {
+    "name": "harmonica",
+    "rank": 19,
+    "of": 69,
+    "own_similarity": 0.2180502861738205,
+    "top": [
+     "harpsichord",
+     "organ",
+     "additive"
+    ],
+    "best_similarity": 0.3792437016963959
+   },
+   "bagpipe": {
+    "name": "bagpipe",
+    "rank": 12,
+    "of": 69,
+    "own_similarity": 0.22544649243354797,
+    "top": [
+     "voice",
+     "voice_ee",
+     "harpsichord"
+    ],
+    "best_similarity": 0.2992308437824249
+   },
+   "sax": {
+    "name": "saxophone",
+    "rank": 1,
+    "of": 69,
+    "own_similarity": 0.26870086789131165,
+    "top": [
+     "sax",
+     "voice",
+     "harmonica"
+    ],
+    "best_similarity": 0.26870086789131165
+   },
+   "double_reed": {
+    "name": "oboe",
+    "rank": 18,
+    "of": 69,
+    "own_similarity": 0.1860019415616989,
+    "top": [
+     "harpsichord",
+     "glass",
+     "clarinet"
+    ],
+    "best_similarity": 0.30320021510124207
+   },
+   "mbira": {
+    "name": "mbira",
+    "rank": 69,
+    "of": 69,
+    "own_similarity": -0.21406805515289307,
+    "top": [
+     "vibraphone",
+     "rhodes",
+     "hiss"
+    ],
+    "best_similarity": 0.17328327894210815
+   },
+   "jaw_harp": {
+    "name": "jaw harp",
+    "rank": 15,
+    "of": 69,
+    "own_similarity": -0.02484033815562725,
+    "top": [
+     "wurlitzer",
+     "rhodes",
+     "vibraphone"
+    ],
+    "best_similarity": 0.19275404512882233
+   },
+   "didgeridoo": {
+    "name": "didgeridoo",
+    "rank": 10,
+    "of": 69,
+    "own_similarity": 0.13617385923862457,
+    "top": [
+     "string",
+     "voice_ee",
+     "voice"
+    ],
+    "best_similarity": 0.21742437779903412
+   },
+   "overtone_voice": {
+    "name": "overtone singing",
+    "rank": 56,
+    "of": 69,
+    "own_similarity": -0.04724067077040672,
+    "top": [
+     "handpan",
+     "singing_bowl",
+     "glass"
+    ],
+    "best_similarity": 0.3067964017391205
+   },
+   "cicada": {
+    "name": "cicada",
+    "rank": 6,
+    "of": 69,
+    "own_similarity": 0.1086365208029747,
+    "top": [
+     "hiss",
+     "waterphone",
+     "crackle"
+    ],
+    "best_similarity": 0.2125893086194992
+   },
+   "cricket": {
+    "name": "cricket",
+    "rank": 45,
+    "of": 69,
+    "own_similarity": -0.01343811210244894,
+    "top": [
+     "rain",
+     "singing_bowl",
+     "rhodes"
+    ],
+    "best_similarity": 0.15171144902706146
+   },
+   "frog": {
+    "name": "frog",
+    "rank": 31,
+    "of": 69,
+    "own_similarity": 0.04486170783638954,
+    "top": [
+     "bubbles",
+     "crackle",
+     "ice"
+    ],
+    "best_similarity": 0.2884238064289093
+   },
+   "handpan": {
+    "name": "handpan",
+    "rank": 25,
+    "of": 69,
+    "own_similarity": 0.0779525563120842,
+    "top": [
+     "singing_bowl",
+     "wurlitzer",
+     "string"
+    ],
+    "best_similarity": 0.17777608335018158
+   },
+   "tanpura": {
+    "name": "tanpura",
+    "rank": 44,
+    "of": 69,
+    "own_similarity": -0.03876964747905731,
+    "top": [
+     "harpsichord",
+     "organ",
+     "string"
+    ],
+    "best_similarity": 0.19718621671199799
+   },
+   "ocarina": {
+    "name": "ocarina",
+    "rank": 54,
+    "of": 69,
+    "own_similarity": 0.07658357918262482,
+    "top": [
+     "overtone_voice",
+     "waterphone",
+     "voice"
+    ],
+    "best_similarity": 0.310625821352005
+   },
+   "hurdy_gurdy": {
+    "name": "hurdy gurdy",
+    "rank": 17,
+    "of": 69,
+    "own_similarity": 0.028003143146634102,
+    "top": [
+     "waterphone",
+     "wurlitzer",
+     "string"
+    ],
+    "best_similarity": 0.19808746874332428
+   },
+   "bubbles": {
+    "name": "bubbles",
+    "rank": 1,
+    "of": 69,
+    "own_similarity": 0.3800939619541168,
+    "top": [
+     "bubbles",
+     "ice",
+     "thunder"
+    ],
+    "best_similarity": 0.3800939619541168
+   },
+   "ice": {
+    "name": "ice",
+    "rank": 1,
+    "of": 69,
+    "own_similarity": 0.1758362352848053,
+    "top": [
+     "ice",
+     "struck_glass",
+     "crackle"
+    ],
+    "best_similarity": 0.1758362352848053
+   },
+   "waterphone": {
+    "name": "waterphone",
+    "rank": 8,
+    "of": 69,
+    "own_similarity": 0.3055391013622284,
+    "top": [
+     "singing_bowl",
+     "struck_bar",
+     "mbira"
+    ],
+    "best_similarity": 0.46844482421875
+   },
+   "singing_bowl": {
+    "name": "tibetan singing bowl",
+    "rank": 1,
+    "of": 69,
+    "own_similarity": 0.44627800583839417,
+    "top": [
+     "singing_bowl",
+     "struck_bar",
+     "additive"
+    ],
+    "best_similarity": 0.44627800583839417
+   },
+   "bonang": {
+    "name": "bonang",
+    "rank": 41,
+    "of": 69,
+    "own_similarity": 0.086639903485775,
+    "top": [
+     "overtone_voice",
+     "wurlitzer",
+     "singing_bowl"
+    ],
+    "best_similarity": 0.21727809309959412
+   },
+   "bullroarer": {
+    "name": "bullroarer",
+    "rank": 56,
+    "of": 69,
+    "own_similarity": -0.011688491329550743,
+    "top": [
+     "sax",
+     "voice",
+     "frog"
+    ],
+    "best_similarity": 0.23446781933307648
+   },
+   "cuica": {
+    "name": "cuica",
+    "rank": 36,
+    "of": 69,
+    "own_similarity": 0.1064339205622673,
+    "top": [
+     "singing_bowl",
+     "glass",
+     "voice_ee"
+    ],
+    "best_similarity": 0.22896283864974976
+   }
+  },
+  "laion/larger_clap_music_and_speech::controls_ok": false
+ }
+}

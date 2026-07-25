@@ -1,0 +1,229 @@
+{
+ "lexicon_version": 67,
+ "report": {
+  "flute": {
+   "references": [
+    "sa3_seed11.wav",
+    "sa3_seed22.wav",
+    "sa3_seed33.wav",
+    "sa3_seed44.wav"
+   ],
+   "clap_rank": 26,
+   "env_rank": 57,
+   "of": 70,
+   "clap_top": [
+    "overtone_voice",
+    "sax",
+    "struck_glass",
+    "waterphone",
+    "struck_bar"
+   ],
+   "env_top": [
+    "string",
+    "rain",
+    "crackle",
+    "pulse",
+    "square"
+   ],
+   "clap_own": 0.03300713375210762,
+   "env_own": 38.821822589619465,
+   "env_best": 8.626201087729084
+  },
+  "cymbal": {
+   "references": [
+    "sa3_seed11.wav",
+    "sa3_seed22.wav",
+    "sa3_seed33.wav",
+    "sa3_seed44.wav"
+   ],
+   "clap_rank": 7,
+   "env_rank": 25,
+   "of": 70,
+   "clap_top": [
+    "mbira",
+    "handpan",
+    "struck_glass",
+    "string",
+    "struck_bar"
+   ],
+   "env_top": [
+    "surf",
+    "string",
+    "bullroarer",
+    "square",
+    "rain"
+   ],
+   "clap_own": 0.20936603844165802,
+   "env_own": 21.785761467841542,
+   "env_best": 9.861552951598952
+  },
+  "organ": {
+   "references": [
+    "sa3_seed11.wav",
+    "sa3_seed22.wav",
+    "sa3_seed33.wav",
+    "sa3_seed44.wav"
+   ],
+   "clap_rank": 20,
+   "env_rank": 41,
+   "of": 70,
+   "clap_top": [
+    "tanpura",
+    "free_reed",
+    "sax",
+    "overtone_voice",
+    "struck_glass"
+   ],
+   "env_top": [
+    "struck_bar",
+    "glass",
+    "singing_bowl",
+    "voice_oo",
+    "voice_ee"
+   ],
+   "clap_own": 0.23488841950893402,
+   "env_own": 27.916726600326133,
+   "env_best": 12.3967790938704
+  },
+  "harpsichord": {
+   "references": [
+    "sa3_seed11.wav",
+    "sa3_seed22.wav",
+    "sa3_seed33.wav",
+    "sa3_seed44.wav"
+   ],
+   "clap_rank": 38,
+   "env_rank": 47,
+   "of": 70,
+   "clap_top": [
+    "wurlitzer",
+    "rhodes",
+    "tanpura",
+    "vibraphone",
+    "overtone_voice"
+   ],
+   "env_top": [
+    "thunder",
+    "bullroarer",
+    "surf",
+    "bubbles",
+    "string"
+   ],
+   "clap_own": 0.05787503346800804,
+   "env_own": 28.627130734324727,
+   "env_best": 8.360449657742821
+  },
+  "rain": {
+   "references": [
+    "sa3_seed11.wav",
+    "sa3_seed22.wav",
+    "sa3_seed33.wav",
+    "sa3_seed44.wav"
+   ],
+   "clap_rank": 62,
+   "env_rank": 14,
+   "of": 70,
+   "clap_top": [
+    "handpan",
+    "rhodes",
+    "singing_bowl",
+    "struck_bar",
+    "mbira"
+   ],
+   "env_top": [
+    "bullroarer",
+    "surf",
+    "bubbles",
+    "square",
+    "noise"
+   ],
+   "clap_own": -0.0909029170870781,
+   "env_own": 18.75674831795413,
+   "env_best": 10.19662765697452
+  },
+  "vibraphone": {
+   "references": [
+    "sa3_seed11.wav",
+    "sa3_seed22.wav",
+    "sa3_seed33.wav",
+    "sa3_seed44.wav"
+   ],
+   "clap_rank": 7,
+   "env_rank": 66,
+   "of": 70,
+   "clap_top": [
+    "overtone_voice",
+    "tanpura",
+    "fm_ep",
+    "handpan",
+    "singing_bowl"
+   ],
+   "env_top": [
+    "thunder",
+    "ice",
+    "triangle",
+    "wind",
+    "free_reed"
+   ],
+   "clap_own": 0.32260724902153015,
+   "env_own": 38.896417505458906,
+   "env_best": 11.65802851059877
+  },
+  "waterphone": {
+   "references": [
+    "sa3_seed11.wav",
+    "sa3_seed22.wav",
+    "sa3_seed33.wav",
+    "sa3_seed44.wav"
+   ],
+   "clap_rank": 18,
+   "env_rank": 54,
+   "of": 70,
+   "clap_top": [
+    "mbira",
+    "struck_bar",
+    "singing_bowl",
+    "struck_glass",
+    "handpan"
+   ],
+   "env_top": [
+    "thunder",
+    "triangle",
+    "didgeridoo",
+    "voice_ee",
+    "harmonica"
+   ],
+   "clap_own": 0.19678349792957306,
+   "env_own": 29.758528290455857,
+   "env_best": 10.351283007232785
+  },
+  "singing_bowl": {
+   "references": [
+    "sa3_seed11.wav",
+    "sa3_seed22.wav",
+    "sa3_seed33.wav",
+    "sa3_seed44.wav"
+   ],
+   "clap_rank": 4,
+   "env_rank": 52,
+   "of": 70,
+   "clap_top": [
+    "struck_bar",
+    "struck_glass",
+    "mbira",
+    "singing_bowl",
+    "handpan"
+   ],
+   "env_top": [
+    "rain",
+    "string",
+    "crackle",
+    "square",
+    "pulse"
+   ],
+   "clap_own": 0.4124749004840851,
+   "env_own": 32.61414690322504,
+   "env_best": 8.828652936670442
+  }
+ }
+}

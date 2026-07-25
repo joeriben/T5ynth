@@ -1,0 +1,4 @@
+solo cymbal, one instrument alone, single sustained note, close microphone, dry studio recording, unaccompanied, no reverb
+
+model: stable-audio-3-medium
+steps: 50  cfg: 6.0  seconds: 6.0
