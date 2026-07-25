@@ -5,10 +5,14 @@ sinnvolle Parametrisierung nach vorgegebenen Regeln. Erweitere die Instrumente
 danach: beziehe Naturklänge und untypischere, weniger klischeehafte Instrumente
 ein."*
 
-The rules are not invented here. They are `docs/LCO_CONCEPT.md` §3 (what an
-instrument IS) and §4 (the platform invariants), plus §5's own ruling on `vibes`
-and the two failure modes §7 records as already committed. This document is the
-record of turning them into measurements and running them.
+The rules are not invented here — **with one exception, S4.** They are
+`docs/LCO_CONCEPT.md` §3 (what an instrument IS) and §4 (the platform invariants),
+plus §5's own ruling on `vibes` and the two failure modes §7 records as already
+committed. This document is the record of turning them into measurements and
+running them. S4 is the exception: `anchor_code` appears nowhere in
+`LCO_CONCEPT.md`, so "every axis has a code exemplar" is this audit's own
+requirement and is marked as such in the table below rather than given a §
+it does not have.
 
 The harness is `tools/lco_param_audit.py`; the meter under it is
 `tools/lco_measure.py`, whose `--selftest` must pass before any number here means
@@ -28,7 +32,7 @@ anything.
 | **S1** | An instrument carries parameters | §3 | the entry has a `params` block |
 | **S2** | Every axis: a measured range, a default inside it, ≥2 named anchors, a perceptual gloss on each | §3.2, §3.3 | read from the entry |
 | **S3** | Every axis carries a `note` saying what it does to the sound | §3.2 | read from the entry |
-| **S4** | Every axis has a code exemplar the model can see | §2 (`anchor_code`) | read from the entry |
+| **S4** | Every axis has a code exemplar the model can see | not in `LCO_CONCEPT.md` — this rule is the audit's own | read from the entry |
 | **M1** | The body renders clean from 55 to 1760 Hz | — | not silent, not so hot the host's clip acts |
 | **M2** | The sound follows the keyboard | §4 *pitch belongs to the synth* | `lco_measure.tracks` over 110→880 Hz |
 | **M3** | A held note stands | §4 *the oscillator is a spectrum source* | tail/head RMS |
@@ -106,14 +110,23 @@ be a fader in disguise — but that last clause is much weaker than it sounds, s
 S4.
 
 **This section is the original run and is kept as written; the counts in it are
-that run's, not today's.** Where it stands now, on 57 instruments: 85 findings, 28
-declared. What has closed since, each with its own commit: the register tilt of
+that run's, not today's.** Where it stands now, **on 63 instruments: 58 findings,
+28 declared**. What has closed since, each with its own commit: the register tilt of
 `struck_bar` / `cymbal` / `glass` / `drum_head` (M7 is now four entries, three of
 them the vowels §5 leaves with BJ and one a declared consequence); `saw` /
 `square` / `pulse` / `triangle` / `pwm` and the wind family parametrised (S1: 38
-of 45 → 29 of 57); the meter's own defects behind several of these numbers (see
-§2). What has NOT closed is S4 — the 17 axes with no exemplar, still §5 item 1 —
-and the two movement questions, which are BJ's.
+of 45 → **21 of 63**); the meter's own defects behind several of these numbers (see
+§2). What has NOT closed is S4 — the 7 axes with no exemplar, still §5 item 1 —
+and the movement question for the vowels, which is BJ's.
+
+Two claims in the paragraph above this one no longer hold. **`cymbal` no longer
+tracks the keyboard** — M2 reads `mixed` (r_note 0.26 against r_fixed 0.244) as a
+real, undeclared finding, so "every instrument tracks the keyboard" is 62 of 63.
+And the audit does **not** honour `; MOVEMENT: TEXTURE`: `DECLARED` has no entry
+for it, so `rain`, `crackle`, `thunder`, `cymbal` and `ice` print as undeclared M4
+failures here while `lco_axis_probe.gate()` exempts them. Two harnesses, two
+answers, on the invariant §4 was amended for — this one is wrong and is the one to
+fix.
 
 ### S1 — 38 of 45 instruments have no parameter at all
 
@@ -219,10 +232,17 @@ plainly audible wobble on `sub_sine`'s 205 Hz. In cents the two populations sepa
 more sharply, and 60 cents fails exactly the sixteen entries the 8 Hz bound did — so
 that change was verdict-neutral and only made the number mean something.
 
-On the corrected meter — span ≥ 60 cents **and** coherence ≥ 0.35, the threshold sitting
-in an empty band between a noise null whose maximum over 60 renders is 0.188 and the
-0.51–1.00 that everything with a real modulation reads — **16 of the 57 shipped
+On the corrected meter — span ≥ 60 cents **and** coherence ≥ 0.35 — **16 of the 57 shipped
 instruments do not move**, in two distinct groups:
+
+The band this threshold was said to sit in is no longer empty. The claim was a noise null
+whose maximum over 60 renders is 0.188 against the 0.51–1.00 that anything with a real
+modulation reads. Re-measured over 54 stationary renders the null's maximum is **0.238**,
+and two shipped entries now read inside the gap — `hurdy_gurdy` **0.434** and `rhodes`
+0.509 — so the empty band is [0.238, 0.434] and `hurdy_gurdy` passes on 0.084 of margin.
+0.35 is still above the stationary population, which is what the threshold needs; it is no
+longer wide of everything on both sides, which is what "calibrated rather than chosen" was
+resting on.
 
 ```
 they have nothing to move (travel in cents; coherence 1.00 — coherent but tiny)
@@ -281,10 +301,18 @@ glass                                                  the fourth modal bank
 
 `LCO_CONCEPT.md` discusses all fifteen as if they were in the library — §6 calls
 the beds *„the route for the natural-sound and animal part of the library"*, §5
-records the struck three as *„Instruments 4–6 — BUILT"* — and the shipped path
-could reach none of them. Recovered in `e132a962` through
-`tools/lco_recover_lost_keys.py`, which reproduces 29 of the 30 committed bodies
-byte-for-byte before it will emit anything new.
+records the struck three as *„Instruments 4–6 — BUILT, NOT YET HEARD"* — and the
+shipped path could reach none of them. Recovered in `e132a962` through
+`tools/lco_recover_lost_keys.py`, which at that commit reproduced 29 of the 30
+committed bodies byte-for-byte before it would emit anything new.
+
+**That guarantee is spent, and the tool is now a false accusation.** Every
+parametrisation since `e132a962` moved the bodies it compares against, so it exits
+1 with *"the extraction does not reproduce ['bagpipe', 'brass', … 40 keys], so it
+is not the path that produced the library"* — 40 entries named as suspect that are
+simply parametrised. It did its job once; a guardian that is permanently red gets
+switched off, so it should be either re-baselined against HEAD or deleted, not left
+standing as though it still guarded anything.
 
 ---
 
@@ -316,8 +344,9 @@ byte-for-byte before it will emit anything new.
    `rate`), the wind family (`clarinet`/`flute` breath, `brass` press, `organ`
    registration), the five nature beds (`wind` speed, `rain` surface, `surf` water,
    `thunder` distance, `crackle` blaze) and the three `mode` banks (`struck_bar`,
-   `glass`, `cymbal`, each with `strike` and `ring`). 37 of 58 entries, 83 axes, 302
-   exemplars.
+   `glass`, `cymbal`, each with `strike` and `ring`). That batch left the library at
+   37 of 58 entries, 83 axes, 302 exemplars; it now stands at **42 of 63 entries, 93
+   axes, 332 exemplars**.
 
    Four things that batch established, all of which the next one inherits:
 
@@ -370,21 +399,25 @@ byte-for-byte before it will emit anything new.
 4. **The vowel family's fixed formants** — a real ceiling, and fixing it changes
    timbre, so it needs BJ's word. They are also the only three entries left with a
    register tilt that is not a declared consequence of something else.
-5. **Sixteen entries stand still** against movement-by-default (§3, M4). Two
-   questions for BJ, because both answers change how instruments sound:
-   does the plain-waveform family (`sine`, `triangle`, `square`, `pulse`, `saw`'s
-   relatives, `sub_sine`, `bass_saw`, the two fixed vowels) get movement added, and
-   does a nature bed's non-periodic wander count as movement?
+5. **Seventeen entries stand still** against movement-by-default (§3, M4) — `ice`
+   joined them. **The second question here is settled and must not be re-opened:**
+   BJ released the event-texture class on 2026-07-25 („Hiermit freigeschaltet"), so a
+   nature bed's non-periodic wander does not have to satisfy the movement rule — a
+   body declaring `; MOVEMENT: TEXTURE` has its reading reported instead
+   (`docs/LCO_CONCEPT.md` §4). Five of the seventeen hold that declaration. What is
+   still BJ's: does the plain-waveform family (`sine`, `triangle`, `square`, `pulse`,
+   `saw`'s relatives, `sub_sine`, `bass_saw`, the two fixed vowels) get movement
+   added? That one changes how those instruments sound.
 6. **Does movement-by-default hold at every register, or only at the note being
    played?** Also BJ's, and the measurement is in hand — re-derive it any time with
    `tools/lco_axis_probe.py --census`, which is also what keeps this number honest:
-   of the 58 entries at their defaults only **34** satisfy `moves` at all six
-   registers. Most of the other 24 sit in classes the meter documents as beyond it —
+   of the 63 entries at their defaults **37** satisfy `moves` at all six
+   registers. Most of the other 26 sit in classes the meter documents as beyond it —
    `string` travels 2881–3402 Hz at coherence 0.14–0.25 because a decaying high-Q
    bank's late window is a noise floor, and `cymbal`, `drum_head` and `pink_noise`
    likewise — plus fixed-formant bodies (`voice`, `saw`, `sub_sine`) whose travel
    shrinks in cents as the note climbs past their formants. The gate reports these
-   and fails only at the asked pitch, because condemning 24 shipped entries in the
+   and fails only at the asked pitch, because condemning 26 shipped entries in the
    name of a meter limit is not a defect fix.
 7. **Loudness travelling INSIDE one held note** — the §4 rule that had no meter
    pointed at it. `rms_db` averages the note and `sustain` only sees a level that
