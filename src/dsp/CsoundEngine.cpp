@@ -174,7 +174,10 @@ namespace
             "  ; sum of all 12 standing partials (amp sum ~1.82) to <= ~0.5; the\n"
             "  ; voice's own VCA/DCA chain downstream handles the rest. kgate\n"
             "  ; (declick only) keeps an idle/inactive voice provably silent.\n"
-            "  aout     = asum * kgate * kvel * kpresGain * 0.2\n"
+            "  ; kvel deliberately absent (matches lco_write._TAIL): the voice\n"
+            "  ; envelope's peak already tracks velocity, so a kvel factor here\n"
+            "  ; made the engine scale as vel^2 where every other engine is linear.\n"
+            "  aout     = asum * kgate * kpresGain * 0.2\n"
             "  outch    ivoice, aout\n"
             "endin\n"
             "</CsInstruments>\n<CsScore>\n";

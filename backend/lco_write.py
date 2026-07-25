@@ -1257,7 +1257,13 @@ _HEAD = (
 
 _TAIL = (
     "\n"
-    f"  aout     = asig * kgate * kvel * kpresGain * {HEADROOM}\n"
+    # kvel deliberately absent (BJ 2026-07-25): the voice envelope's peak
+    # already tracks velocity (velPeakScale), so a kvel factor here made the
+    # LRO scale as vel^2 where every other engine is linear — measured peak
+    # ratio 100:30 = 10.9 against the sampler's 3.33. One loudness (§4): the
+    # player's envelope owns it. kvel stays in scope for the AUTHOR (a body
+    # may voice velocity as timbre); the host tail must not spend it again.
+    f"  aout     = asig * kgate * kpresGain * {HEADROOM}\n"
     "  aout     clip aout, 0, 0.95, 0.85    ; final soft peak safety: transparent\n"
     "                                       ; below ~0.8, asymptotes ~0.88 above,\n"
     "                                       ; bounds ANY op stack / crest / host gain\n"

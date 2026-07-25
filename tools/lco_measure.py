@@ -22,7 +22,7 @@ The scaffold is DERIVED from `lco_write._HEAD`/`_TAIL` by substitution, and ever
 substitution is asserted to match exactly once — so a rename in the real host
 fails this harness loudly instead of quietly measuring a different instrument.
 What is measured is `asig`, the body's own output, before the host's `kgate *
-kvel * kpresGain * HEADROOM` and its final `clip`.
+kpresGain * HEADROOM` and its final `clip`.
 
     .venv/bin/python tools/lco_measure.py --selftest
     .venv/bin/python tools/lco_measure.py --key string [--freq 220] [--dur 4]

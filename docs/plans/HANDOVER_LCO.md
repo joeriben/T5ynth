@@ -35,7 +35,7 @@ The path, end to end:
 - one numeric `instr 1` with `ivoice = p4`, sixteen always-on voice instances, per-voice channels `gate/freq/vel/pres/timb/trig`
 - `kfreq limit kfreqraw, 20, 12000`; `koct1/2/3` and `kvol1/2/3` from the player's knobs
 - `knote` — seconds since **this** note, reset on `changed2(ktrig)`, `init 0` (a note already gated high at the first k-cycle gives `changed2` no edge, so any other starting value would freeze)
-- `aout = asig * kgate * kvel * kpresGain * HEADROOM` (0.32), then `clip aout, 0, 0.95, 0.85` — whose real ceiling is **2.523 transparent / 2.746 absolute** in body units, not `0.95/0.32` (§5)
+- `aout = asig * kgate * kpresGain * HEADROOM` (0.32), then `clip aout, 0, 0.95, 0.85` — whose real ceiling is **2.523 transparent / 2.746 absolute** in body units, not `0.95/0.32` (§5). `kvel` was removed from this line 2026-07-25 (BJ): the voice envelope's peak already tracks velocity, so the extra factor made the LRO scale as vel² where every other engine is linear; presets saved before that date carry the old line in their stored orchestra text until re-baked
 
 **The voices are always on.** There is no score event per note; a note is an edge in `ktrig`, and the release is `kgate portk kgateraw, 0.001` in the host — measured 6.98 ms to −40 dB, identical at every body setting (§5). So the body can neither be one-shot excited nor own a decay: every struck instrument in the library is continuously driven (noise, `dust`), the synth owns the envelope, and the oscillator is a spectrum source (`LCO_CONCEPT.md` §4). An idiom whose decay *is* the model cannot stand under this scaffold.
 

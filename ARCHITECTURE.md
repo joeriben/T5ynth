@@ -403,8 +403,12 @@ else is the host's:
 - `knote`, seconds since the current note began — `init 0`, reset on
   `changed2(ktrig)` — for anything the authored body wants to shape over
   the note's lifetime.
-- `aout = asig * kgate * kvel * kpresGain * 0.32` (`HEADROOM`), then a
-  final `clip aout, 0, 0.95, 0.85` before `outch ivoice, aout`.
+- `aout = asig * kgate * kpresGain * 0.32` (`HEADROOM`), then a
+  final `clip aout, 0, 0.95, 0.85` before `outch ivoice, aout`. No `kvel`
+  factor here: the voice envelope's peak already tracks velocity
+  (`velPeakScale`), so one applied in the tail made the engine scale as
+  vel² where every other engine is linear (removed 2026-07-25; presets
+  saved earlier keep the old line in their stored orchestra until re-baked).
 
 ### The repair loop
 

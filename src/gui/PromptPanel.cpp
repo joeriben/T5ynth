@@ -2741,7 +2741,12 @@ void PromptPanel::setLcoRecalledTrace(const juce::String& prompt, const juce::St
 juce::String PromptPanel::bodyFromOrchestra(const juce::String& orchestra)
 {
     static const juce::String kAfterHead ("knote    = knote + 1/kr");
-    static const juce::String kBeforeTail("aout     = asig * kgate * kvel * kpresGain");
+    // Prefix common to BOTH tail generations: the current one ("asig * kgate *
+    // kpresGain", kvel removed 2026-07-25 — velocity is the envelope's, §4 one
+    // loudness) and the old one still stored inside pre-change presets
+    // ("asig * kgate * kvel * ..."). Anchoring on the full old line made every
+    // NEW orchestra unparseable here and blanked the trace card's code page.
+    static const juce::String kBeforeTail("aout     = asig * kgate");
     const int a = orchestra.indexOf(kAfterHead);
     const int b = orchestra.indexOf(kBeforeTail);
     if (a < 0 || b <= a)
