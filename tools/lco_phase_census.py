@@ -1,29 +1,51 @@
 #!/usr/bin/env python3
 """How much does each shipped instrument depend on how long the plugin has been open?
 
-`lco_axis_probe.phase_spread` answers that for ONE body. This asks it of the whole
-library, because the answer is only interesting as a distribution: a body at the
-median is a body whose note-to-note variation is part of how it sounds, and a body
-in the tail is one where the same note is a different sound depending on uptime.
+`lco_axis_probe.phase_spread` answers that for ONE body on ONE grid of four plugin
+ages. Asking it of the whole library that way produced a ranking and a median that
+were properties of the four ages chosen and not of the library, so this file exists
+to make the question answerable at all. It cost two published, believed, withdrawn
+sets of figures to learn what it takes, and all three lessons are wired in rather
+than written down:
 
-Why it exists as its own file rather than as a number in a document: the figures
-that stood in `docs/plans/HANDOVER_LCO.md` for this class were carried over from an
-agent's run on a phase grid that spanned 2.7 s -- less than one period of the five
-slowest generators in the library -- and an independent pass reproduced none of
-them. A number nobody can re-derive is not a measurement. Run this instead of
-quoting it.
+**1. One grid is not a measurement.** Three grids of the same construction -- same
+settle, same span, same irregular fractions -- give medians 73 / 137 / 107 Hz over
+the same 56 bodies, and reorder the tail: `sync` reads 498 on one and 1182 on
+another, `glass` 67 / 289 / 298. A four-sample max-min is a draw, not a statistic.
+So every body is measured on several grids and what is reported is the SPREAD ACROSS
+GRIDS next to the value. A body whose three grids disagree by 4x has no single
+number and this prints that instead of picking one.
 
-**A reading of 0.0 Hz does NOT mean the body is independent of uptime.**
-`lco_measure.measure` rounds the spectral centroid to whole Hz, so 0.0 means "the
-spread is below the meter's own resolution". It is also one scalar: two plugin ages
-can share a centroid and still not sound the same. This is a lower bound on an
-audible consequence, in both directions.
+**2. For a noise-excited body the question cannot be answered without a control.**
+Changing the preroll changes which noise samples the note gets, so "uptime" and
+"noise realisation" move together and no amount of grid care separates them. The
+control is `lco_measure.reseed`: hold the age fixed and change only the seed. On
+`glass`, `cymbal` and `bubbles` the seed-only spread is at or ABOVE the four-age
+spread -- their uptime dependence was the exciter's dice all along. `surf` and `wind`
+survive the control (240 and 33 against several hundred), and those are the two the
+claim was ever really about.
+
+**3. Never report a verdict for a body that was not rendered.** The first version
+printed `free_running`'s skip list as "not uptime-dependent at all" without a single
+render, and three of the seven were wrong: `noise` 147 Hz, `pink_noise` 250,
+`hiss` 98 -- above the median it published. `free_running`'s `_AGEN` pattern matches
+no a-rate generator, so a bare `anz rand 1.0, 0.5, 1` is invisible to it by
+construction. Every body is rendered here, and where the detector and the
+measurement disagree that disagreement is the finding.
+
+Two more things this reads that the prose around it must not overstate. The tracked
+quantity is `centroid_audible` (power-weighted), which is NOT comparable with the
+descriptive centroid figures in the library's notes. And it is read UNROUNDED --
+`measure()` rounds `centroid_over_note` to whole Hz, which is why `bass_saw` and
+`voice_ee` (true spreads 0.287 and 0.117 Hz) once read 0.0 and got called
+independent.
 
     .venv/bin/python tools/lco_phase_census.py
-    .venv/bin/python tools/lco_phase_census.py --freq 110 --json out.json
+    .venv/bin/python tools/lco_phase_census.py --grids 5 --json out.json
 """
 import argparse
 import json
+import statistics
 import sys
 import time
 from pathlib import Path
@@ -34,57 +56,164 @@ sys.path.insert(0, str(REPO / "tools"))
 import lco_axis_probe as P  # noqa: E402
 import lco_measure as M  # noqa: E402
 
+# Grids of the same construction as `lco_axis_probe._PHASES`: a settle, then four
+# irregular fractions of the slowest shipped generator period. Irregular so that a
+# body whose own rate divides the grid is not sampled at the same phase four times.
+# The first row IS the shipped grid, so a reading here is comparable with the probe's.
+_FRACTIONS = ((0.00, 0.19, 0.47, 0.81),
+              (0.05, 0.29, 0.61, 0.93),
+              (0.11, 0.37, 0.53, 0.71),
+              (0.02, 0.41, 0.67, 0.88),
+              (0.13, 0.31, 0.59, 0.77))
+# How many times the uptime spread must beat the noise-seed control before the word
+# "uptime" is used at all. 2.0 is a floor, not a confidence: the control is itself a
+# four-sample draw.
+CONTROL_FACTOR = 2.0
+SEEDS = (0, 1, 2, 3)
 
-def census(freq=220.0):
+
+def _first_window(body, preroll, freq, dur=4.0):
+    """The note's first colour reading, unrounded, or None if it did not render."""
+    y, err = M.render(body, dur=dur, freq=freq, preroll=preroll)
+    if y is None:
+        return None, err
+    # `travel(y, 8)` is what `measure()['centroid_over_note']` is built from, so this
+    # is the same quantity the probe reads -- minus the rounding.
+    cs, _ = M.travel(y, 8)
+    return (cs[0] if cs else None), err
+
+
+def _spread(vals):
+    good = [v for v in vals if v is not None]
+    if len(good) < 2:
+        return None
+    return max(good) - min(good)
+
+
+def one(body, freq=220.0, grids=3):
+    """Uptime spread per grid, and the noise-seed control at a fixed age."""
+    out = {"grids": [], "hot": [], "render_errors": []}
+    for frac in _FRACTIONS[:max(1, grids)]:
+        ages = [P._SETTLE_S + f * P._SLOWEST_S for f in frac]
+        vals = []
+        for age in ages:
+            v, err = _first_window(body, age, freq)
+            if err:
+                (out["hot"] if "HOT" in err else out["render_errors"]).append(err)
+            vals.append(v)
+        out["grids"].append({"ages_s": [round(a, 2) for a in ages],
+                             "firsts_hz": [None if v is None else round(v, 2)
+                                           for v in vals],
+                             "spread_hz": _spread(vals)})
+    # The control. Same age for every draw, so uptime is held and only the dice move.
+    seeded = [M.reseed(body, k) for k in SEEDS]
+    if any(s is None for s in seeded):
+        out["control_hz"] = None      # no reachable seed: NOT the same as zero
+    else:
+        vals = []
+        for s in seeded:
+            v, _ = _first_window(s, P._SETTLE_S, freq)
+            vals.append(v)
+        out["control_hz"] = _spread(vals)
+    spreads = [g["spread_hz"] for g in out["grids"] if g["spread_hz"] is not None]
+    out["uptime_hz"] = round(statistics.median(spreads), 1) if spreads else None
+    out["uptime_lo_hz"] = round(min(spreads), 1) if spreads else None
+    out["uptime_hi_hz"] = round(max(spreads), 1) if spreads else None
+    # A ratio between two readings that are both under a hertz is arithmetic, not
+    # instability: `rhodes` at 0.0 and 0.1 Hz is 5.8x and means nothing. Only bodies
+    # that actually move on some grid get a ratio.
+    out["grid_ratio"] = (round(max(spreads) / min(spreads), 1)
+                         if spreads and min(spreads) > 0 and max(spreads) > 1.0
+                         else None)
+    if out["control_hz"] is not None:
+        out["control_hz"] = round(out["control_hz"], 1)
+    u, c = out["uptime_hz"], out["control_hz"]
+    if u is None:
+        out["verdict"] = "unmeasured"
+    elif c is None:
+        out["verdict"] = "uptime" if u > 1.0 else "steady"
+    elif u > max(c, 1.0) * CONTROL_FACTOR:
+        out["verdict"] = "uptime"
+    elif u <= 1.0:
+        out["verdict"] = "steady"
+    else:
+        out["verdict"] = "noise-bound"     # cannot be told from the exciter's dice
+    return out
+
+
+def census(freq=220.0, grids=3, keys=None):
     lex = json.loads((REPO / "backend" / "dco_lexicon.json").read_text())
-    rows, skipped, failed = [], [], []
+    rows = []
     t0 = time.time()
     for e in lex["techniques"]:
-        key, body = e["key"], e["code"]
-        free = P.free_running(body)
-        if not free:
-            skipped.append(key)
+        if keys and e["key"] not in keys:
             continue
-        got = P.phase_spread(body, freq)
-        if got is None:
-            failed.append(key)
-            print(f"  {key:18s} FAILED to render at one or more ages", flush=True)
-            continue
-        spread, tracks = got
-        firsts = [t[0] for t in tracks if t]
-        rows.append({"key": key, "spread_hz": round(spread, 1),
-                     "firsts_hz": [round(f, 1) for f in firsts],
-                     "free_lines": len(free), "first_line": free[0].strip()})
-        print(f"  {key:18s} {spread:8.1f} Hz   "
-              f"{' '.join(f'{f:7.1f}' for f in firsts)}", flush=True)
-    rows.sort(key=lambda r: -r["spread_hz"])
-    return {"freq": freq, "phases_s": [round(p, 3) for p in P._PHASES],
-            "slowest_s": P._SLOWEST_S, "n_entries": len(lex["techniques"]),
-            "n_free_running": len(rows) + len(failed),
-            "not_free_running": skipped, "render_failed": failed,
-            "rows": rows, "seconds": round(time.time() - t0, 1)}
+        r = one(e["code"], freq, grids)
+        r["key"] = e["key"]
+        # The DETECTOR's opinion, kept beside the measurement rather than instead of
+        # it. Where the two disagree, that disagreement is the finding.
+        r["detector_free_lines"] = len(P.free_running(e["code"]))
+        rows.append(r)
+        u = "     --" if r["uptime_hz"] is None else f"{r['uptime_hz']:7.1f}"
+        c = "   --" if r["control_hz"] is None else f"{r['control_hz']:5.1f}"
+        gr = "  -- " if r["grid_ratio"] is None else f"{r['grid_ratio']:4.1f}x"
+        print(f"  {r['key']:16s} {u} Hz  grid {gr}  seed-control {c}  "
+              f"{r['verdict']:11s} detector {r['detector_free_lines']}", flush=True)
+    rows.sort(key=lambda r: -(r["uptime_hz"] or 0))
+    return {"freq": freq, "n_grids": min(grids, len(_FRACTIONS)),
+            "slowest_s": P._SLOWEST_S, "settle_s": P._SETTLE_S,
+            "span_s": round(P._SLOWEST_S * (max(_FRACTIONS[0]) - min(_FRACTIONS[0])), 2),
+            "control_factor": CONTROL_FACTOR, "rows": rows,
+            "seconds": round(time.time() - t0, 1)}
 
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--freq", type=float, default=220.0)
-    ap.add_argument("--json", help="also write the full per-body result here")
+    ap.add_argument("--grids", type=int, default=3,
+                    help=f"how many grids of the same construction (max {len(_FRACTIONS)})")
+    ap.add_argument("--key", action="append", help="only these entries (repeatable)")
+    ap.add_argument("--json", help="write the full per-body result here")
     a = ap.parse_args()
-    out = census(a.freq)
+    lex = json.loads((REPO / "backend" / "dco_lexicon.json").read_text())
+    known = {e["key"] for e in lex["techniques"]}
+    if a.key:
+        unknown = [k for k in a.key if k not in known]
+        if unknown:
+            raise SystemExit(f"no such entry: {', '.join(unknown)}. A silent clean pass "
+                             f"on a typo is the same as a lie.")
+    out = census(a.freq, a.grids, set(a.key) if a.key else None)
     rows = out["rows"]
-    print(f"\n{len(rows)} of {out['n_entries']} bodies hold state the note-on does not "
-          f"reset, measured at {out['freq']:.0f} Hz over four ages spanning "
-          f"{out['slowest_s']:.0f} s ({out['seconds']} s)")
-    print("  not uptime-dependent at all: " + ", ".join(out["not_free_running"]))
-    if out["render_failed"]:
-        print("  FAILED to render: " + ", ".join(out["render_failed"]))
-    if rows:
-        med = rows[len(rows) // 2]
-        print(f"  worst {rows[0]['key']} {rows[0]['spread_hz']} Hz, "
-              f"median {med['spread_hz']} Hz, best {rows[-1]['key']} "
-              f"{rows[-1]['spread_hz']} Hz")
-        print("  0.0 Hz is the meter's resolution floor, not independence: "
-              + (", ".join(r["key"] for r in rows if r["spread_hz"] == 0.0) or "none"))
+    by = {}
+    for r in rows:
+        by.setdefault(r["verdict"], []).append(r["key"])
+    print(f"\n{len(rows)} bodies, {out['n_grids']} grids of four ages each at "
+          f"{out['freq']:.0f} Hz, plus a {len(SEEDS)}-seed control at a fixed age "
+          f"({out['seconds']} s)")
+    print(f"  the grid spans {out['span_s']} s = "
+          f"{100.0 * out['span_s'] / out['slowest_s']:.0f} % of the slowest shipped "
+          f"period ({out['slowest_s']:.0f} s) -- the last stretch of one cycle is "
+          f"never sampled")
+    for v, label in (("uptime", "depend on plugin uptime beyond their own noise"),
+                     ("noise-bound", "move, but not separably from the exciter's dice"),
+                     ("steady", "read under 1 Hz on every grid"),
+                     ("unmeasured", "did not render")):
+        ks = by.get(v, [])
+        print(f"  {len(ks):3d} {label}: " + (", ".join(sorted(ks)) or "none"))
+    dis = [r["key"] for r in rows
+           if (r["detector_free_lines"] == 0) != (r["verdict"] == "steady")]
+    print(f"  {len(dis)} where `free_running` and the measurement disagree: "
+          + (", ".join(sorted(dis)) or "none"))
+    unstable = [r for r in rows if (r["grid_ratio"] or 0) >= 2.0]
+    print(f"  {len(unstable)} whose grids disagree by 2x or more, so they have no "
+          f"single number: "
+          + (", ".join(f"{r['key']} {r['uptime_lo_hz']}-{r['uptime_hi_hz']}"
+                       for r in sorted(unstable, key=lambda r: -(r['grid_ratio'] or 0))[:8])
+             or "none"))
+    hot = [r["key"] for r in rows if r["hot"]]
+    if hot:
+        print(f"  {len(hot)} rendered HOT at some age and their readings are of a "
+              f"limited signal: " + ", ".join(sorted(hot)))
     if a.json:
         Path(a.json).write_text(json.dumps(out, indent=1) + "\n")
         print("  ->", a.json)
