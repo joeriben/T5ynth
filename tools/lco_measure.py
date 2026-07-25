@@ -419,6 +419,31 @@ def coherence(y, n=128):
     return float((a[:-1] * a[1:]).sum() / den)
 
 
+def odd_even_db(y, freq, n=16):
+    """Odd-harmonic energy over even-harmonic energy, in dB.
+
+    Two things in this library need this and nothing else can see either.
+
+    A **bore's shape**: a cylinder passes only the odd harmonics, a cone passes
+    all of them. That is the objective difference between a clarinet and a
+    saxophone, and it is enormous — measured on this build, `wgclar` reads
+    +44.3 dB and the library's `clarinet` +115 dB, against `sax` +4.1 dB and
+    `brass` +3.2 dB. No centroid or comb reading separates them at all.
+
+    A **pulse wave's duty cycle**: the harmonic amplitudes go as |sin(pi*k*d)|/k,
+    so at d = 0.5 every even harmonic vanishes and the ratio is huge, and it
+    collapses as the duty narrows. Measured on `vco2`'s own `kpw`: -126.6 dB at
+    50 % duty, -5.5 dB at 35 %, -1.1 dB at 10 %. This is what makes PWM
+    objectively testable — the centroid barely moves under a duty sweep (805 Hz,
+    non-monotonic), which is why a duty axis judged by colour alone reads as
+    inert and gets thrown away.
+    """
+    lin = [10 ** (v / 20.0) for v in partials(y, freq, n=n)]
+    odd = sum(lin[0::2])   # partials() starts at the fundamental = harmonic 1
+    even = sum(lin[1::2])
+    return float(20 * np.log10(max(odd, 1e-12) / max(even, 1e-12)))
+
+
 def beat(y, lo_hz=0.5, hi_hz=25.0, t0=0.5, t1=3.5):
     """The slow amplitude beat: how deep it is, and how fast.
 
@@ -617,6 +642,19 @@ asig    vco2 0.5, kfreq * koct1 * (1 + kvib), 0"""
         s = tracks(ylo, yhi, 110.0, 880.0)
         check(name, (s["verdict"] == "tracks") == want_tracking,
               f"{s['verdict']} (r_note {s['r_note']} vs r_fixed {s['r_fixed']})")
+
+    print("odd/even separates a cylinder from a cone, and reads a duty cycle")
+    # |sin(pi*k*d)|/k: at d=0.5 every even harmonic is a zero of the sine.
+    for duty, lo, hi in ((0.5, 40.0, 200.0), (0.35, 2.0, 12.0), (0.10, -3.0, 3.0)):
+        yd, ed = render(f"asig    vco2 0.5, kfreq * koct1, 2, {duty}")
+        if ed:
+            check(f"duty {duty}", False, ed)
+            continue
+        v = odd_even_db(yd, 220.0)
+        check(f"pulse at {duty:.0%} duty", lo <= v <= hi, f"{v:+.1f} dB odd/even")
+    ysq, _e1 = render("asig    poscil 0.5, kfreq * koct1, giSine")
+    check("a sine has no even harmonics to speak of", odd_even_db(ysq, 220.0) > 40,
+          f"{odd_even_db(ysq, 220.0):+.1f} dB")
 
     print("the beat meter reads back the depth it was given")
     for asked in (0.0, 0.1, 0.3, 0.6):
