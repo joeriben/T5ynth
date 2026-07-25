@@ -94,6 +94,22 @@ def _indent(code, pad="    "):
     return "\n".join(pad + l for l in (code or "").splitlines() if l.strip())
 
 
+def has_code(code):
+    """Is this a real body, or a placeholder that is only a note to a human?
+
+    An entry with no Csound must not be quoted as though it had some, and this used to
+    ask whether the FIRST CHARACTER was `;` — which is a different question with a
+    different answer the moment a body opens with a comment. Four beds (`rain`,
+    `crackle`, `thunder`, `cymbal`) grew a leading `; MOVEMENT: TEXTURE` declaration and
+    all four silently vanished from the page the author reads, while `render_index`
+    went on listing them: named on the shelf, and then neither quoted nor listed. Their
+    bodies have 8, 8, 8 and 35 lines of Csound.
+
+    So the question is whether ANY line is code."""
+    return any(l.strip() and not l.lstrip().startswith(";")
+               for l in (code or "").splitlines())
+
+
 # A library is LOOKED UP IN, not recited. The lexicon's `surface_forms` are the
 # index built for exactly that — the words that reach an entry. They select what
 # the author gets to READ; they decide nothing about the sound, because the
@@ -319,7 +335,7 @@ def render_library(sel=None):
     out.append("Real Csound, as this build actually produces it. Each block reads")
     out.append("`kfreq` and writes one signal. Adapt, combine, depart from them.")
     for it in lib["instruments"]:
-        if not it.get("code") or it["code"].startswith(";"):
+        if not has_code(it.get("code")):
             continue
         out.append("")
         out.append(f"### {it['key']} — {it['why']}")

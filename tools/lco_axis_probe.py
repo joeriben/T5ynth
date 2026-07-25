@@ -111,7 +111,17 @@ def census():
     return 0
 
 
-TEXTURE = re.compile(r"^\s*;\s*movement\s*:\s*texture\b", re.I)
+# The declaration is one EXACT standalone comment line, `; MOVEMENT: TEXTURE`, in caps,
+# with any explanation on the lines after it. Three reasons it is that strict, each a
+# hole the loose form had. `^;\s*movement:\s*texture\b` with re.I granted the exemption
+# to `; MOVEMENT: TEXTURE does not apply to this body` — a negation. It also matched the
+# words inside a Csound `/* … */` block, which is why the block comments come off first.
+# And an end-of-line form (`asig = anz   ; MOVEMENT: TEXTURE`) is the library's own house
+# style for axis comments, so a declaration written that way was silently IGNORED with no
+# diagnostic — `_mentions_texture` below now makes that an error instead.
+TEXTURE = re.compile(r"^;\s*MOVEMENT:\s*TEXTURE\s*$")
+_MENTIONS = re.compile(r"movement\s*:\s*texture", re.I)
+_BLOCK = re.compile(r"/\*.*?\*/", re.S)
 
 
 def declares_texture(body):
@@ -134,10 +144,31 @@ def declares_texture(body):
     entries are in it. Everything else the gate checks — one loudness across the cube
     and the keyboard, the peak, the drift, the pitch — still applies unchanged.
 
-    It is a comment, so it is inert in Csound, it travels with the body into the
-    lexicon, and it is greppable: `grep -c 'movement: texture' backend/dco_lexicon.json`
-    is the count of entries claiming the exemption."""
-    return any(TEXTURE.match(l) for l in (body or "").splitlines())
+    It is a comment, so it is inert in Csound, and it travels with the body into the
+    lexicon. To count who holds it — and NOT with grep, which counts 18 for six entries
+    because every `anchor_code` variant carries a whole copy of its body:
+
+        .venv/bin/python -c "import json, sys; sys.path.insert(0, 'tools'); \\
+        import lco_axis_probe as P; \\
+        print([e['key'] for e in json.load(open('backend/dco_lexicon.json'))['techniques'] \\
+               if P.declares_texture(e['code'])])"
+    """
+    src = _BLOCK.sub("", body or "")
+    lines = [l.strip() for l in src.splitlines()]
+    if any(TEXTURE.match(l) for l in lines):
+        return True
+    # Mentioned but not declared. Silence here is the dangerous answer: a body written in
+    # the library's own end-of-line comment style would have been gated on movement like
+    # a sustained tone, and its author would have had no way to tell why.
+    bad = [l for l in lines if _MENTIONS.search(l)]
+    if bad:
+        raise SystemExit(
+            "this body mentions a texture declaration but does not make one:\n"
+            + "\n".join(f"    {l}" for l in bad)
+            + "\nThe declaration is one standalone comment line, exactly:\n"
+              "    ; MOVEMENT: TEXTURE\n"
+              "with any explanation on the lines after it.")
+    return False
 
 
 def axes(body):
@@ -355,14 +386,23 @@ def gate(body, freq=220.0, steps=3, registers=(55, 110, 220, 440, 880, 1760)):
         # What a declared texture reads, printed against the null so the numbers cannot
         # be mistaken for a verdict. The count of corners `moves` would have failed is
         # the honest headline: this body is exempt from that question, not passing it.
-        tsp = [r["centroid_travel_cents"] for _, r in at_freq]
+        #
+        # Every figure here is optional, and none of them may turn a verdict into a
+        # traceback. `crest_db` returns None on a window with no energy in it — which is
+        # exactly what a body that stops dead inside the note produces, i.e. §4's own
+        # named violation — and `min()` over those raised a TypeError, so DECLARING the
+        # class replaced a clean FAIL with a crash. `at_freq` can be empty too, when
+        # every reference-register corner fails to render.
+        def rng(key):
+            v = [r[key] for _, r in at_freq if r.get(key) is not None]
+            return (min(v), max(v)) if v else None
+
         stats["texture"] = {
             "would_fail_moves": sum(1 for _, r in at_freq if not r["moves"]),
             "of_corners": len(at_freq),
-            "travel_cents": (min(tsp), max(tsp)) if tsp else None,
+            "travel_cents": rng("centroid_travel_cents"),
             "stationary_null_cents": M.STATIONARY_SPAN_NULL_CENTS,
-            "crest_db": (min(r["crest_db"] for _, r in at_freq),
-                         max(r["crest_db"] for _, r in at_freq)),
+            "crest_db": rng("crest_db"),
             "crest_null_db": M.STATIONARY_CREST_NULL_DB}
     sustained = [(abs(r["loudness_drift_db"] or 0.0), r["loudness_drift_db"], c)
                  for c, r in rows if r["sustain"] > 0.25]
@@ -553,13 +593,15 @@ def main():
             print(f"  TEXTURE  this body declares itself an event texture, so `moves` is "
                   f"REPORTED and not gated: it would have failed at {t['would_fail_moves']} "
                   f"of {t['of_corners']} corners.")
-            print(f"           colour travel {t['travel_cents'][0]:.0f}.."
-                  f"{t['travel_cents'][1]:.0f} cents against a "
-                  f"{t['stationary_null_cents']:.0f}-cent stationary null, crest "
-                  f"{t['crest_db'][0]:.2f}..{t['crest_db'][1]:.2f} dB against "
-                  f"{t['crest_null_db']:.2f} — these are CONTEXT, not a pass: a bed that "
-                  f"does nothing reads the same, and a real sweep reads less. Liveness "
-                  f"in this class is BJ's ear (see `declares_texture`).")
+            trv = ("not readable" if not t["travel_cents"] else
+                   f"{t['travel_cents'][0]:.0f}..{t['travel_cents'][1]:.0f} cents")
+            crs = ("not readable" if not t["crest_db"] else
+                   f"{t['crest_db'][0]:.2f}..{t['crest_db'][1]:.2f} dB")
+            print(f"           colour travel {trv} against a "
+                  f"{t['stationary_null_cents']:.0f}-cent stationary null, crest {crs} "
+                  f"against {t['crest_null_db']:.2f} — these are CONTEXT, not a pass: a "
+                  f"bed that does nothing reads the same, and a real sweep reads less. "
+                  f"Liveness in this class is BJ's ear (see `declares_texture`).")
         for rule, corner, detail in fails:
             print(f"  FAIL  {rule}: {corner}  {detail}")
         # Reported, not gated — see `gate`. Grouped by register, because the shape of

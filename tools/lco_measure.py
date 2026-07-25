@@ -1218,11 +1218,22 @@ asig    = afl * 0.30""")
     # future session wants a mechanical criterion for this class it has to come from a
     # statistic not in this file — the honest starting point is that the four beds
     # already shipped (`rain`, `crackle`, `thunder`, `cymbal`) sit inside the null.
-    sp_sweep, _ = travel_cents(ymov)
-    check("no span bound separates a real sweep from a static bed",
-          sp_sweep < STATIONARY_SPAN_NULL_CENTS,
-          f"a real sweep travels {sp_sweep:.0f} cents, a bed that does nothing "
-          f"{STATIONARY_SPAN_NULL_CENTS:.0f}")
+    #
+    # It is asserted against `worst_sp` — the bed measured THREE LINES UP, in this same
+    # run — and not against the frozen 1005.0 literal. Against the literal the case can
+    # pass while its own claim is false: at a bed of 620 cents and a sweep of 959 all
+    # four predicates here still read True, and yet a bound at 800 cents would separate
+    # the two populations cleanly. A case that can certify the opposite of its name is
+    # worse than no case.
+    if emov:
+        check("no span bound separates a real sweep from a static bed", False, emov)
+    else:
+        sp_sweep, _ = travel_cents(ymov)
+        check("no span bound separates a real sweep from a static bed",
+              sp_sweep < worst_sp,
+              f"a real sweep travels {sp_sweep:.0f} cents, and a bed that does nothing "
+              f"{worst_sp:.0f} — measured in this run, not read off the recorded "
+              f"{STATIONARY_SPAN_NULL_CENTS:.0f}")
     # Movement at every RATE, because the meter this replaced had a null at 8 Hz
     # (a quarter of the 32 Hz centroid-track rate) and read a beating wineglass as
     # standing still. Any single-lag statistic has that null; these three cases

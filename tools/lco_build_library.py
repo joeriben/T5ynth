@@ -41,6 +41,10 @@ REPO = Path(__file__).resolve().parents[1]
 LEXICON = REPO / "backend" / "dco_lexicon.json"
 OUT = REPO / "backend" / "lco_library.json"
 
+sys.path.insert(0, str(REPO / "backend"))
+
+import lco_write as W  # noqa: E402  (needs the path above)
+
 
 def assemble(lex):
     instruments = []
@@ -396,12 +400,12 @@ def main():
         return 0
 
     OUT.write_text(text)
-    # "Has code" means it has a line that is not a comment. Testing the FIRST character
-    # instead read four real bodies as placeholders the moment they grew a leading
-    # comment: `rain` has 8 code lines and an `asig`, and was reported as having none.
-    def has_code(c):
-        return any(l.strip() and not l.lstrip().startswith(";") for l in (c or "").splitlines())
-
+    # `lco_write.has_code`, and imported rather than restated. There were two copies of
+    # this predicate, both testing the FIRST CHARACTER, and fixing only the one here --
+    # which feeds a `print` -- left the one that decides what the author is SHOWN still
+    # dropping four real bodies. A predicate with two homes has a wrong answer in one of
+    # them; see that function for what it cost.
+    has_code = W.has_code
     n_code = sum(1 for i in lib["instruments"] if has_code(i["code"]))
     print(f"{OUT.relative_to(REPO)}: {n_code}/{len(lib['instruments'])} instruments with "
           f"code, {len(lib['adjectives'])} adjectives, {len(lib['motions'])} motions")
