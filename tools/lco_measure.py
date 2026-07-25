@@ -901,7 +901,16 @@ def measure(y, asked_freq):
             "rms_db": round(rms_db(y), 2),
             "peak_p999": round(peak_p999(y), 3),
             "sustain": round(sustain(y), 3),
-            "comb_db": round(comb_contrast(y, asked_freq), 1),
+            # Combed at the pitch the signal HAS, not the one it was asked for. Read
+            # against the ask, a body that sounds an octave down has its "half-way
+            # between the harmonics" points land on real harmonics — 330 and 550 are
+            # the 6th and 10th of 55 — so the valleys are teeth and the contrast
+            # collapses. `bagpipe` read 15.2 dB where it is combed 100.1, `fm_bell`
+            # 1.0 against 61.5, `organ` 14.2 against 67.5, `metallic_fm` 4.3 against
+            # 56.6: eight entries sound more than 50 cents off the ask and four of
+            # them were wrong by 52 to 85 dB. The ask is the fallback for an unpitched
+            # bed, where there is no grid of its own to use.
+            "comb_db": round(comb_contrast(y, f or asked_freq), 1),
             "partials": partials(y, asked_freq)}
 
 
@@ -942,7 +951,7 @@ asig    streson aex, kfreq * koct1, {fb}"""
 # How many calibration cases there are. Asserted at the end so a group that stops
 # running — an early `return`, a render failure that `continue`s past its check, a
 # refactor that drops a block — is a FAILURE and not a quietly shorter green run.
-_CASES = 64
+_CASES = 65
 
 
 def selftest():
@@ -1355,6 +1364,24 @@ asig    poscil 0.4 * (1 + 2 * kam), kfreq * koct1, giSine""", freq=880.0)
         check("white noise is uncombed", abs(cn) < 2.0, f"{cn:+.1f} dB")
         check("high feedback combs hard", ch > 25, f"{ch:.1f} dB")
         check("low feedback combs less", 4 < cl < ch - 10, f"{cl:.1f} dB")
+
+    # …and it has to be read on the grid the SIGNAL uses. A body sounding an octave
+    # below the note it was given puts a real harmonic in every one of the valleys the
+    # ask would look at — 330 and 550 are the 6th and 10th of 55 — so the comb reads as
+    # shallow on a body that is combed hard. Eight library entries sound off the ask
+    # and four read wrong by 52 to 85 dB.
+    yo, eo = render("asig    poscil 0.5, kfreq * koct1 * 0.5", dur=4.0, freq=220.0)
+    yd, ed = render("aex     rand 0.02, 0.5, 1\n"
+                    "asig    streson aex, kfreq * koct1 * 0.5, 0.995", dur=4.0, freq=220.0)
+    if eo or ed:
+        check("the octave-down comb calibration renders cleanly", False, eo or ed)
+    else:
+        r = measure(yd, 220.0)
+        wrong = comb_contrast(yd, 220.0)
+        check("a body an octave below the note is combed on ITS pitch, not the ask",
+              r["comb_db"] > wrong + 10.0,
+              f"{r['comb_db']:.1f} dB on its own f0 {r['f0']}, {wrong:.1f} dB read "
+              f"against the asked 220 — the ask must not be used when there is an f0")
 
     # A calibration that silently stops running cases is as bad as one that fails:
     # the count is part of the verdict, not decoration.

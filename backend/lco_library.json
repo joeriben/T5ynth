@@ -1,6 +1,6 @@
 {
  "generated_from": {
-  "lexicon_version": 22
+  "lexicon_version": 23
  },
  "instruments": [
   {
@@ -757,7 +757,7 @@
       1.0
      ],
      "default": 0.5,
-     "note": "the registration: the 8' principal alone, or the 4' octave and 5 1/3' quint drawn with it. Its mark is the COMB and not the centroid: 24.6 -> 10.7 dB, by far the widest comb axis in the wind family, because the upper ranks put energy exactly between the principal's own harmonics and nothing else in the library does that. Odd/even goes +2.8 -> -7.0 dB for the same reason -- the quint is not a harmonic of the 8'. Centroid only 620 -> 734 Hz. Drawing stops on a real organ makes it LOUDER and on this platform a parameter may not, so the rank amplitudes are redistributed power-preservingly before `balance` sees them, and the measured loudness is 0.02 dB.",
+     "note": "the registration: the 8' principal alone, or the 4' octave and 5 1/3' quint drawn with it. Its mark is not the centroid and not the comb either, but WHICH NOTE THE PIPES ADD UP TO. The 5 1/3' quint sounds a fifth above the 8', and 220 and 330 Hz have no common fundamental higher than 110 -- so drawing it drops the sounding fundamental by an octave without any pipe playing that note. That is the resultant tone organ builders have used for centuries to fake a 16' rank, and it is measurable: f0 reads 220.1 with the principal alone and 110.1 as soon as the quint is in. On the series the pipes actually make, the comb is 24.6 dB at the 8' alone and 67.5 to 69.6 dB with the upper ranks -- deeper, not shallower, because 220 and 330 are both harmonics of 110 and the odd places between them are empty. Odd/even goes +2.8 -> -7.0 dB, which is the same fact from the other side: the quint is not a harmonic of the 8'. Centroid only 620 -> 734 Hz. Drawing stops on a real organ makes it LOUDER and on this platform a parameter may not, so the rank amplitudes are redistributed power-preservingly before `balance` sees them, and the measured loudness is 0.02 dB.",
      "anchors": {
       "principal": {
        "value": 0.0,
@@ -1271,7 +1271,7 @@
       1.0
      ],
      "default": 0.45,
-     "note": "how hard the bellows lean on the reed, as harmonic richness. It deepens the harmonic comb (44.1 -> 49.1 dB) rather than simply brightening: measured centroid 1513 -> 1702 Hz, loudness constant to 0.02 dB.",
+     "note": "how hard the bellows lean on the reed, as harmonic richness. It deepens the harmonic comb (44.0 -> 49.0 dB) rather than simply brightening: measured centroid 1513 -> 1702 Hz, loudness constant to 0.02 dB.",
      "anchors": {
       "soft": {
        "value": 0.1,
@@ -1301,7 +1301,7 @@
       1.0
      ],
      "default": 0.3,
-     "note": "the reed's own mechanical noise: a `dust` puff per half cycle through a 2600 Hz resonance, rising and falling with the bellows so it is part of the note and not a separate hiss. The widest of the three axes -- centroid 585 -> 2435 Hz, comb 96.7 -> 35.5 dB, loudness constant to 0.02 dB.",
+     "note": "the reed's own mechanical noise: a `dust` puff per half cycle through a 2600 Hz resonance, rising and falling with the bellows so it is part of the note and not a separate hiss. The widest of the three axes -- centroid 585 -> 2435 Hz, comb 96.2 -> 35.4 dB, loudness constant to 0.02 dB.",
      "anchors": {
       "clean": {
        "value": 0.0,
@@ -1448,7 +1448,7 @@
       1.0
      ],
      "default": 0.6,
-     "note": "the parallel pipes beside the chanter, an octave and two octaves down. Beat depth 0.00 -> 0.21. Centroid 876 -> 500 Hz as the low pipes fill in, comb 102.5 -> 10.7 dB. Power-summed (`knmix`), because detuned pipes are incoherent -- adding them as amplitudes would make this a volume control. Loudness constant to 0.10 dB.",
+     "note": "the parallel pipes beside the chanter, an octave and two octaves down. Beat depth 0.00 -> 0.21. Centroid 876 -> 500 Hz as the low pipes fill in. What it moves is the sounding fundamental, exactly as pipes an octave and two octaves down should: f0 reads 220.0 with the drones out, 110.0 halfway and 55.0 with them full in. The comb stays deep throughout on the series each setting actually plays -- 102.5 -> 99.9 dB -- so this is not the wide comb axis it was once recorded as. It read 10.7 dB at the top only because the comb was measured on the asked 220 while the body was sounding 55, which puts a real harmonic in every valley. Power-summed (`knmix`), because detuned pipes are incoherent -- adding them as amplitudes would make this a volume control. Loudness constant to 0.10 dB.",
      "anchors": {
       "chanter": {
        "value": 0.0,
@@ -1474,7 +1474,7 @@
       1.0
      ],
      "default": 0.55,
-     "note": "how hard the bag pressure drives the cane reed. The brightness axis here, and a wide one: centroid 353 -> 1026 Hz, comb 18.7 -> 13.4 dB (the drones' comb washing out as the chanter fills in). Loudness constant to 0.01 dB.",
+     "note": "how hard the bag pressure drives the cane reed. The brightness axis here, and a wide one: centroid 353 -> 1026 Hz. The comb barely moves with it (101.5 -> 96.7 dB), because the drones hold the low series steady whatever the chanter does -- the earlier 18.7 -> 13.4 was that series read on the asked pitch instead of the 55 Hz the body sounds. Loudness constant to 0.01 dB.",
      "anchors": {
       "soft": {
        "value": 0.15,
@@ -1603,7 +1603,7 @@
       1.0
      ],
      "default": 0.15,
-     "note": "the player humming against the reed, as amplitude modulation at 74 Hz -- sidebands, not vibrato. Measured, the sideband energy around the harmonics goes 0.0001 -> 0.174 of the carrier energy and the harmonic comb FILLS IN from 48.9 to 26.5 dB as the sidebands crowd between the partials, which is exactly what turns tone into rasp. Loudness constant to 0.00 dB.",
+     "note": "the player humming against the reed, as amplitude modulation at 74 Hz -- sidebands, not vibrato. Measured, the sideband energy around the harmonics goes 0.0001 -> 0.174 of the carrier energy and the harmonic comb FILLS IN from 48.7 to 32.0 dB over the lower half of the axis as the sidebands crowd between the partials, which is exactly what turns tone into rasp. Past that the hum owns the sound: the sounding fundamental becomes the hum's own 74 Hz rather than the note (f0 73.4 at an asked 220), and the comb read on THAT series is 48.1 dB, because the note and its partials are all harmonics of it. Loudness constant to 0.00 dB.",
      "anchors": {
       "clean": {
        "value": 0.0,
@@ -1781,7 +1781,7 @@
       1.0
      ],
      "default": 0.35,
-     "note": "the machachara: how many caps are on the board and how loose. Centroid 1753 -> 2082 Hz with the comb barely touched (24.2 -> 23.7 dB), which is the signature of adding a non-pitched bed rather than changing the tone. The impact rate rises 320 -> 840 a second alongside. It does not touch the colour movement in the note (2019 Hz at every setting): the hand breathes on the board at 0.23 Hz whatever this is set to, and that breathing reaches the TINE, so no setting can make the instrument stand still. It used to reach only the caps, which this axis scales, so at 0 the movement was multiplied out and what remained was the bank's own noise wander. Loudness 0.00 dB.",
+     "note": "the machachara: how many caps are on the board and how loose. Centroid 1753 -> 2082 Hz with the comb barely touched (29.4 -> 28.9 dB), which is the signature of adding a non-pitched bed rather than changing the tone. The impact rate rises 320 -> 840 a second alongside. It does not touch the colour movement in the note (2019 Hz at every setting): the hand breathes on the board at 0.23 Hz whatever this is set to, and that breathing reaches the TINE, so no setting can make the instrument stand still. It used to reach only the caps, which this axis scales, so at 0 the movement was multiplied out and what remained was the bank's own noise wander. Loudness 0.00 dB.",
      "anchors": {
       "clean": {
        "value": 0.0,
@@ -1807,7 +1807,7 @@
       1.0
      ],
      "default": 0.45,
-     "note": "the deze the board sits inside, as a Helmholtz cavity at 175-305 Hz. Centroid 1850 -> 1706 Hz and comb 22.7 -> 25.8 dB: a big calabash makes the instrument DARKER and more combed, not louder, because it returns the bottom of the tine's series and nothing above it. Fixed in Hz, so the same box colours every pitch. Loudness 0.07 dB.",
+     "note": "the deze the board sits inside, as a Helmholtz cavity at 175-305 Hz. Centroid 1850 -> 1706 Hz and comb 28.5 -> 30.1 dB: a big calabash makes the instrument DARKER and more combed, not louder, because it returns the bottom of the tine's series and nothing above it. Fixed in Hz, so the same box colours every pitch. Loudness 0.07 dB.",
      "anchors": {
       "board only": {
        "value": 0.0,
@@ -1953,7 +1953,7 @@
       1.0
      ],
      "default": 0.3,
-     "note": "humming a second note into the drone, the way a player growls a didgeridoo. Multiplicative, so it does not sit on top of the tone but multiplies it into sidebands: comb contrast 70.4 -> 14.6 dB and centroid 1068 -> 2523 Hz, the widest of this entry's three by both (and third in the library by comb, behind `pwm`'s rate and `free_reed`'s rattle). The comb is read against the body's OWN fundamental at each anchor, which is not the asked pitch: with the hum full on the sidebands halve it. The hum runs at 97 Hz FIXED, so its sidebands stay where they are while the drone moves with the keyboard -- which is what a voice inside an instrument does, and the beat meter reads that 97 Hz back at a depth of 0.04 -> 0.54. Loudness 0.00 dB.",
+     "note": "humming a second note into the drone, the way a player growls a didgeridoo. Multiplicative, so it does not sit on top of the tone but multiplies it into sidebands: comb contrast 70.4 -> 16.9 dB over the lower half of the axis and centroid 1068 -> 2523 Hz across it, the widest of this entry's three by both (and third in the library by comb, behind `pwm`'s rate and `free_reed`'s rattle). The comb is read against the body's OWN fundamental at each setting, which is not the asked pitch, and past about three quarters of the axis the sidebands halve that fundamental -- so the reading jumps to 46.3 and then 43.7 dB on the new series rather than continuing down. The axis end is 43.7; the 14.6 dB minimum sits at the `growl` anchor, 0.65. The hum runs at 97 Hz FIXED, so its sidebands stay where they are while the drone moves with the keyboard -- which is what a voice inside an instrument does, and the beat meter reads that 97 Hz back at a depth of 0.04 -> 0.54. Loudness 0.00 dB.",
      "anchors": {
       "no voice": {
        "value": 0.0,
@@ -2245,7 +2245,7 @@
       1.0
      ],
      "default": 0.4,
-     "note": "how much of the file is heard against the wing tone. The widest axis here and the one the instrument moves on: centroid 1820 -> 2188 Hz, comb 33.8 -> 24.8 dB and the colour movement in the note 32 -> 221 Hz, at 0.01 dB of loudness. Its share follows the wing speed, so it breathes with the chorus drift at 0.31 Hz whatever this is set to.",
+     "note": "how much of the file is heard against the wing tone. The widest axis here and the one the instrument moves on: centroid 1820 -> 2188 Hz, comb 33.9 -> 24.9 dB and the colour movement in the note 32 -> 221 Hz, at 0.01 dB of loudness. Its share follows the wing speed, so it breathes with the chorus drift at 0.31 Hz whatever this is set to.",
      "anchors": {
       "clean": {
        "value": 0.0,
@@ -2297,7 +2297,7 @@
       1.0
      ],
      "default": 0.6,
-     "note": "how sine-like the wing tone rings, as the reach of its harmonic series. Centroid 1980 -> 2087 Hz and comb 31.1 -> 27.7 dB -- a small axis by design, because a cricket's tone is nearly pure at every setting and this only decides how nearly. It deliberately does NOT touch the file: when it did, two axes multiplied and seven corners of the cube stood perfectly still. Loudness 0.01 dB.",
+     "note": "how sine-like the wing tone rings, as the reach of its harmonic series. Centroid 1980 -> 2087 Hz and comb 31.1 -> 27.8 dB -- a small axis by design, because a cricket's tone is nearly pure at every setting and this only decides how nearly. It deliberately does NOT touch the file: when it did, two axes multiplied and seven corners of the cube stood perfectly still. Loudness 0.01 dB.",
      "anchors": {
       "reedy": {
        "value": 0.0,
@@ -2391,7 +2391,7 @@
       1.0
      ],
      "default": 0.55,
-     "note": "how deeply the pulses cut into the call, from a smooth buzz to a hard chop. Comb 70.4 -> 55.2 dB at 2 Hz of centroid -- like `pulse` it is a comb measurement and not a colour one, and reading it by centroid alone would call it inert. Loudness 0.01 dB.",
+     "note": "how deeply the pulses cut into the call, from a smooth buzz to a hard chop. Comb 70.4 -> 63.1 dB over the first three quarters of the axis, and 43.4 dB at the top, where the chop is deep enough that the sounding fundamental drops to a quarter of the note (f0 55.0 at an asked 220) and the reading moves onto that series. 2 Hz of centroid -- like `pulse` it is a comb measurement and not a colour one, and reading it by centroid alone would call it inert. Loudness 0.01 dB.",
      "anchors": {
       "smooth": {
        "value": 0.0,
