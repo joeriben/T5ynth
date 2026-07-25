@@ -88,7 +88,7 @@ AXIS = re.compile(r"^(?P<pad>\s*)k(?P<var>[a-z][a-z0-9]*)(?P<gap>\s+)=(?P<sp>\s*
 # `; MOVEMENT: TEXTURE`. Without it the census was cited in every gate run as "N of the
 # M shipped entries are in the same position" about entries that are not in the same
 # position at all: they are exempt from that rule by BJ's ruling of 2026-07-25.
-_MOVE_CENSUS = (37, 25, 5, "2026-07-25")
+_MOVE_CENSUS = (37, 25, 7, "2026-07-25")
 _MOVE_REGISTERS = (55.0, 110.0, 220.0, 440.0, 880.0, 1760.0)
 
 
@@ -140,7 +140,11 @@ def census():
           + ", ".join(declared)
           + f"\n  {len(exempt)} of them need it here; "
           + (", ".join(sorted(set(declared) - exempt)) or "none")
-          + " move at every register and would pass without it")
+          + " move at every register AT THEIR DEFAULT and would pass THIS census without"
+            " it. That is not the same as the declaration doing nothing: this census reads"
+            " the default body only, and `lco_anchor_census` reads every named anchor —"
+            " `glass` and `struck_bar` move at their defaults and stand still at several of"
+            " their anchors.")
     want = (n - len(still), len(still), len(exempt))
     if want != _MOVE_CENSUS[:3]:
         print(f"\n  STALE  _MOVE_CENSUS says {_MOVE_CENSUS[0]}/{_MOVE_CENSUS[1]}/"
