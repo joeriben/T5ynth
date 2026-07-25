@@ -288,6 +288,26 @@ Csound 6.18, Homebrew, double precision, no STK.
 
 20. **The whole noise-rung metal family fails movement on COHERENCE, and `cymbal` is exempt only by declaration.** See item 10's second bullet and item 7's tail; they are one question. `glass` 5 anchors, `struck_glass` 22 register-readings, `struck_bar` 11, `drum_head` 72. Either they declare `; MOVEMENT: TEXTURE` — which is BJ's own „being alive means precisely that there is no rate to find" — or `moves()` needs a second branch for a body whose liveness is dither. **Not decided, and not to be quieted by adding declarations to make a gate green.**
 
+    **Measured 2026-07-25, and it says the gate is sorting on the wrong quantity.** Over a 4 s note at 220 Hz, mean of three plugin ages, power-weighted centroid p10–p90 in octaves and level swing in dB (`tools/…/coherence_vs_travel.py`, scratch):
+
+    | | `moves` | coherence | octaves | swing dB |
+    |---|---|---|---|---|
+    | the bodies the gate FAILS | | | | |
+    | `drum_head` | False | 0.01 | 0.32 | 2.4 |
+    | `cymbal` | False | 0.23 | 0.41 | 4.2 |
+    | `ice` | False | 0.24 | 0.75 | 4.0 |
+    | `string` | False | 0.54 | 0.71 | 1.2 |
+    | the bodies it passes at coherence 1.00 | | | | |
+    | `brass` | True | 1.00 | 0.29 | 0.7 |
+    | `flute` | True | 1.00 | 0.22 | 0.4 |
+    | `organ` | True | 1.00 | 0.26 | 1.8 |
+    | `theremin` | True | 1.00 | 0.32 | 1.1 |
+    | genuinely standing still | | | | |
+    | `sine` / `triangle` | False | 0.00 | 0.00 | 0.0–0.2 |
+    | `square` | False | 0.28 | 0.00 | 0.2 |
+
+    So a smooth vibrato of a fifth passes and an erratic wander of three quarters of an octave fails: **`motion_coherence` measures SMOOTHNESS, not movement**, and the travel measure orders the library the way a listener would while still separating the plain waveforms cleanly (0.00 octaves against 0.22 for the quietest mover). Same finding as the waterphone's `bow = 0` corner in §5. This does not decide item 20 — it says the choice is not "declare texture or widen `moves()`" but "is the gate asking the right question at all", and that is BJ's.
+
 16. **The waterphone is still parked, and it ships as written** — `docs/parked/lco_movement_gate_three_sounds.md` records the proof (partials 67.4 / 54.1 / 50.8 / 38.2 dB, `tracks` at r_note 0.675 / r_fixed −0.042). It needs un-parking into the lexicon, and BJ reviews new instruments by ear.
 
 **BJ's ear on the nine new axes, 2026-07-25 — measured green, heard as not there yet**
