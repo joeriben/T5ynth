@@ -1,5 +1,5 @@
 {
-  "lexicon_version": 67,
+  "lexicon_version": 68,
   "techniques": [
     {
       "key": "saw",
@@ -3589,7 +3589,6 @@
       "code": "; MOVEMENT: TEXTURE\n; A noise-rung resonator bank, not a sustained tone with a rate.\n; Same construction and same reading as `glass`, which it is the counterpart of:\n; the exciter's dither through five very high-Q modes moves the colour hundreds\n; of cents with no rate behind it. Declared by BJ 2026-07-25 for this family.\nkstrike = 0.45     ; strike [0..1]: how far out from the middle it is struck\nkring   = 0.50     ; ring [0..1]: how long the glass is left to ring\naexq0   rand 0.05, 0.5, 1          ; continuous exciter -> the metal is driven, a held note stands (31-bit: no 1.365 s loop)\n; `strike` re-tilts the mode gains geometrically and `ring` scales every Q, and both\n; are exactly 1 at their defaults. There is deliberately no resonator on x1.0, which\n; is the whole difference from `glass`: struck glass rings, it does not sound the note.\n; The trailing `balance` is what makes both of them colour and not level: it holds the\n; RMS against a fixed reference whatever the modes do, at every register.\nkstk    = 0.55 + 1.00 * kstrike               ; 0.55 (the middle) .. 1.55 (the edge)\nkrng    = 4.0 ^ (2 * kring - 1)               ; a quarter of the Q .. four times it\nk0qf1   limit (kfreq * koct1) * 2.6081, 20, 15000\nk0qg1   = ((kfreq * koct1) * 2.6081 < 15000 ? 0.620 * kstk : 0)\na0q1   mode aexq0, k0qf1, 1520 * krng      ; mode 1 @ x2.6081, Q 1520, Q x krng\nk0qf2   limit (kfreq * koct1) * 3.4581, 20, 15000\nk0qg2   = ((kfreq * koct1) * 3.4581 < 15000 ? 0.440 * kstk ^ 2 : 0)\na0q2   mode aexq0, k0qf2, 1640 * krng      ; mode 2 @ x3.4581, Q 1640, Q x krng\nk0qf3   limit (kfreq * koct1) * 5.1317, 20, 15000\nk0qg3   = ((kfreq * koct1) * 5.1317 < 15000 ? 0.300 * kstk ^ 3 : 0)\na0q3   mode aexq0, k0qf3, 1760 * krng      ; mode 3 @ x5.1317, Q 1760, Q x krng\nk0qf4   limit (kfreq * koct1) * 9.5295, 20, 15000\nk0qg4   = ((kfreq * koct1) * 9.5295 < 15000 ? 0.200 * kstk ^ 4 : 0)\na0q4   mode aexq0, k0qf4, 1880 * krng      ; mode 4 @ x9.5295, Q 1880, Q x krng\nk0qf5   limit (kfreq * koct1) * 15.8527, 20, 15000\nk0qg5   = ((kfreq * koct1) * 15.8527 < 15000 ? 0.130 * kstk ^ 5 : 0)\na0q5   mode aexq0, k0qf5, 2000 * krng      ; mode 5 @ x15.8527, Q 2000, Q x krng\namix    = (a0q1 * k0qg1 + a0q2 * k0qg2 + a0q3 * k0qg3 + a0q4 * k0qg4 + a0q5 * k0qg5) * 0.150\n; The keyboard is not a volume control, and a `mode` bank on flat noise is one by\n; default: measured, a single `mode` falls -2.91 dB/octave at Q 20 and -1.72 at\n; Q 900, so a bank with mixed Qs has no one exponent that levels it and levelling\n; at a single pitch left 9.8 dB of tilt over 110-880 Hz. `balance` needs no law.\n; It is safe here because this body STANDS rather than decays -- on a real decay\n; envelope a slow follower would flatten the decay itself. The reference holds\n; this entry's own 220 Hz level, so nothing but the tilt changes.\naref    poscil 0.4472, 400\nasig    balance amix, aref, 1",
       "params": {
         "strike": {
-          "gloss": "",
           "anchors": {
             "flat on the pane": {
               "value": 0.0,
@@ -3607,10 +3606,15 @@
               "value": 1.0,
               "gloss": "thin, hard, glittering -- all top"
             }
-          }
+          },
+          "range": [
+            0.0,
+            1.0
+          ],
+          "default": 0.45,
+          "note": "How far out from the middle the pane is struck. It re-tilts the five mode gains geometrically -- mode n is scaled by kstk^n, kstk running 0.55 in the middle to 1.55 at the edge -- so toward the edge the high modes come up together rather than one at a time. Measured at 220 Hz the spectral centroid walks 642 -> 723 -> 842 -> 1361 Hz across the four anchors, a factor of 2.1, and the loudness follows it by 0.14 dB (0.34 dB at 55 Hz, 0.05 dB at 1760 Hz) -- a colour control, held there by the body's trailing `balance`. It also changes how much the note SETTLES: struck flat, the first 200 ms sit 3.12 dB above the last 500 ms; struck on the edge, 0.30 dB. A thick knock dies back into the pane, a glittering edge-strike stands."
         },
         "ring": {
-          "gloss": "",
           "anchors": {
             "a hand flat on it": {
               "value": 0.0,
@@ -3628,7 +3632,13 @@
               "value": 1.0,
               "gloss": "a long bright shimmer"
             }
-          }
+          },
+          "range": [
+            0.0,
+            1.0
+          ],
+          "default": 0.5,
+          "note": "How long the glass is left to ring. It scales every mode's Q by the same factor, 4^(2*ring-1) -- a quarter of the shipped Q when damped, four times it when let go -- so the whole bank sharpens or blunts together and the pane's own inharmonic ratios (x2.61, 3.46, 5.13, 9.53, 15.85) never move. Measured at 220 Hz the centroid rises only 761 -> 934 Hz across the four anchors, because Q changes WIDTH and not position; what changes audibly is the settle: damped, the last 500 ms sit 1.12 dB ABOVE the first 200 ms (there is nothing left to decay from), at the default 1.35 dB below it. Loudness spread over the anchors is 0.30 dB at 220 Hz, 0.25 dB at 55 Hz, 0.04 dB at 1760 Hz."
         }
       },
       "anchor_code": {
