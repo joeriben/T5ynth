@@ -48,8 +48,10 @@ a broken state.
     .venv/bin/python tools/lco_recover_lost_keys.py --out recovered.json
 """
 import argparse
+import atexit
 import json
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -94,6 +96,14 @@ def load_parked():
     src = subprocess.run(["git", "show", f"{PARKED_TAG}:backend/csound_orch.py"],
                          cwd=REPO, capture_output=True, text=True, check=True).stdout
     tmp = Path(tempfile.mkdtemp(prefix="lco_parked_"))
+    # At exit rather than here: the module imported below stays in `sys.modules` for
+    # the whole run, and a traceback through it wants its source on disk. Without
+    # this the directory outlived every run — 72 of them had collected in the OS
+    # temp directory, each holding the same 269 KB copy of the parked emitter plus
+    # a `__pycache__`. It is the third site of the leak `lco_measure.render`
+    # documents, and it was found by grepping the repo for the construct after
+    # fixing the other two, not by anything going wrong here.
+    atexit.register(shutil.rmtree, tmp, ignore_errors=True)
     (tmp / "parked_csound_orch.py").write_text(src)
     sys.path.insert(0, str(tmp))
     sys.path.insert(0, str(REPO / "backend"))
