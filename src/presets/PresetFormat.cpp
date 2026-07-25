@@ -886,6 +886,21 @@ PresetFormat::LoadResult PresetFormat::loadFromFile(const juce::File& file, T5yn
                 auto state = juce::ValueTree::fromXml(*xml);
                 if (state.isValid())
                 {
+                    // Deliberately NOT calibration-migrated. The XML dump format
+                    // existed for 8 days (db43dda0 → 3eea0375, 2026-03/04), and its
+                    // env/LFO target tables were renumbered afterwards: mod*_target
+                    // was DCA=0/Filter=1/Scan=2 (now Filter=2/Scan=3), lfo*_target
+                    // was Filter=0/Scan=1 (now Filter=1/Scan=2). Every epoch-2
+                    // CondRescale keys off those indices, so on a file of this
+                    // vintage they fire on SCAN-routed envelopes/LFOs — ×2.5 into a
+                    // 0..1 param, clamped, unrecoverable — while the filter-routed
+                    // patches they exist for are skipped. No other entry can reach
+                    // such a file: aftertouch_amt_*, gen_coordination_mode,
+                    // delay/reverb_type and amp_target did not exist yet, and the
+                    // epoch-4 remaps need indices above these tables' maxima.
+                    // Migrating here would only do damage; fixing it properly means
+                    // remapping the old target indices first, which is unwritten
+                    // work for a format nothing has produced since April 2026.
                     processor.getValueTreeState().replaceState(state);
                     result.presetName = file.getFileNameWithoutExtension();
                     result.success = true;
