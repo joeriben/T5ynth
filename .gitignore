@@ -58,6 +58,13 @@ tools/resynth_loop_out/
 # CLAP homeostasis: keep REPORT.md + results_*.json, drop the WAV renders
 tools/clap_homeostasis_out/*.wav
 tools/clap_homeostasis_out/results.json
+# lco_reference: keep the PROMPT.txt beside each set and comparison.json, drop the
+# reference audio itself -- 18 MB for eight instruments, and `lco_reference.py
+# generate` recreates it from the recorded prompt and seed. A real recording
+# dropped in by hand is NOT covered by this and has to be added deliberately,
+# with its licence.
+tools/lco_reference_out/*/sa3_*.wav
+tools/lco_reference_out/*/lco_*.wav
 # CLAP semantic loop: keep REPORT.md + per-experiment manifest.json, drop WAVs + run log
 tools/clap_semantic_loop_out/*/*.wav
 tools/clap_semantic_loop_out_run.log

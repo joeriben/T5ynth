@@ -327,9 +327,42 @@ def compare(keys, device):
     return 0
 
 
+def pairs(keys):
+    """Put the entry's own renders next to its references, in one folder, at the
+    level the plugin actually puts out -- so the comparison can be made by EAR.
+
+    This is the leg that works.  The automatic ranking in `compare` does not
+    calibrate: asked which body is closest to a real flute, it puts the library's
+    `flute` 26th of 70 on the CLAP leg and 57th on the spectral one, and the same
+    failure on cymbal, organ and harpsichord.  The references are sound (they
+    separate from each other 29/32 by nearest neighbour); what no distance here
+    bridges is the gap between a dry, roomless, performerless single note and a
+    recording.  Reporting a rank from a meter that cannot place a flute would be
+    the same mistake one layer up.
+    """
+    lex = json.loads(LEX.read_text())
+    by = {t["key"]: t for t in lex["techniques"]}
+    import soundfile as sf
+    for key in keys:
+        if key not in by:
+            print(f"{key}: not in the lexicon", file=sys.stderr)
+            continue
+        d = OUT / key
+        d.mkdir(parents=True, exist_ok=True)
+        for f in (110.0, 220.0, 440.0):
+            y, err = M.render(by[key]["code"], dur=6.0, freq=f, preroll=1.0)
+            if y is None:
+                print(f"  {key} @ {f:.0f} Hz: {err}", file=sys.stderr)
+                continue
+            p = d / f"lco_{key}_{f:.0f}hz.wav"
+            sf.write(str(p), (y * 0.32).astype("float32"), M.SR)
+            print(f"  {p.relative_to(REPO)}")
+    return 0
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("cmd", choices=("generate", "compare"))
+    ap.add_argument("cmd", choices=("generate", "compare", "pairs"))
     ap.add_argument("--keys", required=True)
     ap.add_argument("--n", type=int, default=4)
     ap.add_argument("--model", default="stable-audio-3-medium")
@@ -338,6 +371,8 @@ def main() -> int:
     keys = [k.strip() for k in a.keys.split(",") if k.strip()]
     if a.cmd == "generate":
         return generate(keys, a.n, a.model, a.device)
+    if a.cmd == "pairs":
+        return pairs(keys)
     return compare(keys, a.device)
 
 
