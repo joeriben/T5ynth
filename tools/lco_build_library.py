@@ -130,6 +130,18 @@ def narrowing_forms(lex):
     "bright voice" leaves "voice", which is another entry's key, so both are fair.
     "breathy tone" and "breathy whisper" leave a word for sound-in-general and are not.
 
+    That test had two structural holes, both found against the router and both worth
+    naming because a closed filler list would never have closed either. A form of
+    NOTHING but quality words leaves the remainder EMPTY — the strongest possible
+    answer — and an `and rest` guard short-circuited it to silence, so `flute` claiming
+    "soft breathy" and `wind` claiming "slowly evolving" each opened 1 entry of 57 in
+    quiet. And the filler list held `tone` but not `tones`, so "breathy tones",
+    "steady textures", "soft layers" and "gritty sounds" all walked through the exact
+    rule that caught their singulars. An empty remainder now reads as the empty phrase
+    it is, the inflection is stripped before the list is consulted, and adverbs are a
+    set of their own: an adverb modifies the quality beside it and can never head the
+    phrase, which is a grammatical fact rather than one more word to remember.
+
     DIRECTION decides the near misses, and it is structural rather than semantic. An
     instrument reaching for a quality word is the hazard; a quality listing the
     instrument's own word is not. The adjective `glassy` carries the form `glass`,
@@ -143,7 +155,7 @@ def narrowing_forms(lex):
     Underscores AND hyphens are normalised to spaces as well as case, so `washed_out`,
     `washed-out` and `washed out` cannot pass by spelling — the hyphen was a live hole.
 
-    `--selftest` asserts all of this, in both directions, on twenty cases.
+    `--selftest` asserts all of this, in both directions, on thirty-two cases.
     """
     def norm(s):
         return " ".join(str(s).lower().replace("_", " ").replace("-", " ").split())
@@ -180,6 +192,30 @@ def narrowing_forms(lex):
                "sonority", "character", "quality", "colour", "color", "whisper",
                "murmur", "hush", "sonic", "audio", "signal", "patch", "preset",
                "layer"}
+    # Degree and manner adverbs. A separate set from the nouns above because the
+    # reason they are here is grammatical rather than lexical: an adverb modifies the
+    # quality word beside it and can never be the head of the phrase, so "slowly
+    # evolving" names a quality exactly as "evolving" does. `wind` claiming that form
+    # evaded a noun-only list, and would have gone on evading it however many nouns
+    # were added. Any of these that is ALSO a quality in the lexicon is matched as one
+    # before it ever reaches here.
+    adverbs = {"slowly", "quickly", "gently", "softly", "barely", "slightly",
+               "faintly", "heavily", "lightly", "deeply", "richly", "subtly",
+               "steadily", "smoothly", "roughly", "very", "quite", "rather",
+               "somewhat", "mostly", "nearly", "almost", "just", "a", "bit"}
+
+    def filler(w):
+        """A word for sound-in-general, or an adverb — in the singular or the plural.
+
+        The plural is not a nicety: with `tone` listed and `tones` not, "breathy tone"
+        was caught and "breathy tones" walked straight through, and the same held for
+        every other noun in the list. Stripping the inflection is one rule instead of
+        twenty more entries that would each have to be thought of.
+        """
+        return (w in generic or w in adverbs
+                or (w.endswith("s") and w[:-1] in generic)
+                or (w.endswith("es") and w[:-2] in generic))
+
     bad = []
     for e in lex["techniques"]:
         for i, f in enumerate([e["key"]] + list(e.get("surface_forms") or [])):
@@ -199,9 +235,15 @@ def narrowing_forms(lex):
             # sound-in-general, and "a glass pad" means the instrument.
             if norm(e["key"]) in words:
                 continue
-            if quality and rest and all(w in generic for w in rest):
+            # No `rest` requirement, and that used to be the biggest hole in this
+            # branch: a form made of NOTHING but quality words leaves the remainder
+            # empty, which is the strongest possible answer to "what is left when the
+            # qualities are removed" — and `and rest` short-circuited it to silence.
+            # `flute` claiming "soft breathy" opened 1 entry of 57 with the guard
+            # saying nothing. An empty remainder now reads as the empty phrase it is.
+            if quality and all(filler(w) for w in rest):
                 bad.append((e["key"], f, keys[quality[0]][0], keys[quality[0]][1],
-                            " ".join(rest)))
+                            " ".join(rest) or "nothing at all"))
     return bad
 
 
@@ -218,10 +260,23 @@ _NARROWING_CASES = [
     ("hiss", "washed-out", True), ("hiss", "washed_out", True),
     ("glass", "glassy", True), ("flute", "breathy tone", True),
     ("flute", "breathy whisper", True), ("flute", "soft texture", True),
+    # Nothing but quality words, so the remainder is empty. `and rest` used to
+    # short-circuit exactly this — the strongest case — into silence.
+    ("flute", "soft breathy", True), ("hiss", "steady stationary", True),
+    # An adverb in front of a quality. A noun-only filler list could never catch it.
+    ("wind", "slowly evolving", True), ("triangle", "barely moving", True),
+    # The plural. Each of these was caught in the singular and walked through in the
+    # plural, which is four of the six evasions found in one inflection.
+    ("flute", "breathy tones", True), ("hiss", "steady textures", True),
+    ("triangle", "soft layers", True), ("noise", "gritty sounds", True),
     ("flute", "flute", False), ("flute", "wooden flute", False),
     ("flute", "hollow reed", False), ("flute", "bright voice", False),
     ("glass", "glass", False), ("glass", "glass pad", False),
     ("mbira", "thumb piano", False), ("hiss", "radio static", False),
+    # …and the new rules must not reach past sound-in-general. A plural that names a
+    # thing is still a thing, and an adverb beside a real noun still leaves the noun.
+    ("mbira", "thumb pianos", False), ("flute", "breathy pipes", False),
+    ("flute", "softly blown reed", False), ("glass", "glass layers", False),
 ]
 
 
