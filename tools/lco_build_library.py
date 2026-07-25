@@ -396,11 +396,16 @@ def main():
         return 0
 
     OUT.write_text(text)
-    n_code = sum(1 for i in lib["instruments"] if i["code"] and not i["code"].startswith(";"))
+    # "Has code" means it has a line that is not a comment. Testing the FIRST character
+    # instead read four real bodies as placeholders the moment they grew a leading
+    # comment: `rain` has 8 code lines and an `asig`, and was reported as having none.
+    def has_code(c):
+        return any(l.strip() and not l.lstrip().startswith(";") for l in (c or "").splitlines())
+
+    n_code = sum(1 for i in lib["instruments"] if has_code(i["code"]))
     print(f"{OUT.relative_to(REPO)}: {n_code}/{len(lib['instruments'])} instruments with "
           f"code, {len(lib['adjectives'])} adjectives, {len(lib['motions'])} motions")
-    empty = [i["key"] for i in lib["instruments"]
-             if not i["code"] or i["code"].startswith(";")]
+    empty = [i["key"] for i in lib["instruments"] if not has_code(i["code"])]
     if empty:
         print("WITHOUT code: " + ", ".join(empty))
     return 0
