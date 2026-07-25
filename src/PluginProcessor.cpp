@@ -2106,6 +2106,22 @@ void T5ynthProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
 
 bool T5ynthProcessor::requestCsoundOrchestra(const juce::String& orchestraText)
 {
+    // Tail migration (2026-07-25, kvel removal): presets, DAW sessions and SNAP
+    // slots saved before that date carry the old host output line — with the
+    // kvel factor that made the LRO scale as vel^2 — inside their stored
+    // orchestra text. Every path an orchestra can enter by funnels through this
+    // method (bake, preset JSON, DAW XML state, SNAP recall, LRO reconcile), so
+    // rewriting the one scaffold line here re-bases ALL of them onto the
+    // current tail while leaving the authored body byte-identical; and because
+    // both save paths (getStateInformation, exportJsonPreset) read the pending
+    // text stored below, a migrated preset heals on its next save.
+    // Exact-match: a text without the old line passes through
+    // unchanged, and the line is host scaffold outside the authored-body
+    // markers, so no author-written code can be touched.
+    const juce::String migratedText =
+        orchestraText.replace("= asig * kgate * kvel * kpresGain",
+                              "= asig * kgate * kpresGain");
+
     // Message thread or background (Phase-2 spec S4) — NEVER the audio thread.
     // getCallbackLock() below blocks until any in-progress processBlock call
     // returns, exactly like every other message-thread voice-state reader in
@@ -2137,12 +2153,12 @@ bool T5ynthProcessor::requestCsoundOrchestra(const juce::String& orchestraText)
         // thread for the rest of every swap. Written here, in the same call that
         // writes csoundPendingOrchestraText_, so the two never disagree.
         std::lock_guard<std::mutex> textLock(csoundOrchestraTextMutex_);
-        csoundOrchestraTextForUi_ = orchestraText;
+        csoundOrchestraTextForUi_ = migratedText;
     }
 
     {
         std::lock_guard<std::mutex> lock(csoundLifecycleMutex_);
-        csoundPendingOrchestraText_ = orchestraText;
+        csoundPendingOrchestraText_ = migratedText;
         std::memcpy(csoundPendingEpochs_, epochs, sizeof(csoundPendingEpochs_));
         std::memcpy(csoundPendingFreqs_, freqs, sizeof(csoundPendingFreqs_));
         ++csoundSwapRequestGeneration_;
