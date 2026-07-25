@@ -233,8 +233,10 @@ def gate(body, freq=220.0, steps=3, registers=(55, 110, 220, 440, 880, 1760)):
     half-turn away at 110 Hz. Two marginals both inside a bound say nothing about the
     joint, and a gate that only ever looked at marginals passed a body that violates
     its own 1.00 dB rule. The cost is real: three axes at three steps over six
-    registers is 162 renders, roughly five times the old gate, plus six for the
-    tilt at the actual defaults.
+    registers is 162 renders, roughly five times the old gate, plus one per register
+    for the tilt at the actual defaults — six, or seven when `--freq` names a pitch
+    outside the register list, because that pitch is forced into the list so a gate
+    run there cannot check nothing.
     """
     declared = axes(body)
     names = sorted(declared)
@@ -402,9 +404,15 @@ def main():
 
     if args.gate:
         ok, fails, st = gate(body, args.freq, args.steps)
-        print(f"\ngate: {st.get('corners', 0)} corners x "
-              f"{st.get('renders', 0) // max(st.get('corners', 1), 1)} registers = "
-              f"{st.get('renders', 0)} renders, loudness spread "
+        # renders/corners, NOT a remembered register count: it is the honest number
+        # only while every corner rendered. When one did not, `rows` shrank and the
+        # division silently reported a wrong register count as if nothing were missing,
+        # so say so instead.
+        _c, _r = st.get('corners', 0), st.get('renders', 0)
+        _regs = (f"{_r // _c} registers" if _c and _r % _c == 0
+                 else f"{_r} renders over {_c} corners — some corner did not render")
+        print(f"\ngate: {_c} corners x {_regs} = "
+              f"{_r} renders, loudness spread "
               f"{st.get('loudness_spread_db')} dB, register tilt "
               f"{st.get('register_tilt_db')} dB, the two crossed "
               f"{st.get('cross_spread_db')} dB, worst p99.9 "
