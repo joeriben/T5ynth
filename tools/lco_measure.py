@@ -1444,19 +1444,25 @@ def selftest():
     # k-cycle boundary and the nominal time does not, so every buffer was up to 0.95 ms
     # short and frame-misaligned. Compared from the second k-cycle, because `a()`
     # interpolates the first one from the value the preroll left behind.
+    # `preroll=0.0` is in the list deliberately: it is the ONLY member with no trim at all
+    # (the instance begins at the note, so `knote` is already note time), which makes it an
+    # absolute reference. Without it every preroll could be trimmed by the same wrong
+    # amount and this case would still be green — and a constant error of up to one
+    # k-period is exactly the 0.09-0.95 ms class the trim exists to fix.
     _ramp = "asig     = a(0.4 * (knote < 1 ? knote : 2 - knote))\n"
     _base, _ = render(_ramp, dur=2.0, preroll=1.0)
     _worst, _detail = 0.0, "render failed"
     if _base is not None:
-        for _pr in (0.3333, 0.5, 0.925, 1.5, 2.0):
+        for _pr in (0.0, 0.3333, 0.5, 0.925, 1.5, 2.0):
             _y, _ = render(_ramp, dur=2.0, preroll=_pr)
             if _y is None:
                 _worst = 9.9
                 break
             _n = min(len(_y), len(_base))
             _worst = max(_worst, float(np.abs(_y[W.KSMPS:_n] - _base[W.KSMPS:_n]).max()))
-        _detail = (f"five prerolls from 0.33 to 2.0 s agree to {_worst:.9f} — the trim is "
-                   f"the trigger edge, not `int(preroll * SR)`")
+        _detail = (f"six prerolls from 0 to 2.0 s agree to {_worst:.9f} — including the "
+                   f"un-trimmed 0, so the trim is the trigger edge in ABSOLUTE terms and "
+                   f"not merely consistently wrong")
     check("the trim lands on the trigger edge, so the note is the same note",
           _base is not None and _worst < 1e-9, _detail)
 
