@@ -89,6 +89,11 @@ LOUD_BAD_DB = 2.0
 MOVES_COLOUR_HZ = 40.0    # spectral centroid
 MOVES_COMB_DB = 1.5       # how sharply it rings
 MOVES_MOTION_HZ = 15.0    # how much the colour travels within the note
+# A rate control's own signature. 0.5 Hz because a musette's whole range is 1.0 to
+# 4.0 Hz and half a hertz of beat is plainly audible; 0.05 of depth because the beat
+# meter reads an asked 0.10 back as 0.100, so 0.05 is well clear of its noise.
+MOVES_BEAT_HZ = 0.5
+MOVES_BEAT_DEPTH = 0.05
 
 
 # Properties that are the instrument, not a defect in it. Each one names WHY, and
@@ -277,6 +282,14 @@ def audit_one(inst, registers=REGISTERS, quick=False):
             a["centroid_spread_hz"] = spread("centroid")
             a["comb_spread_db"] = spread("comb_db")
             a["motion_spread_hz"] = spread("centroid_motion_hz")
+            # A whole class of axis is a RATE, and no spectral meter can see one: the
+            # bagpipe's detune moved the centroid 5.7 Hz and the comb 1.2 dB over its
+            # whole range and was reported as changing nothing measurable, while the
+            # beat it exists for went from 1.0 to 4.0 Hz. Same for a cricket's chirp
+            # rate (12 -> 50 Hz) and a frog's pulse rate (15 -> 100 Hz). M6 now asks
+            # the beat meter too, so a rate control is not mistaken for a label.
+            a["beat_rate_spread_hz"] = spread("beat_rate_hz")
+            a["beat_depth_spread"] = spread("beat_depth")
             a["sustain_range"] = [min(r["sustain"] for r in good),
                                   max(r["sustain"] for r in good)]
         rep["axes"][axis] = a
@@ -342,12 +355,16 @@ def verdicts(rep):
             out.append(("M5", f"{axis}: moves loudness {sp:.2f} dB over its travel"))
         moved = ((a.get("centroid_spread_hz") or 0) > MOVES_COLOUR_HZ
                  or (a.get("comb_spread_db") or 0) > MOVES_COMB_DB
-                 or (a.get("motion_spread_hz") or 0) > MOVES_MOTION_HZ)
+                 or (a.get("motion_spread_hz") or 0) > MOVES_MOTION_HZ
+                 or (a.get("beat_rate_spread_hz") or 0) > MOVES_BEAT_HZ
+                 or (a.get("beat_depth_spread") or 0) > MOVES_BEAT_DEPTH)
         if a.get("centroid_spread_hz") is not None and not moved:
             out.append(("M6", f"{axis}: changes nothing measurable — centroid "
                               f"{a.get('centroid_spread_hz')} Hz, comb "
                               f"{a.get('comb_spread_db')} dB, motion "
-                              f"{a.get('motion_spread_hz')} Hz"))
+                              f"{a.get('motion_spread_hz')} Hz, beat rate "
+                              f"{a.get('beat_rate_spread_hz')} Hz, beat depth "
+                              f"{a.get('beat_depth_spread')}"))
     return out
 
 

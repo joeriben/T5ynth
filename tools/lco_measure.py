@@ -561,7 +561,7 @@ def beat(y, lo_hz=0.5, hi_hz=25.0, t0=0.5, t1=3.5, at_hz=None):
     return amp / mean, float(fq[band][np.argmax(F[band])])
 
 
-def moves(y, n=128, span_hz=8.0, min_coherence=0.35):
+def moves(y, n=128, span_cents=60.0, min_coherence=0.35):
     """Does the colour actually travel over the note? Span AND shape must agree.
 
     The threshold is calibrated on the shipped library rather than chosen, and the
@@ -590,9 +590,21 @@ def moves(y, n=128, span_hz=8.0, min_coherence=0.35):
       * bodies that decay to near silence inside the window, where the late
         centroid is a noise floor: `rhodes` 0.00, `wurlitzer` 0.37.
     """
-    _, span = travel(y, n)
+    cs, span = travel(y, n)
     r1 = coherence(y, n)
-    return bool(span > span_hz and r1 > min_coherence), round(span, 1), round(r1, 3)
+    # The span is judged in CENTS, not hertz. An absolute hertz bound is the same
+    # class of mistake as the amplitude weighting was: 8 Hz of travel is nothing on
+    # `hiss`'s 13.5 kHz centroid and a plainly audible wobble on `sub_sine`'s 205 Hz.
+    # Measured in cents the two populations separate more sharply than in hertz — the
+    # eight bodies with nothing to move read 0 to 54 cents (sine 0, triangle 1,
+    # square 3, bass_saw 7, the two fixed vowels 21, pulse 25, sub_sine 54) and
+    # everything else reads 78 and up — and 60 cents fails exactly the same eight the
+    # old 8 Hz bound did, so the change is verdict-neutral on the library and gives
+    # the number a meaning. 60 cents of brightness is a bit over a quarter tone.
+    mean = float(np.mean(cs)) if len(cs) else 0.0
+    span_c = 1200 * np.log2(1 + span / mean) if mean > 1e-9 else 0.0
+    return (bool(span_c > span_cents and r1 > min_coherence),
+            round(span, 1), round(r1, 3))
 
 
 def measure(y, asked_freq):
@@ -600,6 +612,12 @@ def measure(y, asked_freq):
     cs, span = travel(y, 8)
     _, fast = travel(y, 128)
     does_move, _, r1 = moves(y)
+    # The beat is reported because a whole class of axis is a RATE and no spectral
+    # meter can see one: a bagpipe's detune, a cricket's chirp rate and a frog's pulse
+    # rate all move the centroid by single hertz while changing the sound completely.
+    # An audit that reads only colour calls such an axis inert and invites deleting it.
+    # The band reaches 120 Hz because these rates go far above a musette's few hertz.
+    bd, br = beat(y, lo_hz=0.5, hi_hz=120.0)
     return {"f0": None if f is None else round(f, 2),
             "cents": None if f is None else round(cents(f, asked_freq), 1),
             "centroid": round(centroid(y), 1),
@@ -608,6 +626,8 @@ def measure(y, asked_freq):
             # The span alone calls static noise the most mobile thing here.
             "motion_coherence": r1,
             "moves": does_move,
+            "beat_depth": round(bd, 3),
+            "beat_rate_hz": round(br, 2),
             "centroid_over_note": [round(c) for c in cs],
             "rms_db": round(rms_db(y), 2),
             "peak_p999": round(peak_p999(y), 3),
