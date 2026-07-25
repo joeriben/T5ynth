@@ -311,11 +311,13 @@ byte-for-byte before it will emit anything new.
    relatives, `sub_sine`, `bass_saw`, the two fixed vowels) get movement added, and
    does a nature bed's non-periodic wander count as movement?
 6. **Does movement-by-default hold at every register, or only at the note being
-   played?** Also BJ's, and the measurement is in hand: of the 57 entries at their
-   defaults only 32 satisfy `moves` at all six registers. Most of the other 25 sit
-   in classes the meter documents as beyond it — `string` and `mbira` travel
-   2881–11170 Hz at coherence 0.14–0.25 because a decaying high-Q bank's late
-   window is a noise floor — plus fixed-formant bodies (`voice`, `saw`, `sub_sine`)
-   whose travel shrinks in cents as the note climbs past their formants. The gate
-   reports these and fails only at the asked pitch, because condemning 25 shipped
-   entries in the name of a meter limit is not a defect fix.
+   played?** Also BJ's, and the measurement is in hand — re-derive it any time with
+   `tools/lco_axis_probe.py --census`, which is also what keeps this number honest:
+   of the 57 entries at their defaults only **33** satisfy `moves` at all six
+   registers. Most of the other 24 sit in classes the meter documents as beyond it —
+   `string` travels 2881–3402 Hz at coherence 0.14–0.25 because a decaying high-Q
+   bank's late window is a noise floor, and `cymbal`, `drum_head` and `pink_noise`
+   likewise — plus fixed-formant bodies (`voice`, `saw`, `sub_sine`) whose travel
+   shrinks in cents as the note climbs past their formants. The gate reports these
+   and fails only at the asked pitch, because condemning 24 shipped entries in the
+   name of a meter limit is not a defect fix.

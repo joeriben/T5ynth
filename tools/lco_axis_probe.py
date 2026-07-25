@@ -22,6 +22,7 @@ single place to set.
     .venv/bin/python tools/lco_axis_probe.py --body cand.orc --all
     .venv/bin/python tools/lco_axis_probe.py --body cand.orc --axis musette \
         --values 0,0.5,1 --freq 220
+    .venv/bin/python tools/lco_axis_probe.py --census
 """
 import argparse
 import itertools
@@ -65,6 +66,49 @@ AXIS = re.compile(r"^(?P<pad>\s*)k(?P<var>[a-z][a-z0-9]*)(?P<gap>\s+)=(?P<sp>\s*
                   r"(?P<name>[a-z][a-z0-9 _-]{0,15})"
                   r"(?:\s*\[(?P<lo>-?\d+(?:\.\d+)?)\.\."
                   r"(?P<hi>-?\d+(?:\.\d+)?)\])?:(?P<tail>.*)$")
+
+
+# How many shipped entries move at EVERY register, and how many do not. Printed at
+# every gate run, so it has to be a measurement and not a memory: it was written as
+# 32/25 and went stale inside the same batch that wrote it, when `2bfac805` gave
+# `mbira` a second mechanism and the comment kept naming mbira as an entry that stands
+# still. Re-derive with `--census`, which recomputes the split over the whole lexicon
+# and says outright whether this line is out of date.
+_MOVE_CENSUS = (33, 24, "2026-07-25")
+_MOVE_REGISTERS = (55.0, 110.0, 220.0, 440.0, 880.0, 1760.0)
+
+
+def census():
+    """Recount which shipped entries move at every register. ~340 renders."""
+    import json
+    lex = json.loads((REPO / "backend" / "dco_lexicon.json").read_text())
+    still = {}
+    for e in lex["techniques"]:
+        bad = []
+        for f in _MOVE_REGISTERS:
+            y, err = M.render(e["code"], dur=4.0, freq=f)
+            if y is None:
+                bad.append((f, f"render: {err}"))
+                continue
+            r = M.measure(y, f)
+            if not r["moves"]:
+                bad.append((f, f"{r['centroid_motion_hz']} Hz at "
+                               f"{r['motion_coherence']}"))
+        if bad:
+            still[e["key"]] = bad
+    n = len(lex["techniques"])
+    print(f"{n - len(still)} of {n} entries move at all six registers, "
+          f"{len(still)} do not")
+    for k, bad in still.items():
+        print(f"  {k:16s} " + "  ".join(f"{f:.0f}:{d}" for f, d in bad))
+    want = (n - len(still), len(still))
+    if want != _MOVE_CENSUS[:2]:
+        print(f"\n  STALE  _MOVE_CENSUS says {_MOVE_CENSUS[0]}/{_MOVE_CENSUS[1]} "
+              f"(measured {_MOVE_CENSUS[2]}); it is now {want[0]}/{want[1]}. "
+              f"Update it and every comment that quotes it.")
+        return 1
+    print(f"\n  _MOVE_CENSUS is current at {want[0]}/{want[1]}")
+    return 0
 
 
 def axes(body):
@@ -219,13 +263,14 @@ def gate(body, freq=220.0, steps=3, registers=(55, 110, 220, 440, 880, 1760)):
                 continue
             # Movement is measured at every register and GATED at `freq`. Not gated
             # everywhere, on measured grounds: of the 57 shipped entries at their
-            # defaults, only 32 satisfy `moves` at all six registers. The rest are
-            # mostly the three classes `moves` itself documents as beyond it —
-            # `string` and `mbira` travel 2881-11170 Hz at coherence 0.14-0.25 because
-            # a decaying high-Q bank's late window is a noise floor, `pink_noise` and
-            # `cymbal` likewise — plus fixed-formant bodies (`voice`, `saw`,
-            # `sub_sine`) whose travel shrinks in cents as the note rises past their
-            # formants. Gating everywhere would condemn 25 long-shipped entries in the
+            # defaults, only 33 satisfy `moves` at all six registers (`--census`;
+            # `_MOVE_CENSUS` above). The rest are mostly the three classes `moves`
+            # itself documents as beyond it — `string` travels 2881-3402 Hz at
+            # coherence 0.14-0.25 because a decaying high-Q bank's late window is a
+            # noise floor, `cymbal`, `drum_head` and `pink_noise` likewise — plus
+            # fixed-formant bodies (`voice`, `saw`, `sub_sine`) whose travel shrinks in
+            # cents as the note rises past their formants. Gating everywhere would
+            # condemn 24 long-shipped entries in the
             # name of a meter limit, which is a change of standard and BJ's to make,
             # not a defect to fix. It is REPORTED so the register dependence is
             # visible: the same body used to pass or fail purely on which registers
@@ -284,7 +329,9 @@ def gate(body, freq=220.0, steps=3, registers=(55, 110, 220, 440, 880, 1760)):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--body", required=True, help="candidate body file")
+    ap.add_argument("--body", help="candidate body file")
+    ap.add_argument("--census", action="store_true",
+                    help="recount which shipped entries move at every register")
     ap.add_argument("--axis", action="append", help="axis name (repeatable)")
     ap.add_argument("--all", action="store_true", help="every declared axis")
     ap.add_argument("--values", help="comma-separated values (default 0,0.5,1)")
@@ -295,6 +342,10 @@ def main():
     ap.add_argument("--steps", type=int, default=3,
                     help="values per axis in --gate (default 3)")
     args = ap.parse_args()
+    if args.census:
+        return census()
+    if not args.body:
+        ap.error("--body is required (or --census)")
 
     body = Path(args.body).read_text().rstrip("\n")
     declared = axes(body)
@@ -364,8 +415,9 @@ def main():
             print(f"  note  {len(el)} of {st['renders'] - st['corners']} corner-renders "
                   f"away from {args.freq:.0f} Hz do not move: "
                   + ", ".join(f"{n} at {f:.0f} Hz" for f, n in sorted(by_hz.items()))
-                  + " (reported, not gated: 25 of the 57 shipped entries are in the "
-                    "same position at some register)")
+                  + f" (reported, not gated: {_MOVE_CENSUS[1]} of the 57 shipped "
+                    f"entries are in the same position at some register, measured "
+                    f"{_MOVE_CENSUS[2]} — re-derive with --census)")
         print("  PASS  every corner renders, moves, and holds one loudness"
               if ok else f"  -> {len(fails)} failure(s)")
         return 0 if ok else 1
