@@ -119,10 +119,20 @@ def report(name, rows, quiet=False):
     verdict = {"rms_spread_db": round(sp("rms_db"), 2),
                "centroid_spread_hz": round(sp("centroid"), 1),
                "comb_spread_db": round(sp("comb_db"), 1),
-               "motion_spread_hz": round(sp("centroid_motion_hz"), 1)}
+               "motion_spread_hz": round(sp("centroid_motion_hz"), 1),
+               # A rate control has its whole signature here and none in the colour
+               # meters: a cricket's chirp rate moved 2 Hz of centroid and 0.5 dB of
+               # comb over 12 -> 50 Hz of actual pulse rate, and this verdict called
+               # it "moves nothing measurable" while the audit's M6 — which does read
+               # the beat — passed it. The authoring tool and the audit must not
+               # disagree about whether an axis works.
+               "beat_rate_spread_hz": round(sp("beat_rate_hz"), 2),
+               "beat_depth_spread": round(sp("beat_depth"), 3)}
     ok_loud = verdict["rms_spread_db"] <= 1.0
     moves = (verdict["centroid_spread_hz"] > 40 or verdict["comb_spread_db"] > 1.5
-             or verdict["motion_spread_hz"] > 15)
+             or verdict["motion_spread_hz"] > 15
+             or verdict["beat_rate_spread_hz"] > 0.5
+             or verdict["beat_depth_spread"] > 0.05)
     verdict["verdict"] = ("colour" if ok_loud and moves else
                           "A FADER — it moves loudness" if not ok_loud and moves else
                           "moves nothing measurable" if ok_loud else
@@ -131,7 +141,9 @@ def report(name, rows, quiet=False):
         print(f"  -> loudness {verdict['rms_spread_db']:+.2f} dB, colour "
               f"{verdict['centroid_spread_hz']:.0f} Hz, comb "
               f"{verdict['comb_spread_db']:.1f} dB, motion "
-              f"{verdict['motion_spread_hz']:.0f} Hz  ==  {verdict['verdict']}")
+              f"{verdict['motion_spread_hz']:.0f} Hz, beat "
+              f"{verdict['beat_rate_spread_hz']:.1f} Hz/"
+              f"{verdict['beat_depth_spread']:.2f}  ==  {verdict['verdict']}")
     return verdict
 
 
