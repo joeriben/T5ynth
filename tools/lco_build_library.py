@@ -110,34 +110,81 @@ def narrowing_forms(lex):
     the word for "does not move" selecting a white-noise bed. `glass` carried
     `glassy` the same way.
 
-    Only KEYS are checked, because a key is the word the index prints and the
-    author writes back. A shared non-key form merely opens both entries, which
-    costs nothing.
+    Every SURFACE FORM is checked, not only the keys. The first version of this
+    guard compared keys alone, on the reasoning that "a shared non-key form merely
+    opens both entries, which costs nothing" — and that reasoning is false, which is
+    the whole point of `open_entries`: it opens everything only when NO instrument
+    was named, so any instrument hit at all collapses 57 entries to 1. Checking keys
+    only left the guard evadable by every one of the ~500 non-key forms. Measured
+    against the router itself, all of these passed the old guard and all of them
+    opened exactly 1 entry of 57: `hiss` as "steady" or "stationary" (both forms of
+    the motion `static` — the very motion whose KEY produced the original bug),
+    `noise` as "gritty" (a form of `dirty`), `wind` as "moving" (a form of `evolve`),
+    `triangle` as "soft".
 
     A MULTI-WORD form narrows the same way when it is nothing but a quality: `flute`
     claimed "breathy tone", `breathy` is an adjective's own key and "tone" names no
     instrument, so "a steady breathy tone" opened 1 entry of 50 — the first version of
     this guard compared whole forms only and passed it. The test is what survives
-    removing the adjective and motion keys: "hollow reed" leaves "reed", which is a
-    family, and "bright voice" leaves "voice", which is another entry's key, so both
-    are fair. "breathy tone" leaves a word for sound-in-general and is not.
+    removing the quality words: "hollow reed" leaves "reed", which is a family, and
+    "bright voice" leaves "voice", which is another entry's key, so both are fair.
+    "breathy tone" and "breathy whisper" leave a word for sound-in-general and are not.
 
-    Underscores are normalised to spaces as well as case, so `washed_out` and
-    `washed out` cannot pass by spelling.
+    DIRECTION decides the near misses, and it is structural rather than semantic. An
+    instrument reaching for a quality word is the hazard; a quality listing the
+    instrument's own word is not. The adjective `glassy` carries the form `glass`,
+    which is the instrument `glass`'s own key — and an author writing the bare "glass"
+    means the instrument, so narrowing is the right answer. Verified on the router: "a
+    glassy pad" and "glassy shimmering texture" both open 57 of 57, because it matches
+    whole words. Hence a quality's KEY is compared against the instrument's key as
+    well, a quality's non-key FORM only against the instrument's non-key forms, and a
+    multi-word form containing the instrument's own key is left alone ("glass pad").
+
+    Underscores AND hyphens are normalised to spaces as well as case, so `washed_out`,
+    `washed-out` and `washed out` cannot pass by spelling — the hyphen was a live hole.
+
+    `--selftest` asserts all of this, in both directions, on twenty cases.
     """
-    generic = {"tone", "sound", "timbre", "texture", "note", "wave", "waveform",
-               "sonority", "character", "quality", "colour", "color"}
-
     def norm(s):
-        return " ".join(str(s).lower().replace("_", " ").split())
+        return " ".join(str(s).lower().replace("_", " ").replace("-", " ").split())
 
-    keys = {norm(e["key"]): (sec, e["key"])
-            for sec in ("adjectives", "motions") for e in lex[sec]}
+    # Every form the router can match, keyed to the entry it belongs to. `washed_out`
+    # and `washed out` normalise together, so neither spelling nor case is a hiding
+    # place; a form listed under an adjective AND an instrument is exactly the case
+    # this looks for, so the mapping is built from the quality side only.
+    keys = {norm(f): (sec, e["key"])
+            for sec in ("adjectives", "motions") for e in lex[sec]
+            for f in [e["key"]] + list(e.get("surface_forms") or [])}
+    # A quality's own KEY is checked against the instrument's key too; a quality's
+    # non-key FORM only against the instrument's non-key forms. The direction is the
+    # whole distinction. `hiss` claiming the form `static` is an instrument reaching
+    # for a quality word, and the author writing "static" then means "does not move".
+    # The adjective `glassy` listing the form `glass` is the reverse — the instrument
+    # `glass` owns that word as its key, and an author writing the bare "glass" means
+    # the instrument. Verified on the router: "a glassy pad" and "glassy shimmering
+    # texture" both open 57 of 57, because it matches whole words, so the collision
+    # costs nothing until someone writes the bare key, where narrowing is correct.
+    qkeys = {norm(e["key"]): (sec, e["key"])
+             for sec in ("adjectives", "motions") for e in lex[sec]}
+    # Words for sound-in-general. A closed list against an open problem, and it stays
+    # one deliberately: the alternative — asking whether the remainder names an
+    # instrument anywhere in the vocabulary — was tried and is worse in both
+    # directions. It fired on five legitimate shipped forms ("radio static", "glass
+    # pad", "duty sweep", "tearing sweep", "analoger oszillator"), whose second word
+    # names the instrument perfectly well in context and merely happens to be unique to
+    # it, and it stopped catching "breathy tone", because some other entry's form
+    # contains "tone" and that was enough to vouch for it. "whisper" is here because
+    # `flute` claiming "breathy whisper" evaded the twelve-word version for no reason
+    # but that nobody had thought of the word. When the next one turns up, add it.
+    generic = {"tone", "sound", "timbre", "texture", "note", "wave", "waveform",
+               "sonority", "character", "quality", "colour", "color", "whisper",
+               "murmur", "hush", "sonic", "audio", "signal", "patch", "preset",
+               "layer"}
     bad = []
     for e in lex["techniques"]:
-        for f in [e["key"]] + list(e.get("surface_forms") or []):
+        for i, f in enumerate([e["key"]] + list(e.get("surface_forms") or [])):
             n = norm(f)
-            hit = keys.get(n)
+            hit = qkeys.get(n) if (i == 0 or n == norm(e["key"])) else keys.get(n)
             if hit:
                 bad.append((e["key"], f, hit[0], hit[1], None))
                 continue
@@ -146,19 +193,71 @@ def narrowing_forms(lex):
                 continue
             quality = [w for w in words if w in keys]
             rest = [w for w in words if w not in keys]
+            # The same direction rule as above: if the instrument's OWN key is one of
+            # the words, the phrase belongs to the instrument whatever else is in it.
+            # `glass`'s form "glass pad" is the instrument's key plus a word for
+            # sound-in-general, and "a glass pad" means the instrument.
+            if norm(e["key"]) in words:
+                continue
             if quality and rest and all(w in generic for w in rest):
                 bad.append((e["key"], f, keys[quality[0]][0], keys[quality[0]][1],
                             " ".join(rest)))
     return bad
 
 
+# Both directions, because this guard has now been wrong in both. Each case adds one
+# form to the real lexicon and asserts whether `narrowing_forms` fires. The `True` rows
+# are evasions that were live at some point: the eight that only KEY-matching let
+# through, the hyphen, and the multi-word remainder no closed list had thought of. The
+# `False` rows are the instrument's own vocabulary, which must stay untouched — a guard
+# that fires on "wooden flute" or "thumb piano" gets switched off, and then it guards
+# nothing.
+_NARROWING_CASES = [
+    ("hiss", "static", True), ("hiss", "steady", True), ("hiss", "stationary", True),
+    ("noise", "gritty", True), ("wind", "moving", True), ("triangle", "soft", True),
+    ("hiss", "washed-out", True), ("hiss", "washed_out", True),
+    ("glass", "glassy", True), ("flute", "breathy tone", True),
+    ("flute", "breathy whisper", True), ("flute", "soft texture", True),
+    ("flute", "flute", False), ("flute", "wooden flute", False),
+    ("flute", "hollow reed", False), ("flute", "bright voice", False),
+    ("glass", "glass", False), ("glass", "glass pad", False),
+    ("mbira", "thumb piano", False), ("hiss", "radio static", False),
+]
+
+
+def selftest(lex):
+    fails = []
+    for inst, form, should in _NARROWING_CASES:
+        probe = json.loads(json.dumps(lex))
+        e = [x for x in probe["techniques"] if x["key"] == inst]
+        if not e:
+            fails.append(f"{inst!r} is not in the lexicon — the case cannot run")
+            continue
+        e = e[0]
+        if form != e["key"] and form not in (e.get("surface_forms") or []):
+            e.setdefault("surface_forms", []).append(form)
+        fires = any(k == inst and f == form for k, f, *_ in narrowing_forms(probe))
+        if fires != should:
+            fails.append(f"{inst}/{form!r}: expected {should}, guard said {fires}")
+        print(f"  {'PASS' if fires == should else 'FAIL'}  {inst} claiming {form!r} "
+              f"{'narrows' if should else 'is its own vocabulary'}")
+    print(f"\n{len(_NARROWING_CASES) - len(fails)}/{len(_NARROWING_CASES)} cases pass")
+    for f in fails:
+        print("  " + f, file=sys.stderr)
+    return 1 if fails else 0
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--check", action="store_true",
                     help="regenerate and diff against the committed library")
+    ap.add_argument("--selftest", action="store_true",
+                    help="assert the narrowing guard on known evasions, both directions")
     args = ap.parse_args()
 
     lex = json.loads(LEXICON.read_text())
+    if args.selftest:
+        return selftest(lex)
     bad = narrowing_forms(lex)
     if bad:
         for inst, form, sec, key, rest in bad:
