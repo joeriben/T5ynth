@@ -1,6 +1,6 @@
 {
  "generated_from": {
-  "lexicon_version": 68
+  "lexicon_version": 70
  },
  "instruments": [
   {
@@ -472,7 +472,7 @@
   },
   {
    "key": "fm_ep",
-   "why": "electric piano / rhodes / wurlitzer / dx piano: a struck tine or reed body with a metallic attack that fades back into it; ting = how much metal is in the strike, ring = how long it rings, hollowness = full body to hollow reed, strike = how hard the hammer hits",
+   "why": "electric piano / rhodes / wurlitzer / dx piano: a struck tine or reed body with a metallic attack that fades back into it; ting = how much metal is in the strike, ring = how long it rings, hollowness = full body to hollow reed, strike = how hard the hammer hits\n\nIt no longer answers to \"rhodes\", \"wurlitzer\", \"wurli\", \"tine\" or \"reed piano\": those name the two PHYSICAL bodies, which have their own entries -- a struck tine against an electrostatic pickup, and a struck reed. This one is the FM electric piano, the DX-family sound, and it keeps the words that mean that. Sharing the two names meant a prompt saying \"rhodes\" reached both and the author had to guess which was meant.",
    "code": "kting   = 0.55                              ; ting [0..1]: how much metal in the strike\nkhollow = 0.75                              ; hollowness [0..1]: every harmonic, or odd only\nkstrike = 0.64                              ; strike [0..1]: how bright the body STARTS\nkring   = 0.25                              ; ring [0..1]: how long the metal keeps ringing\nktngr   = 12.0 * exp(-3.784080 * kring)     ; 12/s at short, 4.66 at the default, 0.27 at long\nkbdx0   = 1.302 + (0.6 + 3.5906 * kstrike) * (1 - min(knote / 1.6, 1)) ; strike -> mellow, then holds\nktng0   = (1.5 + 1.0 * kting) * exp(-knote * ktngr) ; the metal fades out of the tone, over `ring`\nktr0    limit 14.2, 1, sr * 0.45 / (kfreq * koct1) ; tine ratio, capped below Nyquist (see docstring: a cap, not a fix)\naevn0   foscili 0.12 * (1 - khollow), (kfreq * koct1), 1, 3, kbdx0, giSine ; body, even + odd harmonics\naodd0   foscili 0.30 - 0.12 * (1 - khollow), (kfreq * koct1), 1, 2, kbdx0, giSine ; body, odd harmonics only\natin0   foscili 0.30 * kting ^ 0.65, (kfreq * koct1), 1, ktr0, ktng0, giSine ; the inharmonic ting\nasum0   = aevn0 + aodd0 + atin0\naref0   poscil 0.5, (kfreq * koct1)\nasig    balance asum0, aref0, 10 ; colour travels, loudness holds",
    "params": {
     "ting": {

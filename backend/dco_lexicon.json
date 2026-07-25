@@ -1,5 +1,5 @@
 {
-  "lexicon_version": 68,
+  "lexicon_version": 70,
   "techniques": [
     {
       "key": "saw",
@@ -788,7 +788,6 @@
       "surface_forms": [
         "electric piano",
         "epiano",
-        "rhodes",
         "e piano",
         "elektrisches piano",
         "fm piano",
@@ -796,14 +795,8 @@
         "fm e-piano",
         "dx piano",
         "piano",
-        "wurlitzer",
-        "wurli",
-        "tine piano",
-        "reed piano",
         "e-piano",
-        "rhodes piano",
-        "elektrisches klavier",
-        "tine"
+        "elektrisches klavier"
       ],
       "template": {
         "keyframes": [
@@ -840,7 +833,7 @@
         "motion_rate_hz": 0.3
       },
       "priority": 10,
-      "why": "electric piano / rhodes / wurlitzer / dx piano: a struck tine or reed body with a metallic attack that fades back into it; ting = how much metal is in the strike, ring = how long it rings, hollowness = full body to hollow reed, strike = how hard the hammer hits",
+      "why": "electric piano / rhodes / wurlitzer / dx piano: a struck tine or reed body with a metallic attack that fades back into it; ting = how much metal is in the strike, ring = how long it rings, hollowness = full body to hollow reed, strike = how hard the hammer hits\n\nIt no longer answers to \"rhodes\", \"wurlitzer\", \"wurli\", \"tine\" or \"reed piano\": those name the two PHYSICAL bodies, which have their own entries -- a struck tine against an electrostatic pickup, and a struck reed. This one is the FM electric piano, the DX-family sound, and it keeps the words that mean that. Sharing the two names meant a prompt saying \"rhodes\" reached both and the author had to guess which was meant.",
       "params": {
         "ting": {
           "range": [
@@ -4201,7 +4194,10 @@
       "key": "rhodes",
       "surface_forms": [
         "rhodes",
-        "fender rhodes"
+        "fender rhodes",
+        "rhodes piano",
+        "tine piano",
+        "tine"
       ],
       "priority": 5,
       "why": "a real Rhodes tine piano that RINGS AND FADES BY ITSELF -- Csound's own `fmrhode` model, re-struck on each note through `changed2(ktrig)`/`reinit`: a bell-like metallic attack over a woody body, and the note dies whether or not the key is held. Measured on this build: half-life 566-599 ms and peak flat at 0.57 from 110 to 1760 Hz. For the version that STANDS as long as the key is held -- the spectrum source, with the synth's envelope doing the striking -- use `fm_ep` instead; that is the same instrument as a standing tone.",
@@ -4260,7 +4256,9 @@
       "key": "wurlitzer",
       "surface_forms": [
         "wurlitzer",
-        "wurlitzer piano"
+        "wurlitzer piano",
+        "wurli",
+        "reed piano"
       ],
       "priority": 5,
       "why": "a real Wurlitzer reed piano that RINGS AND FADES BY ITSELF -- Csound's own `fmwurlie`, re-struck per note: reedier and barkier than a Rhodes, its brightness sitting ON the odd harmonics rather than off the comb, and it rings longer. Measured: half-life 676-718 ms, peak flat at 0.55 across the register. `fm_ep` is the standing-tone counterpart.",
@@ -6290,6 +6288,10 @@
       "key": "singing_bowl",
       "priority": 5,
       "surface_forms": [
+        "rin gong",
+        "tibetan bowl",
+        "klangschale",
+        "singing bowl",
         "tibetan singing bowl",
         "himalayan singing bowl",
         "singing bowls",
@@ -6367,7 +6369,6 @@
         "bonang",
         "gong chime",
         "kettle gong",
-        "Bonang",
         "Kesselgong",
         "Gamelan-Kesselgong"
       ],
