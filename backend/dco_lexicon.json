@@ -3126,7 +3126,7 @@
     "zurna"
    ],
    "priority": 5,
-   "why": "oboe / bassoon / shawm / zurna -- two blades of cane beating against each other, which is the narrowest, most pungent way to make a reed sound. A `gbuzz` stack with an unusually complete harmonic series (comb contrast 70.6 dB, the deepest in the library) through a narrow `reson` cavity whose centre moves 480 Hz (bassoon-deep) to 1580 Hz (oboe-piercing), FIXED in Hz. A 0.23 Hz breath cycle opens the series, which is what makes it move: measured coherence +1.00 at the defaults, and every one of the 27 parameter corners moves. Darker at its default than `sax` (674 vs 1696 Hz) but far more combed -- the pungency is in the completeness of the series, not in the brightness. Level held by `balance` against a fixed 400 Hz yardstick: 0.08 dB across the cube, 0.03 dB from 55 to 1760 Hz.",
+   "why": "oboe / bassoon / shawm / zurna -- two blades of cane beating against each other, which is the narrowest, most pungent way to make a reed sound. A `gbuzz` stack with an unusually complete harmonic series (comb contrast 70.6 dB against the rest of the reed family's 15-46 dB, though a bare `vco2` waveform reads higher still) through a narrow `reson` cavity whose centre moves 480 Hz (bassoon-deep) to 1580 Hz (oboe-piercing), FIXED in Hz. A 0.23 Hz breath cycle opens the series, which is what makes it move: measured coherence +1.00 at the defaults, and every one of the 27 parameter corners moves. Darker at its default than `sax` (674 vs 1696 Hz) but far more combed -- the pungency is in the completeness of the series, not in the brightness. Level held by `balance` against a fixed 400 Hz yardstick: 0.08 dB across the cube, 0.03 dB from 55 to 1760 Hz.",
    "params": {
     "throat": {
      "range": [
