@@ -65,7 +65,21 @@ namespace Calibration
 //            that reproduces it — a closed-form remap, not a factor, and
 //            conditional on the effect type because each type's old path gain
 //            (and, for Algo, its old squared curve) differed. See FxMixLaw.
-inline constexpr int kEpoch = 5;
+//   Epoch 6: AT→DCA law (2026-07-25). The old law was gain ×(1 + pressure·amt),
+//            so a POSITIVE amount left the resting gain at unity and pressure
+//            pushed ABOVE it — at most ×2 (+6 dB). That is a trim, not an amp
+//            aftertouch, and the boost landed in the always-on master limiter.
+//            The new law gives the positive direction the whole amp range by
+//            making the amount the resting ATTENUATION that pressure reopens:
+//            ×(1 − amt·(1 − pressure)) — rest = 1−amt, full pressure = 1.0. The
+//            negative direction is unchanged (×(1 + amt·pressure)).
+//            No value under the new law reproduces the old positive branch: its
+//            resting gain was unity, which the new law reaches only at amt = 0.
+//            A stored positive amount is therefore RESET to 0, not rescaled —
+//            that keeps an old file's resting level exactly as it was and drops
+//            only the ≤6 dB the old branch could add at full pressure. Stored
+//            negative values keep their meaning and are left untouched.
+inline constexpr int kEpoch = 6;
 
 struct Rescale
 {
@@ -83,6 +97,18 @@ struct CondRescale
     int         sinceEpoch; // applied when the file's epoch < this
     const char* condId;     // sibling TARGET parameter ID to inspect
     int         condValue;  // rescale only when condId's selected index == this
+};
+
+// One-sided law change: a parameter whose transfer function changed on ONE side
+// only, so severely that no value under the new law reproduces the old side's
+// behaviour (a factor cannot express it). Stored values on the affected side are
+// reset to a neutral constant; the other side keeps its stored value untouched.
+struct SidedReset
+{
+    const char* id;         // parameter whose one-sided law changed
+    float       above;      // stored values strictly greater than this...
+    float       toValue;    // ...become this
+    int         sinceEpoch; // applied when the file's epoch < this
 };
 
 // Choice-index remap: when a choice table changes MEANING (entries removed /
@@ -126,6 +152,20 @@ inline const std::array<CondRescale, 9>& condRescales()
         { PID::drift1Depth, 0.75f, 2, PID::drift1Target, DriftLFO::TgtFilter },
         { PID::drift2Depth, 0.75f, 2, PID::drift2Target, DriftLFO::TgtFilter },
         { PID::drift3Depth, 0.75f, 2, PID::drift3Target, DriftLFO::TgtFilter },
+    } };
+    return table;
+}
+
+// One entry per one-sided law change.
+//   Epoch 6: AT→DCA positive branch. The old positive law boosted above unity by
+//            at most +6 dB from a resting gain of 1.0; the new one attenuates the
+//            rest by the amount and lets pressure reopen it. Only amt = 0 keeps
+//            the old resting gain, so positives reset to 0. Negatives share the
+//            unchanged ×(1 + amt·pressure) branch and must NOT be touched.
+inline const std::array<SidedReset, 1>& sidedResets()
+{
+    static const std::array<SidedReset, 1> table = { {
+        { PID::aftertouchAmtDca, 0.0f, 0.0f, 6 },
     } };
     return table;
 }
@@ -221,6 +261,9 @@ inline float migrateScalar(const char* id, float value, int fromEpoch)
     for (const auto& r : rescales())
         if (fromEpoch < r.sinceEpoch && juce::String(r.id) == id)
             return value * r.factor;
+    for (const auto& s : sidedResets())
+        if (fromEpoch < s.sinceEpoch && juce::String(s.id) == id && value > s.above)
+            return s.toValue;
     return value;
 }
 
@@ -258,6 +301,21 @@ inline void migrateValueTree(juce::ValueTree& tree, int fromEpoch)
                 child.setProperty("value",
                                   static_cast<float>(child.getProperty("value")) * r.factor,
                                   nullptr);
+        }
+    }
+
+    // One-sided law resets: only the affected side is neutralised, the other
+    // side's stored values keep their (unchanged) meaning.
+    for (const auto& s : sidedResets())
+    {
+        if (fromEpoch >= s.sinceEpoch)
+            continue;
+        for (int i = 0; i < tree.getNumChildren(); ++i)
+        {
+            auto child = tree.getChild(i);
+            if (child.getProperty("id").toString() == s.id && child.hasProperty("value")
+                && static_cast<float>(child.getProperty("value")) > s.above)
+                child.setProperty("value", s.toValue, nullptr);
         }
     }
 

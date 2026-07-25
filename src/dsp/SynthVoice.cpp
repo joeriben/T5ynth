@@ -9,10 +9,9 @@ namespace
 // Sustain, LFO Depth) add the signed drive directly. Cutoff and Pitch are NOT
 // AT-specific: aftertouch feeds the shared modulation buses (ModCalib::
 // kCutoffModOctaves / kPitchModSemitones, BlockParams.h) alongside
-// env/LFO/Drift/timbre. The constant below sets full-scale for the one
-// remaining AT-only unit-bearing target. Negative amount drives the opposite
-// direction (bends down, ducks the DCA).
-constexpr float kAtDcaGain = 1.0f;    // DCA: gain ×(1 + drive·this)
+// env/LFO/Drift/timbre. DCA is the one remaining AT-only target and carries its
+// own two-sided law (applyAftertouchDcaGain below): a positive amount attenuates
+// the resting gain and pressure reopens it, a negative amount ducks from unity.
 
 float applyNormalizedOffset(float baseValue, float modulationOffset)
 {
@@ -55,11 +54,19 @@ float applyAftertouchTarget(const BlockParams& p, int target, float baseValue, f
     return applyNormalizedOffset(baseValue, aftertouchDrive(p, target, pressure));
 }
 
-// DCA: scales the VCA gain by ×(1 + drive·kAtDcaGain); positive drive raises the
-// gain with pressure, negative drive ducks it (drive ∈ [-1..+1]).
+// DCA: aftertouch spans the whole amp range instead of pushing past unity.
+// A POSITIVE amount is the resting ATTENUATION the finger reopens — rest gain is
+// (1 − amt), full pressure returns it to 1.0 (classic AT→VCA: at amt = 1 the note
+// stays silent until pressed). A NEGATIVE amount leaves the rest at 1.0 and
+// pressure ducks toward silence. The factor therefore always lands in [0..1]:
+// pressure never manufactures a boost for the always-on master limiter to eat,
+// and both directions get the full range rather than the +6 dB a ×(1 + drive)
+// trim could reach. amt ∈ [-1..+1] (the param's range) keeps the factor ≥ 0.
 float applyAftertouchDcaGain(const BlockParams& p, float gain, float pressure)
 {
-    return gain * (1.0f + aftertouchDrive(p, AftertouchTarget::DCA, pressure) * kAtDcaGain);
+    const float amt = p.aftertouchTargetAmt[AftertouchTarget::DCA];
+    return gain * (1.0f - std::max(0.0f, amt)
+                        + aftertouchDrive(p, AftertouchTarget::DCA, pressure));
 }
 
 float computeDcaGain(const BlockParams& p, float ampEnvVal, float mod1EnvVal, float mod2EnvVal)
