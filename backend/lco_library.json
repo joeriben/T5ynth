@@ -1,6 +1,6 @@
 {
  "generated_from": {
-  "lexicon_version": 52
+  "lexicon_version": 53
  },
  "instruments": [
   {
@@ -1059,11 +1059,11 @@
       1.0
      ],
      "default": 0.5,
-     "note": "the registration: the 8' principal alone, or the 4' octave and 5 1/3' quint drawn with it. Its mark is not the centroid and not the comb either, but WHICH NOTE THE PIPES ADD UP TO. The 5 1/3' quint sounds a fifth above the 8', and 220 and 330 Hz have no common fundamental higher than 110 -- so drawing it drops the sounding fundamental by an octave without any pipe playing that note. That is the resultant tone organ builders have used for centuries to fake a 16' rank, and it is measurable: f0 reads 220.1 with the principal alone and 110.1 as soon as the quint is in. On the series the pipes actually make, the comb is 24.6 dB at the 8' alone and 67.5 to 69.6 dB with the upper ranks -- deeper, not shallower, because 220 and 330 are both harmonics of 110 and the odd places between them are empty. Odd/even goes +2.8 -> -7.0 dB, which is the same fact from the other side: the quint is not a harmonic of the 8'. Centroid only 620 -> 734 Hz. Drawing stops on a real organ makes it LOUDER and on this platform a parameter may not, so the rank amplitudes are redistributed power-preservingly before `balance` sees them, and the measured loudness is 0.02 dB.",
+     "note": "the registration: the 8' principal alone, or the 4' octave and 5 1/3' quint drawn with it. Its mark is not the centroid and not the comb either, but WHICH NOTE THE PIPES ADD UP TO. The 5 1/3' quint sounds a fifth above the 8', and 220 and 330 Hz have no common fundamental higher than 110 -- so drawing it drops the sounding fundamental by an octave without any pipe playing that note. That is the resultant tone organ builders have used for centuries to fake a 16' rank, and it is measurable: f0 reads 220.1 with the principal alone and 110.1 as soon as the quint is in. On the series the pipes actually make, the comb is 24.6 dB at the 8' alone and 67.5 to 69.6 dB with the upper ranks -- deeper, not shallower, because 220 and 330 are both harmonics of 110 and the odd places between them are empty. Odd/even goes +2.8 -> -7.0 dB, which is the same fact from the other side: the quint is not a harmonic of the 8'. Centroid only 620 -> 734 Hz. Drawing stops on a real organ makes it LOUDER and on this platform a parameter may not, so the rank amplitudes are redistributed power-preservingly before `balance` sees them, and the measured loudness is 0.02 dB. the upper ranks keep a 30 % floor at kregist=0 and that floor is load-bearing, not an oversight: zeroing them (the one quadratic through (0,0), (0.5,1), (1,1.7), which keeps the default and the full registration bit-identical) makes `principal` a single rank whose only motion is its own 0.061 hz tuning wander -- measured moves=False at coherence 0.00, against True at 1.00 today, because what moves this entry is three incommensurate wanders (0.061 / 0.083 / 0.107 hz) beating against each other. so a truthful `principal` and movement-by-default cannot both hold in this body as written; the gloss was corrected rather than the code. loudness is unaffected either way (0.003-0.112 db over the continuum).",
      "anchors": {
       "principal": {
        "value": 0.0,
-       "gloss": "the 8' alone -- one rank, plain and hollow"
+       "gloss": "the 8' well out in front, the octave and quint pushed back to 30 % -- comb contrast 24.3 dB against 67.3 at plenum"
       },
       "gentle": {
        "value": 0.3,
