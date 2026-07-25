@@ -1,6 +1,8 @@
 # HANDOVER — the LCO
 
-**Written 2026-07-24.** This is the state of the language-controlled oscillator as it actually runs, the connections between its parts, and what is still open. It is written because the main development session for the LCO cannot assume the next one inherits anything but the tree.
+**Written 2026-07-24, updated 2026-07-25.** This is the state of the language-controlled oscillator as it actually runs, the connections between its parts, and what is still open. It is written because the main development session for the LCO cannot assume the next one inherits anything but the tree.
+
+The 2026-07-25 pass added 33 instruments (30 → 63) and 35 parametrisations (7 → 42), and it corrected three things this document previously stated wrongly: the host's clip ceiling, who owns the note-off, and where a note begins in the measuring harness. Those three are in §5 and they invalidate figures measured before that date.
 
 `docs/LCO_CONCEPT.md` remains authoritative **for the goal, the architecture and the invariants**. Its description of *the current code* has gone stale in specific, listed ways — see §7. Read the concept document first; then read §7 of this one before believing any file name in it.
 
@@ -33,15 +35,15 @@ The path, end to end:
 - one numeric `instr 1` with `ivoice = p4`, sixteen always-on voice instances, per-voice channels `gate/freq/vel/pres/timb/trig`
 - `kfreq limit kfreqraw, 20, 12000`; `koct1/2/3` and `kvol1/2/3` from the player's knobs
 - `knote` — seconds since **this** note, reset on `changed2(ktrig)`, `init 0` (a note already gated high at the first k-cycle gives `changed2` no edge, so any other starting value would freeze)
-- `aout = asig * kgate * kvel * kpresGain * HEADROOM` (0.32), then `clip aout, 0, 0.95, 0.85`
+- `aout = asig * kgate * kvel * kpresGain * HEADROOM` (0.32), then `clip aout, 0, 0.95, 0.85` — whose real ceiling is **2.523 transparent / 2.746 absolute** in body units, not `0.95/0.32` (§5)
 
-**The voices are always on.** There is no note-off and no score event per note — which is why every struck instrument in the library is continuously driven (noise, `dust`) rather than one-shot excited: the synth owns the envelope, the oscillator is a spectrum source (`LCO_CONCEPT.md` §4). An idiom whose decay *is* the model cannot stand under this scaffold. See §5.
+**The voices are always on.** There is no score event per note; a note is an edge in `ktrig`, and the release is `kgate portk kgateraw, 0.001` in the host — measured 6.98 ms to −40 dB, identical at every body setting (§5). So the body can neither be one-shot excited nor own a decay: every struck instrument in the library is continuously driven (noise, `dust`), the synth owns the envelope, and the oscillator is a spectrum source (`LCO_CONCEPT.md` §4). An idiom whose decay *is* the model cannot stand under this scaffold.
 
 ---
 
 ## 2. The library, and how to curate it
 
-`backend/dco_lexicon.json` (`lexicon_version` 10) is the curated source of truth: **30 instruments, 51 adjectives, 17 motions.** An instrument entry carries
+`backend/dco_lexicon.json` (`lexicon_version` 34 as of 2026-07-25) is the curated source of truth: **63 instruments, 51 adjectives, 17 motions**, every instrument with working Csound. An instrument entry carries
 
 - `key` and **surface forms** — the words that reach it. Validation canon; the model never sees them.
 - `why` — what the model *does* see.
@@ -55,17 +57,9 @@ The path, end to end:
 
 ### Which instruments carry parameters
 
-Seven of thirty:
+**42 of 63** as of 2026-07-25 (it was 7 of 30 on 2026-07-24). The 21 without axes are: `additive`, `bass_saw`, `cheby`, `chiptune`, `harpsichord`, `hiss`, `noise`, `pink_noise`, `rhodes`, `ring_mod`, `sine`, `strings`, `sub_sine`, `supersaw`, `sync`, `theremin`, `vibraphone`, `voice`, `voice_ee`, `voice_oo`, `wurlitzer`. That list is the growth axis of the library, and `LCO_CONCEPT.md` §1 is what it is for: „Parametrisierungshinweise wie 'square ist sharp wenn Wert x = y, ist hollow wenn x = y'". Note that several of them are exactly the entries open item 4 asks about — a plain `noise` may not want a Csound axis at all.
 
-| key | axes |
-|---|---|
-| `analog_osc` | `wave`, `drive`, `fat`, `age` |
-| `fm_ep` | `ting`, `ring`, `hollowness`, `strike` |
-| `drum_head` | `pitched`, `strikepos`, `tension`, `damping` |
-| `fm`, `fm_bell`, `metallic_fm` | `index`, `ring`, `detune` |
-| `string` | `bow`, `pick`, `damp` |
-
-The other 23 are fixed idioms. That is the growth axis of the library, and `LCO_CONCEPT.md` §1 is what it is for: „Parametrisierungshinweise wie 'square ist sharp wenn Wert x = y, ist hollow wenn x = y'".
+Every axis in the library is a **measured** range with named anchors, gated by `tools/lco_param_audit.py` (§4): the audit currently reports 63 instruments, 53 findings, 32 of them declared and explained in the tool itself rather than in a commit message.
 
 ### What the author gets to see — the consultation, BUILT 2026-07-24
 
@@ -79,7 +73,7 @@ The old code violated it. `select(prompt)` matched the prompt's words against th
 
 Two turns, and both are one authoring of one sound:
 
-1. The system prompt carries **the index** (`render_index`) — every one of the 98 entries, what it is, and what its parameters do sonically (the `why` line and the anchor glosses: `string` → `bow` "bowed: drawn with a bow: standing, breathing, the top rubbed off", `pick`, `damp`). No Csound. **26 965 characters, ~6.7k tokens** — about what the old 8-entry word-matched excerpt cost, and a stable prefix.
+1. The system prompt carries **the index** (`render_index`) — every entry, what it is, and what its parameters do sonically (the `why` line and the anchor glosses: `string` → `bow` "bowed: drawn with a bow: standing, breathing, the top rubbed off", `pick`, `damp`). No Csound. It was **26 965 characters, ~6.7k tokens** on 2026-07-24 with 98 entries — about what the old 8-entry word-matched excerpt cost. With 131 entries and 42 parametrised it is **113 019 characters, ~28k tokens** (2026-07-25). It is still a stable prefix, so it caches, but it is no longer small, and the whole library is 295 483 characters — the index is now 38 % of what it was meant to be a cheap table of contents for. That is open item 6.
 2. `_consult()` asks the author to think about what the sound IS and name what it wants opened. `named_entries()` reads its reply, `open_entries()` fetches exactly those, `_writing_turn()` hands their real Csound over as the next user turn in the same conversation. **Python decides nothing** — it recognises the names the model used. A reply that names nothing opens the WHOLE library; there is no default set any more.
 
 The curated code exists in order to be seen; the question was only *when*, and the answer is "in turn two, chosen by the author". The surface forms stop being a routing layer over the user's prompt and remain what they always were underneath: the lexicon's validation canon, now also how Python recognises what the author asked for.
@@ -119,13 +113,28 @@ Two tools, both committed 2026-07-24, both new — before them there was nothing
 .venv/bin/python tools/lco_measure.py --key string --anchor bowed
 ```
 
-renders any library entry (or `--anchor` variant, or `--body file`) through a scaffold **derived from `lco_write`'s own `_HEAD`/`_TAIL` by asserted substitution**, so a rename in the host fails the harness loudly instead of quietly measuring a different instrument. It reports pitch in cents, spectral centroid, RMS, p99.9 peak, sustain, comb contrast, per-harmonic levels, and **colour travel over the note at two window lengths**.
+renders any library entry (or `--anchor` variant, or `--body file`) through a scaffold **derived from `lco_write`'s own `_HEAD`/`_TAIL` by asserted substitution**, so a rename in the host fails the harness loudly instead of quietly measuring a different instrument. It reports pitch in cents, spectral centroid, RMS, p99.9 peak, `peak_late`, sustain, comb contrast, per-harmonic levels, and **colour travel over the note at two window lengths**.
+
+**Three things about that harness are load-bearing and were wrong until 2026-07-25.**
+
+- **Headroom is judged on `peak_late` — the peak after the first `ONSET_S = 0.050` s — against the host's real ceilings** (`HOST_TRANSPARENT = 2.523`, `HOST_CLIP = 2.746`; §5). The percentile is the right size for *dimensioning* a gain, but the host clips on the true peak, so the guard cannot use p99.9; and the true peak of the whole render condemns any body whose first k-cycles start from zero under `balance`, which the plugin never hears. Both errors were live: the percentile let `ice` through, the true peak condemned `string` and `ice` for a start-up transient.
+- **`--preroll` reproduces the host's note-start, and without it two whole classes measure wrongly.** The host scores sixteen always-on instances (`i 1 0 360000 …`) and signals a note through `ktrig`/`kgate`, with `knote init 0` reset by `changed2(ktrig)`. The harness used to score `i 1 0 dur 1` with `ktrig = 1` constant, so the instance *began* at the note. Anything whose reading depends on how long the instance has been running reads a fiction: `balance`, whose RMS denominator starts at zero (`string` reads 3.179 at t = 4.4 ms with `balance`, 0.622 with a fixed gain), and every free-running k-rate LFO, whose phase at note-on is the plugin's uptime. `--preroll` runs the instance before the edge and trims at the k-period boundary (`preroll_edge()`, not `int(preroll*SR)` — the selftest asserts bit-identity from sample 64 across five prerolls).
+- **Pitch on an inharmonic set is `tracking()`, never `f0` or the loudest partial.** A bell, a bar, a glass or a gourd has no partial at the played frequency; asking for one produces a confident wrong number and a bug report. The valid question is whether the whole spectrum *transposes* with the note: correlate a 110→880 Hz glide against a fixed reference. Measured `tracks` for `mbira` (r_note 0.64 / r_fixed −0.03), `struck_bar` (0.77), `handpan` (0.717), `fm_bell` (0.828), `glass` (0.493), waterphone (0.675/−0.042).
+
+**The harness renders at 44100 and the plugin no longer does.** Since `5e65c0d4` the plugin compiles Csound at `sampleRate × factor` (1/2/4, user-set in Settings since `667d8bea`) and decimates per voice with a 63-tap halfband, so `%SR%` in a body resolves to the *oversampled* rate. Everything in §5 was measured at 1×. Aliasing verdicts from this harness are therefore a worst case, and anything that depends on the decimator belongs in `tools/audition_lro_oversampling.cpp`, not here — there is deliberately no Python decimator.
 
 ```bash
 .venv/bin/python tools/lco_author_offline.py --corpus <file> --out run.json --measure
 ```
 
 drives the **real** author over a whole corpus in one process — the exact call the csound branch of `pipe_inference` makes one line after resolving the model, `accepts_messages` and all — recording per prompt the attempts, the errors repaired past, the body, the reading, what the words reached, and the seconds each inference took. With `--measure` each compiled body is rendered and its movement signature recorded. It is a measurement harness, not a wire test; `tools/lco_trace_wire_check.py` is what proves the IPC path carries the result, and `tools/lco_sanitize_gate.py` guards the prose/code split in the reply.
+
+```bash
+.venv/bin/python tools/lco_param_audit.py            # every instrument, every axis
+.venv/bin/python tools/lco_axis_probe.py --body cand.csd --all --gate
+```
+
+`lco_param_audit.py` (2026-07-25) turns `LCO_CONCEPT.md` §3 and §4 into checks that fail out loud: four structural ones read from the library with no render (parameters exist; each axis has a range, an in-range default, ≥2 named anchors with a perceptual gloss, a `note`, and `anchor_code` variants naming axes that exist), and seven rendered ones through the calibrated meter — renders clean at 55/220/1760 Hz, **tracks** the keyboard across them, stands without self-decay, **moves**, each axis is a colour control and not a volume fader (the failure that already shipped once), each axis actually does something measurable, and the keyboard itself is not a volume control. Findings that are legitimate get a **named exemption inside the tool**, with the reason, rather than an explanation in a commit message nobody will read next to the number. `lco_axis_probe.py --gate` is the same set of questions asked of a *candidate* body before it enters the lexicon.
 
 **Why the movement reading matters, and why one window length is not enough.** Movement by default is a platform fundamental, and a corpus of standing tones passes an implementation that cannot move at all — that is exactly how a static-partial reimplementation once certified itself green while pwm, morph and dirt were silently gone. `pwm`'s duty sweep reads 48 Hz of travel in 0.5 s windows (a full LFO cycle per window, averaged flat) and 696 Hz in 31 ms ones; a standing sine reads 0 at every window length, which is what makes the fast reading evidence rather than noise. Both are reported.
 
@@ -135,19 +144,27 @@ drives the **real** author over a whole corpus in one process — the exact call
 
 Csound 6.18, Homebrew, double precision, no STK.
 
+**The host scaffold — what a body can never own** (all measured 2026-07-25 through `lco_write`'s own `_TAIL`)
+
+- **The clip ceiling is 2.523 transparent / 2.746 absolute in body units, not `0.95 / HEADROOM` = 2.969.** The voice ends on `aout clip aout, 0, 0.95, 0.85`, and in Csound's `clip` with `imeth 0` the FOURTH argument is the fraction of `ilimit` at which limiting *begins* — the curve never reaches 0.95. Ramping 0..3 through that exact line: transparent to 0.78, 0.84 → 0.838393, 0.90 → 0.872578, **≥ 0.96 → 0.878750, rigid, for ever.** So `HOST_TRANSPARENT = 0.85·0.95/HEADROOM = 2.523` and `HOST_CLIP = 0.87875/HEADROOM = 2.746`; with blowing pressure at maximum (`kpresGain = 1 + 0.15·kpres` → 1.15) the transparent bound falls to 2.194. The old constant called fifteen shipped renders clean that the host was already reshaping. `lco_measure._clip_transfer()` re-measures the curve from `_TAIL`'s own arguments in the selftest, because a body's render is `asig` — *upstream* of the clip — so the harness can never observe clipping by rendering a loud body.
+- **The host owns the note-off, so a body can never own a ring time.** `kgate portk kgateraw, 0.001` then `aout = asig * kgate * …`: a 1 ms half-time is −40 dB in ~6.6 ms. Measured on `cymbal`, `glass` and `struck_bar` with `ring` at 0.00 / 0.50 / 1.00, gate dropped at t = 2 s: **6.98 / 6.98 / 6.98 ms — identical.** "choked — caught by the hand" and "let ring — a full open wash" are the same release. Such an axis is real, but what it moves is the timbre of the HELD note (comb contrast `glass` 27.6 → 39.0 dB, `struck_bar` 16.5 → 35.5 dB); name it for that.
+- **`balance` in a body and a decay in the same body are mutually exclusive.** The AGC pulls the tail back up: a T60 of 3.48 s measures as 5891 s or ∞. Whoever adds `balance` against register tilt cannot afterwards put an envelope in that body.
+
 **Substrate**
 
 - **`gbuzz` normalises to PEAK, not RMS.** Holding a harmonic stack at one loudness while its harmonic count moves needs the closed-form correction `knrm = ((1-kmul^knh)/(1-kmul)) / sqrt((1-kmul^(2*knh))/(1-kmul*kmul)*0.5)`, passed as `0.17 * knrm` in the kamp position.
 - **`vco2 imode`: 0 = saw, 2 = pulse/square (`kpw` is the literal ON-duty fraction), 4 = triangle.** `imode 10` is not triangle. Duty is safe to sweep continuously — `imode 2` holds RMS constant at every duty and never clips.
-- **`balance astr, aref` against a fixed-loudness yardstick** (`aref poscil 0.35, 400`) holds a resonator's level to within 0.01–0.07 dB across every parameter axis *and* the whole pitch range. The analytic `sqrt(1-g²)` law holds only for a *white* exciter; on a shaped one it drifts.
-- **`pluck` is not broken — it is structurally unusable here.** Its decay *is* the model, and there is no note-off under the always-on scaffold. The viable string is `streson` with a shaped exciter (measured against `pluck`, `wgbow`, `wgpluck`, `wgpluck2`, `repluck`, `wguide1`).
+- **`balance astr, aref` against a fixed-loudness yardstick** (`aref poscil 0.35, 400`) holds a resonator's level to within 0.01–0.07 dB across every parameter axis *and* the whole pitch range. The analytic `sqrt(1-g²)` law holds only for a *white* exciter; on a shaped one it drifts. **That 0.01–0.07 dB is the STATIONARY level and nothing else** — the commits claiming "the timbre is untouched" are wrong about the attack. First 20 ms relative to the stationary mean, before → after adding `balance`: `glass` −16.5 → **+2.4 dB**, `struck_bar` −13.7 → +3.0, `cymbal` −6.9 → +2.0, `brass` +4.7 → −0.2, `organ` +2.3 → −0.1. It also starts from a zero denominator, which is why headroom is judged after 50 ms.
+- **`pluck` is not broken — it is structurally unusable here.** Its decay *is* the model, and the note-off belongs to the host's `portk`, not to the body (above). The viable string is `streson` with a shaped exciter (measured against `pluck`, `wgbow`, `wgpluck`, `wgpluck2`, `repluck`, `wguide1`).
 - **A lowpass smear on a scattered exciter kills the instrument's colour** (centroid 4500 → 500 Hz, every parameter axis flattened). Allpass diffusion spreads impulses in time *without* darkening — that is why `string` runs a chain of eight `alpass`, not a `tone`.
 
 **Measurement**
 
 - **The peak of a random-impulse process is itself random** — the same body measured 2.89 on one render and 0.79 on the next. Size gains against p99.9, never the maximum.
 - **"Loudness may travel ≤ 0.5 dB over a note" was never a platform rule.** Shipped instruments measure 1.46 (drum_head) to 6.28 dB (struck_bar) of within-note travel. `LCO_CONCEPT.md` §4 constrains a **parameter axis** — moving a colour control must not move loudness — not a note's life.
-- The three ways a meter has produced confident wrong numbers on this project (FFT-peak f0 on a comb; autocorrelation octave errors; a render that overflowed) are all covered by `lco_measure.py --selftest`. That selftest is the calibration; without it the numbers are opinions.
+- The ways a meter has produced confident wrong numbers on this project (FFT-peak f0 on a comb; autocorrelation octave errors; a render that overflowed; a ceiling read off an opcode's arguments instead of its curve; a note that began with its instance) are all covered by `lco_measure.py --selftest` — 86 cases as of 2026-07-25. That selftest is the calibration; without it the numbers are opinions. **Each new constant goes in with a case that FAILS when the constant is wrong**, not merely one that passes when it is right: the first version of the clip cases stayed green at `HOST_TRANSPARENT × 0.7`, a value that would have condemned `ice` and `bagpipe`.
+- **No span bound separates a moving sound from a standing one, and that is asserted as a negative result.** A real sweep travels 959 cents; a static noise bed reads 1005 (`STATIONARY_SPAN_NULL_CENTS`), and a static bed's crest reads 14.55 dB (`STATIONARY_CREST_NULL_DB`). Movement is `span > 60 cents AND motion_coherence > 0.35` — the coherence term is the one doing the work, and anyone tempted to "simplify" the gate to a span threshold has a selftest case waiting.
+- **The movement gate has an exemption that is a DECLARATION, not a measurement.** BJ unblocked the event-texture class on 2026-07-25: a body may write `; MOVEMENT: TEXTURE` at the top with its axes, and `lco_param_audit` then *reports* its movement reading instead of failing on it. This exists because no measure separates a rain-like event texture from static noise — so it is deliberately on the author's word. It is the second exemption to movement-by-default and the only one that cannot be verified; keep the count honest (`lco_axis_probe._MOVE_CENSUS`, currently 37 moving / 26 standing / 5 declaring texture).
 
 **The author**
 
@@ -186,28 +203,46 @@ Csound 6.18, Homebrew, double precision, no STK.
 
 2. **The performance gate does not reach an installed T5ynth, and that is solved WITH the Csound bundling** (BJ, 2026-07-24). `perform_check` needs a Csound in a separate process, because performing means `csoundStart` and doing that in-process would run model-written Csound inside the backend that holds the 12B model. `tools/bundle_csound_macos.sh` bundles only `CsoundLib64`, and no workflow runs it at all — so no installer carries Csound and the LCO is silent there regardless (the release blocker below). The decided shape: a short-lived CHILD process of the backend (`sys.executable` plus a flag) that loads the already-bundled `CsoundLib64` through ctypes, plays the quarter second and exits with a return code — process isolation without shipping a CLI binary. Whoever takes the bundling blocker takes this with it.
 
+**Needs BJ's word before anything moves (2026-07-25)**
+
+3. **The `ring` axis on `cymbal`, `glass` and `struck_bar` is misnamed.** It cannot shorten a ring — the host's `portk` does that in 6.98 ms regardless (§5). It moves the held note's timbre, measurably and usefully. Renaming it changes the words the author sees, which is curation.
+4. **De-duplication: which entries should be synth parameters rather than Csound?** BJ, 2026-07-25, on seeing `pink_noise` in the library: „Hallo? Der Synth hat selbst noise" — and „Dopplungen wollen wir vermeiden, weil ich perspektivisch dem LRO optionalen Zugriff auf die Synth-Parameter geben würde. So kann er selbst vibrato, rauschen, Filter programmieren wenn User das zulässt." The concern is structural, in his words: „ansonsten greift sich der Osc selbst immer mehr vom Synth, und damit auch von den User-Konfigurationsmöglichkeiten". Approved in principle as a pilot on `noise` / `pink_noise` / `hiss`; the mechanism (the author writing synth parameters instead of Csound, gated on the user permitting it) does not exist yet and is not a lexicon edit.
+5. **Does the plain-waveform family owe movement?** `sine`, `saw`, `square`, `sub_sine` and friends stand still by construction. Movement-by-default says a sound must move; §4 of the concept document says the oscillator is a spectrum source and the synth owns motion. Both cannot be true of the same entry, and the split has to be written down rather than left per-layer — a "not my job" at every layer leaves a required capability untested everywhere (`CLAUDE.md`, last tripwire).
+6. **How wide should the author's library access be, now that the index itself is 28k tokens?** The index goes into *every* prompt (113 019 characters); the whole library is 295 483. Measured: the author opens 10.5 of 98 entries on its own (6 to 16), so the second turn is small — it is the always-present index that grew with the library, and it grows with every instrument added. A declared slot (only the family the author names gets full glosses) versus opening everything is BJ's call, because either choice decides what the author is oriented by.
+
+**Found by the adversarial review of 2026-07-25, not yet fixed**
+
+7. **Author-facing text that does not match its own code.** `drum_head`'s `anchor_code` is stale and hands back a 19 dB register tilt. `organ`'s `principal` anchor is not one rank (a 30 % floor remains). `analog_osc` and `drum_head` each declare four parameters with no axis line in the body. `jaw_harp` measures 1.30 dB from `free_reed` and its `pluck` axis does almost nothing. The FM trio's `detune = 0` is not the static escape its gloss implies (moves True, coherence 1.000).
+8. **Movement fails at named anchors away from 220 Hz in 7 of the 13 new entries** — `ocarina` at `breath=soft` + `chiff=clean` in 4 of 6 registers, `hurdy_gurdy` at its own defaults at 55 Hz. The gate only ever asked at 220.
+9. **Noise seeding.** `pink_noise` has no seed; `wobble`, `evolve`, `flutter` and `shimmer` seed from `ivoice`, so sixteen voices are correlated differently than intended; `reseed` rewrites `randi`'s *rate* argument.
+10. **`lco_write` robustness, all reachable from a real reply:** the hyphen in a looked-up name, names found inside the code fence, `ß`, a single-variant `anchor_code` being dropped, and `--selftest` passing with the library file deleted.
+11. **The gate does not gate everything it reports.** Pitch is never a verdict; the defaults are exempt from most checks; the axis cube is 3 points; the register list is six A's; the decay exemption is inverted; the texture exemption is unverified by construction (§5); `--registers` is not forwarded; `--steps`/`--freq` can flip a verdict; axes inside block comments and dead axes both pass.
+12. **The meter's own soft spots**, each a plausible wrong number waiting: `beat_cap_hz`, `partials` measured against the ask, `event_rate_hz` at the low end, `f0` on `overtone_voice`, `motion_coherence`'s null at 32 Hz, `loudness_travel`'s null at 1/window.
+13. **`tools/lco_recover_lost_keys.py` makes a false accusation** on a key it cannot find.
+14. **The waterphone is still parked, and it ships as written** — `docs/parked/lco_movement_gate_three_sounds.md` records the proof (partials 67.4 / 54.1 / 50.8 / 38.2 dB, `tracks` at r_note 0.675 / r_fixed −0.042). It needs un-parking into the lexicon, and BJ reviews new instruments by ear.
+
 **Waiting on BJ's ear — these cannot be closed by a gate**
 
-3. The FM family's axes (`index`, `ring`, `detune` on `fm`, `fm_bell`, `metallic_fm`) — bite, fade, shimmer. Built, never heard.
-4. The `string`'s three anchors (`bow`, `pick`, `damp`). BJ heard v1 and asked for a more scattered exciter; the current entry is the answer to that and has been heard only as the audition set. Where "plucked", "mixed" and "bowed" sit on the axis is curation, not measurement.
+15. The FM family's axes (`index`, `ring`, `detune` on `fm`, `fm_bell`, `metallic_fm`) — bite, fade, shimmer. Built, never heard.
+16. The `string`'s three anchors (`bow`, `pick`, `damp`). BJ heard v1 and asked for a more scattered exciter; the current entry is the answer to that and has been heard only as the audition set. Where "plucked", "mixed" and "bowed" sit on the axis is curation, not measurement.
 
 **Deferred by BJ, cause known**
 
-5. `analog_osc`'s `age` is inaudible on a held single note: two of its three instabilities run at 0.043 and 0.057 Hz and are a static offset over a few seconds. The fix is a second, faster instability layer — not more depth. (`LCO_CONCEPT.md` §5.)
-6. `fm_ep`'s odd/even balance does not travel over the note.
+17. `analog_osc`'s `age` is inaudible on a held single note: two of its three instabilities run at 0.043 and 0.057 Hz and are a static offset over a few seconds. The fix is a second, faster instability layer — not more depth. (`LCO_CONCEPT.md` §5.)
+18. `fm_ep`'s odd/even balance does not travel over the note.
 
 **Known, not changed because it is runtime semantics and nobody ordered it**
 
-7. `string quartet`, `string ensemble` and `string section` reach **both** `strings` and `string`: the bare word "string" is inside the phrase and `_lookup` collects every match with no longest-wins rule. It no longer stands between the user and the library — `_lookup` reads the AUTHOR's reply now — so at worst the author is handed one entry it did not ask for. Leave it: a longest-wins rule would start deciding which of two entries the author meant.
+19. `string quartet`, `string ensemble` and `string section` reach **both** `strings` and `string`: the bare word "string" is inside the phrase and `_lookup` collects every match with no longest-wins rule. It no longer stands between the user and the library — `_lookup` reads the AUTHOR's reply now — so at worst the author is handed one entry it did not ask for. Leave it: a longest-wins rule would start deciding which of two entries the author meant.
 
 **Housekeeping that needs a decision from BJ**
 
-8. ~457 MB of untracked `tools/*_out/` render directories (over 1 GB counting the ignored ones) and a set of untracked one-off scripts. Deleting anything under `tools/` is BJ's call, not mine. Note before deciding: `backend/dco_frames.py` is untracked but **is imported by the tracked test** `tools/test_dco_author.py:1312`.
-9. `docs/plans/HANDOVER_lco_selfcorrect.md` is untracked and describes the self-check/self-correction loop, which was **deactivated 2026-07-21** (`dbd6c153`, `T5YNTH_LCO_SELFCHECK = 0`). It is history, not a plan.
+20. ~457 MB of untracked `tools/*_out/` render directories (over 1 GB counting the ignored ones) and a set of untracked one-off scripts. Deleting anything under `tools/` is BJ's call, not mine. Note before deciding: `backend/dco_frames.py` is untracked but **is imported by the tracked test** `tools/test_dco_author.py:1312`.
+21. `docs/plans/HANDOVER_lco_selfcorrect.md` is untracked and describes the self-check/self-correction loop, which was **deactivated 2026-07-21** (`dbd6c153`, `T5YNTH_LCO_SELFCHECK = 0`). It is history, not a plan.
 
 **Traceability gap, reported and not fixable without rewriting history**
 
-10. The morph **shape** in `_SYSTEM_HEAD` — both ends in their own variables, `kmorph`, one crossfade — was swept into commit `b04c8ef4` ("fix(lco): the trace must not claim what nobody recorded"), whose message does not mention it. Someone bisecting the morph behaviour will not find it there. (`git log -S'asiga   = <a' -- backend/lco_write.py` will.)
+22. The morph **shape** in `_SYSTEM_HEAD` — both ends in their own variables, `kmorph`, one crossfade — was swept into commit `b04c8ef4` ("fix(lco): the trace must not claim what nobody recorded"), whose message does not mention it. Someone bisecting the morph behaviour will not find it there. (`git log -S'asiga   = <a' -- backend/lco_write.py` will.)
 
 ---
 
@@ -220,7 +255,7 @@ The concept document is authoritative for **the goal (§1), the architecture (§
 | „Read this before touching … `backend/csound_orch.py`, or `backend/dco_llm_map.py`" | `backend/csound_orch.py` is deleted. The write path is `backend/lco_write.py`. |
 | §2: „the prompt goes to a small model (currently `qwen2.5-7b-instruct`)" | The author is gemma-4-12B QAT 4-bit GGUF, and it also does translation and re-prompt. |
 | §2: „`build_orchestra()` in `backend/csound_orch.py` turns the reply into an orchestra" | The **model writes the orchestra body**. `lco_write.wrap()` only puts it in the host scaffold. The model no longer names keys for Python to assemble. |
-| §5 title: „The three instruments (current proof of concept)" | 30 instruments, 7 of them parametrised. §5's *measured facts* about instruments 1–3 all still hold and are still the best record of them. |
+| §5 title: „The three instruments (current proof of concept)" | 63 instruments, 42 of them parametrised. §5's *measured facts* about instruments 1–3 all still hold and are still the best record of them. |
 | §8: the ten hand-maintained Python sets, `_ADJ_MAP` as post-mix DSP, `_emit_crossfade_morph` | All of that was `csound_orch.py`. The growth blocker it describes is gone with it; adding an instrument is now one lexicon entry plus a library rebuild. |
 | §9 items 5, 6, 7 (cross-cutting properties into generation; the morph as a real waveform morph; the ten sets) | Answered by the architecture change: the model writes the code, so adjectives and morphs are in the emitted Csound by construction. §9 items 1, 2, 3, 4 and 8 stand. |
 
@@ -238,6 +273,7 @@ Neither is fixed, and both make the LCO non-functional for anyone who is not on 
 
 1. **CI ships no Csound.** `CMakeLists.txt:62-79` finds `CsoundLib64.framework` only in a local Homebrew prefix and is explicit that it is *never required* — „CI runners and any dev machine without Csound installed must build exactly as before" — with `T5YNTH_HAS_CSOUND` always defined so every call site branches at runtime. So the published build compiles green and the LCO is silent in it. `tools/bundle_csound_macos.sh` exists and is not wired into `.github/workflows/`.
 2. **There is no acquisition path for the author model.** The 12B GGUF is on the maintainer's disk; nothing in the SetupWizard fetches it. Without it there is no oscillator, by design — no model, no fallback, no tone.
+3. **The bundle carried no library at all until `df3b3cf5`, and that fix is unverified against a real PyInstaller run.** `lco_write.py` opens `lco_library.json` and `dco_lexicon.json` with a plain `open()` relative to its own `__file__`, which inside a frozen bundle is `_MEIPASS`; `pipe_inference.spec` did not list them, so the first LRO prompt in any installer raised `FileNotFoundError` while working perfectly from source. The spec now adds both and **raises at build time** if either is missing. Nobody has run PyInstaller since. Do that before the next tag.
 
 ---
 
