@@ -259,6 +259,86 @@ def comb_contrast(y, f, n=24, t0=0.5, t1=3.5):
                                / max(np.mean(valleys), 1e-12)))
 
 
+def logspec_rel(y, freq, lo_c=-600.0, hi_c=4200.0, cents_per_bin=20.0,
+                t0=0.5, t1=3.5):
+    """The magnitude spectrum on a log axis measured FROM the played note.
+
+    The frame is what makes this a tracking meter. Expressed relative to its own
+    `kfreq`, a sound that follows the keyboard has the SAME spectrum at every
+    pitch — a harmonic comb, an inharmonic modal bank and a formant set alike,
+    since scaling f0 is a pure translation on a log axis. One that ignores the
+    keyboard has a spectrum that slides by exactly the interval played.
+
+    The band is bounded at both ends on purpose. Above ~+4200 cents (five
+    harmonics past the fourth octave) a 20-cent grid can no longer RESOLVE
+    adjacent harmonics — the spacing 1200*log2(1+1/h) falls under two bins around
+    h=43 — so a saw's comb turns into a smooth mush that correlates with itself at
+    any shift, which is what read a saw's octave as 1360 of 3600 cents. Below the
+    fundamental there is nothing an oscillator should be putting energy into.
+    """
+    S, fq = _mag(y, t0, t1)
+    grid = np.arange(lo_c, hi_c, cents_per_bin)
+    return grid, np.interp(freq * 2 ** (grid / 1200.0), fq, S)
+
+
+def _corr(a, b):
+    n = min(len(a), len(b))
+    if n < 8:
+        return -2.0
+    a, b = a[:n] - a[:n].mean(), b[:n] - b[:n].mean()
+    den = float(np.sqrt((a ** 2).sum() * (b ** 2).sum()))
+    return float((a * b).sum() / den) if den > 0 else -2.0
+
+
+def tracks(y_low, y_high, f_low, f_high, cents_per_bin=20.0):
+    """M2's real meter — did the spectrum come with the keyboard, or stay put?
+
+    Two hypotheses, each scored once over the same band, no search:
+
+      `r_note`   the two spectra agree when each is read FROM its own played note
+                 — the sound follows the keyboard;
+      `r_fixed`  they agree when both are read on one absolute frequency axis
+                 — the sound has its own register and ignores the keyboard.
+
+    `verdict` is whichever fits better by more than 0.1, else "mixed" — the honest
+    answer for something like a fixed formant set over a tracking glottal source,
+    where both are partly true.
+
+    Two hypotheses rather than a lag search, because the lag search was tried and
+    is not safe here: a short overlap at an absurd shift can score a perfect 1.0
+    when one aligned spike dominates it. Measured — a `saw` whose fundamental
+    landed on the 9th harmonic of the octave-up render scored r=1.0 at -3800
+    cents, i.e. the meter called the plainest tracking oscillator in the library
+    broken. Both correlations here run over the full band, so nothing can win by
+    being narrow.
+
+    And it is these two rather than the two obvious meters because both of those
+    give confident wrong answers on exactly the entries that need judging:
+      - **`f0`** locks onto the slow beat of a Q=900 inharmonic bank and reports
+        37.8 Hz for a played 110 (`struck_bar`), and returns nothing at all for an
+        unpitched membrane.
+      - **the spectral centroid** SATURATES on any band-limited source: `vco2`
+        band-limits to Nyquist, so a saw has 400 harmonics at 55 Hz and 12 at
+        1760, and its centroid rises far less than proportionally — measured slope
+        0.675 against a keyboard it follows to the cent.
+    """
+    lo_c, hi_c = -600.0, 4200.0
+    _, A = logspec_rel(y_low, f_low, lo_c, hi_c, cents_per_bin)
+    _, B = logspec_rel(y_high, f_high, lo_c, hi_c, cents_per_bin)
+    r_note = _corr(A, B)
+    # The same two renders on ONE absolute axis, over the band the low note spans.
+    lo_hz = f_low * 2 ** (lo_c / 1200.0)
+    span_c = hi_c - lo_c
+    _, Aa = logspec_rel(y_low, lo_hz, 0.0, span_c, cents_per_bin)
+    _, Ba = logspec_rel(y_high, lo_hz, 0.0, span_c, cents_per_bin)
+    r_fixed = _corr(Aa, Ba)
+    verdict = ("tracks" if r_note > r_fixed + 0.1 else
+               "fixed register" if r_fixed > r_note + 0.1 else "mixed")
+    return {"asked_cents": round(float(1200 * np.log2(f_high / f_low)), 1),
+            "r_note": round(r_note, 3), "r_fixed": round(r_fixed, 3),
+            "verdict": verdict}
+
+
 def travel(y, n=8):
     """Colour over the course of the note: the centroid of n successive windows.
 
@@ -380,6 +460,26 @@ asig    tone asaw, kcut""")
         _, span_still = travel(ys)
         check("a sweep travels", span_mov > 800, f"{span_mov:.0f} Hz")
         check("a standing sine does not", span_still < 20, f"{span_still:.0f} Hz")
+
+    print("tracking sees what follows the keyboard and what does not")
+    _FIXED = "asig    poscil 0.4, 800, giSine"          # a fixed register: ignores kfreq
+    _BANK = """aex     rand 0.06, 0.5, 1
+a1      mode aex, kfreq * koct1 * 1.0, 40
+a2      mode aex, kfreq * koct1 * 2.14, 36
+a3      mode aex, kfreq * koct1 * 3.77, 32
+asig    = (a1 + a2 + a3) * 0.5"""
+    for name, body, want_tracking in (("saw (band-limited)", _SAW, True),
+                                      ("sine", _SINE, True),
+                                      ("inharmonic modal bank", _BANK, True),
+                                      ("a fixed 800 Hz register", _FIXED, False)):
+        ylo, elo = render(body, freq=110.0)
+        yhi, ehi = render(body, freq=880.0)
+        if elo or ehi:
+            check(name, False, elo or ehi)
+            continue
+        s = tracks(ylo, yhi, 110.0, 880.0)
+        check(name, (s["verdict"] == "tracks") == want_tracking,
+              f"{s['verdict']} (r_note {s['r_note']} vs r_fixed {s['r_fixed']})")
 
     print("comb contrast tracks the resonator, not the exciter")
     (yn, en), (yh, eh), (yl, el) = (render(_NOISE), render(_comb(0.995)),
