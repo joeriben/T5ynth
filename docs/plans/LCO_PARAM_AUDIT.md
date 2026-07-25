@@ -290,13 +290,27 @@ byte-for-byte before it will emit anything new.
 
 ## 5. Ranked, what this leaves to do
 
-1. **`anchor_code` for the 17 axes of 65 that have none**, so M5 and M6 can see
-   them at all: `fm`, `fm_bell`, `fm_ep`, `metallic_fm` (ring/detune and friends),
-   `drum_head` (strikepos/tension/damping), `string` (pick/damp) and `analog_osc`
-   (drive/fat/age). Until then "no axis is a fader" is untested for those 17. They
-   are the entries that bake an axis into an expression instead of declaring it, so
-   each needs the body rewritten to the `k<name> = <default>  ; name [lo..hi]: …`
-   form before an anchor can be generated.
+1. **`anchor_code` for the 7 axes of 65 that still have none** — down from 17. Ten
+   have been declared and gated: `fm`/`fm_bell`/`metallic_fm`'s `ring` and `detune`
+   (the three entries are the same body at three settings, so each shipped constant
+   is one sample of the emitter's own law and three samples pin a line), `string`'s
+   `pick` and `damp`, and `fm_ep`'s `hollowness` and `strike` (their own notes carry
+   measured endpoints, and those pin them). Every one reproduces its shipped
+   constant exactly at its default, so the entry a prompt already reaches is
+   unchanged. The seven left are blocked for three different reasons, and none of
+   them is work that can be finished by reading the tree:
+   - **`fm_ep`'s `ring`** — nothing in the tree pins it. Its note says both ends are
+     taken from real electric pianos, and `rhodes`/`wurlitzer` are `fmrhode`/
+     `fmwurlie`: a different idiom with no constant in common.
+   - **`drum_head`'s `strikepos`, `tension`, `damping`** — `tension` would move the
+     same eight mode ratios that `pitched` already moves (`pitched` substitutes 24
+     constants), and how the two interact was the emitter's. Guessing it invents an
+     instrument rather than recovering one.
+   - **`analog_osc`'s `drive`, `fat`, `age`** — the code path does not exist at the
+     shipped defaults. The body says "drive 0: clean, no saturator stage" and
+     carries ONE `vco2` copy, so declaring `drive` and `fat` means writing a
+     saturator and detuned copies: new DSP, not a mapping, and BJ's call. `fat` and
+     `age` also have no note at all (item 3).
 2. **Parametrise the 29 entries that still carry no parameter at all.** Done so
    far: the five §8 named (`saw`/`square`/`pulse`/`triangle` duty and `pwm`'s lost
    `rate`) and the wind family (`clarinet`/`flute` breath, `brass` press, `organ`
