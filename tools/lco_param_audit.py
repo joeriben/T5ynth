@@ -91,6 +91,45 @@ MOVES_COMB_DB = 1.5       # how sharply it rings
 MOVES_MOTION_HZ = 15.0    # how much the colour travels within the note
 
 
+# Properties that are the instrument, not a defect in it. Each one names WHY, and
+# every entry here still PRINTS — marked `declared` — because the failure mode of
+# an exception list is that it turns into a place to put inconvenient readings.
+# A gate that certified the broken state as correct is failure mode §7.4 on this
+# project's record; a gate nobody reads because it cries wolf is the same loss by
+# the other route.
+DECLARED = {
+    "sine": {"M4": "the reference tone. A single partial with nothing to move is "
+                   "what this entry IS; movement-by-default is answered by every "
+                   "other entry and by what the author writes around this one."},
+    # The nature beds. Unpitched by design — LCO_CONCEPT.md §6 calls them "the
+    # route for the natural-sound and animal part of the library", and each `why`
+    # states in as many words that the keyboard does not change them. Recovered
+    # from the parked emitter, where they behaved identically.
+    **{k: {"M2": "an unpitched bed: it has no pitch to follow the keyboard with, "
+                 "and its `why` says so. Pitch has to come from what it is "
+                 "filtered, ring-modulated or layered with."}
+       for k in ("noise", "pink_noise", "wind", "rain", "surf", "thunder",
+                 "hiss", "crackle")},
+    # The struck instruments. A self-decay stopped being a violation on
+    # 2026-07-20, when BJ released these three explicitly: "a self-decay is now a
+    # CHOICE THE PROMPT MAKES" (LCO_CONCEPT.md §4). Each names its standing-tone
+    # counterpart in its own `why`, so the choice is visible to the author.
+    **{k: {"M3": "it is a struck instrument and dying is what it does. Released "
+                 "by BJ 2026-07-20; the `why` names the standing-tone "
+                 "counterpart for the other reading."}
+       for k in ("rhodes", "wurlitzer", "vibraphone")},
+    "vibraphone": {
+        "M3": "it is a struck instrument and dying is what it does. Released by "
+              "BJ 2026-07-20; `struck_bar` is the standing-tone counterpart.",
+        "M7": "the residual after the model's OWN 15 dB tilt is compensated. §5 "
+              "measured `vibes` at 3.52 peak at 40 Hz down to 0.58 at 440 and "
+              "fitted the 0.73 exponent the code applies; +0.99 dB/octave is what "
+              "is left, and a single polynomial over the whole range fits 5-7 dB "
+              "worse because this is two regimes.",
+    },
+}
+
+
 def load():
     return json.loads(LIB.read_text())
 
@@ -307,6 +346,15 @@ def verdicts(rep):
     return out
 
 
+def split_declared(key, findings):
+    """Findings the entry DECLARES as its own nature, and the rest."""
+    d = DECLARED.get(key) or {}
+    real, declared = [], []
+    for level, msg in findings:
+        (declared if level in d else real).append((level, msg))
+    return real, declared
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--key", action="append", help="audit only these keys")
@@ -325,7 +373,8 @@ def main():
     reports = []
     for inst in insts:
         rep = audit_one(inst)
-        rep["verdicts"] = verdicts(rep)
+        rep["verdicts"], rep["declared"] = split_declared(inst["key"],
+                                                          verdicts(rep))
         reports.append(rep)
         mid = rep["registers"].get("220.0", {})
         tr = rep["tracking"]
@@ -339,13 +388,21 @@ def main():
         print(head, flush=True)
         for level, msg in rep["verdicts"]:
             print(f"    {level}  {msg}", flush=True)
+        seen = set()
+        for level, msg in rep["declared"]:
+            print(f"    {level}  [declared] {msg}", flush=True)
+            if level not in seen:      # the reason once per rule, not per register
+                seen.add(level)
+                print(f"           because: {DECLARED[inst['key']][level]}",
+                      flush=True)
 
     if args.out:
         Path(args.out).write_text(json.dumps(reports, indent=1))
         print(f"\nwrote {args.out}")
 
     n = sum(len(r["verdicts"]) for r in reports)
-    print(f"\n{len(reports)} instruments, {n} findings")
+    d = sum(len(r["declared"]) for r in reports)
+    print(f"\n{len(reports)} instruments, {n} findings, {d} declared properties")
     return 0
 
 

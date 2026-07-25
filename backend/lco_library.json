@@ -1,6 +1,6 @@
 {
  "generated_from": {
-  "lexicon_version": 10
+  "lexicon_version": 11
  },
  "instruments": [
   {
@@ -781,6 +781,81 @@
     "wave=0.55  (square: hollow, reedy, odd harmonics only)": "ivph0   = frac(ivoice * 0.6180339887)   ; per-voice phase\nkvdr0   poscil 0.00245, 0.043 + 0.0037 * ivoice, giSine, ivph0\nkdty0   poscil 0.0042, 0.057     ; age: shape/duty wobble on kpw\nkpw0s0   = 0.5 + kdty0\naao0s0u0  vco2 0.6, (kfreq * koct1) * (1 + kvdr0), 2, kpw0s0, 0   ; wave seg0 imode2 copy 0\nacln0   = aao0s0u0 * 0.578000    ; clean oscillator (pre-drive)\nadrv0   = acln0                     ; drive 0: clean, no saturator stage\nkagw0   oscili 0.0105, 0.7        ; age: amplitude wobble\nasig    = adrv0 * (1 + kagw0)",
     "wave=1.0  (pulse: thin, nasal, narrow)": "ivph0   = frac(ivoice * 0.6180339887)   ; per-voice phase\nkvdr0   poscil 0.00245, 0.043 + 0.0037 * ivoice, giSine, ivph0\nkdty0   poscil 0.0042, 0.057     ; age: shape/duty wobble on kpw\nkpw0s0   = 0.1 + kdty0\naao0s0u0  vco2 0.6, (kfreq * koct1) * (1 + kvdr0), 2, kpw0s0, 0   ; wave seg0 imode2 copy 0\nacln0   = aao0s0u0 * 0.578000    ; clean oscillator (pre-drive)\nadrv0   = acln0                     ; drive 0: clean, no saturator stage\nkagw0   oscili 0.0105, 0.7        ; age: amplitude wobble\nasig    = adrv0 * (1 + kagw0)"
    }
+  },
+  {
+   "key": "glass",
+   "why": "struck glass / a glass pad -- a bright inharmonic sheen: six `mode` resonators at glass ratios (1, 2.71, 3.83, 5.17, 6.61, 8.09) at very high Q (1400-2000) under a continuous noise exciter, so a held note stands and the synth's own envelope does the striking. Not a harmonic series: that is the substance of glass, not a detail. Measured on this build: the spectrum follows the keyboard exactly, and like every noise-driven `mode` bank it gets about 1.8 dB quieter per octave upward, because a noise-driven resonator emits power ~ Q/f.",
+   "code": "aexq0   rand 0.05, 0.5, 1          ; continuous exciter -> the metal is driven, a held note stands (31-bit: no 1.365 s loop)\nk0qf0   limit (kfreq * koct1) * 1.0000, 20, 15000\nk0qg0   = ((kfreq * koct1) * 1.0000 < 15000 ? 1.000 : 0)\na0q0   mode aexq0, k0qf0, 1400      ; mode 1 @ x1.00, Q 1400\nk0qf1   limit (kfreq * koct1) * 2.7100, 20, 15000\nk0qg1   = ((kfreq * koct1) * 2.7100 < 15000 ? 0.620 : 0)\na0q1   mode aexq0, k0qf1, 1520      ; mode 2 @ x2.71, Q 1520\nk0qf2   limit (kfreq * koct1) * 3.8300, 20, 15000\nk0qg2   = ((kfreq * koct1) * 3.8300 < 15000 ? 0.440 : 0)\na0q2   mode aexq0, k0qf2, 1640      ; mode 3 @ x3.83, Q 1640\nk0qf3   limit (kfreq * koct1) * 5.1700, 20, 15000\nk0qg3   = ((kfreq * koct1) * 5.1700 < 15000 ? 0.300 : 0)\na0q3   mode aexq0, k0qf3, 1760      ; mode 4 @ x5.17, Q 1760\nk0qf4   limit (kfreq * koct1) * 6.6100, 20, 15000\nk0qg4   = ((kfreq * koct1) * 6.6100 < 15000 ? 0.200 : 0)\na0q4   mode aexq0, k0qf4, 1880      ; mode 5 @ x6.61, Q 1880\nk0qf5   limit (kfreq * koct1) * 8.0900, 20, 15000\nk0qg5   = ((kfreq * koct1) * 8.0900 < 15000 ? 0.130 : 0)\na0q5   mode aexq0, k0qf5, 2000      ; mode 6 @ x8.09, Q 2000\nasig    = (a0q0 * k0qg0 + a0q1 * k0qg1 + a0q2 * k0qg2 + a0q3 * k0qg3 + a0q4 * k0qg4 + a0q5 * k0qg5) * 0.150"
+  },
+  {
+   "key": "noise",
+   "why": "white noise -- `rand`, a flat full-spectrum hiss with no pitch at all. The keyboard does NOT change it (measured: identical at 110 and 880 Hz); it is a bed, and pitch has to come from whatever it is filtered or ring-modulated with. The raw material every other bed here is built from.",
+   "code": "anz0    rand 1.0, 0.5, 1         ; broadband noise source (31-bit: no 1.365 s loop)\nasig    = anz0 * 0.6                ; white noise (flat hiss)"
+  },
+  {
+   "key": "pink_noise",
+   "why": "pink noise -- `pinkish`, a 1/f tilt over `rand`: the same hiss with the top taken off, softer and warmer, and much closer to the spectrum of real environmental sound than white noise is. No pitch; the keyboard does not change it.",
+   "code": "anz0    rand 1.0, 0.5, 1         ; broadband noise source (31-bit: no 1.365 s loop)\nasig    pinkish anz0               ; pink noise (1/f tilt)"
+  },
+  {
+   "key": "wind",
+   "why": "wind / breeze / gust -- a wide `reson` band walking up and down over noise, driven by two incommensurate slow oscillators (0.071 and 0.113 Hz) so the gusts never fall into a pattern: the band rises from 380 to about 1420 Hz as it blows AND gets louder at the same time, which is what makes it read as air moving rather than as a filter sweep. No pitch, and the keyboard does not change it.",
+   "code": "anz0    rand 1.0, 0.5, 1         ; broadband noise source (31-bit: no 1.365 s loop)\nkgsa0   poscil 0.5, 0.071            ; gust, slow\nkgsb0   poscil 0.3, 0.113            ; second, incommensurate\nkgst0   = 0.5 + kgsa0 + kgsb0  ; gust strength\nawd0    reson anz0, 380 + 520 * kgst0, 400, 2 ; higher when it blows\nasig    = awd0 * (0.30 + 0.42 * kgst0) ; and louder"
+  },
+  {
+   "key": "rain",
+   "why": "rain / rainfall / drizzle -- a real particle bed, not a hiss: `dust2` fires about 1400 separate impacts a second and each one rings a surface (`reson` at 2400 Hz), over a darker wash of merged distant drops, with the whole shower swelling and easing at 0.043 Hz. This is the architecture for anything made of many small events -- change the rate and what it is made of changes with it. No pitch, and the keyboard does not change it.",
+   "code": "anz0    rand 1.0, 0.5, 1         ; broadband noise source (31-bit: no 1.365 s loop)\nadrp0   dust2 0.5, 1400              ; the patter: ~1400 impacts/s\narzn0   reson adrp0, 2400, 1800, 2 ; each drop rings the surface\nawsh0   atone anz0, 2000             ; distant drops, merged to a wash\nkint0   poscil 0.22, 0.043           ; the rain comes and goes\nasig    = (arzn0 * 0.94 + awsh0 * 0.51) * (1 + kint0)"
+  },
+  {
+   "key": "surf",
+   "why": "surf / ocean / the sea -- two bands of noise moved by one swell: a low body (`tone` 700) that is always there and a bright break (`atone` 1800) that only arrives at the top of the swell, and arrives as the SQUARE of it, so the crest breaks instead of fading in. Two incommensurate swells (0.055 and 0.083 Hz, ~18 s and ~12 s) keep the sea from repeating. No pitch; the keyboard does not change it.",
+   "code": "anz0    rand 1.0, 0.5, 1         ; broadband noise source (31-bit: no 1.365 s loop)\nkswa0   poscil 0.5, 0.055            ; swell, ~18 s\nkswb0   poscil 0.22, 0.083           ; second, incommensurate\nkswl0   = 0.5 + kswa0 + kswb0  ; 0 .. 1.2\nasfl0   tone anz0, 700               ; the body of the wave\nasfb0   atone anz0, 1800             ; the break, bright\nasig    = asfl0 * (0.35 + 0.35 * kswl0) + asfb0 * 0.30 * kswl0 * kswl0"
+  },
+  {
+   "key": "thunder",
+   "why": "thunder / a distant storm / rumble -- low broadband body (`tone` 400) rolled by three incommensurate slow oscillators (0.037, 0.061, 0.091 Hz) so the rumble keeps folding over itself and never pulses. No pitch, and the keyboard does not change it.",
+   "code": "anz0    rand 1.0, 0.5, 1         ; broadband noise source (31-bit: no 1.365 s loop)\nkrla0   poscil 0.5, 0.037            ; the roll\nkrlb0   poscil 0.28, 0.061\nkrlc0   poscil 0.16, 0.091\nathl0   tone anz0, 400               ; low broadband body\nasig    = athl0 * (0.80 + 0.61 * (krla0 + krlb0 + krlc0))"
+  },
+  {
+   "key": "hiss",
+   "why": "hiss / static / tape hiss -- `atone` at 6000 Hz over noise: only the top left, the sound of a dead channel. No pitch; the keyboard does not change it.",
+   "code": "anz0    rand 1.0, 0.5, 1         ; broadband noise source (31-bit: no 1.365 s loop)\nasig    atone anz0, 6000            ; hiss/static: bright high noise\nasig    = asig * 0.7"
+  },
+  {
+   "key": "crackle",
+   "why": "crackle / fire / a campfire -- the same particle architecture as `rain` at a hundredth of the rate: `dust2` fires about 22 pops a second and each rings wood (`reson` 1600 Hz, wide), over a fine sizzle that breathes at 0.13 Hz. Sparse enough that individual events are heard, which is the difference between fire and rain. No pitch, and the keyboard does not change it.",
+   "code": "anz0    rand 1.0, 0.5, 1         ; broadband noise source (31-bit: no 1.365 s loop)\nacrk0   dust2 0.8, 22                ; ~22 pops a second\napop0   reson acrk0, 1600, 1200, 2 ; each pop rings the wood\nkbed0   poscil 0.5, 0.13             ; the fire breathes\nabsd0   atone anz0, 3000             ; fine sizzle between pops\nasig    = apop0 * 1.90 + absd0 * (0.34 + 0.20 * kbed0)"
+  },
+  {
+   "key": "voice",
+   "why": "a sung human voice on an open 'ahh' -- real formant synthesis, not an additive sketch: a `vco2` glottal source tilted by `tone`, through three `reson` formants at 600 / 1040 / 2250 Hz, with three-rate period jitter and two-rate amplitude shimmer so it is never a steady tone. The pitch follows the keyboard and the formants do NOT, which is what makes it a voice -- and also its ceiling: measured on this build it is level within 3.3 dB from 110 to 660 Hz and then falls 13.8 dB at 880, because above the first formant no harmonic can land in it any more. Usable up to roughly its own F1.",
+   "code": "kjta0   poscil 0.0022, 7.3           ; jitter: period, 3 rates\nkjtb0   poscil 0.0014, 11.7\nkjtc0   poscil 0.0009, 19.1\nksha0   poscil 0.030, 5.1            ; shimmer: amplitude, 2 rates\nkshb0   poscil 0.018, 8.9\nasrc0    vco2 0.5, (kfreq * koct1) * (1 + kjta0 + kjtb0 + kjtc0), 0\naglt0   tone asrc0, 200              ; glottal slope, -6 -> -12 dB/oct\nkfw0x0  poscil 0.011, 0.23            ; tract wander, formant 1\na0f0   reson aglt0, 600 * (1 + kfw0x0), 60, 1 ; formant 1 @ 600 Hz\nkfw0x1  poscil 0.011, 0.31            ; tract wander, formant 2\na0f1   reson aglt0, 1040 * (1 + kfw0x1), 80, 1 ; formant 2 @ 1040 Hz\nkfw0x2  poscil 0.011, 0.19            ; tract wander, formant 3\na0f2   reson aglt0, 2250 * (1 + kfw0x2), 120, 1 ; formant 3 @ 2250 Hz\nasig    = (a0f0 * 1.000 + a0f1 * 0.600 + a0f2 * 0.320) * 10.7 * (1 + ksha0 + kshb0)"
+  },
+  {
+   "key": "voice_ee",
+   "why": "a bright, thin, nasal 'eee' vowel -- the same formant bank as `voice` moved to 270 / 2290 / 3010 Hz: a very low first formant and a very high second, which is the whole reason 'eee' sounds pinched. Its first formant is also its ceiling, and this one is LOW: measured level to 220 Hz, then -6 dB at 330, -21 dB at 440 and gone by 660. A bass and baritone vowel, not a soprano one.",
+   "code": "kjta0   poscil 0.0022, 7.3           ; jitter: period, 3 rates\nkjtb0   poscil 0.0014, 11.7\nkjtc0   poscil 0.0009, 19.1\nksha0   poscil 0.030, 5.1            ; shimmer: amplitude, 2 rates\nkshb0   poscil 0.018, 8.9\nasrc0    vco2 0.5, (kfreq * koct1) * (1 + kjta0 + kjtb0 + kjtc0), 0\naglt0   tone asrc0, 200              ; glottal slope, -6 -> -12 dB/oct\nkfw0x0  poscil 0.011, 0.23            ; tract wander, formant 1\na0f0   reson aglt0, 270 * (1 + kfw0x0), 50, 1 ; formant 1 @ 270 Hz\nkfw0x1  poscil 0.011, 0.31            ; tract wander, formant 2\na0f1   reson aglt0, 2290 * (1 + kfw0x1), 100, 1 ; formant 2 @ 2290 Hz\nkfw0x2  poscil 0.011, 0.19            ; tract wander, formant 3\na0f2   reson aglt0, 3010 * (1 + kfw0x2), 130, 1 ; formant 3 @ 3010 Hz\nasig    = (a0f0 * 1.000 + a0f1 * 0.550 + a0f2 * 0.300) * 4.35 * (1 + ksha0 + kshb0)"
+  },
+  {
+   "key": "voice_oo",
+   "why": "a dark, rounded, hollow 'ooh' vowel -- formants at 300 / 870 / 2240 Hz, both lower ones close together and low, so the sound is all body and no edge. Measured ceiling around 330 Hz (level to 330, then -14 dB at 440), for the same reason as the other vowels: the formants stand still while the voice climbs into them.",
+   "code": "kjta0   poscil 0.0022, 7.3           ; jitter: period, 3 rates\nkjtb0   poscil 0.0014, 11.7\nkjtc0   poscil 0.0009, 19.1\nksha0   poscil 0.030, 5.1            ; shimmer: amplitude, 2 rates\nkshb0   poscil 0.018, 8.9\nasrc0    vco2 0.5, (kfreq * koct1) * (1 + kjta0 + kjtb0 + kjtc0), 0\naglt0   tone asrc0, 200              ; glottal slope, -6 -> -12 dB/oct\nkfw0x0  poscil 0.011, 0.23            ; tract wander, formant 1\na0f0   reson aglt0, 300 * (1 + kfw0x0), 55, 1 ; formant 1 @ 300 Hz\nkfw0x1  poscil 0.011, 0.31            ; tract wander, formant 2\na0f1   reson aglt0, 870 * (1 + kfw0x1), 80, 1 ; formant 2 @ 870 Hz\nkfw0x2  poscil 0.011, 0.19            ; tract wander, formant 3\na0f2   reson aglt0, 2240 * (1 + kfw0x2), 120, 1 ; formant 3 @ 2240 Hz\nasig    = (a0f0 * 1.000 + a0f1 * 0.500 + a0f2 * 0.220) * 5.19 * (1 + ksha0 + kshb0)"
+  },
+  {
+   "key": "rhodes",
+   "why": "a real Rhodes tine piano that RINGS AND FADES BY ITSELF -- Csound's own `fmrhode` model, re-struck on each note through `changed2(ktrig)`/`reinit`: a bell-like metallic attack over a woody body, and the note dies whether or not the key is held. Measured on this build: half-life 566-599 ms and peak flat at 0.57 from 110 to 1760 Hz. For the version that STANDS as long as the key is held -- the spectrum source, with the synth's envelope doing the striking -- use `fm_ep` instead; that is the same instrument as a standing tone.",
+   "code": "  ; --- osc 0: rhodes -- struck instrument, decays on its own ---\n  if changed2(ktrig) == 1 then\n    reinit strike0\n  endif\nstrike0:\n  asig    fmrhode 0.7821, (kfreq * koct1), 1, 1, 0.01, 6, 1, 1, 1, 1, 1\n  rireturn"
+  },
+  {
+   "key": "wurlitzer",
+   "why": "a real Wurlitzer reed piano that RINGS AND FADES BY ITSELF -- Csound's own `fmwurlie`, re-struck per note: reedier and barkier than a Rhodes, its brightness sitting ON the odd harmonics rather than off the comb, and it rings longer. Measured: half-life 676-718 ms, peak flat at 0.55 across the register. `fm_ep` is the standing-tone counterpart.",
+   "code": "  ; --- osc 0: wurlitzer -- struck instrument, decays on its own ---\n  if changed2(ktrig) == 1 then\n    reinit strike0\n  endif\nstrike0:\n  asig    fmwurlie 0.9839, (kfreq * koct1), 1, 1, 0.01, 6, 1, 1, 1, 1, 1\n  rireturn"
+  },
+  {
+   "key": "vibraphone",
+   "why": "a real struck aluminium bar that RINGS AND FADES BY ITSELF -- Csound's `vibes` model, re-struck per note: a soft mallet, sweet and round rather than clangorous, and short. Measured: half-life 284-315 ms. The model's own 15 dB register tilt is undone in the code by a 0.73 exponent below 440 Hz, so peak runs 0.42 to 0.62 across the register instead of 3.5 to 0.6. Two structural limits of the model, both measured and neither tunable: it collapses about 10 dB above ~4 kHz, and its pitch freezes at the strike, so a glide is not followed within a note. `struck_bar` is the standing-tone mallet counterpart.",
+   "code": "  ; --- osc 0: vibraphone -- struck instrument, decays on its own ---\n  if changed2(ktrig) == 1 then\n    reinit strike0\n  endif\nstrike0:\n  kvtl0   limit (kfreq * koct1) / 440, 0.001, 1   ; 1.0 at and above 440 Hz\n  kvamp0  = 0.1863 * kvtl0 ^ 0.73   ; undo the model's 15 dB register tilt\n  asig    vibes kvamp0, (kfreq * koct1), 0.9, 0.5, 4, 6, 0.01, 1, 0.5\n  rireturn"
   }
  ],
  "adjectives": [
