@@ -1,20 +1,46 @@
-# Three finished sounds that do not ship
+# Three sounds the movement gate stopped, and what happened to them
 
-**Status: parked, needs BJ.** All three bodies work, all three are physically derived, all
-three hold loudness better than most of the library. None ships, and there are two separate
-reasons, so this file has two halves:
+Two halves, with different outcomes:
 
-- **`bubbles` and `ice`** cannot pass the movement gate, and the only way past it is tuning
-  constants until the meter's own variance falls the right side of a threshold. That is
-  fitting the meter, not making the sound move.
-- **`waterphone`** can pass the movement gate or sound at the played note, but not both, and
-  which one to give up is not my decision.
+- **`bubbles` and `ice` — DECIDED AND SHIPPED**, lexicon version 32, commit `07394c65`. They
+  could not pass the movement gate, and the only way past it was tuning constants until the
+  meter's own variance fell the right side of a threshold. BJ ruled that the gate was asking
+  the wrong question of this class. Part one below is kept as it was written, because the
+  measurements in it are the evidence for that ruling and for the class that now exists.
+- **`waterphone` — still parked, needs BJ.** It can pass the movement gate or sound at the
+  played note, but not both, and which one to give up is not my decision.
 
 No Csound was taken from anywhere. All three are written from published acoustics: the
 Minnaert resonance of a gas bubble in water, flexural-wave dispersion in a thin plate, and
 free-cantilever mode ratios with mass loading.
 
 # Part one: `bubbles` and `ice` — the movement gate
+
+**Outcome, 2026-07-25.** BJ, on the question at the end of this part: *„genau. Da haben wir
+nicht an Natursounds gedacht. Hiermit freigeschaltet. Ich muss ja ohnehin alle neuen
+instrumente reviewen."* — the first of the three options, including its stated consequence
+for the four entries already shipped that way.
+
+What was built on that ruling, in `20e865ca`: a body may declare `; MOVEMENT: TEXTURE`, and
+the gate then REPORTS `moves` instead of failing on it while everything else it checks
+applies unchanged. Six entries declare it — `rain`, `crackle`, `thunder`, `cymbal`,
+`bubbles`, `ice`.
+
+It is a declaration and not a second measurement, and that is the one thing worth carrying
+forward from the work below. I first tried to give the class an objective criterion and
+**measured that no such criterion exists in this meter.** Over 40 renders of a STATIONARY
+narrowband noise bed — a body in which nothing whatever moves — the colour travel reaches
+**1005 cents** and the crest **14.55 dB**. A real swept saw, which `moves` passes at
+coherence 1.00, travels **959 cents**: *less* than the bed that does nothing. The populations
+overlap, so no span bound separates them in either direction, and the crest cannot do it
+either (`pink_noise`, static by design, reads 15.41 dB). Both nulls are now named constants
+in `tools/lco_measure.py` and the overlap is asserted in its selftest, so the threshold I
+tried cannot be rediscovered as a good idea. Coherence is the only statistic in that file
+that tells movement from variance; for a stochastic texture it is the wrong question; and the
+liveness of this class therefore rests on BJ's ear, with the flag recording which entries are
+in it.
+
+The rest of this part is the original write-up.
 
 ## What they are
 
@@ -117,8 +143,9 @@ Three ways forward, none of them mine to pick:
 
 ## The bodies
 
-Both are complete and gate-clean on everything except `moves`. They are reproduced in full
-so this is not a pointer to something lost.
+Reproduced as they were when this was written. **The shipped versions are in
+`backend/dco_lexicon.json` and differ by the three declaration comment lines and nothing
+else** — each was asserted to render sample-identically before and after.
 
 ### bubbles
 

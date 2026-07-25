@@ -868,7 +868,7 @@ def beat(y, lo_hz=0.5, hi_hz=25.0, t0=0.5, t1=3.5, at_hz=None, f0_hz=None):
 # span bound separates them; the selftest asserts that overlap so it cannot be
 # rediscovered as a threshold later. Coherence is the only statistic in this file that
 # tells movement from variance, and for a stochastic texture it is the wrong question.
-# See `docs/parked/lco_event_texture_vs_movement_gate.md`.
+# See `docs/parked/lco_movement_gate_three_sounds.md`.
 STATIONARY_SPAN_NULL_CENTS = 1005.0
 STATIONARY_CREST_NULL_DB = 14.55
 
