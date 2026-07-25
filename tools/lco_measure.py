@@ -150,8 +150,27 @@ def peak_p999(y):
     A randomly-excited resonator (dust, rand) has a RANDOM peak: the same body
     measured 2.89 on one render and 0.79 on the next. Sizing a gain against the
     maximum of a random process fits the noise, not the instrument.
+
+    THAT IS WHY IT MUST NOT BE THE HEADROOM CHECK, which is a different question with
+    a different right answer. The host clips the true peak, so the only figure that
+    says whether it clips is the true peak. On a SPARSE event texture the two diverge
+    by a lot, because a percentile cannot see an event that occupies less than 0.1 % of
+    the buffer: `ice` at four cracks a second read p99.9 1.98 and a true peak 4.03,
+    with the host clipping above 2.97 — it passed the gate's headroom check and
+    clipped. Measured across the library the ratio runs from 1.0x (`jaw_harp`, a
+    continuous body) to 3.4x (`crackle`).
+
+    So both are reported: this one for SIZING a body, `peak` for whether the host will
+    clip it. See `lco_axis_probe.gate`, which counts how many renders of the sweep go
+    over rather than trusting one draw of a random variable.
     """
     return float(np.percentile(np.abs(y), 99.9))
+
+
+# What the host does to a body that goes over: `lco_write.wrap` scales `asig` by
+# HEADROOM and the voice clips at 0.95, so this is the largest peak that survives
+# intact. Derived rather than written out, because the literal 2.97 was in two files.
+HOST_CLIP = 0.95 / W.HEADROOM
 
 
 def sustain(y):
@@ -996,6 +1015,9 @@ def measure(y, asked_freq):
             "centroid_over_note": [round(c) for c in cs],
             "rms_db": round(rms_db(y), 2),
             "peak_p999": round(peak_p999(y), 3),
+            # The true peak, which is the only figure that answers "does the host clip
+            # this" — see `peak_p999` for why the percentile cannot.
+            "peak": round(float(np.abs(y).max()), 3),
             "sustain": round(sustain(y), 3),
             # Combed at the pitch the signal HAS, not the one it was asked for. Read
             # against the ask, a body that sounds an octave down has its "half-way

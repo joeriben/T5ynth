@@ -393,25 +393,45 @@ def gate(body, freq=220.0, steps=3, registers=(55, 110, 220, 440, 880, 1760)):
     if stats["loudness_spread_db"] is not None and stats["loudness_spread_db"] > 1.0:
         fails.append(("one loudness", pk[1],
                       f"{stats['loudness_spread_db']:.2f} dB across the corners"))
-    if pk[0] > 2.97:
-        fails.append(("headroom", pk[1],
-                      f"p99.9 {pk[0]:.2f}; the host clips a body above 2.97"))
+    # The body AS WRITTEN, at its own defaults, at every register. Its own configuration
+    # is the one that matters most and it need not sit on the cube grid at all, so these
+    # renders are their own rows — see the tilt note below for the ten-fold error that
+    # taught it. They join the headroom check for the same reason: `string`'s true peak
+    # is 3.02 at its DEFAULTS at 55 Hz, over the host's clip, and every grid corner at
+    # 55 Hz is under it, so a check that read only the grid called that body clean.
+    base = []
+    for f in regs:
+        y, err = M.render(body, dur=4.0, freq=f)
+        if y is not None:
+            base.append((f, M.rms_db(y), M.measure(y, f)))
+    # The headroom is judged on the TRUE peak, because that is what the host clips, and
+    # counted over the whole sweep rather than read off one render — a stochastic body's
+    # peak is a random variable and the sweep is many draws of it. Reading p99.9 here
+    # instead let `ice` through at four cracks a second: percentile 1.98, true peak 4.03,
+    # clip 2.97. See `lco_measure.peak_p999`.
+    peaks = ([(r["peak"], c) for c, r in rows]
+             + [(r["peak"], {"the defaults": True, "Hz": f}) for f, _v, r in base])
+    over = sorted(((p, c) for p, c in peaks if p > M.HOST_CLIP),
+                  reverse=True, key=lambda t: t[0])
+    stats["over_clip"] = (len(over), over[0] if over else None)
+    if over:
+        fails.append(("headroom", over[0][1],
+                      f"true peak {over[0][0]:.2f} at the worst of {len(over)} of "
+                      f"{len(peaks)} renders over the host's {M.HOST_CLIP:.2f} clip "
+                      f"(the worst p99.9 anywhere is only {pk[0]:.2f}, which is why this "
+                      f"is not judged on the percentile)"))
     # The register tilt at the DEFAULTS, which is the number the notes quote — so it
     # is measured on the body AS WRITTEN, at its own default values, and not on the
     # nearest grid corner. The defaults need not sit on a 3-step grid at all:
     # `overtone_voice` defaults to select 0.45, focus 0.6, press 0.45, none of them on
     # the grid, and the nearest corner (0.5, 0.5, 0.5) reads 0.06 dB where the body
     # itself reads 0.60. Its note shipped the 0.06 — a figure off by ten times, about
-    # a body no one had measured. Six extra renders buy the number its own name.
-    base = []
-    for f in regs:
-        y, err = M.render(body, dur=4.0, freq=f)
-        if y is not None:
-            base.append((f, M.rms_db(y)))
+    # a body no one had measured. Six extra renders buy the number its own name. (The
+    # renders themselves are made above, so the headroom check can see them too.)
     if len(base) >= 2:
-        v = [x for _, x in base]
+        v = [x for _f, x, _r in base]
         stats["register_tilt_db"] = round(max(v) - min(v), 2)
-        stats["register"] = [(f, round(x, 2)) for f, x in sorted(base)]
+        stats["register"] = [(f, round(x, 2)) for f, x, _r in sorted(base)]
     allv = [(r["rms_db"], c) for c, r in rows]
     if len(allv) >= 2:
         lo, hi = min(allv, key=lambda t: t[0]), max(allv, key=lambda t: t[0])
