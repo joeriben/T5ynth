@@ -345,12 +345,19 @@ def render_library(sel=None):
         for label, code in (it.get("anchor_code") or {}).items():
             axis, _, anchor = label.partition("=")
             changed = [l for l in code.splitlines() if l not in base_lines]
-            if changed:
-                deltas.setdefault(axis.strip(), []).append((anchor.strip() or axis,
-                                                            changed))
+            # An anchor whose value IS the parameter's default has no delta from the
+            # quoted body, and dropping it made the anchor vanish from the prompt
+            # with nothing to say why — `sax`'s `growl=edge` sat at 0.15, the
+            # default, so the author saw clean/growl/roar and no `edge`. Say instead
+            # that the quoted code already is that anchor.
+            deltas.setdefault(axis.strip(), []).append((anchor.strip() or axis,
+                                                        changed))
         for axis, rows in deltas.items():
             out.append(f"  # how the code changes across `{axis}`:")
             for anchor, changed in rows:
+                if not changed:
+                    out.append(f"    # {anchor} — the code above already is this one")
+                    continue
                 out.append(f"    # {anchor}")
                 for l in changed:
                     out.append(f"    {l.strip()}")
