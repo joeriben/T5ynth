@@ -616,14 +616,30 @@ def _comb(fb):
 asig    streson aex, kfreq * koct1, {fb}"""
 
 
+# How many calibration cases there are. Asserted at the end so a group that stops
+# running — an early `return`, a render failure that `continue`s past its check, a
+# refactor that drops a block — is a FAILURE and not a quietly shorter green run.
+_CASES = 41
+
+
 def selftest():
     """Known signals in, known answers out. Any failure invalidates every number
-    this file has ever reported."""
-    ok = True
+    this file has ever reported.
+
+    The tally is a LIST and not a bool on purpose. It was a bool named `ok`, and one
+    of the movement cases below unpacked its own result into the same name —
+    `ok, sp, r1 = moves(yr)` — so the verdict reported whether the LAST rate case
+    passed and erased 17 of the 40 others. `--selftest` then printed "meter
+    calibrated" and exited 0 with a real failure on screen every single run, which is
+    how the looping-noise case shipped. A list cannot be silently rebound by an
+    unpacking assignment, and the count is asserted at the end.
+    """
+    fails, total = [], []
 
     def check(name, cond, detail):
-        nonlocal ok
-        ok = ok and cond
+        total.append(name)
+        if not cond:
+            fails.append(name)
         print(f"  {'PASS' if cond else 'FAIL'}  {name}: {detail}")
 
     print("pitch (asked 220 Hz, tolerance +-8 cents)")
@@ -705,8 +721,9 @@ asig    reson anz, 2200 + kcut, 900, 2""")
         if er:
             check(f"movement at {rate} Hz", False, er)
             continue
-        ok, sp, r1 = moves(yr)
-        check(f"movement at {rate} Hz is seen", ok, f"span {sp:.0f} Hz, coherence {r1:+.2f}")
+        seen, sp, r1 = moves(yr)
+        check(f"movement at {rate} Hz is seen", seen,
+              f"span {sp:.0f} Hz, coherence {r1:+.2f}")
 
     print("tracking sees what follows the keyboard and what does not")
     _FIXED = "asig    poscil 0.4, 800, giSine"          # a fixed register: ignores kfreq
@@ -815,7 +832,17 @@ asig    poscil 0.4 * (1 + 2 * ka), kfreq * koct1, giSine""")
         check("high feedback combs hard", ch > 25, f"{ch:.1f} dB")
         check("low feedback combs less", 4 < cl < ch - 10, f"{cl:.1f} dB")
 
-    print("\n" + ("meter calibrated" if ok else "METER IS WRONG — do not trust it"))
+    # A calibration that silently stops running cases is as bad as one that fails:
+    # the count is part of the verdict, not decoration.
+    if len(total) < _CASES:
+        fails.append(f"only {len(total)} of {_CASES} calibration cases ran")
+        print(f"  FAIL  the calibration is incomplete: {len(total)}/{_CASES} cases")
+    print(f"\n{len(total) - len(fails)}/{len(total)} cases pass")
+    if fails:
+        print("METER IS WRONG — do not trust it. Failed: " + ", ".join(fails))
+    else:
+        print("meter calibrated")
+    ok = not fails
     return 0 if ok else 1
 
 
