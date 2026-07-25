@@ -295,11 +295,19 @@ HOST_CLIP = 0.87875 / W.HEADROOM              # 2.746 — nothing above this get
 HOST_PRES_GAIN_MAX = 1.15
 
 # Judge headroom on the peak AFTER the onset, not on the whole buffer. Measured:
-# `string`'s 3.18 at 69.3 Hz is ONE sample at t = 0.004 s (the `streson` ring-up)
-# against 0.86 for the rest of the note, and `ice`'s 3.61 is 25 samples inside the
-# first 100 ms against 1.18 after. Both were reported as clipping entries; neither
-# is. The percentile was too lenient for a sustained over and the true peak is too
-# strict, because it is dominated by the filter start-up of a body that is fine.
+# `string`'s 3.18 at 69.3 Hz is ONE sample at t = 0.004 s against 0.86 for the rest of
+# the note, and `ice` at crack 0.94 / glide 0.67 / 27.5 Hz peaks at 3.61 inside the
+# first 100 ms against 1.18 after. Both were reported as clipping entries; neither is.
+#
+# `string`'s spike is `balance` STARTING UP, not the `streson` ring-up it was first
+# blamed on — a high-Q filter rings up gradually and shows no spike at all. The AGC's
+# RMS denominator begins at zero, so its first samples multiply by an enormous gain:
+# the same body with a fixed gain in place of `balance` reads 0.62. Any body that
+# normalises itself has this, and the plugin never hears it, because the plugin's
+# instances have been running since load.
+#
+# The percentile was too lenient for a sustained over and the true peak is too strict,
+# because it is dominated by the start-up of a body that is fine.
 # 50 ms: long enough to clear a high-Q resonator's ring-up, short enough that a real
 # sustained over cannot hide inside it.
 ONSET_S = 0.050
@@ -1255,7 +1263,7 @@ asig    streson aex, kfreq * koct1, {fb}"""
 # How many calibration cases there are. Asserted at the end so a group that stops
 # running — an early `return`, a render failure that `continue`s past its check, a
 # refactor that drops a block — is a FAILURE and not a quietly shorter green run.
-_CASES = 86
+_CASES = 88
 
 
 def selftest():
@@ -1451,6 +1459,49 @@ def selftest():
                    f"the trigger edge, not `int(preroll * SR)`")
     check("the trim lands on the trigger edge, so the note is the same note",
           _base is not None and _worst < 1e-9, _detail)
+
+    # Bit-identity across prerolls proves the trim is CONSISTENT. It cannot prove it is in
+    # the right PLACE — an error of exactly one k-cycle at every preroll is invisible to
+    # it, and one k-cycle is 1.45 ms, bigger than the misalignment the trim was written to
+    # fix. So: a block-constant body whose value IS the cycle count. After the edge,
+    # `knote` is n/kr on cycle n, so the first sample of the returned buffer must read
+    # cycle 1 and the sample one k-period later must read cycle 2. Anything else and the
+    # note's own first k-period is being thrown away or a preroll cycle kept.
+    _cyc = ("kx       = knote * kr / 1000\n"
+            "asig     upsamp kx\n")
+    _pos, _bad = [], []
+    for _pr in (MIN_PREROLL, 0.5, 1.0, 2.0):
+        _y, _e = render(_cyc, dur=0.5, preroll=_pr)
+        if _y is None or len(_y) <= W.KSMPS:
+            _bad.append(f"{_pr:.3f}: {_e}")
+            continue
+        _pos.append((round(float(_y[0]) * 1000, 6), round(float(_y[W.KSMPS]) * 1000, 6)))
+    check("the trim keeps the note's OWN first k-period, and not one of the preroll's",
+          not _bad and len(_pos) == 4 and all(p == (1.0, 2.0) for p in _pos),
+          "; ".join(_bad) if _bad else
+          f"the returned buffer must read (cycle 1, cycle 2) = (1.0, 2.0) at sample 0 and "
+          f"one k-period in; at four prerolls it reads {_pos[0]}. A trim off by one whole "
+          f"k-period is the same at every preroll, so the bit-identity case above cannot "
+          f"see it")
+
+    # And the refusal, which is the only thing standing between a caller and a silent
+    # measurement of the instance's uptime. Two k-periods is the minimum: the first has to
+    # be LOW for `changed2(ktrig)` to have an edge to see at all, so one k-period produces
+    # a scaffold where `ktrig` is high from cycle 1, `changed2` reads 0 for ever and
+    # `knote` never restarts. Zeroing MIN_PREROLL, halving it, or deleting the raise all
+    # left the suite green until this case existed.
+    _refused = None
+    try:
+        scaffold(_cyc, dur=0.5, preroll=W.KSMPS / SR)
+    except ValueError as _exc:
+        _refused = str(_exc)
+    check("a preroll too short to produce a trigger edge is REFUSED, not measured",
+          _refused is not None and MIN_PREROLL >= 2.0 * W.KSMPS / SR,
+          f"one k-period ({1000 * W.KSMPS / SR:.2f} ms) is refused and MIN_PREROLL is "
+          f"{1000 * MIN_PREROLL:.3f} ms, at least two k-periods"
+          if _refused else
+          f"one k-period was accepted — `knote` would read the instance's uptime and "
+          f"nobody would be told")
 
     # The tanpura class, and it has to be judged on the ENVELOPE. A raw-sample
     # comparison passes even when nothing in the fixture is free-running at all — the
