@@ -43,7 +43,7 @@ public:
     };
 
     /** Waveform types. Matches APVTS drift_wave choice order. */
-    enum Waveform { Sine = 0, Triangle, Sawtooth, Square, Random, SawDown };
+    enum Waveform { Sine = 0, Triangle, Sawtooth, Square, SampleHold, SawDown };
 
     static constexpr int NUM_LFOS = 3;
 
@@ -89,7 +89,7 @@ private:
         float depth = 0.0f;
         int target = 0;         // APVTS index: 0=None, 1=Alpha, etc.
         int waveform = Sine;
-        float heldValue = 0.0f; // latched value for Random waveform
+        float heldValue = 0.0f; // latched value for SampleHold waveform
         uint64_t rngState = 0xA1B2C3D4E5F60789ULL;
         bool armed = false;     // held silent at phase 0 until released on the downbeat
     };

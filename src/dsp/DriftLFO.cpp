@@ -28,7 +28,7 @@ float DriftLFO::waveformValue(const InternalLFO& lfo)
         case SawDown:
             // Inverse (falling) sawtooth: linear ramp +1..-1, hard reset up.
             return static_cast<float>(1.0 - 2.0 * p);
-        case Random:
+        case SampleHold:
             return lfo.heldValue;
         default:
             return static_cast<float>(std::sin(p * TWO_PI));
@@ -95,7 +95,7 @@ void DriftLFO::tick(double dt)
         if (lfo.phase >= 1.0)
         {
             lfo.phase -= std::floor(lfo.phase);
-            if (lfo.waveform == Random)
+            if (lfo.waveform == SampleHold)
                 lfo.heldValue = nextRandom(lfo);
         }
     }
@@ -144,7 +144,7 @@ void DriftLFO::setLfoTarget(int lfoIndex, int target)
         if (lfo.target != target)
         {
             lfo.phase = 0.0; // Phase reset on target change (reference behavior)
-            if (lfo.waveform == Random)
+            if (lfo.waveform == SampleHold)
                 lfo.heldValue = nextRandom(lfo);
             lfo.target = target;
         }
@@ -157,7 +157,7 @@ void DriftLFO::resetLfoPhase(int lfoIndex)
     {
         auto& lfo = lfos[static_cast<size_t>(lfoIndex)];
         lfo.phase = 0.0;
-        if (lfo.waveform == Random)
+        if (lfo.waveform == SampleHold)
             lfo.heldValue = nextRandom(lfo);
     }
 }
@@ -182,7 +182,7 @@ void DriftLFO::setLfoWaveform(int lfoIndex, int waveform)
         {
             lfo.waveform = waveform;
             lfo.phase = 0.0;
-            if (lfo.waveform == Random)
+            if (lfo.waveform == SampleHold)
                 lfo.heldValue = nextRandom(lfo);
         }
     }

@@ -1041,15 +1041,21 @@ namespace ClockSync {
 
 // ── Drift LFO waveform (label "Sq" differs from LfoWave "Square"!).
 //    SawDown = inverse/falling saw, appended last to keep choice indices
-//    stable for DAW-session recall. ──
+//    stable for DAW-session recall.
+//    Index 4 is bit-for-bit the same DSP as LfoWave::SampleHold — one xorshift
+//    value latched per period, held flat in between (stepped, never ramped) —
+//    so it carries the same "S&H" label. The .t5p KEY stays "random": keys are
+//    written into saved presets and choiceFromKey falls back to index 0 (Sine)
+//    on an unknown one, so renaming it would silently turn every saved Drift
+//    S&H patch into a sine. ──
 namespace DriftWave {
-    enum : int { Sine = 0, Tri = 1, Saw = 2, Square = 3, Random = 4, SawDown = 5 };
+    enum : int { Sine = 0, Tri = 1, Saw = 2, Square = 3, SampleHold = 4, SawDown = 5 };
     static constexpr ChoiceEntry kEntries[] = {
         { "sine",     "Sine" },
         { "triangle", "Tri"  },
         { "sawtooth", "Saw"  },
         { "square",   "Sq"   },
-        { "random",   "Rnd"  },
+        { "random",   "S&H"  },
         { "saw_down", "SawD" }
     };
     static constexpr int kCount = sizeof(kEntries) / sizeof(kEntries[0]);
