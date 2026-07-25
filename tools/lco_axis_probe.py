@@ -34,18 +34,35 @@ sys.path.insert(0, str(REPO / "tools"))
 
 import lco_measure as M  # noqa: E402
 
-# `kname  = number   ; comment` — the one shape an axis declaration may take.
-AXIS = re.compile(r"^(?P<pad>\s*)k(?P<name>[a-z][a-z0-9]*)(?P<gap>\s+)=(?P<sp>\s*)"
-                  r"(?P<val>-?\d+(?:\.\d+)?)(?P<tail>\s*(?:;.*)?)$")
+# `kvar  = number   ; axisname: what it does` — the one shape an axis may take.
+#
+# The trailing `axisname:` is REQUIRED and it is what names the axis, not the
+# variable. Two reasons, both found the hard way:
+#
+#   * A body sets plenty of k-variables that are NOT axes — `kmul = 0.86` for a
+#     `gbuzz` ratio, say. Matching on `kname = number` alone swept that one to 1.0,
+#     where the normalisation `1/(1-kmul)` is infinite, and 122 of 216 gate corners
+#     failed to render on two bodies that were otherwise fine. A constant with no
+#     `name:` comment is now left alone.
+#   * The axis's human name and its variable name are not the same word and should
+#     not have to be: the accordion's `kmus` is the parameter `musette`, and it is
+#     the parameter name that the lexicon, the anchors and the model all use.
+#
+# The name is capped at 16 characters so an ordinary prose comment that happens to
+# contain a colon ("a steel tongue through a narrow slit: bright") is not read as
+# a declaration.
+AXIS = re.compile(r"^(?P<pad>\s*)k(?P<var>[a-z][a-z0-9]*)(?P<gap>\s+)=(?P<sp>\s*)"
+                  r"(?P<val>-?\d+(?:\.\d+)?)(?P<pre>\s*;\s*)"
+                  r"(?P<name>[a-z][a-z0-9 _-]{0,15}):(?P<tail>.*)$")
 
 
 def axes(body):
-    """{name: (default, line index)} for every axis declaration in the body."""
+    """{axis name: (variable, default, line index)} for every declaration."""
     out = {}
     for i, line in enumerate(body.splitlines()):
         m = AXIS.match(line)
         if m:
-            out[m.group("name")] = (float(m.group("val")), i)
+            out[m.group("name").strip()] = (m.group("var"), float(m.group("val")), i)
     return out
 
 
@@ -54,9 +71,10 @@ def with_axis(body, name, value):
     found = 0
     for i, line in enumerate(lines):
         m = AXIS.match(line)
-        if m and m.group("name") == name:
-            lines[i] = (f"{m.group('pad')}k{name}{m.group('gap')}={m.group('sp')}"
-                        f"{value:g}{m.group('tail')}")
+        if m and m.group("name").strip() == name:
+            lines[i] = (f"{m.group('pad')}k{m.group('var')}{m.group('gap')}="
+                        f"{m.group('sp')}{value:g}{m.group('pre')}"
+                        f"{m.group('name')}:{m.group('tail')}")
             found += 1
     if found != 1:
         raise SystemExit(f"axis {name!r} is declared {found} times — an axis has to "
@@ -132,52 +150,77 @@ def gate(body, freq=220.0, steps=3, registers=(55, 110, 220, 440, 880, 1760)):
     Five questions, each the objective form of a rule in `LCO_CONCEPT.md` §4:
     does every corner render, does every corner MOVE, is the loudness the same at
     all of them, is it the same at every register, and does any corner clip.
+
+    Every corner is asked at every REGISTER, not the corners at one pitch and the
+    registers at the defaults. The combination is what breaks the rule: the bagpipe
+    reported 0.12 dB across its corners and 0.24 dB across its registers, and 1.44 dB
+    across the cross — quietest at bass drone with no beat at 55 Hz, loudest a
+    half-turn away at 110 Hz. Two marginals both inside a bound say nothing about the
+    joint, and a gate that only ever looked at marginals passed a body that violates
+    its own 1.00 dB rule. The cost is real: three axes at three steps over six
+    registers is 162 renders, roughly five times the old gate.
     """
     names = sorted(axes(body))
     vals = [i / (steps - 1) for i in range(steps)] if steps > 1 else [0.5]
+    regs = [float(f) for f in registers]
     rows, fails = [], []
     for combo in itertools.product(vals, repeat=len(names)):
         b = body
         for k, v in zip(names, combo):
             b = with_axis(b, k, v)
-        y, err = M.render(b, dur=4.0, freq=freq)
         corner = dict(zip(names, combo))
-        if y is None:
-            fails.append(("renders", corner, err))
-            continue
-        r = M.measure(y, freq)
-        rows.append((corner, r))
-        if not r["moves"]:
-            fails.append(("moves", corner,
-                          f"travel {r['centroid_motion_hz']} Hz at coherence "
-                          f"{r['motion_coherence']} — variance, not motion"))
+        for f in regs:
+            y, err = M.render(b, dur=4.0, freq=f)
+            if y is None:
+                fails.append(("renders", dict(corner, **{"Hz": f}), err))
+                continue
+            # `moves` and the spectral meters are only meaningful about the note
+            # being played, so they are read at `freq`; loudness and peak are read
+            # everywhere, since that is where the cross matters.
+            if f == freq:
+                r = M.measure(y, freq)
+                if not r["moves"]:
+                    fails.append(("moves", corner,
+                                  f"travel {r['centroid_motion_hz']} Hz at coherence "
+                                  f"{r['motion_coherence']} — variance, not motion"))
+            else:
+                r = {"rms_db": M.rms_db(y), "peak_p999": M.peak_p999(y)}
+            rows.append((dict(corner, **{"Hz": f}), r))
     if not rows:
         return False, fails, {}
-    lv = [r["rms_db"] for _, r in rows]
+    at_freq = [(c, r) for c, r in rows if c["Hz"] == freq]
+    lv = [r["rms_db"] for _, r in at_freq]
     pk = max(((r["peak_p999"], c) for c, r in rows), key=lambda t: t[0])
-    stats = {"corners": len(rows), "loudness_spread_db": round(max(lv) - min(lv), 2),
+    stats = {"corners": len(at_freq), "renders": len(rows),
+             "loudness_spread_db": round(max(lv) - min(lv), 2) if lv else None,
              "worst_peak": pk}
-    if stats["loudness_spread_db"] > 1.0:
+    if stats["loudness_spread_db"] is not None and stats["loudness_spread_db"] > 1.0:
         fails.append(("one loudness", pk[1],
                       f"{stats['loudness_spread_db']:.2f} dB across the corners"))
     if pk[0] > 2.97:
         fails.append(("headroom", pk[1],
                       f"p99.9 {pk[0]:.2f}; the host clips a body above 2.97"))
-    reg = []
-    for f in registers:
-        yr, er = M.render(body, dur=4.0, freq=float(f))
-        if yr is None:
-            fails.append(("renders", {"register": f}, er))
-        else:
-            reg.append((f, M.rms_db(yr)))
-    if len(reg) >= 2:
-        v = [x for _, x in reg]
+    # the register tilt at the DEFAULTS, kept because it is the number the notes
+    # quote, and then the whole cross, which is the one that has to hold.
+    dflt = {n: d for n, (_v, d, _i) in axes(body).items()}
+    near = min(rows, key=lambda cr: sum(abs(cr[0].get(n, 0) - dflt.get(n, 0))
+                                        for n in names))[0]
+    base = [(c["Hz"], r["rms_db"]) for c, r in rows
+            if all(abs(c[n] - near[n]) < 1e-9 for n in names)]
+    if len(base) >= 2:
+        v = [x for _, x in base]
         stats["register_tilt_db"] = round(max(v) - min(v), 2)
-        stats["register"] = [(f, round(x, 2)) for f, x in reg]
-        if stats["register_tilt_db"] > 3.0:
-            fails.append(("one loudness at every register", {},
-                          f"{stats['register_tilt_db']:.2f} dB across "
-                          f"{registers[0]}-{registers[-1]} Hz"))
+        stats["register"] = [(f, round(x, 2)) for f, x in sorted(base)]
+    allv = [(r["rms_db"], c) for c, r in rows]
+    if len(allv) >= 2:
+        lo, hi = min(allv, key=lambda t: t[0]), max(allv, key=lambda t: t[0])
+        stats["cross_spread_db"] = round(hi[0] - lo[0], 2)
+        stats["cross_quietest"], stats["cross_loudest"] = lo[1], hi[1]
+        if stats["cross_spread_db"] > 3.0:
+            fails.append(("one loudness at every register", hi[1],
+                          f"{stats['cross_spread_db']:.2f} dB across the corners AND "
+                          f"registers together — quietest {lo[0]:.2f} at {lo[1]}, "
+                          f"loudest {hi[0]:.2f} at {hi[1]}"))
     return not fails, fails, stats
 
 
@@ -201,7 +244,7 @@ def main():
         raise SystemExit("no axis declarations found. An axis is a line of the "
                          "shape `kname  = 0.45   ; what it does`.")
     print(f"{args.body}: axes " +
-          ", ".join(f"{n}={v:g}" for n, (v, _) in sorted(declared.items())))
+          ", ".join(f"{n}={d:g}" for n, (_v, d, _i) in sorted(declared.items())))
 
     y, err = M.render(body, dur=4.0, freq=args.freq)
     if y is None:
@@ -240,9 +283,12 @@ def main():
 
     if args.gate:
         ok, fails, st = gate(body, args.freq, args.steps)
-        print(f"\ngate: {st.get('corners', 0)} corners, loudness spread "
+        print(f"\ngate: {st.get('corners', 0)} corners x "
+              f"{st.get('renders', 0) // max(st.get('corners', 1), 1)} registers = "
+              f"{st.get('renders', 0)} renders, loudness spread "
               f"{st.get('loudness_spread_db')} dB, register tilt "
-              f"{st.get('register_tilt_db')} dB, worst p99.9 "
+              f"{st.get('register_tilt_db')} dB, the two crossed "
+              f"{st.get('cross_spread_db')} dB, worst p99.9 "
               f"{st['worst_peak'][0]:.2f} at {st['worst_peak'][1]}"
               if st else "\ngate: nothing rendered")
         for rule, corner, detail in fails:
