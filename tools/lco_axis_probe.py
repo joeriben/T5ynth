@@ -299,10 +299,46 @@ def gate(body, freq=220.0, steps=3, registers=(55, 110, 220, 440, 880, 1760)):
     # the question `LCO_PARAM_AUDIT.md` already records as BJ's. What this DOES do is
     # make the class visible: `overtone_voice`'s 6.08 dB step train was invisible to
     # every number this gate printed, because each corner's MEAN was steady.
-    tv = max(((r["loudness_travel_db"], c) for c, r in rows), key=lambda t: t[0])
+    tv = max(((r["loudness_travel_db"] or 0.0, c) for c, r in rows), key=lambda t: t[0])
+    # The DRIFT is gated, and unlike the span above it is not ambiguous. §4 names this
+    # class outright — "a tone that fades to silence on its own is not" a spectrum
+    # source — and `loudness_travel` is blind to it by construction: it detrends the dB
+    # envelope, so a straight line is removed exactly. A body that SWELLS 20 dB inside a
+    # held note read 0.00 dB of travel and passed this gate with every printed number
+    # clean. A struck body is the one honest exception: a decay is a fade and is meant
+    # to be, so a body whose `sustain` says it is decaying is judged on its travel only.
+    dr = max(((abs(r["loudness_drift_db"] or 0.0), r["sustain"], c) for c, r in rows),
+             key=lambda t: t[0])
     stats = {"corners": len(at_freq), "renders": len(rows),
              "loudness_spread_db": round(max(lv) - min(lv), 2) if lv else None,
-             "worst_peak": pk, "worst_travel": tv, "moves_elsewhere": elsewhere}
+             "worst_peak": pk, "worst_travel": tv, "worst_drift": dr,
+             "moves_elsewhere": elsewhere}
+    sustained = [(abs(r["loudness_drift_db"] or 0.0), r["loudness_drift_db"], c)
+                 for c, r in rows if r["sustain"] > 0.25]
+    if sustained:
+        wd = max(sustained, key=lambda t: t[0])
+        stats["worst_sustained_drift"] = wd
+        if wd[0] > 6.0:
+            # A candidate failure is CONFIRMED on a note four times as long before it
+            # counts, because one slow cycle caught inside a short window is a straight
+            # line: `crackle` reads -6.33 dB over six seconds and +0.12 over twelve, and
+            # `supersaw`'s slow detune beat reads +6.26 and then +2.49. A real trend goes
+            # the other way and grows — an asked swell read +1.71 dB at six seconds and
+            # +16.39 at forty-eight. Without this the gate condemned two shipped entries
+            # for the length of its own window.
+            corner = {k: v for k, v in wd[2].items() if k != "Hz"}
+            b = body
+            for k, v in corner.items():
+                b = with_axis(b, k, v)
+            y, err = M.render(b, dur=16.0, freq=wd[2]["Hz"])
+            long = None if y is None else M.loudness_drift_db(y)
+            stats["worst_drift_confirmed"] = long
+            if long is not None and abs(long) > 6.0 and (long > 0) == (wd[1] > 0):
+                fails.append(("one loudness inside the note", wd[2],
+                              f"the level drifts {wd[1]:+.2f} dB from one end of a held "
+                              f"note to the other and {long:+.2f} dB over a note four "
+                              f"times as long, so it is a trend and not a slow cycle, "
+                              f"and the body is not a decaying one"))
     if stats["loudness_spread_db"] is not None and stats["loudness_spread_db"] > 1.0:
         fails.append(("one loudness", pk[1],
                       f"{stats['loudness_spread_db']:.2f} dB across the corners"))
@@ -419,10 +455,28 @@ def main():
               f"{st['worst_peak'][0]:.2f} at {st['worst_peak'][1]}"
               if st else "\ngate: nothing rendered")
         if st.get("worst_travel"):
+            # Reported with its verdict, because the span alone was meaningless: a narrow
+            # filter fed noise has a fluctuating envelope with nothing modulating it, and
+            # a bare "15 dB" was a statement about bandwidth. `loudness_is_the_body`
+            # re-renders with other seeds and says whether the body did it.
+            who = M.loudness_is_the_body(body, freq=args.freq)
+            verdict = ("not measured — nothing here can be reseeded" if who is None
+                       else f"THE BODY does this ({who:+.3f})" if who >= M._BODY_MIN
+                       else f"the noise it is made of, not the body ({who:+.3f})")
             print(f"  note  worst loudness travel INSIDE a note "
-                  f"{st['worst_travel'][0]:.2f} dB at {st['worst_travel'][1]} "
-                  f"(reported, not gated — a detune beat reads high here too; "
-                  f"15 shipped entries are above 6 dB)")
+                  f"{st['worst_travel'][0]:.2f} dB at {st['worst_travel'][1]}: "
+                  f"{verdict}")
+        if st.get("worst_sustained_drift"):
+            wd = st["worst_sustained_drift"]
+            cf = st.get("worst_drift_confirmed")
+            if wd[0] > 6.0 and cf is not None and not (
+                    abs(cf) > 6.0 and (cf > 0) == (wd[1] > 0)):
+                print(f"  note  the level drifts {wd[1]:+.2f} dB end to end at {wd[2]}, "
+                      f"but only {cf:+.2f} dB over a note four times as long — one slow "
+                      f"cycle, not a trend")
+            elif wd[0] <= 6.0:
+                print(f"  note  worst level drift end to end {wd[1]:+.2f} dB at {wd[2]}, "
+                      f"on a body that is not decaying")
         for rule, corner, detail in fails:
             print(f"  FAIL  {rule}: {corner}  {detail}")
         # Reported, not gated — see `gate`. Grouped by register, because the shape of

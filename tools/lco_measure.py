@@ -186,11 +186,65 @@ def loudness_travel(y, t0=1.0, win=0.05):
     far above that and are not defects.
 
     The first second is skipped: an attack is not travel.
+
+    THE SPAN ALONE DOES NOT SAY WHETHER THE BODY IS AT FAULT — read it with
+    `loudness_is_the_body`. A narrow filter fed noise has a fluctuating envelope by
+    construction, and the narrower it is the wilder that gets: with NOTHING whatever
+    modulating it, `mode aex, 880, Q` measured 5.86 dB at Q 10, 14.92 at Q 200 and
+    18.43 at Q 700, and 24.14 at Q 700 over twelve seconds instead of four. A
+    `butterbp` of 1 Hz reads 20.11. A deliberate 3.00 dB tremolo on a wide band reads
+    4.88 — LESS than any of them. So on every narrowband body in this library the span
+    is dominated by Rayleigh statistics, it grows with the note's length, and a bare
+    figure like "15 dB" is a statement about the filter's bandwidth and not about the
+    design. Figures for `fm_bell`, `glass`, `struck_bar` and every mode bank were
+    published from this before the split existed and meant nothing.
+
+    THE DETREND IS A BLIND SPOT AND `loudness_drift_db` IS THE OTHER HALF. A straight
+    line in dB is removed exactly, which is the point for a decay and a hole for
+    everything else: a note that fades 6 dB or SWELLS 20 dB from beginning to end reads
+    0.00 here, and §4 names exactly that ("a tone that fades to silence on its own is
+    not"). Read the two together or the monotone class is invisible.
+
+    Returns None, not 0.0, when it could not measure — a note too short for four windows
+    or one with fewer than four windows above the floor. Those used to return 0.0, which
+    is what a clean steady tone returns, so "declined to measure" and "measured no
+    travel" were the same number: a 1.1 s note with 12 dB of tremolo in it read 0.00.
     """
+    e = _loudness_track(y, t0, win)
+    if e is None:
+        return None
+    t = np.arange(len(e))
+    a, b = np.polyfit(t, e, 1)
+    return float(np.ptp(e - (a * t + b)))
+
+
+def loudness_drift_db(y, t0=1.0, win=0.05):
+    """The monotone part — what `loudness_travel` detrends away — over the whole note, in dB.
+
+    Signed: positive is a swell, negative a fade. This is the straight line's own total
+    rise or fall across the window, so a body that gets steadily louder inside a held
+    note reads its 20 dB here and 0.00 there. `sustain` sees the same class but as a
+    ratio of the two ENDS, which a body that decays and then recovers can hide; this is
+    the fit over every window.
+
+    A decay is not a defect and reads large here on purpose — a struck note SHOULD fade.
+    What the gate has to decide is whether a body is a struck one, and that is
+    `sustain`'s job, not this one's.
+    """
+    e = _loudness_track(y, t0, win)
+    if e is None or len(e) < 4:
+        return None
+    t = np.arange(len(e))
+    a, _ = np.polyfit(t, e, 1)
+    return float(a * (len(e) - 1))
+
+
+def _loudness_track(y, t0=1.0, win=0.05):
+    """The dB envelope `loudness_travel` and `loudness_coherence` both read, or None."""
     s = y[int(t0 * SR):]
     n = int(win * SR)
     if len(s) < 4 * n:
-        return 0.0
+        return None
     e = np.array([np.sqrt((s[i:i + n] ** 2).mean()) for i in range(0, len(s) - n, n)])
     e = 20 * np.log10(np.maximum(e, 1e-12))
     # Windows more than 60 dB under the loudest are dropped, and that is not cosmetic:
@@ -199,11 +253,98 @@ def loudness_travel(y, t0=1.0, win=0.05):
     # before this line, which is a meter reporting its own arithmetic.
     keep = e > e.max() - 60.0
     if keep.sum() < 4:
-        return 0.0
-    e = e[keep]
-    t = np.arange(len(e))
-    a, b = np.polyfit(t, e, 1)
-    return float(np.ptp(e - (a * t + b)))
+        return None
+    return e[keep]
+
+
+_RESEED = re.compile(r"(\brand[ih]?\s+[^,\n]+,\s*)(\d*\.?\d+)")
+# Every opcode in Csound that draws a random number. A body containing none of these is
+# fully deterministic, so whatever its level does, it does on purpose.
+_STOCHASTIC = re.compile(
+    r"\b(rand|randi|randh|random|randomi|randomh|rnd31|urandom|noise|pinkish|gauss|"
+    r"gaussi|gausstrig|dust|dust2|fractalnoise|jitter|jitter2|jspline|rspline|urd|"
+    r"unirand|linrand|trirand|exprand|bexprnd|cauchy|cauchyi|pcauchy|poisson|betarand|"
+    r"weibull|vrandh|vrandi|duserrnd|cuserrnd|seed)\b")
+# Above this the level is the body's doing. The null over 50 bare resonances maxed at
+# +0.246, so this is that plus room, and nothing about it is a preference.
+_BODY_MIN = 0.35
+
+
+def reseed(body, k):
+    """The same body with a different noise realisation, or None if there is none to change.
+
+    Every stochastic source in the library is one of four opcodes and `rand` — 19 of the
+    25 calls — carries its own explicit seed, so a different realisation is a rewrite of
+    that argument and nothing else. `dust`, `dust2` and `pinkish` take the global seed,
+    which this cannot reach from here, so a body whose ONLY noise is one of those gets
+    None rather than a wrong answer.
+    """
+    n = [0]
+
+    def sub(m):
+        n[0] += 1
+        return f"{m.group(1)}{(0.11 + 0.13 * n[0] + 0.37 * k) % 0.98 + 0.01:.4f}"
+
+    out = _RESEED.sub(sub, body)
+    if n[0] == 0:
+        return None
+    return out
+
+
+def loudness_is_the_body(body, freq=220.0, dur=8.0, k=(0, 1, 2)):
+    """Did the BODY move the level over the note, or is it the noise it is made of?
+
+    `loudness_travel`'s span cannot answer this and neither can anything computed from
+    one render. What answers it is that a deterministic modulation is INDEPENDENT of the
+    noise realisation and a noise envelope is nothing but the realisation: so render the
+    same body with different seeds and correlate the dB envelopes. Returns the median
+    pairwise correlation, or None when the body has no reseedable source.
+
+    The null is measured, not assumed: 50 bare resonances over Q 10..2000, two pitches
+    and three durations read mean +0.016, sd 0.076, MAX +0.246. So `_BODY_MIN` = 0.35
+    sits above the largest reading noise alone produced, the same way `moves` sets its
+    own threshold. Above it, the body is doing it.
+
+    ITS POWER IS NOT ABSOLUTE, and that is the honest limit: this measures how much of
+    the span the modulation OWNS, so a modulation buried under the body's own envelope
+    fluctuation cannot be seen. Measured over 60 tremolos of 0.5..6 dB at 0.3..5 Hz, the
+    median reading is +0.892 on a 400 Hz band, +0.681 on 100 Hz and +0.193 on 10 Hz —
+    on a band that narrow even 6 dB is invisible, because the envelope's own span there
+    is about 13 dB. At 3 dB or more on a band of 100 Hz or wider the minimum is +0.836.
+
+    So: ABOVE the threshold is proof, BELOW it is "not demonstrated", never "innocent".
+    Two independent reasons for that asymmetry, both measured. A modulation whose RATE
+    comes from the PITCH also decorrelates — the first version of this test compared
+    pitches rather than seeds and read `overtone_voice`'s real 6.66 dB step pump as
+    -0.03, because the harmonic it steps through is chosen from the pitch. And a body
+    stochastic in a way `reseed` cannot reach returns None, which means "not measured".
+    """
+    if not _STOCHASTIC.search(body):
+        # Nothing random in it at all, so whatever the level does, the body does. This is
+        # not a measurement and does not need to be one; returning None here said "not
+        # measured" about 13 entries whose answer is certain, `fm_bell` among them.
+        return 1.0
+    ts = []
+    for i in k:
+        b = reseed(body, i)
+        if b is None:
+            return None
+        y, err = render(b, dur=dur, freq=freq)
+        if y is None:
+            continue
+        e = _loudness_track(y)
+        if e is None or len(e) < 16:
+            continue
+        t = np.arange(len(e))
+        p, q = np.polyfit(t, e, 1)
+        ts.append(e - (p * t + q))
+    if len(ts) < 2:
+        return None
+    n = min(len(t) for t in ts)
+    ts = [t[:n] for t in ts]
+    cs = [float(np.corrcoef(a, b)[0, 1])
+          for i, a in enumerate(ts) for b in ts[i + 1:]]
+    return float(np.median(cs))
 
 
 def f0(y, t0=0.5, t1=2.5):
@@ -691,6 +832,10 @@ def moves(y, n=128, span_cents=60.0, min_coherence=0.35):
             round(span, 1), round(r1, 3))
 
 
+def _r2(v):
+    return None if v is None else round(v, 2)
+
+
 def measure(y, asked_freq):
     f = f0(y)
     cs, span = travel(y, 8)
@@ -723,7 +868,13 @@ def measure(y, asked_freq):
             # Loudness travelling INSIDE the note, which `rms_db` averages away and
             # `sustain` only sees if it drifts one way. `overtone_voice` stepped 6.08 dB
             # over a held note while every corner's mean was steady to 0.33 dB.
-            "loudness_travel_db": round(loudness_travel(y), 2),
+            # The span says how far the level moved and NOT whether the body moved it —
+            # for that see `loudness_is_the_body`, which needs the body and not the
+            # samples and so cannot be reported from here.
+            "loudness_travel_db": _r2(loudness_travel(y)),
+            # …and the monotone half of it, which the detrend above removes exactly and
+            # §4 forbids just as squarely. None means the note was too short to read.
+            "loudness_drift_db": _r2(loudness_drift_db(y)),
             "beat_depth": round(bd, 3),
             "beat_rate_hz": round(br, 2),
             "centroid_over_note": [round(c) for c in cs],
@@ -771,7 +922,7 @@ asig    streson aex, kfreq * koct1, {fb}"""
 # How many calibration cases there are. Asserted at the end so a group that stops
 # running — an early `return`, a render failure that `continue`s past its check, a
 # refactor that drops a block — is a FAILURE and not a quietly shorter green run.
-_CASES = 52
+_CASES = 64
 
 
 def selftest():
@@ -1085,8 +1236,94 @@ asig    poscil 0.4 * (1 + 2 * kam), kfreq * koct1, giSine""", freq=880.0)
             check(label, False, et)
             continue
         v = loudness_travel(yt)
-        check(label, want[0] <= v <= want[1],
-              f"{v:.2f} dB (expected {want[0]:.2f}..{want[1]:.2f})")
+        check(label, v is not None and want[0] <= v <= want[1],
+              f"{'None' if v is None else f'{v:.2f} dB'} "
+              f"(expected {want[0]:.2f}..{want[1]:.2f})")
+
+    # Four of the five cases above have a lower bound of 0.00, so a meter that returned a
+    # constant 0.0 would pass four of them — and 0.0 is exactly what both early exits used
+    # to return. These have teeth: the monotone class must be SEEN (by the drift, since the
+    # detrend removes it by design), and an unmeasurable note must say None and not 0.
+    for label, body, dur, want_travel, want_drift in (
+        ("a -6 dB fade over the note is invisible to the travel and plain in the drift",
+         "kenv    expon 1.0, 4.0, 0.501\nasig    poscil 0.4 * kenv, kfreq * koct1",
+         5.0, (0.0, 0.10), (-7.0, -5.0)),
+        ("a +20 dB swell inside a held note — §4's own named violation — is seen",
+         "kenv    expon 0.1, 4.0, 1.0\nasig    poscil 0.4 * kenv, kfreq * koct1",
+         5.0, (0.0, 0.10), (14.0, 21.0)),
+        ("a steady tone drifts nowhere, so the drift does not cry wolf",
+         "asig    poscil 0.4, kfreq * koct1", 6.0, (0.0, 0.10), (-0.10, 0.10)),
+        ("a note too short to read says None and does not pass itself off as 0.00",
+         "kt      poscil 0.7500, 4.0\nasig    poscil 0.4 * (1 + kt), kfreq * koct1",
+         1.1, None, None),
+    ):
+        yt, et = render(body, dur=dur, freq=440.0)
+        if et:
+            check(label, False, et)
+            continue
+        tv, dr = loudness_travel(yt), loudness_drift_db(yt)
+        if want_travel is None:
+            check(label, tv is None and dr is None,
+                  f"travel {tv}, drift {dr} (expected None, None)")
+            continue
+        check(label, tv is not None and dr is not None
+              and want_travel[0] <= tv <= want_travel[1]
+              and want_drift[0] <= dr <= want_drift[1],
+              f"travel {tv if tv is None else f'{tv:.2f}'} dB, "
+              f"drift {dr if dr is None else f'{dr:+.2f}'} dB (expected "
+              f"{want_travel[0]:.2f}..{want_travel[1]:.2f} and "
+              f"{want_drift[0]:+.1f}..{want_drift[1]:+.1f})")
+
+    # …and the span alone is not a verdict. A narrow filter fed noise has a fluctuating
+    # envelope with nothing modulating it at all, and the narrower it is the larger the
+    # span: Q 10 reads 5.86 dB, Q 200 reads 14.92, Q 700 reads 18.43, and the same Q 700
+    # over twelve seconds instead of four reads 24.14 — so the span also grows with how
+    # long the note is held. A deliberate 3 dB tremolo reads 4.88 dB on a wide band, LESS
+    # than any of them. Every figure published for a mode bank before `loudness_is_the_body`
+    # existed was therefore a statement about a filter's bandwidth.
+    #
+    # The flatness of the loudness track does NOT rescue it and was tried first: measured
+    # over 66 bare resonances the null runs to 0.836, because a very narrow filter's
+    # envelope decorrelates over 1/bandwidth and at Q 2000 that is one slow swell in four
+    # seconds — spectrally a single low rate, indistinguishable in shape from an LFO. The
+    # signal distribution reaches down to 0.000 over the same range. The two overlap
+    # completely and there is no threshold to pick.
+    for label, body, want_span, want_body in (
+        ("a bare Q 200 resonance on noise: a large span that is NOT the body's doing",
+         "aex     rand 0.02, 0.5, 1\nasig    mode aex, 880, 200", (8.0, 30.0), (-0.35, 0.35)),
+        ("a bare Q 2000 resonance reads the same way, and its span is even larger",
+         "aex     rand 0.02, 0.5, 1\nasig    mode aex, 880, 2000", (8.0, 30.0), (-0.35, 0.35)),
+        ("a 1 Hz butterbp on noise: it is the bandwidth, not the opcode",
+         "aex     rand 0.02, 0.5, 1\nasig    butterbp aex, 880, 1", (8.0, 30.0), (-0.35, 0.35)),
+        ("a real tremolo reads a SMALLER span and is unmistakably the body",
+         "aex     rand 0.3, 0.5, 1\nkt      poscil 0.1730, 0.7\n"
+         "asig    butterbp aex * (1 + kt), 880, 400", (2.0, 8.0), (_BODY_MIN, 1.0)),
+        ("a tremolo on a narrower band is caught too, with less margin",
+         "aex     rand 0.3, 0.5, 1\nkt      poscil 0.4150, 2.0\n"
+         "asig    butterbp aex * (1 + kt), 880, 100", (2.0, 20.0), (_BODY_MIN, 1.0)),
+        ("…but 1 dB hidden under a 10 Hz band's own 13 dB of envelope is NOT caught, "
+         "and the test says so rather than guessing",
+         "aex     rand 0.3, 0.5, 1\nkt      poscil 0.0593, 0.3\n"
+         "asig    butterbp aex * (1 + kt), 880, 10", (5.0, 30.0), (-0.35, _BODY_MIN)),
+        ("a body with nothing random in it needs no measuring: whatever the level does, "
+         "it does",
+         "asig    poscil 0.4, kfreq * koct1", (0.0, 0.10), (1.0, 1.0)),
+        ("…but one whose only noise is `dust` cannot be reseeded from here, and says "
+         "None rather than guessing",
+         "aex     dust 0.02, 400\nasig    mode aex, 880, 200", (2.0, 30.0), (None, None)),
+    ):
+        yt, et = render(body, dur=8.0, freq=880.0)
+        if et:
+            check(label, False, et)
+            continue
+        sp = loudness_travel(yt) or 0.0
+        bd = loudness_is_the_body(body, freq=880.0)
+        ok = want_span[0] <= sp <= want_span[1] and (
+            bd is None if want_body[0] is None else
+            bd is not None and want_body[0] <= bd <= want_body[1])
+        check(label, ok, f"{sp:.2f} dB, the body {'None' if bd is None else f'{bd:+.3f}'} "
+              f"(expected {want_span[0]:.1f}..{want_span[1]:.1f} dB, "
+              f"{'None' if want_body[0] is None else f'{want_body[0]:+.2f}..{want_body[1]:+.2f}'})")
 
     print("comb contrast tracks the resonator, not the exciter")
     (yn, en), (yh, eh), (yl, el) = (render(_NOISE), render(_comb(0.995)),
