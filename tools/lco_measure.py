@@ -210,8 +210,36 @@ def _mag(y, t0, t1):
 
 
 def centroid(y, t0=0.5, t1=3.5):
+    """The amplitude-weighted spectral centroid — a DESCRIPTIVE colour coordinate.
+
+    Every centroid figure quoted in the library's notes is this one. It is not the
+    right weighting for an audibility CLAIM: see `centroid_audible`.
+    """
     S, fq = _mag(y, t0, t1)
     return float((S * fq).sum() / max(S.sum(), 1e-12))
+
+
+def centroid_audible(y, t0=0.5, t1=3.5):
+    """The POWER-weighted centroid, for asking whether a listener would notice.
+
+    An amplitude-weighted centroid on a linear frequency axis hands enormous
+    leverage to quiet high-frequency energy: a partial 60 dB down at 18 kHz
+    contributes 0.001 x 18000 against the fundamental's 1 x 220. So a standing
+    220 Hz sine plus an inaudible 18 kHz whisper tremoloing at 0.5 Hz passed
+    `moves()` with a span of 18.7 Hz at coherence 0.996 — a "movement by default"
+    gate satisfied by a static tone.
+
+    Power weighting is the standard definition anyway, and it removes the leverage
+    arithmetically rather than by a threshold: that same signal now spans 0.04 Hz.
+    The descriptive `centroid` is left alone because the whole library's notes quote
+    it and because a colour coordinate and a perceptual claim are different
+    questions. Measured over the 50 shipped bodies, power/amplitude runs 0.06 to
+    1.07 with a median of 0.59, so the two are NOT interchangeable — do not compare
+    a number from one against a number from the other.
+    """
+    S, fq = _mag(y, t0, t1)
+    P = S ** 2
+    return float((P * fq).sum() / max(P.sum(), 1e-12))
 
 
 def partials(y, f, n=16, t0=0.5, t1=3.5):
@@ -385,10 +413,15 @@ def travel(y, n=8):
     696 Hz in 31 ms ones (n=128). A standing sine reads 0 at every window length,
     which is what makes the fast reading evidence rather than noise. `measure()`
     therefore reports both.
+
+    Tracked on `centroid_audible`, not `centroid`: this is a claim about whether the
+    sound moves, and amplitude weighting on a linear axis let an inaudible partial
+    carry that claim. The span this returns is therefore NOT comparable with the
+    descriptive centroid figures in the library's notes.
     """
     n = max(2, n)
     edges = np.linspace(0, len(y) / SR, n + 1)
-    cs = [centroid(y, a, b) for a, b in zip(edges[:-1], edges[1:])]
+    cs = [centroid_audible(y, a, b) for a, b in zip(edges[:-1], edges[1:])]
     return cs, (max(cs) - min(cs))
 
 
@@ -535,15 +568,16 @@ def moves(y, n=128, span_hz=8.0, min_coherence=0.35):
     calibration also says what this test CANNOT do. Measured over all 50 entries at
     4 s and n=128:
 
-      unpitched beds            0.01 - 0.20   (thunder .01, crackle .02, noise .06,
-                                               pink_noise .10, rain .12, hiss .20)
-      a deliberate modulation   0.86 - 1.00   (free_reed .86, bagpipe .97, pwm .97,
-                                               harmonica .99, double_reed 1.00)
+      unpitched beds            0.00 - 0.18   (thunder, rain, crackle .00, hiss .06,
+                                               noise .07, drum_head .13, cymbal .18)
+      a deliberate modulation   0.51 - 1.00   (rhodes .51, wind .53, struck_bar .68,
+                                               free_reed .83, harmonica .99, and 23
+                                               entries at 1.00)
 
-    and the null distribution over 70 renders of unmodulated noise, both bare and
-    filtered, is mean 0.028, sd 0.049, MAX 0.154. So 0.35 sits in the empty space
-    between the two populations at better than twice the largest false reading noise
-    alone produced, which is why it is the threshold.
+    and the null distribution over 60 renders of unmodulated noise, both bare and
+    filtered, is mean 0.030, sd 0.045, MAX 0.188. Nothing whatever falls between 0.18
+    and 0.51, so 0.35 sits in the middle of an empty band at nearly twice the largest
+    false reading noise alone produced, which is why it is the threshold.
     But the band 0.20-0.86 is not empty in general: it holds three classes this
     meter cannot resolve at 4 s, and a reading in it means "not demonstrated in four
     seconds", never "static".
@@ -619,7 +653,7 @@ asig    streson aex, kfreq * koct1, {fb}"""
 # How many calibration cases there are. Asserted at the end so a group that stops
 # running — an early `return`, a render failure that `continue`s past its check, a
 # refactor that drops a block — is a FAILURE and not a quietly shorter green run.
-_CASES = 41
+_CASES = 43
 
 
 def selftest():
@@ -683,7 +717,14 @@ asig    tone asaw, kcut""")
     else:
         _, span_mov = travel(ymov)
         _, span_still = travel(ys)
-        check("a sweep travels", span_mov > 800, f"{span_mov:.0f} Hz")
+        # 267 Hz, not the 2274 the amplitude-weighted centroid read on the same
+        # signal. A saw's POWER sits at its fundamental, so opening a one-pole
+        # lowpass from 300 Hz to 8 kHz is a large audible change that moves the power
+        # centroid only modestly — power weighting is conservative here, which is the
+        # price of its not being fooled by inaudible energy. What is asserted is the
+        # discrimination against a standing sine's 0.00 Hz, plus the strong case
+        # below where the swept band IS the energy.
+        check("a sweep travels", span_mov > 200, f"{span_mov:.0f} Hz")
         check("a standing sine does not", span_still < 20, f"{span_still:.0f} Hz")
 
     # The trap the span alone walks into: an unmodulated noise source. Its centroid
@@ -724,6 +765,29 @@ asig    reson anz, 2200 + kcut, 900, 2""")
         seen, sp, r1 = moves(yr)
         check(f"movement at {rate} Hz is seen", seen,
               f"span {sp:.0f} Hz, coherence {r1:+.2f}")
+
+    # The exploit this weighting exists to close: energy nobody can hear must not be
+    # able to carry a claim about whether the sound moves.
+    yin, ein = render("""kt      poscil 0.5, 0.5
+a1      poscil 0.4, kfreq * koct1, giSine
+a2      poscil 0.0004 * (1 + kt), 18000, giSine
+asig    = a1 + a2""")
+    if ein:
+        check("an inaudible partial cannot carry the movement verdict", False, ein)
+    else:
+        m_i, sp_i, r_i = moves(yin)
+        check("an inaudible partial cannot carry the movement verdict", not m_i,
+              f"a standing sine plus a -60 dB 18 kHz tremolo: span {sp_i:.1f} Hz, "
+              f"coherence {r_i:+.2f} (amplitude-weighted it was 18.7 Hz at +1.00)")
+
+    yrs, ers = render("""anz     rand 0.4, 0.5, 1
+kcf     expon 400, 4.0, 6000
+asig    reson anz, kcf, kcf * 0.3, 2""")
+    if ers:
+        check("a swept band on noise travels", False, ers)
+    else:
+        _, sp_rs = travel(yrs)
+        check("a swept band on noise travels far", sp_rs > 3000, f"{sp_rs:.0f} Hz")
 
     print("tracking sees what follows the keyboard and what does not")
     _FIXED = "asig    poscil 0.4, 800, giSine"          # a fixed register: ignores kfreq
