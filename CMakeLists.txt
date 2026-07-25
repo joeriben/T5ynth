@@ -180,6 +180,20 @@ if(APPLE AND TARGET T5ynth_Standalone)
         VERBATIM)
 endif()
 
+# The standalone brings its own JUCEApplication (src/StandaloneAppLauncher.cpp)
+# so that launching does not open an audio INPUT device — JUCE's default app
+# does, before any window exists, and a stored setup naming a different input
+# than output device makes that an aggregate-device registration that can block
+# on coreaudiod with no window, no crash and no log. Resynth ext opens the input
+# on demand instead; the measurement and the mechanism are in
+# src/StandaloneAudioInput.h. Standalone-only: the plugin formats are untouched,
+# and so is the processor's stereo input bus.
+if(TARGET T5ynth_Standalone)
+    target_sources(T5ynth_Standalone PRIVATE src/StandaloneAppLauncher.cpp)
+    target_compile_definitions(T5ynth_Standalone PRIVATE
+        JUCE_USE_CUSTOM_PLUGIN_STANDALONE_APP=1)
+endif()
+
 juce_generate_juce_header(T5ynth)
 
 target_sources(T5ynth PRIVATE

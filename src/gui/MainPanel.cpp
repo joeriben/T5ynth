@@ -6,6 +6,7 @@
 #include "GuiHelpers.h"
 #include "BinaryData.h"
 #include "../ProductName.h"
+#include "../StandaloneAudioInput.h"   // Resynth ext opens the input on demand
 #include "PhysicalKeyState.h"   // t5::physicalKeyDown — layout-independent (isolated TU)
 #include <cmath>
 #include <cstring>
@@ -1216,6 +1217,32 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
             const int id = resynthSrcHidden.getSelectedId();
             for (int i = 0; i < 2; ++i)
                 resynthSrcBtns[i].setToggleState(i + 1 == id, juce::dontSendNotification);
+
+            // "ext" is the moment the standalone actually needs to listen. The
+            // input device is not opened at launch (src/StandaloneAudioInput.h
+            // has the why), so it is opened here — reported rather than failing
+            // quietly. Idempotent: a second ext with the input already open
+            // does nothing. In a plugin it is a no-op; the host owns the input.
+            //
+            // DEFERRED, never inline. This lambda also runs from the parameter
+            // attachment's own initial update, which happens INSIDE the editor's
+            // constructor — in the standalone that is inside the app's
+            // initialise(), before the window is ever shown. Opening the device
+            // there would rebuild the very no-window-at-launch state this whole
+            // change exists to prevent, for anyone whose last session ended on
+            // ext. callAsync puts it after initialise() has returned.
+            if (id == 2)
+            {
+                juce::Component::SafePointer<MainPanel> safeThis(this);
+                juce::MessageManager::callAsync([safeThis]
+                {
+                    if (safeThis == nullptr)
+                        return;
+                    const auto error = t5ynth::standalone::openParkedInputDevice();
+                    if (error.isNotEmpty())
+                        safeThis->statusBar.setStatusText("Resynth ext: " + error);
+                });
+            }
         };
         addChildComponent(resynthSrcHidden);   // hidden, not visible
         for (int i = 0; i < 2; ++i)
