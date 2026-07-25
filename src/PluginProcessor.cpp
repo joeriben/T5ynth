@@ -3163,10 +3163,47 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
         // next key press fires the off-edge and sounds that key a SECOND time on
         // top of the voice the key press already started.
         arpWasEnabled = arpEnabled;
-        // Keep free-running modulators phase-accurate.
-        lfo1.advancePhase(numSamples);
-        lfo2.advancePhase(numSamples);
-        lfo3.advancePhase(numSamples);
+        // Keep free-running modulators phase-accurate. lastLfoXVal_ must be
+        // refreshed here too, not just advanced — updateDriftState() (called
+        // every block, including this deep-idle one, since it runs above this
+        // return) reads it to modulate a Drift LFO's own Amt when an LFO
+        // targets Drift1/2/3Depth. A bare advancePhase() would leave that
+        // value frozen at whatever it was when the tail fully decayed, and
+        // driftLfo.getOffsetForTarget() (which keeps modulating Alpha/Axis/
+        // Noise/Magnitude/Resynth for the generation side "runs even during
+        // tail" drift) would inherit that stale constant instead of a live
+        // one — for a note-free session that can silently stop that drift
+        // dead. bp doesn't exist yet at this point in processBlock, so pull
+        // rate/waveform/Amount straight off paramCache (same Clock-Sync
+        // resolution as the live path below) before sampling — otherwise the
+        // Amount would react live while Rate/Wave/Clock-Sync edits go unheard
+        // until a note breaks idle. Mirrors the free-running branch further
+        // down (skipSynthesis-but-not-deep-idle) exactly.
+        if (numSamples > 0)
+        {
+            const int c1 = static_cast<int>(paramCache.lfo1ClockMode->load());
+            lfo1.setRate(c1 == ClockMode::Off ? paramCache.lfo1Rate->load()
+                : ClockSync::computeRate(syncBpm, static_cast<int>(paramCache.lfo1ClockDivision->load())));
+            lfo1.setWaveform(static_cast<int>(paramCache.lfo1Wave->load()));
+            const int c2 = static_cast<int>(paramCache.lfo2ClockMode->load());
+            lfo2.setRate(c2 == ClockMode::Off ? paramCache.lfo2Rate->load()
+                : ClockSync::computeRate(syncBpm, static_cast<int>(paramCache.lfo2ClockDivision->load())));
+            lfo2.setWaveform(static_cast<int>(paramCache.lfo2Wave->load()));
+            const int c3 = static_cast<int>(paramCache.lfo3ClockMode->load());
+            lfo3.setRate(c3 == ClockMode::Off ? paramCache.lfo3Rate->load()
+                : ClockSync::computeRate(syncBpm, static_cast<int>(paramCache.lfo3ClockDivision->load())));
+            lfo3.setWaveform(static_cast<int>(paramCache.lfo3Wave->load()));
+
+            lastLfo1Val_ = lfo1.processSample() * paramCache.lfo1Depth->load();
+            lastLfo2Val_ = lfo2.processSample() * paramCache.lfo2Depth->load();
+            lastLfo3Val_ = lfo3.processSample() * paramCache.lfo3Depth->load();
+            if (numSamples > 1)
+            {
+                lfo1.advancePhase(numSamples - 1);
+                lfo2.advancePhase(numSamples - 1);
+                lfo3.advancePhase(numSamples - 1);
+            }
+        }
         // MIDI Clock sample counter must advance unconditionally — a frozen base
         // would corrupt tick timestamps and break loss detection after idle gaps.
         midiClockBlockStart_ += static_cast<uint64_t>(numSamples);
@@ -4071,9 +4108,6 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
         float baseLfo1Depth = bp.lfo1Depth;
         float baseLfo2Depth = bp.lfo2Depth;
         float baseLfo3Depth = bp.lfo3Depth;
-        float baseDrift1Depth = paramCache.drift1Depth->load();
-        float baseDrift2Depth = paramCache.drift2Depth->load();
-        float baseDrift3Depth = paramCache.drift3Depth->load();
 
         // Re-prepare runs on samplerReprepareThread; the audio thread keeps
         // using the last published snapshot and only distributes it. This is the
@@ -4184,12 +4218,15 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
                 csoundEngines_[csoundOtherIdx].startBlock(numSamples);
         }
 
-        // LFO → normalized amount/depth targets (additive, clamped to 0–1)
+        // LFO → normalized amount targets (additive, clamped to 0–1). Drift
+        // Amt is NOT handled here — driftLfo's depth is already consumed by
+        // the time this runs (see updateDriftState), so it's modulated there
+        // instead, before its own tick()/getOffsetForTarget calls.
         {
             // lfo?Buf holds the raw unit-amplitude LFO (the oscillators run at
             // setDepth(1.0)); the per-voice path multiplies by the LFO Amount
-            // (bp.lfo?Depth) before use, so this block-rate Env-Amt/Drift-Depth
-            // path must apply the same Amount too — otherwise the Amt control is
+            // (bp.lfo?Depth) before use, so this block-rate Env-Amt path must
+            // apply the same Amount too — otherwise the Amt control is
             // bypassed here and these targets always see full depth (100%).
             float l1End = (numSamples > 0 ? lfo1Buf[numSamples - 1] : 0.0f) * baseLfo1Depth;
             float l2End = (numSamples > 0 ? lfo2Buf[numSamples - 1] : 0.0f) * baseLfo2Depth;
@@ -4197,25 +4234,12 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
             if (bp.lfo1Target == LfoTarget::Env1Amt) bp.ampAmount  = applyNormalizedOffset(bp.ampAmount,  l1End);
             if (bp.lfo1Target == LfoTarget::Env2Amt) bp.mod1Amount = applyNormalizedOffset(bp.mod1Amount, l1End);
             if (bp.lfo1Target == LfoTarget::Env3Amt) bp.mod2Amount = applyNormalizedOffset(bp.mod2Amount, l1End);
-            if (bp.lfo1Target == LfoTarget::Drift1Depth) baseDrift1Depth = applyNormalizedOffset(baseDrift1Depth, l1End);
-            if (bp.lfo1Target == LfoTarget::Drift2Depth) baseDrift2Depth = applyNormalizedOffset(baseDrift2Depth, l1End);
-            if (bp.lfo1Target == LfoTarget::Drift3Depth) baseDrift3Depth = applyNormalizedOffset(baseDrift3Depth, l1End);
             if (bp.lfo2Target == LfoTarget::Env1Amt) bp.ampAmount  = applyNormalizedOffset(bp.ampAmount,  l2End);
             if (bp.lfo2Target == LfoTarget::Env2Amt) bp.mod1Amount = applyNormalizedOffset(bp.mod1Amount, l2End);
             if (bp.lfo2Target == LfoTarget::Env3Amt) bp.mod2Amount = applyNormalizedOffset(bp.mod2Amount, l2End);
-            if (bp.lfo2Target == LfoTarget::Drift1Depth) baseDrift1Depth = applyNormalizedOffset(baseDrift1Depth, l2End);
-            if (bp.lfo2Target == LfoTarget::Drift2Depth) baseDrift2Depth = applyNormalizedOffset(baseDrift2Depth, l2End);
-            if (bp.lfo2Target == LfoTarget::Drift3Depth) baseDrift3Depth = applyNormalizedOffset(baseDrift3Depth, l2End);
             if (bp.lfo3Target == LfoTarget::Env1Amt) bp.ampAmount  = applyNormalizedOffset(bp.ampAmount,  l3End);
             if (bp.lfo3Target == LfoTarget::Env2Amt) bp.mod1Amount = applyNormalizedOffset(bp.mod1Amount, l3End);
             if (bp.lfo3Target == LfoTarget::Env3Amt) bp.mod2Amount = applyNormalizedOffset(bp.mod2Amount, l3End);
-            if (bp.lfo3Target == LfoTarget::Drift1Depth) baseDrift1Depth = applyNormalizedOffset(baseDrift1Depth, l3End);
-            if (bp.lfo3Target == LfoTarget::Drift2Depth) baseDrift2Depth = applyNormalizedOffset(baseDrift2Depth, l3End);
-            if (bp.lfo3Target == LfoTarget::Drift3Depth) baseDrift3Depth = applyNormalizedOffset(baseDrift3Depth, l3End);
-
-            driftLfo.setLfoDepth(0, baseDrift1Depth);
-            driftLfo.setLfoDepth(1, baseDrift2Depth);
-            driftLfo.setLfoDepth(2, baseDrift3Depth);
         }
 
         // Scan → P1 modulation offset (Sampler mode only: retrigger uses it).
@@ -5394,16 +5418,40 @@ void T5ynthProcessor::updateDriftState(int numSamples, float syncBpm)
         return ClockSync::computeRateFromFactor(syncBpm, DriftDivision::kFactor[divIdx]);
     };
 
+    // LFO1/2/3 → Drift1/2/3 Amt must land HERE, before tick()/getOffsetForTarget
+    // below consume driftLfo's depth — every real consumer of that depth (the
+    // Alpha/Axis/Noise/Magnitude/Resynth offsets further down in this
+    // function, plus WtScan/Filter/Pitch/EnvAmt and Delay/Reverb right after
+    // this function returns) reads it within THIS block, so a later overwrite
+    // is silently discarded on the very next call. bp isn't populated yet at
+    // this point in processBlock, so read the LFO targets straight off
+    // paramCache; lastLfoXVal_ is the previous block's LFO end-value (this
+    // block's own LFOs haven't ticked yet either) — the ghost computation
+    // further down uses the SAME member, just refreshed to this block's value
+    // by the time it reads it, so ghost and sound are one block apart, same
+    // lag as every other block-rate LFO ghost/effect pair in this file.
+    const int lt1 = static_cast<int>(paramCache.lfo1Target->load());
+    const int lt2 = static_cast<int>(paramCache.lfo2Target->load());
+    const int lt3 = static_cast<int>(paramCache.lfo3Target->load());
+    auto modulatedDriftDepth = [&](const std::atomic<float>* depthParam, int target)
+    {
+        float depth = depthParam->load();
+        if (lt1 == target) depth = applyNormalizedOffset(depth, lastLfo1Val_);
+        if (lt2 == target) depth = applyNormalizedOffset(depth, lastLfo2Val_);
+        if (lt3 == target) depth = applyNormalizedOffset(depth, lastLfo3Val_);
+        return depth;
+    };
+
     driftLfo.setLfoRate(0, driftRate(PID::drift1ClockMode, PID::drift1ClockDivision, PID::drift1Rate));
-    driftLfo.setLfoDepth(0, paramCache.drift1Depth->load());
+    driftLfo.setLfoDepth(0, modulatedDriftDepth(paramCache.drift1Depth, LfoTarget::Drift1Depth));
     driftLfo.setLfoTarget(0, d1t);
     driftLfo.setLfoWaveform(0, static_cast<int>(paramCache.drift1Wave->load()));
     driftLfo.setLfoRate(1, driftRate(PID::drift2ClockMode, PID::drift2ClockDivision, PID::drift2Rate));
-    driftLfo.setLfoDepth(1, paramCache.drift2Depth->load());
+    driftLfo.setLfoDepth(1, modulatedDriftDepth(paramCache.drift2Depth, LfoTarget::Drift2Depth));
     driftLfo.setLfoTarget(1, d2t);
     driftLfo.setLfoWaveform(1, static_cast<int>(paramCache.drift2Wave->load()));
     driftLfo.setLfoRate(2, driftRate(PID::drift3ClockMode, PID::drift3ClockDivision, PID::drift3Rate));
-    driftLfo.setLfoDepth(2, paramCache.drift3Depth->load());
+    driftLfo.setLfoDepth(2, modulatedDriftDepth(paramCache.drift3Depth, LfoTarget::Drift3Depth));
     driftLfo.setLfoTarget(2, d3t);
     driftLfo.setLfoWaveform(2, static_cast<int>(paramCache.drift3Wave->load()));
     driftLfo.tick(static_cast<double>(numSamples) / getSampleRate());

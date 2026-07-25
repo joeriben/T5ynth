@@ -76,7 +76,14 @@ void DriftLFO::tick(double dt)
 
     for (auto& lfo : lfos)
     {
-        if (lfo.target == 0 || lfo.depth == 0.0f) // target 0 = None
+        // depth is NOT part of this gate: with LFO->DriftAmt modulation, depth
+        // is now dynamic and bipolar-crosses zero every cycle — gating the
+        // phase clock on it would stall the Drift LFO for whatever fraction
+        // of the cycle depth reads zero, silently halving its effective rate.
+        // The main LFOs already free-run regardless of their own Amount knob
+        // (see the deep-idle advancePhase calls in processBlock); this mirrors
+        // that.
+        if (lfo.target == 0) // target 0 = None
             continue;
 
         if (lfo.armed)   // beat-sync hold: stay at phase 0 until released
