@@ -1,5 +1,5 @@
 {
- "lexicon_version": 37,
+ "lexicon_version": 38,
  "techniques": [
   {
    "key": "saw",
@@ -3329,7 +3329,8 @@
    ],
    "priority": 5,
    "why": "white noise -- `rand`, a flat full-spectrum hiss with no pitch at all. The keyboard does NOT change it (measured: identical at 110 and 880 Hz); it is a bed, and pitch has to come from whatever it is filtered or ring-modulated with. The raw material every other bed here is built from.",
-   "code": "anz0    rand 1.0, 0.5, 1         ; broadband noise source (31-bit: no 1.365 s loop)\nasig    = anz0 * 0.6                ; white noise (flat hiss)"
+   "code": "anz0    rand 1.0, 0.5, 1         ; broadband noise source (31-bit: no 1.365 s loop)\nasig    = anz0 * 0.6                ; white noise (flat hiss)",
+   "withheld": "the synth already has it: `src/dsp/NoiseGenerator.h` gives the player White noise per voice, through that voice's own envelope and filter, with `noiseLevel` and `noiseType` as parameters. A Csound entry here would take from the synth what the synth already had. Withheld by BJ 2026-07-25, not deleted: the plan is that the author reaches the synth's own noise through the parameter path, and until that path exists nothing may be removed."
   },
   {
    "key": "pink_noise",
@@ -3340,7 +3341,8 @@
    ],
    "priority": 5,
    "why": "pink noise -- `pinkish`, a 1/f tilt over `rand`: the same hiss with the top taken off, softer and warmer, and much closer to the spectrum of real environmental sound than white noise is. No pitch; the keyboard does not change it.",
-   "code": "anz0    rand 1.0, 0.5, 1         ; broadband noise source (31-bit: no 1.365 s loop)\nasig    pinkish anz0               ; pink noise (1/f tilt)"
+   "code": "anz0    rand 1.0, 0.5, 1         ; broadband noise source (31-bit: no 1.365 s loop)\nasig    pinkish anz0               ; pink noise (1/f tilt)",
+   "withheld": "the synth already has it: `NoiseGenerator.h`'s Pink (Paul Kellet, -3 dB/oct) is the same 1/f tilt this entry makes with `pinkish`. Withheld by BJ 2026-07-25 with `noise`, on the same reasoning. Note that `hiss` is NOT withheld -- it is `atone` at 6000 Hz over noise, only the top left, and all three of the synth's colours are flat or falling, so hiss could only be built by spending the user's own filter, which is the thing this withholding protects."
   },
   {
    "key": "wind",

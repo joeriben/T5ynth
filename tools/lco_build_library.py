@@ -47,8 +47,26 @@ import lco_write as W  # noqa: E402  (needs the path above)
 
 
 def assemble(lex):
-    instruments = []
+    instruments, withheld = [], []
     for entry in lex["techniques"]:
+        # An entry may be WITHHELD from the library without being deleted from the
+        # lexicon. This is what "commenting it out" means for a JSON file, and BJ asked
+        # for it in as many words („Das laesst sich ja wohl uebergangsweise mit
+        # auskommentierung regeln?", 2026-07-25) for the entries that duplicate the
+        # synth's own controls: `src/dsp/NoiseGenerator.h` already gives the player
+        # White, Pink and Brown noise per voice, through that voice's envelope and
+        # filter, so a Csound `noise` entry takes from the synth what the synth already
+        # had — „ansonsten greift sich der Osc selbst immer mehr vom Synth, und damit
+        # auch von den User-Konfigurationsmoeglichkeiten".
+        #
+        # It is a WITHHOLDING and not a removal on purpose: the entry keeps its measured
+        # constants, its `why` and its history in the lexicon, one field brings it back,
+        # and nothing is deleted before the path that replaces it exists (`CLAUDE.md`,
+        # Migration & Substrate Discipline). `withheld` must carry the REASON, because a
+        # bare boolean in a data file is indistinguishable from a mistake.
+        if entry.get("withheld"):
+            withheld.append((entry["key"], entry["withheld"]))
+            continue
         item = {"key": entry["key"], "why": entry.get("why", ""),
                 "code": entry.get("code", "")}
 
@@ -94,12 +112,17 @@ def assemble(lex):
                 "code": e.get("code", "")}
                for e in lex["motions"]]
 
-    return {
+    out = {
         "generated_from": {"lexicon_version": lex.get("lexicon_version")},
         "instruments": instruments,
         "adjectives": adjectives,
         "motions": motions,
     }
+    # Recorded IN the library, so a reader of the generated file can see that an entry
+    # was held back on purpose and why, rather than concluding the lexicon never had it.
+    if withheld:
+        out["withheld"] = {k: why for k, why in withheld}
+    return out
 
 
 def narrowing_forms(lex):
@@ -412,6 +435,8 @@ def main():
     empty = [i["key"] for i in lib["instruments"] if not has_code(i["code"])]
     if empty:
         print("WITHOUT code: " + ", ".join(empty))
+    for key, why in (lib.get("withheld") or {}).items():
+        print(f"WITHHELD from the library (still in the lexicon): {key} — {why}")
     return 0
 
 

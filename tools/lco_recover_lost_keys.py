@@ -184,13 +184,23 @@ def main():
 
     P = load_parked()
     lib = json.loads((REPO / "backend" / "lco_library.json").read_text())
-    have = {e["key"] for e in lib["instruments"]}
+    # Against the LEXICON, not the generated library. Recovery lands in the lexicon, and
+    # an entry can be present there and deliberately WITHHELD from the library (see
+    # `lco_build_library.assemble`) — measuring "missing" against the library called
+    # `noise` and `pink_noise` lost the moment they were withheld on purpose.
+    lex = json.loads((REPO / "backend" / "dco_lexicon.json").read_text())
+    have = {e["key"] for e in lex["techniques"]}
+    withheld = {k for k, e in ((e["key"], e) for e in lex["techniques"]) if e.get("withheld")}
     extra = getattr(P, "_CS_TECH_EXTRA", {})
     missing = [k for k in extra if k not in have]
 
     print(f"{PARKED_TAG} carried {len(extra)} instruments outside the lexicon; "
-          f"{len(missing)} are still missing from the library:")
+          f"{len(missing)} are still missing from it:")
     print("  " + ("  ".join(missing) or "none — all fifteen were recovered"))
+    held = sorted(withheld & set(extra))
+    if held:
+        print(f"  ({len(held)} of them are in the lexicon and withheld from the library "
+              f"on purpose: {', '.join(held)})")
     if args.list:
         return 0
     print()
