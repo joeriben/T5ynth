@@ -236,6 +236,10 @@ T5ynthProcessor::T5ynthProcessor()
 
         const int qualityIdx = appProperties_.getUserSettings()->getIntValue("filterOsQuality", 1);
         filterOsFactor_.store(osFactorFromQualityIndex(qualityIdx), std::memory_order_relaxed);
+
+        // LRO (Csound) oversampling — its own setting, its own default (index 2 = 4×).
+        const int lroIdx = appProperties_.getUserSettings()->getIntValue("lroOsQuality", 2);
+        lroOsFactor_.store(osFactorFromQualityIndex(lroIdx), std::memory_order_relaxed);
     }
 
     // Event Log (.t5evt): build the paramID<->index tables once (index is what
@@ -311,6 +315,35 @@ void T5ynthProcessor::setFilterOsQuality(int qualityIndex)
 int T5ynthProcessor::getFilterOsQuality() const
 {
     return osQualityIndexFromFactor(filterOsFactor_.load(std::memory_order_relaxed));
+}
+
+void T5ynthProcessor::setLroOsQuality(int qualityIndex)
+{
+    qualityIndex = juce::jlimit(0, 2, qualityIndex);
+    const int factor = osFactorFromQualityIndex(qualityIndex);
+    if (factor == lroOsFactor_.load(std::memory_order_relaxed))
+        return;                       // no-op change: never pay for a recompile
+
+    lroOsFactor_.store(factor, std::memory_order_relaxed);
+    if (auto* s = appProperties_.getUserSettings())
+    {
+        s->setValue("lroOsQuality", qualityIndex);
+        s->saveIfNeeded();
+    }
+
+    // Unlike filterOsQuality, this cannot take effect on the next block: the
+    // factor IS the compiled orchestra's sr, so it needs a recompile. Deliberately
+    // NOT started here — handleAsyncUpdate's reconcile block owns that, because
+    // deciding it here would mean testing isReady() at this instant and silently
+    // dropping the change whenever a compile or prepareToPlay happens to be in
+    // flight. Just poke the async pass; it compares compiled-vs-wanted itself and
+    // keeps doing so until they agree.
+    triggerAsyncUpdate();
+}
+
+int T5ynthProcessor::getLroOsQuality() const
+{
+    return osQualityIndexFromFactor(lroOsFactor_.load(std::memory_order_relaxed));
 }
 
 void T5ynthProcessor::startUpdateCheckIfDue()
@@ -1987,7 +2020,8 @@ void T5ynthProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
             static_cast<int>(paramCache.engineMode->load()) == static_cast<int>(EngineMode::Csound);
         if (wantsCsoundAtLoad || csoundActiveEngineAtLoad.isReady())
             csoundActiveEngineAtLoad.prepare(sampleRate, samplesPerBlock,
-                activeOrchestraTextAtLoad.empty() ? nullptr : activeOrchestraTextAtLoad.c_str());
+                activeOrchestraTextAtLoad.empty() ? nullptr : activeOrchestraTextAtLoad.c_str(),
+                lroOsFactor_.load(std::memory_order_relaxed));
 
         // Rewind the started-generation marker (generation counters are only
         // ever touched under csoundLifecycleMutex_, held here) so it no longer
@@ -7788,14 +7822,17 @@ void T5ynthProcessor::handleAsyncUpdate()
 
             const double sr = getSampleRate();
             const int blockSize = getBlockSize();
+            // Captured by value alongside sr/blockSize so the compile thread uses
+            // the factor that was current when the job was queued.
+            const int lroOs = lroOsFactor_.load(std::memory_order_relaxed);
             if (sr > 0.0 && blockSize > 0)
             {
                 csoundCompileInFlight_.store(true, std::memory_order_release);
-                csoundCompileThread_ = std::thread([this, sr, blockSize, activeIdx]
+                csoundCompileThread_ = std::thread([this, sr, blockSize, activeIdx, lroOs]
                 {
                     {
                         std::lock_guard<std::mutex> lock(csoundLifecycleMutex_);
-                        csoundEngines_[activeIdx].prepare(sr, blockSize);   // built-in orchestra
+                        csoundEngines_[activeIdx].prepare(sr, blockSize, nullptr, lroOs);   // built-in orchestra
                     }
                     csoundCompileInFlight_.store(false, std::memory_order_release);
                     // Phase-2 extension: a requestCsoundOrchestra() call that
@@ -7807,6 +7844,48 @@ void T5ynthProcessor::handleAsyncUpdate()
                 });
             }
         }
+    }
+
+    // LRO oversampling reconcile: does the ACTIVE engine's compiled factor still
+    // match what the user asked for? Done here rather than in setLroOsQuality
+    // because doing it there is a check-then-act that loses the change outright:
+    // prepare() holds ready == false for its whole ~1.2 s (and nothing re-reads
+    // the factor afterwards), so a setting made while a compile or a
+    // prepareToPlay is in flight would be stored, shown in the combo, and never
+    // reach the engine — with no way to re-apply it, since re-picking the same
+    // combo item fires no onChange. Here it is idempotent and self-healing: any
+    // async pass with a ready active engine and a mismatch asks for a swap, and
+    // an in-flight compile simply re-triggers us when it finishes.
+    //
+    // Compared against effectiveOversampleFactor(), NOT the raw request: at a
+    // 96 kHz host rate a request of 4 legitimately compiles as 2, and comparing
+    // against the raw 4 would recompile on every async pass, forever.
+    {
+        juce::String lroReconcileText;
+        bool lroNeedsSwap = false;
+        {
+            std::lock_guard<std::mutex> csoundLock(csoundLifecycleMutex_);
+            auto& activeEngine = csoundEngines_[csoundActiveIdx_.load(std::memory_order_relaxed)];
+            const int wantedFactor = CsoundEngine::effectiveOversampleFactor(
+                getSampleRate(), lroOsFactor_.load(std::memory_order_relaxed));
+            if (! csoundCompileInFlight_.load(std::memory_order_acquire)
+                && csoundSwapRequestGeneration_ == csoundSwapStartedGeneration_
+                && activeEngine.isReady()
+                && activeEngine.oversampleFactor() != wantedFactor)
+            {
+                // The text the ACTIVE engine actually compiled — not the UI mirror
+                // (csoundOrchestraTextForUi_), which holds the last REQUESTED text
+                // and is never rolled back on a failed compile: recompiling that
+                // would re-run a known-bad orchestra and republish its error out of
+                // nowhere, on a swap the user only asked to change the rate of.
+                lroReconcileText = juce::String(activeEngine.orchestraText());
+                lroNeedsSwap = true;
+            }
+        }
+        // Outside the lock: requestCsoundOrchestra takes csoundLifecycleMutex_
+        // itself, and it is not recursive.
+        if (lroNeedsSwap)
+            requestCsoundOrchestra(lroReconcileText);
     }
 
     // Csound orchestra swap (Phase-2 spec S4): decide whether to launch a NEW
@@ -7860,15 +7939,16 @@ void T5ynthProcessor::handleAsyncUpdate()
                 std::memcpy(epochsCopy.data(), csoundPendingEpochs_, sizeof(csoundPendingEpochs_));
                 std::memcpy(freqsCopy.data(), csoundPendingFreqs_, sizeof(csoundPendingFreqs_));
 
+                const int lroOs = lroOsFactor_.load(std::memory_order_relaxed);
                 csoundCompileInFlight_.store(true, std::memory_order_release);
                 csoundCompileThread_ = std::thread([this, sr, blockSize, targetIdx, activeReadyBefore,
-                                                     textCopy, epochsCopy, freqsCopy, myGeneration]
+                                                     textCopy, epochsCopy, freqsCopy, myGeneration, lroOs]
                 {
                     bool ok = false;
                     {
                         std::lock_guard<std::mutex> lock(csoundLifecycleMutex_);
                         ok = csoundEngines_[targetIdx].prepare(sr, blockSize,
-                                textCopy.isEmpty() ? nullptr : textCopy.toRawUTF8());
+                                textCopy.isEmpty() ? nullptr : textCopy.toRawUTF8(), lroOs);
                         // primeForTakeover seeds the NEW engine's voice phase/
                         // freq state from the OLD (still-active) engine so a
                         // held note's crossfade doesn't re-strike — only

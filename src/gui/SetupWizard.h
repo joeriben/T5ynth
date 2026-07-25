@@ -317,6 +317,14 @@ public:
     /** Fired when the user (un)ticks "Record Event Log". */
     std::function<void(bool)> onEventLogEnabledChanged;
 
+    /** Seed the LRO dropdown to the stored value without firing onLroOsQualityChanged. */
+    void setLroOsQuality(int qualityIndex);
+
+    /** Fired when the user picks a new LRO oversampling factor (0=Off, 1=2x, 2=4x).
+     *  Separate from onOsQualityChanged: that one wraps the downstream filters,
+     *  this one sets the rate the oscillator itself is computed at. */
+    std::function<void(int)> onLroOsQualityChanged;
+
     /** Reveal (or clear) the "Update available: vX — Download" row at the top of
      *  this page. Called by MainPanel when the background UpdateChecker finds a
      *  newer release; the Download button opens `url` in the browser. */
@@ -334,6 +342,8 @@ private:
     juce::Label          osTitle_;
     juce::ComboBox       osCombo_;
     juce::Rectangle<int> helpBounds_;
+    juce::Label          lroOsTitle_;
+    juce::ComboBox       lroOsCombo_;
     juce::ToggleButton   updateCheckToggle_ { "Check for updates on startup" };
     juce::ToggleButton   eventLogToggle_ { "Record Event Log (.t5evt)" };
 

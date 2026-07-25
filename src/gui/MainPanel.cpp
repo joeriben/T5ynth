@@ -607,6 +607,8 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
 
     generalSettingsPage.onOsQualityChanged = [this](int idx) { processorRef.setFilterOsQuality(idx); };
     generalSettingsPage.setOsQuality(processorRef.getFilterOsQuality());
+    generalSettingsPage.onLroOsQualityChanged = [this](int idx) { processorRef.setLroOsQuality(idx); };
+    generalSettingsPage.setLroOsQuality(processorRef.getLroOsQuality());
 
     generalSettingsPage.onCheckForUpdatesChanged = [this](bool enabled) { processorRef.setCheckForUpdatesEnabled(enabled); };
     generalSettingsPage.setCheckForUpdatesEnabled(processorRef.getCheckForUpdatesEnabled());

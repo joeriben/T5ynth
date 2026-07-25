@@ -3837,6 +3837,22 @@ GeneralSettingsPage::GeneralSettingsPage()
     };
     addAndMakeVisible(osCombo_);
 
+    lroOsTitle_.setText("LRO Oversampling", juce::dontSendNotification);
+    lroOsTitle_.setColour(juce::Label::textColourId, kTextPrimary);
+    lroOsTitle_.setJustificationType(juce::Justification::centredLeft);
+    addAndMakeVisible(lroOsTitle_);
+
+    lroOsCombo_.addItem("Off", 1);               // item ids are index+1
+    lroOsCombo_.addItem("2x", 2);
+    lroOsCombo_.addItem("4x", 3);
+    lroOsCombo_.setSelectedId(3, juce::dontSendNotification);   // default 4x
+    lroOsCombo_.onChange = [this]
+    {
+        if (onLroOsQualityChanged)
+            onLroOsQualityChanged(lroOsCombo_.getSelectedId() - 1);
+    };
+    addAndMakeVisible(lroOsCombo_);
+
     updateCheckToggle_.setColour(juce::ToggleButton::textColourId, kTextPrimary);
     updateCheckToggle_.setToggleState(true, juce::dontSendNotification);   // opt-out default
     updateCheckToggle_.onClick = [this]
@@ -3885,6 +3901,11 @@ void GeneralSettingsPage::setOsQuality(int qualityIndex)
     osCombo_.setSelectedId(juce::jlimit(0, 2, qualityIndex) + 1, juce::dontSendNotification);
 }
 
+void GeneralSettingsPage::setLroOsQuality(int qualityIndex)
+{
+    lroOsCombo_.setSelectedId(juce::jlimit(0, 2, qualityIndex) + 1, juce::dontSendNotification);
+}
+
 void GeneralSettingsPage::setCheckForUpdatesEnabled(bool enabled)
 {
     updateCheckToggle_.setToggleState(enabled, juce::dontSendNotification);
@@ -3901,10 +3922,14 @@ void GeneralSettingsPage::paint(juce::Graphics& g)
 
     g.setColour(kTextMuted);
     g.setFont(juce::FontOptions(12.0f));
-    g.drawFittedText("Suppresses aliasing on the nonlinear Ladder / Warp filters by running them "
-                     "at a higher internal rate. Higher = cleaner, more CPU; the linear SVF is "
-                     "unaffected. Global setting for this machine - not stored per preset.",
-                     helpBounds_, juce::Justification::topLeft, 5);
+    // One paragraph for both rows: what separates the two stages IS the point,
+    // and two near-identical blurbs would push the page past its 300 px floor.
+    g.drawFittedText("Two separate stages. Filter: cleans up the nonlinear Ladder / Warp filters; "
+                     "the linear SVF is unaffected. LRO: runs the oscillator itself at a higher "
+                     "rate - the only place its own aliasing can be prevented, and the filter "
+                     "setting cannot undo it. Off turns harsh and metallic from octave 5 up; "
+                     "changing it recompiles the oscillator. Both machine-wide, not per preset.",
+                     helpBounds_, juce::Justification::topLeft, 7);
 }
 
 void GeneralSettingsPage::resized()
@@ -3935,13 +3960,23 @@ void GeneralSettingsPage::layoutRows()
 
     r.removeFromTop(22);
 
-    // ── Filter Oversampling group ──
-    auto row = r.removeFromTop(26);
-    osTitle_.setBounds(row.removeFromLeft(150));
-    row.removeFromLeft(10);
-    osCombo_.setBounds(row.removeFromLeft(110));
-    r.removeFromTop(14);
-    helpBounds_ = r.removeFromTop(90);
+    // ── Oversampling: two INDEPENDENT stages, each with its own control ──
+    // Filter (below) wraps the downstream Ladder/Warp nonlinearity; LRO sets the
+    // rate the oscillator is computed at. They cost very differently and one
+    // cannot substitute for the other, so they are never a single knob.
+    auto filterRow = r.removeFromTop(26);
+    osTitle_.setBounds(filterRow.removeFromLeft(150));
+    filterRow.removeFromLeft(10);
+    osCombo_.setBounds(filterRow.removeFromLeft(110));
+
+    r.removeFromTop(6);
+    auto lroRow = r.removeFromTop(26);
+    lroOsTitle_.setBounds(lroRow.removeFromLeft(150));
+    lroRow.removeFromLeft(10);
+    lroOsCombo_.setBounds(lroRow.removeFromLeft(110));
+
+    r.removeFromTop(10);
+    helpBounds_ = r.removeFromTop(84);
 }
 
 void SettingsPage::resized()

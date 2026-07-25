@@ -1168,6 +1168,22 @@ public:
     void setFilterOsQuality(int qualityIndex);
     int  getFilterOsQuality() const;
 
+    // Global (machine-wide, not per-preset) LRO oversampling factor: 1 = Off, 2, 4.
+    // DELIBERATELY SEPARATE from filterOsFactor_ above, which wraps the downstream
+    // Ladder/Warp nonlinearity: this one sets the rate CSOUND ITSELF computes at,
+    // and it is the only place the oscillator's own aliasing can be prevented at
+    // all (see CsoundEngine::prepare). The two cost very different amounts, so a
+    // user who turns filter oversampling down to save CPU must not silently lose
+    // the oscillator's. Default 4× — measured, 2× still leaves the metallic
+    // patches audibly dirty in octave 5 (cymbal −13.9 dB vs −181 dB at 4×), and
+    // the heaviest library patch still renders 6× faster than realtime at 4×.
+    // Read on the message thread only: changing it forces a Csound RECOMPILE
+    // (the factor is baked into the compiled orchestra's sr), never a per-block
+    // read like filterOsFactor_.
+    std::atomic<int> lroOsFactor_ { 4 };
+    void setLroOsQuality(int qualityIndex);
+    int  getLroOsQuality() const;
+
     // ── Event Log (.t5evt) — global (machine-wide) on/off, mirrors filterOsQuality ──
     void setEventLogEnabled(bool enabled);
     bool getEventLogEnabled() const;
