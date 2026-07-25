@@ -498,7 +498,7 @@ def odd_even_db(y, freq, n=16):
     return float(20 * np.log10(max(odd, 1e-12) / max(even, 1e-12)))
 
 
-def beat(y, lo_hz=0.5, hi_hz=25.0, t0=0.5, t1=3.5, at_hz=None):
+def beat(y, lo_hz=0.5, hi_hz=25.0, t0=0.5, t1=3.5, at_hz=None, f0_hz=None):
     """The slow amplitude beat: how deep it is, and how fast.
 
     Two sources a few cents apart beat, and that beat is the whole substance of a
@@ -509,10 +509,28 @@ def beat(y, lo_hz=0.5, hi_hz=25.0, t0=0.5, t1=3.5, at_hz=None):
     its whole range while the beat rate went from 1.0 to 4.0 Hz). Judging such an
     axis by colour alone concludes it is inert and invites deleting it.
 
-    Read off the amplitude envelope, decimated to 200 Hz, as the largest spectral
+    Read off the rectified signal at the FULL sample rate, as the largest spectral
     component in the beat band relative to the mean level, so `depth` comes out on
     the same scale as an asked-for AM depth. Calibrated against exactly that:
     asked 0.00 / 0.10 / 0.30 / 0.60 read 0.000 / 0.100 / 0.299 / 0.599.
+
+    The full rate is not an optimisation, it is the correctness of the whole meter.
+    Rectifying a tone at f0 puts a ripple at 2*f0 (at f0 itself, for an asymmetric
+    waveform) into the envelope. This used to be block-averaged to 200.455 Hz, which
+    ALIASES that ripple straight into the beat band, and the block average is a
+    boxcar whose rejection at 110 Hz is only 0.574 — nowhere near enough to stop it.
+    Measured on plain unmodulated sines, with nothing whatever modulating them:
+    55 Hz read a beat of depth 0.372 at 90.39 Hz (the 110 Hz ripple folded about
+    200.455) and 110 Hz read 0.052 at 19.68 Hz (220 folded to 19.55). The second one
+    landed inside the NARROW 25 Hz band too and above the 0.05 that the audit's M6
+    treats as a real rate control, so no choice of band was ever going to fix it.
+    At the full rate nothing folds: the ripple stays at 2*f0 where it belongs.
+
+    `f0_hz` closes the other half. A component at or above the fundamental is not a
+    beat — it is a sideband, and the spectral meters already see it — so the band is
+    capped at half the fundamental when the caller knows it. Unmodulated sines then
+    read 0.000 at every register instead of 0.372, and an asked 0.30 at 90 Hz reads
+    0.299 rather than the 0.200 the boxcar's roll-off left of it.
 
     `at_hz` asks about ONE rate instead of the strongest, because the strongest hides
     the others. A rubbed wineglass has two independent amplitude motions at once —
@@ -533,27 +551,28 @@ def beat(y, lo_hz=0.5, hi_hz=25.0, t0=0.5, t1=3.5, at_hz=None):
     its 4.6 Hz pulsation returned 0.23 at the pulsation depth of ZERO, because its
     3.4 Hz beat sits one bin below the band edge. If two rates are that close, they
     are one measurement, and the axis must be judged by colour instead.
+
+    The resolution is set by the window in SECONDS and not by the envelope rate, so
+    it is unchanged by reading at the full rate: 3 s gives 0.33 Hz bins either way.
     """
     s = y[int(t0 * SR):int(t1 * SR)]
     if len(s) < SR // 4:
         return 0.0, 0.0
-    env = np.abs(s)
-    k = max(1, int(SR / 200))
-    env = env[:len(env) // k * k].reshape(-1, k).mean(1)
-    sr2 = SR / k
     mean = float(np.abs(s).mean())
-    env = env - env.mean()
+    env = np.abs(s) - mean
     F = np.abs(np.fft.rfft(env * np.hanning(len(env))))
-    fq = np.fft.rfftfreq(len(env), 1 / sr2)
+    fq = np.fft.rfftfreq(len(env), 1 / SR)
     if at_hz is not None:
         # one rate, widened by the window's own resolution so a slightly-off rate
         # is still found: a Hann window spreads a line over ~2 bins each side.
-        w = 2.5 * sr2 / len(env)
+        w = 2.5 * SR / len(env)
         band = (fq >= at_hz - w) & (fq <= at_hz + w)
         if not band.any() or mean <= 0:
             return 0.0, 0.0
         amp = 2 * float(F[band].max()) / (len(env) / 2)
         return amp / mean, float(at_hz)
+    if f0_hz:
+        hi_hz = min(hi_hz, 0.5 * f0_hz)
     band = (fq >= lo_hz) & (fq <= hi_hz)
     if not band.any() or mean <= 0:
         return 0.0, 0.0
@@ -616,8 +635,11 @@ def measure(y, asked_freq):
     # meter can see one: a bagpipe's detune, a cricket's chirp rate and a frog's pulse
     # rate all move the centroid by single hertz while changing the sound completely.
     # An audit that reads only colour calls such an axis inert and invites deleting it.
-    # The band reaches 120 Hz because these rates go far above a musette's few hertz.
-    bd, br = beat(y, lo_hz=0.5, hi_hz=120.0)
+    # The band reaches 120 Hz because these rates go far above a musette's few hertz,
+    # and is capped at half the fundamental so the carrier's own rectification ripple
+    # cannot be read back as a beat — see `beat`, which read 0.372 on a plain sine
+    # before the cap and the full-rate envelope went in.
+    bd, br = beat(y, lo_hz=0.5, hi_hz=120.0, f0_hz=asked_freq)
     return {"f0": None if f is None else round(f, 2),
             "cents": None if f is None else round(cents(f, asked_freq), 1),
             "centroid": round(centroid(y), 1),
@@ -673,7 +695,7 @@ asig    streson aex, kfreq * koct1, {fb}"""
 # How many calibration cases there are. Asserted at the end so a group that stops
 # running — an early `return`, a render failure that `continue`s past its check, a
 # refactor that drops a block — is a FAILURE and not a quietly shorter green run.
-_CASES = 43
+_CASES = 45
 
 
 def selftest():
@@ -904,6 +926,32 @@ asig    poscil 0.4 * (1 + 2 * ka), kfreq * koct1, giSine""")
               near[0] > 0.25 and far[0] < 0.05,
               f"0.8 Hz away reads {near[0]:.3f}, 1.6 Hz away reads {far[0]:.3f} "
               f"(nothing is modulating 4.6 Hz in either)")
+    # The case the meter got WRONG, and the reason it is asserted here rather than
+    # trusted: nothing is modulating these, so every register must read zero. On a
+    # 200 Hz block-averaged envelope 55 Hz read 0.372 at 90.39 Hz and 110 Hz read
+    # 0.052 at 19.68 Hz — the rectification ripple at 2*f0, folded about the envelope
+    # rate. M6 calls 0.05 a real rate control, so this fabricated a rate axis for
+    # every entry. Read through `measure`, which is the path the audit uses.
+    flat = []
+    for f in (55.0, 82.5, 110.0, 220.0, 440.0, 880.0, 1760.0):
+        yf, ef = render("asig    poscil 0.3, kfreq", freq=f)
+        flat.append((f, None if ef else measure(yf, f)["beat_depth"]))
+    worst = max((v, f) for f, v in flat if v is not None)
+    check("an unmodulated tone has no beat at any register", worst[0] < 0.02,
+          "worst %.3f at %.1f Hz (%s)"
+          % (worst[0], worst[1],
+             " ".join("%.0f:%.3f" % (f, v) for f, v in flat if v is not None)))
+    # …and a genuine fast beat is still read at its true depth up there, which the
+    # boxcar's roll-off used to cost: an asked 0.30 at 90 Hz came back as 0.200.
+    yfast, efast = render("""kam     poscil 0.15, 90.0
+asig    poscil 0.4 * (1 + 2 * kam), kfreq * koct1, giSine""", freq=880.0)
+    if efast:
+        check("a 90 Hz beat reads back its depth", False, efast)
+    else:
+        dfa, rfa = beat(yfast, lo_hz=0.5, hi_hz=120.0, f0_hz=880.0)
+        check("a 90 Hz beat reads back its depth, well above the old envelope rate",
+              abs(dfa - 0.30) < 0.03 and abs(rfa - 90.0) < 0.5,
+              f"read {dfa:.3f} at {rfa:.2f} Hz (asked 0.30 at 90 Hz)")
 
     print("comb contrast tracks the resonator, not the exciter")
     (yn, en), (yh, eh), (yl, el) = (render(_NOISE), render(_comb(0.995)),
