@@ -40,8 +40,7 @@
     "square wave",
     "rechteck",
     "rechteckwelle",
-    "squarewave",
-    "hollow wave"
+    "squarewave"
    ],
    "template": {
     "keyframes": [
@@ -72,8 +71,7 @@
     "rectangle",
     "pulse wave",
     "narrow pulse",
-    "rectangular wave",
-    "nasal wave"
+    "rectangular wave"
    ],
    "template": {
     "keyframes": [
@@ -1352,7 +1350,6 @@
     "panflöte",
     "ocarina",
     "shakuhachi",
-    "breathy tone",
     "atemton"
    ],
    "template": {

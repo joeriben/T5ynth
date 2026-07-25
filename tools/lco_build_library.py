@@ -113,15 +113,42 @@ def narrowing_forms(lex):
     Only KEYS are checked, because a key is the word the index prints and the
     author writes back. A shared non-key form merely opens both entries, which
     costs nothing.
+
+    A MULTI-WORD form narrows the same way when it is nothing but a quality: `flute`
+    claimed "breathy tone", `breathy` is an adjective's own key and "tone" names no
+    instrument, so "a steady breathy tone" opened 1 entry of 50 — the first version of
+    this guard compared whole forms only and passed it. The test is what survives
+    removing the adjective and motion keys: "hollow reed" leaves "reed", which is a
+    family, and "bright voice" leaves "voice", which is another entry's key, so both
+    are fair. "breathy tone" leaves a word for sound-in-general and is not.
+
+    Underscores are normalised to spaces as well as case, so `washed_out` and
+    `washed out` cannot pass by spelling.
     """
-    keys = {e["key"].lower(): (sec, e["key"])
+    generic = {"tone", "sound", "timbre", "texture", "note", "wave", "waveform",
+               "sonority", "character", "quality", "colour", "color"}
+
+    def norm(s):
+        return " ".join(str(s).lower().replace("_", " ").split())
+
+    keys = {norm(e["key"]): (sec, e["key"])
             for sec in ("adjectives", "motions") for e in lex[sec]}
     bad = []
     for e in lex["techniques"]:
         for f in [e["key"]] + list(e.get("surface_forms") or []):
-            hit = keys.get(str(f).strip().lower())
+            n = norm(f)
+            hit = keys.get(n)
             if hit:
-                bad.append((e["key"], f, hit[0], hit[1]))
+                bad.append((e["key"], f, hit[0], hit[1], None))
+                continue
+            words = n.split()
+            if len(words) < 2:
+                continue
+            quality = [w for w in words if w in keys]
+            rest = [w for w in words if w not in keys]
+            if quality and rest and all(w in generic for w in rest):
+                bad.append((e["key"], f, keys[quality[0]][0], keys[quality[0]][1],
+                            " ".join(rest)))
     return bad
 
 
@@ -134,11 +161,18 @@ def main():
     lex = json.loads(LEXICON.read_text())
     bad = narrowing_forms(lex)
     if bad:
-        for inst, form, sec, key in bad:
-            print(f"instrument {inst!r} claims the form {form!r}, which is the "
-                  f"{sec[:-1]} {key!r}'s own key — a prompt using that word would "
-                  f"open only {inst!r} instead of the whole library",
-                  file=sys.stderr)
+        for inst, form, sec, key, rest in bad:
+            if rest is None:
+                print(f"instrument {inst!r} claims the form {form!r}, which is the "
+                      f"{sec[:-1]} {key!r}'s own key — a prompt using that word would "
+                      f"open only {inst!r} instead of the whole library",
+                      file=sys.stderr)
+            else:
+                print(f"instrument {inst!r} claims the form {form!r}, which is nothing "
+                      f"but a quality: the {sec[:-1]} {key!r}'s own key plus "
+                      f"{rest!r}, which names no instrument. A prompt using that "
+                      f"phrase would open only {inst!r} instead of the whole library",
+                      file=sys.stderr)
         return 1
     lib = assemble(lex)
     text = json.dumps(lib, indent=1, ensure_ascii=False) + "\n"
