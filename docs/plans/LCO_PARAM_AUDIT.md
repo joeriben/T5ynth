@@ -82,13 +82,19 @@ scales to within 2% over three octaves (band energies 30/30/36/3.6/0.2 % at 110 
 against 34/29/33/4.1/0.3 % at 880). Narrowband noise needs a long span, so
 tracking is measured over three octaves.
 
-**Still open in the meter:** `pink_noise`'s RMS over a 3 s window varies ~1.5 dB
-between renders, because 1/f noise keeps its energy below the measurement window.
-Two runs of the audit therefore disagreed about whether it has a register tilt.
-M7 needs a repeat measurement at one register alongside the across-register one,
-and to report a tilt only when the across-register spread is clearly larger than
-the render-to-render spread. Until that lands, **no M7 reading on a noise bed is
-evidence.**
+**Closed since:** `pink_noise`'s RMS varies between renders — measured 1.68 dB at
+110 Hz over four seconds, 4.7 dB over five renders at three — so two runs of the
+audit disagreed about whether it has a register tilt. M7 now repeats the lowest
+register three times and reports a tilt as a finding only when the across-register
+spread clears twice that scatter; below it the line says NOT EVIDENCE in so many
+words.
+
+The measurement also corrected the assumption behind the worry. It is not a class
+of 1/f-heavy bodies: **exactly one entry in the library does not render
+deterministically**, `pink_noise`, because `pinkish` seeds itself. Every other
+body — `noise`, `thunder`, `surf`, every bed — repeats bit for bit and scatters
+0.00 dB. So a 0.0 in that column is the true answer rather than a broken
+measurement, and the single case that needed the guard is the one that has it.
 
 ---
 
@@ -277,16 +283,30 @@ byte-for-byte before it will emit anything new.
 1. **The modal family's register tilt** (drum_head, cymbal, glass, struck_bar). A
    level correction against a law §5 already measured; the fix is the f
    dependence the one-pitch levelling left out.
-2. **`anchor_code` for the 17 axes that have none**, so M5 and M6 can see them at
-   all. Until then "no axis is a fader" is an untested claim about 7 of 24 axes.
-3. **Parametrise the unparametrised** — `saw`/`square`/`pulse`/`triangle` duty and
-   `pwm`'s lost `rate` axis first, since §8 names them.
+2. **`anchor_code` for the 17 axes of 65 that have none**, so M5 and M6 can see
+   them at all: `fm`, `fm_bell`, `fm_ep`, `metallic_fm` (ring/detune and friends),
+   `drum_head` (strikepos/tension/damping), `string` (pick/damp) and `analog_osc`
+   (drive/fat/age). Until then "no axis is a fader" is untested for those 17. They
+   are the entries that bake an axis into an expression instead of declaring it, so
+   each needs the body rewritten to the `k<name> = <default>  ; name [lo..hi]: …`
+   form before an anchor can be generated.
+3. **Parametrise the 33 entries that still carry no parameter at all.** The five
+   §8 named — `saw`/`square`/`pulse`/`triangle` duty and `pwm`'s lost `rate` — are
+   done.
 4. **`analog_osc`'s three missing notes**, moved out of §5 into the entry.
-5. **M7's repeat measurement**, so a noise bed's tilt reading becomes evidence.
-6. **The vowel family's fixed formants** — a real ceiling, and fixing it changes
+5. **The vowel family's fixed formants** — a real ceiling, and fixing it changes
    timbre, so it needs BJ's word.
-7. **Nineteen entries stand still** against movement-by-default (§3, M4). Two
+6. **Sixteen entries stand still** against movement-by-default (§3, M4). Two
    questions for BJ, because both answers change how instruments sound:
    does the plain-waveform family (`sine`, `triangle`, `square`, `pulse`, `saw`'s
    relatives, `sub_sine`, `bass_saw`, the two fixed vowels) get movement added, and
    does a nature bed's non-periodic wander count as movement?
+7. **Does movement-by-default hold at every register, or only at the note being
+   played?** Also BJ's, and the measurement is in hand: of the 57 entries at their
+   defaults only 32 satisfy `moves` at all six registers. Most of the other 25 sit
+   in classes the meter documents as beyond it — `string` and `mbira` travel
+   2881–11170 Hz at coherence 0.14–0.25 because a decaying high-Q bank's late
+   window is a noise floor — plus fixed-formant bodies (`voice`, `saw`, `sub_sine`)
+   whose travel shrinks in cents as the note climbs past their formants. The gate
+   reports these and fails only at the asked pitch, because condemning 25 shipped
+   entries in the name of a meter limit is not a defect fix.

@@ -255,10 +255,29 @@ def audit_one(inst, registers=REGISTERS, quick=False):
     if len(lv) >= 2:
         import math
         octs = math.log2(lv[-1][0] / lv[0][0])
+        # The same register, rendered again, so the tilt can be told from the meter's
+        # own scatter. A reading that is not larger than the noise it sits in is not
+        # evidence, and until this landed no M7 number on a noise bed was: two runs of
+        # this audit disagreed about whether `pink_noise` has a register tilt at all.
+        # Measured, the population is not what it looked like — exactly ONE body in the
+        # library does not render deterministically, because `pinkish` seeds itself:
+        # `pink_noise` reads a 2.15 dB tilt against 1.68 dB of scatter at 110 Hz (4.7 dB
+        # over five renders at 3 s), while every other body, noise beds included, repeats
+        # bit for bit and scatters 0.00 dB. So a 0.0 here is the true answer and not a
+        # broken measurement, and the one case that needs the guard is the one that has
+        # it. Three extra renders, not one: a pair can agree by luck.
+        again = []
+        for _ in range(3):
+            r2 = render_report(inst["code"], lv[0][0])
+            if r2.get("rms_db") is not None:
+                again.append(r2["rms_db"])
         rep["tilt"] = {"rms_db": {str(f): v for f, v in lv},
                        "spread_db": round(max(v for _, v in lv)
                                           - min(v for _, v in lv), 2),
                        "db_per_octave": round((lv[-1][1] - lv[0][1]) / octs, 2)}
+        if len(again) >= 2:
+            rep["tilt"]["repeat_spread_db"] = round(max(again) - min(again), 2)
+            rep["tilt"]["repeat_at_hz"] = lv[0][0]
 
     ac = inst.get("anchor_code") or {}
     params = inst.get("params") or {}
@@ -325,8 +344,22 @@ def verdicts(rep):
 
     t = rep.get("tilt")
     if t and t["spread_db"] > TILT_OK_DB:
-        out.append(("M7", f"loudness follows the keyboard: {t['spread_db']:.1f} dB "
-                          f"across 110-880 Hz ({t['db_per_octave']:+.2f} dB/octave)"))
+        # A tilt has to clear the meter's own scatter by a factor of two before it is
+        # a finding. Below that the number is real but says nothing: it is the render
+        # varying, not the keyboard.
+        noise = t.get("repeat_spread_db")
+        if noise is not None and t["spread_db"] < 2.0 * max(noise, 0.05):
+            out.append(("M7", f"loudness reads {t['spread_db']:.1f} dB across "
+                              f"110-880 Hz ({t['db_per_octave']:+.2f} dB/octave), but "
+                              f"the same body at {t['repeat_at_hz']:.0f} Hz spreads "
+                              f"{noise:.1f} dB between renders — NOT EVIDENCE of a "
+                              f"tilt, the meter cannot resolve one this small here"))
+        else:
+            out.append(("M7", f"loudness follows the keyboard: {t['spread_db']:.1f} dB "
+                              f"across 110-880 Hz ({t['db_per_octave']:+.2f} dB/octave)"
+                              + ("" if noise is None else
+                                 f", against {noise:.1f} dB of render-to-render "
+                                 f"scatter at {t['repeat_at_hz']:.0f} Hz")))
 
     mid = rep["registers"].get("220.0", {})
     # `moves` and not the travel span: a stochastic source's centroid wanders on
