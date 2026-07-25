@@ -186,11 +186,43 @@ this is a structural floor, not a scale fix"*), here as a ceiling. Each entry's
 out. **A real singer moves their formants up with pitch; this bank does not.** That
 is the open question for the family, and it is a timbre change, not a level fix.
 
-### M4 — two entries stand still
+### M4 — nineteen of fifty stand still, and the meter had to be fixed twice to say so
 
-`bass_saw` (7.9 Hz of colour motion) and `sub_sine` (7.0 Hz) against
-movement-by-default. `sine`'s 0.4 Hz is declared: a single partial with nothing to
-move is what that entry is.
+This finding changed twice, both times because the *meter* was wrong, and the first
+two readings should be distrusted rather than averaged with the third. Originally it
+named two entries — `bass_saw` (7.9 Hz of colour motion) and `sub_sine` (7.0 Hz).
+Then `moves()` gained a coherence term, because a span alone certifies movement on
+unmodulated noise. Then `travel()` moved onto a POWER-weighted centroid, because an
+amplitude-weighted centroid on a linear frequency axis let a partial 60 dB down at
+18 kHz carry the verdict: a standing sine plus an inaudible whisper passed with a span
+of 18.7 Hz at coherence 0.996.
+
+On the corrected meter — span ≥ 8 Hz **and** coherence ≥ 0.35, the threshold sitting
+in an empty band between a noise null whose maximum over 60 renders is 0.188 and the
+0.51–1.00 that everything with a real modulation reads — **19 of the 50 shipped
+instruments do not move**, in two distinct groups:
+
+```
+they have nothing to move (span, coherence 1.00 — a coherent but tiny travel)
+  sine 0 Hz   triangle 0   square 1   voice_ee 3   voice_oo 3   pulse 4
+  sub_sine 6  bass_saw 1
+their travel is variance, not motion (large span, coherence at or near zero)
+  thunder .00/1186 Hz   rain .00/1565   crackle .00/2125   hiss .06/1416
+  noise .07/1676       drum_head .13/309   pink_noise .15/2580   cymbal .18/876
+```
+
+The two groups are different problems. The first is the plain-waveform family: there
+is genuinely nothing in a `vco2` square to move, so movement has to be *added* — which
+is sound-shaping and needs BJ's word, not a unilateral fix. The second is the nature
+beds, where the sound plainly does change over the note but not periodically; whether
+"movement by default" is satisfied by a noise bed's wander is a question about the
+fundamental's meaning, and also BJ's.
+
+Recorded here rather than acted on. What the meter *cannot* say is separately relevant
+to the beds: at 4 s it cannot resolve movement slower than the window, and `wind`
+gusts at 0.071 Hz — a quarter of a cycle. `wind` reads 0.53 and passes; `surf` 0.64.
+Two of the eight beds do move on this evidence, which is why the list above is eight
+and not ten.
 
 ---
 
@@ -233,4 +265,8 @@ byte-for-byte before it will emit anything new.
 5. **M7's repeat measurement**, so a noise bed's tilt reading becomes evidence.
 6. **The vowel family's fixed formants** — a real ceiling, and fixing it changes
    timbre, so it needs BJ's word.
-7. **`bass_saw` and `sub_sine` stand still** against movement-by-default.
+7. **Nineteen entries stand still** against movement-by-default (§3, M4). Two
+   questions for BJ, because both answers change how instruments sound:
+   does the plain-waveform family (`sine`, `triangle`, `square`, `pulse`, `saw`'s
+   relatives, `sub_sine`, `bass_saw`, the two fixed vowels) get movement added, and
+   does a nature bed's non-periodic wander count as movement?
