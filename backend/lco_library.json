@@ -1,6 +1,6 @@
 {
  "generated_from": {
-  "lexicon_version": 35
+  "lexicon_version": 37
  },
  "instruments": [
   {
@@ -884,7 +884,61 @@
   {
    "key": "cheby",
    "why": "Chebyshev waveshaper -- a fixed transfer table (GEN13) holding odd Chebyshev terms up to the 11th, which map exactly onto odd harmonics: the controlled way to add drive, dirt and distortion colour",
-   "code": "kdrv0   poscil 0.12, 0.074           ; drive wander\nkdrb0   poscil 0.05, 0.119           ; second, incommensurate\nadrv0   poscil 0.30 + kdrv0 + kdrb0, (kfreq * koct1)\nash0    tablei adrv0, giCheb, 1, 0.5 ; Chebyshev transfer curve\nasig    = ash0 * 0.55           ; level-match the family"
+   "code": "kdrive  = 0.30                       ; drive [0.10..0.30]: how far up the Chebyshev curve the carrier drives -- today's own safe ceiling (0.30 + wander's default 0.17 = 0.47, the domain's own +-0.5 safety margin)\nkwander = 1.0                        ; wander [0..1]: depth of the two drift LFOs together -- 0 is static, 1 is today's own drift, also this body's own ceiling\nkdw     = kwander * 0.12\nkdb     = kwander * 0.05\n; pushing the carrier further up the transfer curve changes the shaper's own output\n; gain (measured 1.05 dB across drive's range, frequency-independent); kdcomp is a\n; degree-2 fit of that curve's inverse, referenced to today's default (drive=0.30).\nkdx     = kdrive - 0.30\nkdexc   = -4.11824798*kdx + 5.98870253*kdx*kdx\nkdcomp  = 10^(-kdexc/20)\n; widening the drift swing does the same thing on a smaller scale (measured 0.69 dB);\n; kwcomp is its own degree-2 fit, referenced to today's default (wander=1.0).\nkwx     = kwander - 1.0\nkwexc   = -0.6051037*kwx + 0.05628216*kwx*kwx\nkwcomp  = 10^(-kwexc/20)\nkdrv0   poscil kdw, 0.074           ; drive wander\nkdrb0   poscil kdb, 0.119           ; second, incommensurate\nadrv0   poscil kdrive + kdrv0 + kdrb0, (kfreq * koct1)\nash0    tablei adrv0, giCheb, 1, 0.5 ; Chebyshev transfer curve\nasig    = ash0 * 0.55 * kdcomp * kwcomp          ; level-match the family",
+   "params": {
+    "drive": {
+     "range": [
+      0.1,
+      0.3
+     ],
+     "default": 0.3,
+     "note": "how far up the chebyshev transfer curve the carrier drives, as the carrier's own base amplitude. 0.30 is both today's value and this axis's own top: it is pinned there because 0.30 plus wander's default drift (0.17) already reaches 0.47, the safe margin below the +-0.5 input range the table read clamps at -- there is no room to push the base level any higher without wander also giving up some of its own range. pushing the curve harder changes the shaper's own output gain (measured 1.05 db, the same at every register since the effect lives entirely in the amplitude domain); kdcomp is a fitted inverse of that, holding the spread to 0.05 db at every register across the whole 0.10-0.30 range. centroid at 220 hz runs 363 -> 575 hz, and the 3rd harmonic strengthens from -10.6 to -6.5 db relative to the strongest partial as the curve folds harder.",
+     "anchors": {
+      "clean": {
+       "value": 0.1,
+       "gloss": "a light shaping, close to the plain tone"
+      },
+      "mid": {
+       "value": 0.2,
+       "gloss": "a clear edge, the odd harmonics audible"
+      },
+      "hot": {
+       "value": 0.3,
+       "gloss": "today's drive, the curve folding hard"
+      }
+     }
+    },
+    "wander": {
+     "range": [
+      0.0,
+      1.0
+     ],
+     "default": 1.0,
+     "note": "the depth of the two drift lfos that wander the drive up and down, together, keeping their 0.12:0.05 ratio. 0 silences both -- a static curve, nothing moving in the note at all -- and 1 is today's own depth, which is also this axis's own top for the same safety reason drive's top is pinned: drive's default plus more drift than today would pass the table's safe input margin. widening the swing changes the shaper's output gain on a smaller scale (measured 0.69 db, frequency-independent); kwcomp holds it to 0.05 db across the whole range. at 0 the entry does not move at all (motion 0 hz, coherence 0 at every register) -- these two lfos are this body's only source of movement, so silencing them silences the movement too, exactly as the axis's own bottom implies. away from 0 it moves clearly (coherence 1.00); centroid at 220 hz runs 492 -> 575 hz between the middle and top of the range.",
+     "anchors": {
+      "static": {
+       "value": 0.0,
+       "gloss": "a fixed curve, no drift at all"
+      },
+      "mid": {
+       "value": 0.5,
+       "gloss": "a gentle wander"
+      },
+      "breathing": {
+       "value": 1.0,
+       "gloss": "today's own drift, the fullest this body allows"
+      }
+     }
+    }
+   },
+   "anchor_code": {
+    "drive=clean": "kdrive  = 0.1                       ; drive [0.10..0.30]: how far up the Chebyshev curve the carrier drives -- today's own safe ceiling (0.30 + wander's default 0.17 = 0.47, the domain's own +-0.5 safety margin)\nkwander = 1.0                        ; wander [0..1]: depth of the two drift LFOs together -- 0 is static, 1 is today's own drift, also this body's own ceiling\nkdw     = kwander * 0.12\nkdb     = kwander * 0.05\n; pushing the carrier further up the transfer curve changes the shaper's own output\n; gain (measured 1.05 dB across drive's range, frequency-independent); kdcomp is a\n; degree-2 fit of that curve's inverse, referenced to today's default (drive=0.30).\nkdx     = kdrive - 0.30\nkdexc   = -4.11824798*kdx + 5.98870253*kdx*kdx\nkdcomp  = 10^(-kdexc/20)\n; widening the drift swing does the same thing on a smaller scale (measured 0.69 dB);\n; kwcomp is its own degree-2 fit, referenced to today's default (wander=1.0).\nkwx     = kwander - 1.0\nkwexc   = -0.6051037*kwx + 0.05628216*kwx*kwx\nkwcomp  = 10^(-kwexc/20)\nkdrv0   poscil kdw, 0.074           ; drive wander\nkdrb0   poscil kdb, 0.119           ; second, incommensurate\nadrv0   poscil kdrive + kdrv0 + kdrb0, (kfreq * koct1)\nash0    tablei adrv0, giCheb, 1, 0.5 ; Chebyshev transfer curve\nasig    = ash0 * 0.55 * kdcomp * kwcomp          ; level-match the family",
+    "drive=mid": "kdrive  = 0.2                       ; drive [0.10..0.30]: how far up the Chebyshev curve the carrier drives -- today's own safe ceiling (0.30 + wander's default 0.17 = 0.47, the domain's own +-0.5 safety margin)\nkwander = 1.0                        ; wander [0..1]: depth of the two drift LFOs together -- 0 is static, 1 is today's own drift, also this body's own ceiling\nkdw     = kwander * 0.12\nkdb     = kwander * 0.05\n; pushing the carrier further up the transfer curve changes the shaper's own output\n; gain (measured 1.05 dB across drive's range, frequency-independent); kdcomp is a\n; degree-2 fit of that curve's inverse, referenced to today's default (drive=0.30).\nkdx     = kdrive - 0.30\nkdexc   = -4.11824798*kdx + 5.98870253*kdx*kdx\nkdcomp  = 10^(-kdexc/20)\n; widening the drift swing does the same thing on a smaller scale (measured 0.69 dB);\n; kwcomp is its own degree-2 fit, referenced to today's default (wander=1.0).\nkwx     = kwander - 1.0\nkwexc   = -0.6051037*kwx + 0.05628216*kwx*kwx\nkwcomp  = 10^(-kwexc/20)\nkdrv0   poscil kdw, 0.074           ; drive wander\nkdrb0   poscil kdb, 0.119           ; second, incommensurate\nadrv0   poscil kdrive + kdrv0 + kdrb0, (kfreq * koct1)\nash0    tablei adrv0, giCheb, 1, 0.5 ; Chebyshev transfer curve\nasig    = ash0 * 0.55 * kdcomp * kwcomp          ; level-match the family",
+    "drive=hot": "kdrive  = 0.3                       ; drive [0.10..0.30]: how far up the Chebyshev curve the carrier drives -- today's own safe ceiling (0.30 + wander's default 0.17 = 0.47, the domain's own +-0.5 safety margin)\nkwander = 1.0                        ; wander [0..1]: depth of the two drift LFOs together -- 0 is static, 1 is today's own drift, also this body's own ceiling\nkdw     = kwander * 0.12\nkdb     = kwander * 0.05\n; pushing the carrier further up the transfer curve changes the shaper's own output\n; gain (measured 1.05 dB across drive's range, frequency-independent); kdcomp is a\n; degree-2 fit of that curve's inverse, referenced to today's default (drive=0.30).\nkdx     = kdrive - 0.30\nkdexc   = -4.11824798*kdx + 5.98870253*kdx*kdx\nkdcomp  = 10^(-kdexc/20)\n; widening the drift swing does the same thing on a smaller scale (measured 0.69 dB);\n; kwcomp is its own degree-2 fit, referenced to today's default (wander=1.0).\nkwx     = kwander - 1.0\nkwexc   = -0.6051037*kwx + 0.05628216*kwx*kwx\nkwcomp  = 10^(-kwexc/20)\nkdrv0   poscil kdw, 0.074           ; drive wander\nkdrb0   poscil kdb, 0.119           ; second, incommensurate\nadrv0   poscil kdrive + kdrv0 + kdrb0, (kfreq * koct1)\nash0    tablei adrv0, giCheb, 1, 0.5 ; Chebyshev transfer curve\nasig    = ash0 * 0.55 * kdcomp * kwcomp          ; level-match the family",
+    "wander=static": "kdrive  = 0.30                       ; drive [0.10..0.30]: how far up the Chebyshev curve the carrier drives -- today's own safe ceiling (0.30 + wander's default 0.17 = 0.47, the domain's own +-0.5 safety margin)\nkwander = 0                        ; wander [0..1]: depth of the two drift LFOs together -- 0 is static, 1 is today's own drift, also this body's own ceiling\nkdw     = kwander * 0.12\nkdb     = kwander * 0.05\n; pushing the carrier further up the transfer curve changes the shaper's own output\n; gain (measured 1.05 dB across drive's range, frequency-independent); kdcomp is a\n; degree-2 fit of that curve's inverse, referenced to today's default (drive=0.30).\nkdx     = kdrive - 0.30\nkdexc   = -4.11824798*kdx + 5.98870253*kdx*kdx\nkdcomp  = 10^(-kdexc/20)\n; widening the drift swing does the same thing on a smaller scale (measured 0.69 dB);\n; kwcomp is its own degree-2 fit, referenced to today's default (wander=1.0).\nkwx     = kwander - 1.0\nkwexc   = -0.6051037*kwx + 0.05628216*kwx*kwx\nkwcomp  = 10^(-kwexc/20)\nkdrv0   poscil kdw, 0.074           ; drive wander\nkdrb0   poscil kdb, 0.119           ; second, incommensurate\nadrv0   poscil kdrive + kdrv0 + kdrb0, (kfreq * koct1)\nash0    tablei adrv0, giCheb, 1, 0.5 ; Chebyshev transfer curve\nasig    = ash0 * 0.55 * kdcomp * kwcomp          ; level-match the family",
+    "wander=mid": "kdrive  = 0.30                       ; drive [0.10..0.30]: how far up the Chebyshev curve the carrier drives -- today's own safe ceiling (0.30 + wander's default 0.17 = 0.47, the domain's own +-0.5 safety margin)\nkwander = 0.5                        ; wander [0..1]: depth of the two drift LFOs together -- 0 is static, 1 is today's own drift, also this body's own ceiling\nkdw     = kwander * 0.12\nkdb     = kwander * 0.05\n; pushing the carrier further up the transfer curve changes the shaper's own output\n; gain (measured 1.05 dB across drive's range, frequency-independent); kdcomp is a\n; degree-2 fit of that curve's inverse, referenced to today's default (drive=0.30).\nkdx     = kdrive - 0.30\nkdexc   = -4.11824798*kdx + 5.98870253*kdx*kdx\nkdcomp  = 10^(-kdexc/20)\n; widening the drift swing does the same thing on a smaller scale (measured 0.69 dB);\n; kwcomp is its own degree-2 fit, referenced to today's default (wander=1.0).\nkwx     = kwander - 1.0\nkwexc   = -0.6051037*kwx + 0.05628216*kwx*kwx\nkwcomp  = 10^(-kwexc/20)\nkdrv0   poscil kdw, 0.074           ; drive wander\nkdrb0   poscil kdb, 0.119           ; second, incommensurate\nadrv0   poscil kdrive + kdrv0 + kdrb0, (kfreq * koct1)\nash0    tablei adrv0, giCheb, 1, 0.5 ; Chebyshev transfer curve\nasig    = ash0 * 0.55 * kdcomp * kwcomp          ; level-match the family",
+    "wander=breathing": "kdrive  = 0.30                       ; drive [0.10..0.30]: how far up the Chebyshev curve the carrier drives -- today's own safe ceiling (0.30 + wander's default 0.17 = 0.47, the domain's own +-0.5 safety margin)\nkwander = 1                        ; wander [0..1]: depth of the two drift LFOs together -- 0 is static, 1 is today's own drift, also this body's own ceiling\nkdw     = kwander * 0.12\nkdb     = kwander * 0.05\n; pushing the carrier further up the transfer curve changes the shaper's own output\n; gain (measured 1.05 dB across drive's range, frequency-independent); kdcomp is a\n; degree-2 fit of that curve's inverse, referenced to today's default (drive=0.30).\nkdx     = kdrive - 0.30\nkdexc   = -4.11824798*kdx + 5.98870253*kdx*kdx\nkdcomp  = 10^(-kdexc/20)\n; widening the drift swing does the same thing on a smaller scale (measured 0.69 dB);\n; kwcomp is its own degree-2 fit, referenced to today's default (wander=1.0).\nkwx     = kwander - 1.0\nkwexc   = -0.6051037*kwx + 0.05628216*kwx*kwx\nkwcomp  = 10^(-kwexc/20)\nkdrv0   poscil kdw, 0.074           ; drive wander\nkdrb0   poscil kdb, 0.119           ; second, incommensurate\nadrv0   poscil kdrive + kdrv0 + kdrb0, (kfreq * koct1)\nash0    tablei adrv0, giCheb, 1, 0.5 ; Chebyshev transfer curve\nasig    = ash0 * 0.55 * kdcomp * kwcomp          ; level-match the family"
+   }
   },
   {
    "key": "organ",
@@ -1154,22 +1208,213 @@
   {
    "key": "bass_saw",
    "why": "synth bass -- moog bass / tb-303 / acid bassline: a dark saw-family spectrum, harmonic count ceilinged near 24 for a rolled-off low end",
-   "code": "ivph0   = frac(ivoice * 0.6180339887)   ; per-voice phase\nkvdr0   poscil 0.0007, 0.043 + 0.0037 * ivoice, giSine, ivph0\nabs0    vco2 0.6, (kfreq * koct1) * (1 + kvdr0), 0 ; saw source\nkcut0   limit (kfreq * koct1) * 24, 100, 15000 ; 24-harmonic ceiling\nadk0    butterlp abs0, kcut0\nasb0    oscili 0.30, (kfreq * koct1) * 0.5    ; sub-octave weight\nasig    = adk0 * 0.72 + asb0"
+   "code": "kbite   = 24     ; bite [6..40]: the lowpass ceiling, in harmonics of the note\nksub    = 1.0    ; sub [0..1]: 0 no sub-octave weight, 1 today's balance\nivph0   = frac(ivoice * 0.6180339887)   ; per-voice phase\nkvdr0   poscil 0.0007, 0.043 + 0.0037 * ivoice, giSine, ivph0\nabs0    vco2 0.6, (kfreq * koct1) * (1 + kvdr0), 0 ; saw source\nkcut0   limit (kfreq * koct1) * kbite, 100, 15000 ; bite: the lowpass ceiling\nkbx0    = kbite - 24                        ; bite: compensation, zero at the default\nkbcmp0  = 10 ^ (-(0.005761 * kbx0 - 0.0002906 * kbx0 * kbx0) / 20)\nadk0    butterlp abs0, kcut0\nksx0    = 1 - ksub                          ; sub: compensation, zero at the default\nkscmp0  = 10 ^ (-(-4.252645 * ksx0 + 1.816774 * ksx0 * ksx0) / 20)\nasb0    oscili 0.30 * ksub, (kfreq * koct1) * 0.5    ; sub-octave weight\nasig    = (adk0 * kbcmp0 * 0.72 + asb0) * kscmp0",
+   "params": {
+    "bite": {
+     "range": [
+      6,
+      40
+     ],
+     "default": 24,
+     "note": "the lowpass ceiling above the saw source, in harmonics of the played note (not 0..1 -- a harmonic count). a first-order lowpass loses a little rms as its ceiling drops -- measured 0.20-0.25 db raw across the range at every register (110/220/440/880 hz), held to 0.09-0.13 db by a quadratic fit in bite-24 (coefficients 0.005761, -0.0002906) that is exactly zero at the default, so today's sound is unchanged. centroid runs 614 -> 2102 hz at 220 hz: low bite is a rounder, more sub-like saw, high bite lets more of the raw sawtooth's edge through. this entry does not clear the library's own movement threshold at 220 hz and up regardless of bite (bass_saw is one of the library's pre-existing static entries in that range, unrelated to this axis), so what moves here is colour, not a wobble.",
+     "anchors": {
+      "dull": {
+       "value": 6,
+       "gloss": "rounded off, almost a sub tone with a buzz on top"
+      },
+      "capped": {
+       "value": 24,
+       "gloss": "the shipped acid-bass ceiling, rolled off early"
+      },
+      "open": {
+       "value": 40,
+       "gloss": "more edge let through, still far short of a full saw"
+      }
+     }
+    },
+    "sub": {
+     "range": [
+      0.0,
+      1.0
+     ],
+     "default": 1.0,
+     "note": "the sub-octave sine's own weight against the filtered saw -- its oscili amplitude scales directly with this axis. held at one loudness by a second fit that boosts the saw back up as the sub is removed (quadratic in 1-sub, coefficients -4.252645, 1.816774, exactly zero at sub=1 so today's mix is unchanged): measured 2.41-2.44 db raw across 110/220/440/880 hz, held to 0.02-0.10 db. centroid falls 1899 -> 1532 hz at 220 hz as more sub-octave energy is added underneath. between 0 and 1 the sub sits close enough to the fundamental's own harmonics that it briefly reads as an amplitude beat rather than a smooth blend (0.209 depth at 109.95 hz measured at sub=0.25) -- real physics of adding a coherent low partial, not a fault, and gone by the anchors reported here.",
+     "anchors": {
+      "none": {
+       "value": 0.0,
+       "gloss": "just the filtered saw, boosted back to the same loudness"
+      },
+      "half": {
+       "value": 0.5,
+       "gloss": "a little low-end fill under the saw"
+      },
+      "full": {
+       "value": 1.0,
+       "gloss": "the shipped acid-bass low end"
+      }
+     }
+    }
+   },
+   "anchor_code": {
+    "bite=dull": "kbite   = 6     ; bite [6..40]: the lowpass ceiling, in harmonics of the note\nksub    = 1.0    ; sub [0..1]: 0 no sub-octave weight, 1 today's balance\nivph0   = frac(ivoice * 0.6180339887)   ; per-voice phase\nkvdr0   poscil 0.0007, 0.043 + 0.0037 * ivoice, giSine, ivph0\nabs0    vco2 0.6, (kfreq * koct1) * (1 + kvdr0), 0 ; saw source\nkcut0   limit (kfreq * koct1) * kbite, 100, 15000 ; bite: the lowpass ceiling\nkbx0    = kbite - 24                        ; bite: compensation, zero at the default\nkbcmp0  = 10 ^ (-(0.005761 * kbx0 - 0.0002906 * kbx0 * kbx0) / 20)\nadk0    butterlp abs0, kcut0\nksx0    = 1 - ksub                          ; sub: compensation, zero at the default\nkscmp0  = 10 ^ (-(-4.252645 * ksx0 + 1.816774 * ksx0 * ksx0) / 20)\nasb0    oscili 0.30 * ksub, (kfreq * koct1) * 0.5    ; sub-octave weight\nasig    = (adk0 * kbcmp0 * 0.72 + asb0) * kscmp0",
+    "bite=capped": "kbite   = 24     ; bite [6..40]: the lowpass ceiling, in harmonics of the note\nksub    = 1.0    ; sub [0..1]: 0 no sub-octave weight, 1 today's balance\nivph0   = frac(ivoice * 0.6180339887)   ; per-voice phase\nkvdr0   poscil 0.0007, 0.043 + 0.0037 * ivoice, giSine, ivph0\nabs0    vco2 0.6, (kfreq * koct1) * (1 + kvdr0), 0 ; saw source\nkcut0   limit (kfreq * koct1) * kbite, 100, 15000 ; bite: the lowpass ceiling\nkbx0    = kbite - 24                        ; bite: compensation, zero at the default\nkbcmp0  = 10 ^ (-(0.005761 * kbx0 - 0.0002906 * kbx0 * kbx0) / 20)\nadk0    butterlp abs0, kcut0\nksx0    = 1 - ksub                          ; sub: compensation, zero at the default\nkscmp0  = 10 ^ (-(-4.252645 * ksx0 + 1.816774 * ksx0 * ksx0) / 20)\nasb0    oscili 0.30 * ksub, (kfreq * koct1) * 0.5    ; sub-octave weight\nasig    = (adk0 * kbcmp0 * 0.72 + asb0) * kscmp0",
+    "bite=open": "kbite   = 40     ; bite [6..40]: the lowpass ceiling, in harmonics of the note\nksub    = 1.0    ; sub [0..1]: 0 no sub-octave weight, 1 today's balance\nivph0   = frac(ivoice * 0.6180339887)   ; per-voice phase\nkvdr0   poscil 0.0007, 0.043 + 0.0037 * ivoice, giSine, ivph0\nabs0    vco2 0.6, (kfreq * koct1) * (1 + kvdr0), 0 ; saw source\nkcut0   limit (kfreq * koct1) * kbite, 100, 15000 ; bite: the lowpass ceiling\nkbx0    = kbite - 24                        ; bite: compensation, zero at the default\nkbcmp0  = 10 ^ (-(0.005761 * kbx0 - 0.0002906 * kbx0 * kbx0) / 20)\nadk0    butterlp abs0, kcut0\nksx0    = 1 - ksub                          ; sub: compensation, zero at the default\nkscmp0  = 10 ^ (-(-4.252645 * ksx0 + 1.816774 * ksx0 * ksx0) / 20)\nasb0    oscili 0.30 * ksub, (kfreq * koct1) * 0.5    ; sub-octave weight\nasig    = (adk0 * kbcmp0 * 0.72 + asb0) * kscmp0",
+    "sub=none": "kbite   = 24     ; bite [6..40]: the lowpass ceiling, in harmonics of the note\nksub    = 0    ; sub [0..1]: 0 no sub-octave weight, 1 today's balance\nivph0   = frac(ivoice * 0.6180339887)   ; per-voice phase\nkvdr0   poscil 0.0007, 0.043 + 0.0037 * ivoice, giSine, ivph0\nabs0    vco2 0.6, (kfreq * koct1) * (1 + kvdr0), 0 ; saw source\nkcut0   limit (kfreq * koct1) * kbite, 100, 15000 ; bite: the lowpass ceiling\nkbx0    = kbite - 24                        ; bite: compensation, zero at the default\nkbcmp0  = 10 ^ (-(0.005761 * kbx0 - 0.0002906 * kbx0 * kbx0) / 20)\nadk0    butterlp abs0, kcut0\nksx0    = 1 - ksub                          ; sub: compensation, zero at the default\nkscmp0  = 10 ^ (-(-4.252645 * ksx0 + 1.816774 * ksx0 * ksx0) / 20)\nasb0    oscili 0.30 * ksub, (kfreq * koct1) * 0.5    ; sub-octave weight\nasig    = (adk0 * kbcmp0 * 0.72 + asb0) * kscmp0",
+    "sub=half": "kbite   = 24     ; bite [6..40]: the lowpass ceiling, in harmonics of the note\nksub    = 0.5    ; sub [0..1]: 0 no sub-octave weight, 1 today's balance\nivph0   = frac(ivoice * 0.6180339887)   ; per-voice phase\nkvdr0   poscil 0.0007, 0.043 + 0.0037 * ivoice, giSine, ivph0\nabs0    vco2 0.6, (kfreq * koct1) * (1 + kvdr0), 0 ; saw source\nkcut0   limit (kfreq * koct1) * kbite, 100, 15000 ; bite: the lowpass ceiling\nkbx0    = kbite - 24                        ; bite: compensation, zero at the default\nkbcmp0  = 10 ^ (-(0.005761 * kbx0 - 0.0002906 * kbx0 * kbx0) / 20)\nadk0    butterlp abs0, kcut0\nksx0    = 1 - ksub                          ; sub: compensation, zero at the default\nkscmp0  = 10 ^ (-(-4.252645 * ksx0 + 1.816774 * ksx0 * ksx0) / 20)\nasb0    oscili 0.30 * ksub, (kfreq * koct1) * 0.5    ; sub-octave weight\nasig    = (adk0 * kbcmp0 * 0.72 + asb0) * kscmp0",
+    "sub=full": "kbite   = 24     ; bite [6..40]: the lowpass ceiling, in harmonics of the note\nksub    = 1    ; sub [0..1]: 0 no sub-octave weight, 1 today's balance\nivph0   = frac(ivoice * 0.6180339887)   ; per-voice phase\nkvdr0   poscil 0.0007, 0.043 + 0.0037 * ivoice, giSine, ivph0\nabs0    vco2 0.6, (kfreq * koct1) * (1 + kvdr0), 0 ; saw source\nkcut0   limit (kfreq * koct1) * kbite, 100, 15000 ; bite: the lowpass ceiling\nkbx0    = kbite - 24                        ; bite: compensation, zero at the default\nkbcmp0  = 10 ^ (-(0.005761 * kbx0 - 0.0002906 * kbx0 * kbx0) / 20)\nadk0    butterlp abs0, kcut0\nksx0    = 1 - ksub                          ; sub: compensation, zero at the default\nkscmp0  = 10 ^ (-(-4.252645 * ksx0 + 1.816774 * ksx0 * ksx0) / 20)\nasb0    oscili 0.30 * ksub, (kfreq * koct1) * 0.5    ; sub-octave weight\nasig    = (adk0 * kbcmp0 * 0.72 + asb0) * kscmp0"
+   }
   },
   {
    "key": "supersaw",
    "why": "supersaw / hypersaw -- the trance and rave lead: a stack of seven saws detuned a few cents apart, and the beating between them IS the sound",
-   "code": "ivph0   = frac(ivoice * 0.6180339887)   ; per-voice phase\nkvdr0   poscil 0.0007, 0.043 + 0.0037 * ivoice, giSine, ivph0\nasu0x0  vco2 0.6, (kfreq * koct1) * 1.0000 * (1 + kvdr0), 0\nasu0x1  vco2 0.6, (kfreq * koct1) * 1.0035 * (1 + kvdr0), 0\nasu0x2  vco2 0.6, (kfreq * koct1) * 0.9965 * (1 + kvdr0), 0\nasu0x3  vco2 0.6, (kfreq * koct1) * 1.0071 * (1 + kvdr0), 0\nasu0x4  vco2 0.6, (kfreq * koct1) * 0.9929 * (1 + kvdr0), 0\nasu0x5  vco2 0.6, (kfreq * koct1) * 1.0110 * (1 + kvdr0), 0\nasu0x6  vco2 0.6, (kfreq * koct1) * 0.9890 * (1 + kvdr0), 0\nasig    = (asu0x0 + asu0x1 + asu0x2 + asu0x3 + asu0x4 + asu0x5 + asu0x6) * 0.17   ; 7-saw detuned stack"
+   "code": "kspread = 1.0    ; spread [0..2]: 0 unison, 1 today's stack, 2 wider than today\nivph0   = frac(ivoice * 0.6180339887)   ; per-voice phase\nkvdr0   poscil 0.0007, 0.043 + 0.0037 * ivoice, giSine, ivph0\nkssx0   = kspread - 1                       ; spread: compensation, zero at the default\nksexc0  = 1.42845067 * kssx0 - 4.43651882 * kssx0 * kssx0 - 5.39442447 * kssx0 * kssx0 * kssx0 + 8.37724332 * kssx0 * kssx0 * kssx0 * kssx0\nkscmp0  = 10 ^ (-ksexc0 / 20)                ; corrects the coherent-to-incoherent loudness jump\nasu0x0  vco2 0.6, (kfreq * koct1) * (1 + kspread * 0.0000) * (1 + kvdr0), 0\nasu0x1  vco2 0.6, (kfreq * koct1) * (1 + kspread * 0.0035) * (1 + kvdr0), 0\nasu0x2  vco2 0.6, (kfreq * koct1) * (1 + kspread * -0.0035) * (1 + kvdr0), 0\nasu0x3  vco2 0.6, (kfreq * koct1) * (1 + kspread * 0.0071) * (1 + kvdr0), 0\nasu0x4  vco2 0.6, (kfreq * koct1) * (1 + kspread * -0.0071) * (1 + kvdr0), 0\nasu0x5  vco2 0.6, (kfreq * koct1) * (1 + kspread * 0.0110) * (1 + kvdr0), 0\nasu0x6  vco2 0.6, (kfreq * koct1) * (1 + kspread * -0.0110) * (1 + kvdr0), 0\nasig    = (asu0x0 + asu0x1 + asu0x2 + asu0x3 + asu0x4 + asu0x5 + asu0x6) * 0.17 * kscmp0   ; 7-saw detuned stack, spread-loudness compensated",
+   "params": {
+    "spread": {
+     "range": [
+      0.0,
+      2.0
+     ],
+     "default": 1.0,
+     "note": "scales all six detuning offsets together (the seventh voice stays centred); at 2 the outer voices sit twice as far out as today. at 0 the seven vco2 saws share one frequency and phase, so they sum coherently to 7x amplitude instead of the roughly sqrt(7)x an incoherent stack gives -- measured -7.72 db against -15.70 db at the default, an 8.33 db gap against the predicted ~8.5. a quartic fit in spread-1 (coefficients 1.42845067, -4.43651882, -5.39442447, 8.37724332; exactly zero at the default, so today's sound is unchanged) closes most of that: with it in place the rms spread across the anchors 0/1/2 is 0.41 db at 220 hz and 0.88/0.60/0.63 db at 110/440/880 -- inside the required bounds. residual, reported rather than hidden: between roughly spread 0.02 and 0.35 the closest pair of partials separates by well under a hertz, so their beat period runs to tens of seconds -- longer than a short note. a fixed gain cannot correct that: a 4 s render at spread 0.1 read as quiet as -20.4 db and, at neighbouring values, as loud as -19.2 db, purely from where in that slow cycle the note happened to land, while the true long-run average (measured over 90 s) sits at -16.2 to -16.5 db for every nonzero spread tested including the default -- within 0.3 db of each other. so that narrow band is left uncompensated: a short note played there has an unpredictable, beat-phase-dependent loudness of its own, which is a real property of near-unison detuning and not a defect in the fit, and it sits outside the 0/1/2 anchors reported here. a second 'rate' axis was not added: spread already sets the beat rate as a direct consequence of the same detuning (beat_rate_hz measured 0.67 at spread=1, rising with wider spread), so a separate control would either duplicate it or need a new mechanism.",
+     "anchors": {
+      "unison": {
+       "value": 0.0,
+       "gloss": "seven identical saws, one huge coherent tone, dead still"
+      },
+      "stack": {
+       "value": 1.0,
+       "gloss": "the shipped supersaw, restless and thick"
+      },
+      "wide": {
+       "value": 2.0,
+       "gloss": "further apart, faster shimmer, individual beats blur together"
+      }
+     }
+    }
+   },
+   "anchor_code": {
+    "spread=unison": "kspread = 0    ; spread [0..2]: 0 unison, 1 today's stack, 2 wider than today\nivph0   = frac(ivoice * 0.6180339887)   ; per-voice phase\nkvdr0   poscil 0.0007, 0.043 + 0.0037 * ivoice, giSine, ivph0\nkssx0   = kspread - 1                       ; spread: compensation, zero at the default\nksexc0  = 1.42845067 * kssx0 - 4.43651882 * kssx0 * kssx0 - 5.39442447 * kssx0 * kssx0 * kssx0 + 8.37724332 * kssx0 * kssx0 * kssx0 * kssx0\nkscmp0  = 10 ^ (-ksexc0 / 20)                ; corrects the coherent-to-incoherent loudness jump\nasu0x0  vco2 0.6, (kfreq * koct1) * (1 + kspread * 0.0000) * (1 + kvdr0), 0\nasu0x1  vco2 0.6, (kfreq * koct1) * (1 + kspread * 0.0035) * (1 + kvdr0), 0\nasu0x2  vco2 0.6, (kfreq * koct1) * (1 + kspread * -0.0035) * (1 + kvdr0), 0\nasu0x3  vco2 0.6, (kfreq * koct1) * (1 + kspread * 0.0071) * (1 + kvdr0), 0\nasu0x4  vco2 0.6, (kfreq * koct1) * (1 + kspread * -0.0071) * (1 + kvdr0), 0\nasu0x5  vco2 0.6, (kfreq * koct1) * (1 + kspread * 0.0110) * (1 + kvdr0), 0\nasu0x6  vco2 0.6, (kfreq * koct1) * (1 + kspread * -0.0110) * (1 + kvdr0), 0\nasig    = (asu0x0 + asu0x1 + asu0x2 + asu0x3 + asu0x4 + asu0x5 + asu0x6) * 0.17 * kscmp0   ; 7-saw detuned stack, spread-loudness compensated",
+    "spread=stack": "kspread = 1    ; spread [0..2]: 0 unison, 1 today's stack, 2 wider than today\nivph0   = frac(ivoice * 0.6180339887)   ; per-voice phase\nkvdr0   poscil 0.0007, 0.043 + 0.0037 * ivoice, giSine, ivph0\nkssx0   = kspread - 1                       ; spread: compensation, zero at the default\nksexc0  = 1.42845067 * kssx0 - 4.43651882 * kssx0 * kssx0 - 5.39442447 * kssx0 * kssx0 * kssx0 + 8.37724332 * kssx0 * kssx0 * kssx0 * kssx0\nkscmp0  = 10 ^ (-ksexc0 / 20)                ; corrects the coherent-to-incoherent loudness jump\nasu0x0  vco2 0.6, (kfreq * koct1) * (1 + kspread * 0.0000) * (1 + kvdr0), 0\nasu0x1  vco2 0.6, (kfreq * koct1) * (1 + kspread * 0.0035) * (1 + kvdr0), 0\nasu0x2  vco2 0.6, (kfreq * koct1) * (1 + kspread * -0.0035) * (1 + kvdr0), 0\nasu0x3  vco2 0.6, (kfreq * koct1) * (1 + kspread * 0.0071) * (1 + kvdr0), 0\nasu0x4  vco2 0.6, (kfreq * koct1) * (1 + kspread * -0.0071) * (1 + kvdr0), 0\nasu0x5  vco2 0.6, (kfreq * koct1) * (1 + kspread * 0.0110) * (1 + kvdr0), 0\nasu0x6  vco2 0.6, (kfreq * koct1) * (1 + kspread * -0.0110) * (1 + kvdr0), 0\nasig    = (asu0x0 + asu0x1 + asu0x2 + asu0x3 + asu0x4 + asu0x5 + asu0x6) * 0.17 * kscmp0   ; 7-saw detuned stack, spread-loudness compensated",
+    "spread=wide": "kspread = 2    ; spread [0..2]: 0 unison, 1 today's stack, 2 wider than today\nivph0   = frac(ivoice * 0.6180339887)   ; per-voice phase\nkvdr0   poscil 0.0007, 0.043 + 0.0037 * ivoice, giSine, ivph0\nkssx0   = kspread - 1                       ; spread: compensation, zero at the default\nksexc0  = 1.42845067 * kssx0 - 4.43651882 * kssx0 * kssx0 - 5.39442447 * kssx0 * kssx0 * kssx0 + 8.37724332 * kssx0 * kssx0 * kssx0 * kssx0\nkscmp0  = 10 ^ (-ksexc0 / 20)                ; corrects the coherent-to-incoherent loudness jump\nasu0x0  vco2 0.6, (kfreq * koct1) * (1 + kspread * 0.0000) * (1 + kvdr0), 0\nasu0x1  vco2 0.6, (kfreq * koct1) * (1 + kspread * 0.0035) * (1 + kvdr0), 0\nasu0x2  vco2 0.6, (kfreq * koct1) * (1 + kspread * -0.0035) * (1 + kvdr0), 0\nasu0x3  vco2 0.6, (kfreq * koct1) * (1 + kspread * 0.0071) * (1 + kvdr0), 0\nasu0x4  vco2 0.6, (kfreq * koct1) * (1 + kspread * -0.0071) * (1 + kvdr0), 0\nasu0x5  vco2 0.6, (kfreq * koct1) * (1 + kspread * 0.0110) * (1 + kvdr0), 0\nasu0x6  vco2 0.6, (kfreq * koct1) * (1 + kspread * -0.0110) * (1 + kvdr0), 0\nasig    = (asu0x0 + asu0x1 + asu0x2 + asu0x3 + asu0x4 + asu0x5 + asu0x6) * 0.17 * kscmp0   ; 7-saw detuned stack, spread-loudness compensated"
+   }
   },
   {
    "key": "sync",
    "why": "hard sync / oscillator sync -- the classic tearing sync lead: a slave saw restarted by the master every cycle, its ratio sweeping 1.5x..3.7x",
-   "code": "ivph0   = frac(ivoice * 0.6180339887)   ; per-voice phase\nkvdr0   poscil 0.0007, 0.043 + 0.0037 * ivoice, giSine, ivph0\nkswp0   oscili 1.1, 0.16            ; slave-ratio sweep\nkrat0   = 2.6 + kswp0            ; 1.5 .. 3.7 x master\nazro0   = 0\namst0, asyn0  syncphasor (kfreq * koct1) * (1 + kvdr0), azro0\naslv0, adum0  syncphasor (kfreq * koct1) * krat0, asyn0\nasig    = (aslv0 * 2 - 1) * 0.45  ; hard-synced saw"
+   "code": "kratio  = 2.6    ; ratio [1.5..5.0]: the slave-to-master frequency ratio centre\nksweep  = 1.1    ; sweep [0..2.5]: how far the ratio sweeps around that centre\nivph0   = frac(ivoice * 0.6180339887)   ; per-voice phase\nkvdr0   poscil 0.0007, 0.043 + 0.0037 * ivoice, giSine, ivph0\nkswp0   oscili ksweep, 0.16            ; slave-ratio sweep\nkrat0   = kratio + kswp0\nazro0   = 0\namst0, asyn0  syncphasor (kfreq * koct1) * (1 + kvdr0), azro0\naslv0, adum0  syncphasor (kfreq * koct1) * krat0, asyn0\nasig    = (aslv0 * 2 - 1) * 0.45  ; hard-synced saw",
+   "params": {
+    "ratio": {
+     "range": [
+      1.5,
+      5.0
+     ],
+     "default": 2.6,
+     "note": "the slave-to-master ratio at the centre of the sweep (today 2.6), declared over 1.5..5.0 -- this is where the sync tear sits. a higher ratio packs more slave cycles, and so more tears, into each master cycle: centroid climbs 9085 -> 10207 hz at 220 hz while comb contrast holds near 35-37 db (still a hard, aliased edge at every ratio). loudness does not move here by construction and needed no compensation: the slave phasor always spans 0..1 and the output is always (aslv*2-1)*0.45, so peak-to-peak amplitude is fixed whatever the ratio is -- measured spread 0.01-0.07 db across 110-880 hz.",
+     "anchors": {
+      "near": {
+       "value": 1.5,
+       "gloss": "close to the master, a soft, near-unison buzz"
+      },
+      "centre": {
+       "value": 2.6,
+       "gloss": "the shipped tearing sync lead"
+      },
+      "far": {
+       "value": 5.0,
+       "gloss": "many tears per cycle, dense and metallic"
+      }
+     }
+    },
+    "sweep": {
+     "range": [
+      0.0,
+      2.5
+     ],
+     "default": 1.1,
+     "note": "the depth of the ratio sweep around the centre (today 1.1), declared over 0..2.5 -- how much the tear moves. at 0 the ratio is frozen at its centre and the tear stops moving: measured centroid travel only 1-8 cents at coherence 0.25-0.47 across the four registers, well under the library's movement threshold (60 cents / 0.35), so this anchor is genuinely static and reported plainly as such -- a deliberate 'sync held still' setting, not this entry's usual character (its only remaining motion there is the pre-existing 0.07%-deep pitch vibrato shared by all four axis bodies in this batch). above 0 the tear sweeps audibly again (centroid travel up to 1610 cents at coherence 0.999 at the top anchor). loudness stays flat by the same fixed-amplitude construction as ratio and needed no compensation: measured spread 0.05-0.12 db across 110-880 hz.",
+     "anchors": {
+      "frozen": {
+       "value": 0.0,
+       "gloss": "the tear parked in one place, no sweep at all"
+      },
+      "sweeping": {
+       "value": 1.1,
+       "gloss": "the shipped tearing motion"
+      },
+      "wide": {
+       "value": 2.5,
+       "gloss": "the tear ranging far and fast"
+      }
+     }
+    }
+   },
+   "anchor_code": {
+    "ratio=near": "kratio  = 1.5    ; ratio [1.5..5.0]: the slave-to-master frequency ratio centre\nksweep  = 1.1    ; sweep [0..2.5]: how far the ratio sweeps around that centre\nivph0   = frac(ivoice * 0.6180339887)   ; per-voice phase\nkvdr0   poscil 0.0007, 0.043 + 0.0037 * ivoice, giSine, ivph0\nkswp0   oscili ksweep, 0.16            ; slave-ratio sweep\nkrat0   = kratio + kswp0\nazro0   = 0\namst0, asyn0  syncphasor (kfreq * koct1) * (1 + kvdr0), azro0\naslv0, adum0  syncphasor (kfreq * koct1) * krat0, asyn0\nasig    = (aslv0 * 2 - 1) * 0.45  ; hard-synced saw",
+    "ratio=centre": "kratio  = 2.6    ; ratio [1.5..5.0]: the slave-to-master frequency ratio centre\nksweep  = 1.1    ; sweep [0..2.5]: how far the ratio sweeps around that centre\nivph0   = frac(ivoice * 0.6180339887)   ; per-voice phase\nkvdr0   poscil 0.0007, 0.043 + 0.0037 * ivoice, giSine, ivph0\nkswp0   oscili ksweep, 0.16            ; slave-ratio sweep\nkrat0   = kratio + kswp0\nazro0   = 0\namst0, asyn0  syncphasor (kfreq * koct1) * (1 + kvdr0), azro0\naslv0, adum0  syncphasor (kfreq * koct1) * krat0, asyn0\nasig    = (aslv0 * 2 - 1) * 0.45  ; hard-synced saw",
+    "ratio=far": "kratio  = 5    ; ratio [1.5..5.0]: the slave-to-master frequency ratio centre\nksweep  = 1.1    ; sweep [0..2.5]: how far the ratio sweeps around that centre\nivph0   = frac(ivoice * 0.6180339887)   ; per-voice phase\nkvdr0   poscil 0.0007, 0.043 + 0.0037 * ivoice, giSine, ivph0\nkswp0   oscili ksweep, 0.16            ; slave-ratio sweep\nkrat0   = kratio + kswp0\nazro0   = 0\namst0, asyn0  syncphasor (kfreq * koct1) * (1 + kvdr0), azro0\naslv0, adum0  syncphasor (kfreq * koct1) * krat0, asyn0\nasig    = (aslv0 * 2 - 1) * 0.45  ; hard-synced saw",
+    "sweep=frozen": "kratio  = 2.6    ; ratio [1.5..5.0]: the slave-to-master frequency ratio centre\nksweep  = 0    ; sweep [0..2.5]: how far the ratio sweeps around that centre\nivph0   = frac(ivoice * 0.6180339887)   ; per-voice phase\nkvdr0   poscil 0.0007, 0.043 + 0.0037 * ivoice, giSine, ivph0\nkswp0   oscili ksweep, 0.16            ; slave-ratio sweep\nkrat0   = kratio + kswp0\nazro0   = 0\namst0, asyn0  syncphasor (kfreq * koct1) * (1 + kvdr0), azro0\naslv0, adum0  syncphasor (kfreq * koct1) * krat0, asyn0\nasig    = (aslv0 * 2 - 1) * 0.45  ; hard-synced saw",
+    "sweep=sweeping": "kratio  = 2.6    ; ratio [1.5..5.0]: the slave-to-master frequency ratio centre\nksweep  = 1.1    ; sweep [0..2.5]: how far the ratio sweeps around that centre\nivph0   = frac(ivoice * 0.6180339887)   ; per-voice phase\nkvdr0   poscil 0.0007, 0.043 + 0.0037 * ivoice, giSine, ivph0\nkswp0   oscili ksweep, 0.16            ; slave-ratio sweep\nkrat0   = kratio + kswp0\nazro0   = 0\namst0, asyn0  syncphasor (kfreq * koct1) * (1 + kvdr0), azro0\naslv0, adum0  syncphasor (kfreq * koct1) * krat0, asyn0\nasig    = (aslv0 * 2 - 1) * 0.45  ; hard-synced saw",
+    "sweep=wide": "kratio  = 2.6    ; ratio [1.5..5.0]: the slave-to-master frequency ratio centre\nksweep  = 2.5    ; sweep [0..2.5]: how far the ratio sweeps around that centre\nivph0   = frac(ivoice * 0.6180339887)   ; per-voice phase\nkvdr0   poscil 0.0007, 0.043 + 0.0037 * ivoice, giSine, ivph0\nkswp0   oscili ksweep, 0.16            ; slave-ratio sweep\nkrat0   = kratio + kswp0\nazro0   = 0\namst0, asyn0  syncphasor (kfreq * koct1) * (1 + kvdr0), azro0\naslv0, adum0  syncphasor (kfreq * koct1) * krat0, asyn0\nasig    = (aslv0 * 2 - 1) * 0.45  ; hard-synced saw"
+   }
   },
   {
    "key": "harpsichord",
    "why": "harpsichord / cembalo / spinet / virginal -- a plucked keyboard: two bright gbuzz choirs, an 8' and a 4' a hair sharp, drifting against each other; the plucked-string spectrum without the pluck (a real plucked string is `string`)",
-   "code": "khw80   poscil 0.00040, 0.071        ; 8' choir tuning drift\nkhw40   poscil 0.00055, 0.094        ; 4' choir, incommensurate\nah80    gbuzz 0.56, (kfreq * koct1) * (1 + khw80), 9, 1, 0.80, giCos ; 8' choir, bright\nah40    gbuzz 0.24, (kfreq * koct1) * 2.0031 * (1 + khw40), 6, 1, 0.72, giCos ; 4' choir\nasig    = ah80 + ah40"
+   "code": "kquill  = 0.80                       ; quill [0.45..0.92]: 8' choir's gbuzz rolloff kmul -- how hard the jack plucks\nkfour   = 0.24                       ; four: the 4' register stop's own gbuzz amplitude -- 0 is 8' only\n; gbuzz normalises to PEAK: knrm holds the 8' choir's own loudness as quill moves,\n; referenced to its value at today's default (quill=0.80) so the ratio is 1 there.\nknrm80  = ((1-kquill^9)/(1-kquill)) / sqrt((1-kquill^18)/(1-kquill*kquill)*0.5)\n; the 4' choir sits at its own frequency, so its power adds to the 8' choir's rather\n; than replacing it: measured total power fits P0 + four^2*P40 to within 2% (P0 = the\n; 8'-alone power, P40 = the 4' choir's own power at amplitude 1). kfcomp is that\n; model's inverse, referenced to today's default (four=0.24) so the default is exact\n; and the stop's own loudness increase is compensated everywhere else.\nkfp0    = 0.0228460\nkfp40   = 0.1086510\nkfpow   = kfp0 + kfour * kfour * kfp40\nkfcomp  = sqrt((kfp0 + 0.0576 * kfp40) / kfpow)\nkhw80   poscil 0.00040, 0.071        ; 8' choir tuning drift\nkhw40   poscil 0.00055, 0.094        ; 4' choir, incommensurate\nah80    gbuzz 0.56 * (knrm80 / 3.7067421920), (kfreq * koct1) * (1 + khw80), 9, 1, kquill, giCos ; 8' choir, bright\nah40    gbuzz kfour, (kfreq * koct1) * 2.0031 * (1 + khw40), 6, 1, 0.72, giCos ; 4' choir\nasig    = (ah80 + ah40) * kfcomp",
+   "params": {
+    "quill": {
+     "range": [
+      0.45,
+      0.92
+     ],
+     "default": 0.8,
+     "note": "how hard the jack plucks the 8' choir, as gbuzz's own rolloff (kmul) on that choir alone. gbuzz normalises to peak, not rms, so knrm holds the 8' choir's own loudness as kmul moves, referenced to today's default so the default point is exact. the 4' choir sits an octave and a hair away and does not beat against the 8' the way the additive entry's twin stack does, so the loudness holds tightly: measured spread 0.03 db at every register (110-880 hz) across the whole 0.45-0.92 range. centroid at 220 hz runs 728 -> 1059 hz.",
+     "anchors": {
+      "soft": {
+       "value": 0.45,
+       "gloss": "a gentle pluck, the tone rounded"
+      },
+      "default": {
+       "value": 0.8,
+       "gloss": "today's pluck"
+      },
+      "hard": {
+       "value": 0.92,
+       "gloss": "a hard, edgy pluck, close to the harpsichord's characteristic snap"
+      }
+     }
+    },
+    "four": {
+     "range": [
+      0.0,
+      1.0
+     ],
+     "default": 0.24,
+     "note": "the 4' register stop's own gbuzz amplitude -- 0 is the 8' choir alone, the top a full second choir an octave and a hair up. this is a real stop, and pulling it genuinely adds power rather than swapping it, since the 4' choir sits at its own frequency: measured total power fits p0 + four^2*p40 (p0 the 8'-alone power, p40 the 4' choir's own power at amplitude 1) to within 2%, and kfcomp is that model's inverse. against 7.5 db of raw swing with the stop pulled all the way, loudness now holds to 0.02 db at 220 hz and 0.03-0.15 db at 110/440/880 across the whole 0-1 range. centroid at 220 hz runs 821 -> 1054 hz. at four=0 the entry stands still -- the 8' choir's only motion is a tuning drift too shallow to register as movement -- away from 0 it moves the way today's default already does.",
+     "anchors": {
+      "off": {
+       "value": 0.0,
+       "gloss": "the 8' choir alone, no 4' voice"
+      },
+      "default": {
+       "value": 0.24,
+       "gloss": "today's blend, the 4' a soft shimmer above"
+      },
+      "full": {
+       "value": 1.0,
+       "gloss": "a full second choir, an unmistakable octave-plus doubling"
+      }
+     }
+    }
+   },
+   "anchor_code": {
+    "quill=soft": "kquill  = 0.45                       ; quill [0.45..0.92]: 8' choir's gbuzz rolloff kmul -- how hard the jack plucks\nkfour   = 0.24                       ; four: the 4' register stop's own gbuzz amplitude -- 0 is 8' only\n; gbuzz normalises to PEAK: knrm holds the 8' choir's own loudness as quill moves,\n; referenced to its value at today's default (quill=0.80) so the ratio is 1 there.\nknrm80  = ((1-kquill^9)/(1-kquill)) / sqrt((1-kquill^18)/(1-kquill*kquill)*0.5)\n; the 4' choir sits at its own frequency, so its power adds to the 8' choir's rather\n; than replacing it: measured total power fits P0 + four^2*P40 to within 2% (P0 = the\n; 8'-alone power, P40 = the 4' choir's own power at amplitude 1). kfcomp is that\n; model's inverse, referenced to today's default (four=0.24) so the default is exact\n; and the stop's own loudness increase is compensated everywhere else.\nkfp0    = 0.0228460\nkfp40   = 0.1086510\nkfpow   = kfp0 + kfour * kfour * kfp40\nkfcomp  = sqrt((kfp0 + 0.0576 * kfp40) / kfpow)\nkhw80   poscil 0.00040, 0.071        ; 8' choir tuning drift\nkhw40   poscil 0.00055, 0.094        ; 4' choir, incommensurate\nah80    gbuzz 0.56 * (knrm80 / 3.7067421920), (kfreq * koct1) * (1 + khw80), 9, 1, kquill, giCos ; 8' choir, bright\nah40    gbuzz kfour, (kfreq * koct1) * 2.0031 * (1 + khw40), 6, 1, 0.72, giCos ; 4' choir\nasig    = (ah80 + ah40) * kfcomp",
+    "quill=default": "kquill  = 0.8                       ; quill [0.45..0.92]: 8' choir's gbuzz rolloff kmul -- how hard the jack plucks\nkfour   = 0.24                       ; four: the 4' register stop's own gbuzz amplitude -- 0 is 8' only\n; gbuzz normalises to PEAK: knrm holds the 8' choir's own loudness as quill moves,\n; referenced to its value at today's default (quill=0.80) so the ratio is 1 there.\nknrm80  = ((1-kquill^9)/(1-kquill)) / sqrt((1-kquill^18)/(1-kquill*kquill)*0.5)\n; the 4' choir sits at its own frequency, so its power adds to the 8' choir's rather\n; than replacing it: measured total power fits P0 + four^2*P40 to within 2% (P0 = the\n; 8'-alone power, P40 = the 4' choir's own power at amplitude 1). kfcomp is that\n; model's inverse, referenced to today's default (four=0.24) so the default is exact\n; and the stop's own loudness increase is compensated everywhere else.\nkfp0    = 0.0228460\nkfp40   = 0.1086510\nkfpow   = kfp0 + kfour * kfour * kfp40\nkfcomp  = sqrt((kfp0 + 0.0576 * kfp40) / kfpow)\nkhw80   poscil 0.00040, 0.071        ; 8' choir tuning drift\nkhw40   poscil 0.00055, 0.094        ; 4' choir, incommensurate\nah80    gbuzz 0.56 * (knrm80 / 3.7067421920), (kfreq * koct1) * (1 + khw80), 9, 1, kquill, giCos ; 8' choir, bright\nah40    gbuzz kfour, (kfreq * koct1) * 2.0031 * (1 + khw40), 6, 1, 0.72, giCos ; 4' choir\nasig    = (ah80 + ah40) * kfcomp",
+    "quill=hard": "kquill  = 0.92                       ; quill [0.45..0.92]: 8' choir's gbuzz rolloff kmul -- how hard the jack plucks\nkfour   = 0.24                       ; four: the 4' register stop's own gbuzz amplitude -- 0 is 8' only\n; gbuzz normalises to PEAK: knrm holds the 8' choir's own loudness as quill moves,\n; referenced to its value at today's default (quill=0.80) so the ratio is 1 there.\nknrm80  = ((1-kquill^9)/(1-kquill)) / sqrt((1-kquill^18)/(1-kquill*kquill)*0.5)\n; the 4' choir sits at its own frequency, so its power adds to the 8' choir's rather\n; than replacing it: measured total power fits P0 + four^2*P40 to within 2% (P0 = the\n; 8'-alone power, P40 = the 4' choir's own power at amplitude 1). kfcomp is that\n; model's inverse, referenced to today's default (four=0.24) so the default is exact\n; and the stop's own loudness increase is compensated everywhere else.\nkfp0    = 0.0228460\nkfp40   = 0.1086510\nkfpow   = kfp0 + kfour * kfour * kfp40\nkfcomp  = sqrt((kfp0 + 0.0576 * kfp40) / kfpow)\nkhw80   poscil 0.00040, 0.071        ; 8' choir tuning drift\nkhw40   poscil 0.00055, 0.094        ; 4' choir, incommensurate\nah80    gbuzz 0.56 * (knrm80 / 3.7067421920), (kfreq * koct1) * (1 + khw80), 9, 1, kquill, giCos ; 8' choir, bright\nah40    gbuzz kfour, (kfreq * koct1) * 2.0031 * (1 + khw40), 6, 1, 0.72, giCos ; 4' choir\nasig    = (ah80 + ah40) * kfcomp",
+    "four=off": "kquill  = 0.80                       ; quill [0.45..0.92]: 8' choir's gbuzz rolloff kmul -- how hard the jack plucks\nkfour   = 0                       ; four: the 4' register stop's own gbuzz amplitude -- 0 is 8' only\n; gbuzz normalises to PEAK: knrm holds the 8' choir's own loudness as quill moves,\n; referenced to its value at today's default (quill=0.80) so the ratio is 1 there.\nknrm80  = ((1-kquill^9)/(1-kquill)) / sqrt((1-kquill^18)/(1-kquill*kquill)*0.5)\n; the 4' choir sits at its own frequency, so its power adds to the 8' choir's rather\n; than replacing it: measured total power fits P0 + four^2*P40 to within 2% (P0 = the\n; 8'-alone power, P40 = the 4' choir's own power at amplitude 1). kfcomp is that\n; model's inverse, referenced to today's default (four=0.24) so the default is exact\n; and the stop's own loudness increase is compensated everywhere else.\nkfp0    = 0.0228460\nkfp40   = 0.1086510\nkfpow   = kfp0 + kfour * kfour * kfp40\nkfcomp  = sqrt((kfp0 + 0.0576 * kfp40) / kfpow)\nkhw80   poscil 0.00040, 0.071        ; 8' choir tuning drift\nkhw40   poscil 0.00055, 0.094        ; 4' choir, incommensurate\nah80    gbuzz 0.56 * (knrm80 / 3.7067421920), (kfreq * koct1) * (1 + khw80), 9, 1, kquill, giCos ; 8' choir, bright\nah40    gbuzz kfour, (kfreq * koct1) * 2.0031 * (1 + khw40), 6, 1, 0.72, giCos ; 4' choir\nasig    = (ah80 + ah40) * kfcomp",
+    "four=default": "kquill  = 0.80                       ; quill [0.45..0.92]: 8' choir's gbuzz rolloff kmul -- how hard the jack plucks\nkfour   = 0.24                       ; four: the 4' register stop's own gbuzz amplitude -- 0 is 8' only\n; gbuzz normalises to PEAK: knrm holds the 8' choir's own loudness as quill moves,\n; referenced to its value at today's default (quill=0.80) so the ratio is 1 there.\nknrm80  = ((1-kquill^9)/(1-kquill)) / sqrt((1-kquill^18)/(1-kquill*kquill)*0.5)\n; the 4' choir sits at its own frequency, so its power adds to the 8' choir's rather\n; than replacing it: measured total power fits P0 + four^2*P40 to within 2% (P0 = the\n; 8'-alone power, P40 = the 4' choir's own power at amplitude 1). kfcomp is that\n; model's inverse, referenced to today's default (four=0.24) so the default is exact\n; and the stop's own loudness increase is compensated everywhere else.\nkfp0    = 0.0228460\nkfp40   = 0.1086510\nkfpow   = kfp0 + kfour * kfour * kfp40\nkfcomp  = sqrt((kfp0 + 0.0576 * kfp40) / kfpow)\nkhw80   poscil 0.00040, 0.071        ; 8' choir tuning drift\nkhw40   poscil 0.00055, 0.094        ; 4' choir, incommensurate\nah80    gbuzz 0.56 * (knrm80 / 3.7067421920), (kfreq * koct1) * (1 + khw80), 9, 1, kquill, giCos ; 8' choir, bright\nah40    gbuzz kfour, (kfreq * koct1) * 2.0031 * (1 + khw40), 6, 1, 0.72, giCos ; 4' choir\nasig    = (ah80 + ah40) * kfcomp",
+    "four=full": "kquill  = 0.80                       ; quill [0.45..0.92]: 8' choir's gbuzz rolloff kmul -- how hard the jack plucks\nkfour   = 1                       ; four: the 4' register stop's own gbuzz amplitude -- 0 is 8' only\n; gbuzz normalises to PEAK: knrm holds the 8' choir's own loudness as quill moves,\n; referenced to its value at today's default (quill=0.80) so the ratio is 1 there.\nknrm80  = ((1-kquill^9)/(1-kquill)) / sqrt((1-kquill^18)/(1-kquill*kquill)*0.5)\n; the 4' choir sits at its own frequency, so its power adds to the 8' choir's rather\n; than replacing it: measured total power fits P0 + four^2*P40 to within 2% (P0 = the\n; 8'-alone power, P40 = the 4' choir's own power at amplitude 1). kfcomp is that\n; model's inverse, referenced to today's default (four=0.24) so the default is exact\n; and the stop's own loudness increase is compensated everywhere else.\nkfp0    = 0.0228460\nkfp40   = 0.1086510\nkfpow   = kfp0 + kfour * kfour * kfp40\nkfcomp  = sqrt((kfp0 + 0.0576 * kfp40) / kfpow)\nkhw80   poscil 0.00040, 0.071        ; 8' choir tuning drift\nkhw40   poscil 0.00055, 0.094        ; 4' choir, incommensurate\nah80    gbuzz 0.56 * (knrm80 / 3.7067421920), (kfreq * koct1) * (1 + khw80), 9, 1, kquill, giCos ; 8' choir, bright\nah40    gbuzz kfour, (kfreq * koct1) * 2.0031 * (1 + khw40), 6, 1, 0.72, giCos ; 4' choir\nasig    = (ah80 + ah40) * kfcomp"
+   }
   },
   {
    "key": "chiptune",
@@ -1184,7 +1429,36 @@
   {
    "key": "sub_sine",
    "why": "sub bass -- the 808-style low pair: a pure fundamental with a divider octave beneath it",
-   "code": "ksbw0   poscil 0.0006, 0.067         ; divider drift\nasb0    gbuzz 0.28, (kfreq * koct1) * 0.5 * (1 + ksbw0), 2, 1, 0.55, giCos ; sub octave (divider)\nafn0    poscil 0.50, (kfreq * koct1)          ; fundamental\nasig    = afn0 + asb0"
+   "code": "kweight = 0.249                        ; weight [0..1]: 0 pure fundamental .. 1 pure sub octave, equal-power crossfade -- default is today's balance\nkgf     = cos(kweight * 1.5707963268)\nkgs     = sin(kweight * 1.5707963268)\n; the sub octave's own 2nd harmonic sits exactly at the fundamental's frequency, so the\n; two interfere: measured at 220 Hz, a symmetric dip up to 1.8 dB deep centred on the\n; crossfade's middle, shallower at other registers (0.6-1.1 dB). kwcomp is 78% of a\n; degree-4 fit of the 220 Hz dip's inverse -- full correction there would overcorrect\n; the shallower registers past their own bound; 78% is the balance that clears all of\n; 110/220/440/880 Hz. Referenced to today's default so the default point is untouched.\nkwx     = kweight - 0.249\nkwexc   = -3.41150534*kwx + 4.26624332*kwx*kwx + 9.90519506*kwx*kwx*kwx + -9.78084940*kwx*kwx*kwx*kwx\nkwcomp  = 10^(-kwexc/20)\nksbw0   poscil 0.0006, 0.067         ; divider drift\nasb0    gbuzz 0.7344614176 * kgs, (kfreq * koct1) * 0.5 * (1 + ksbw0), 2, 1, 0.55, giCos ; sub octave (divider)\nafn0    poscil 0.5408448694 * kgf, (kfreq * koct1)          ; fundamental\nasig    = (afn0 + asb0) * kwcomp",
+   "params": {
+    "weight": {
+     "range": [
+      0.0,
+      1.0
+     ],
+     "default": 0.249,
+     "note": "the balance between the fundamental and the divider sub-octave, as an equal-power crossfade (0 pure fundamental, 1 pure sub) so it stays a colour rather than a fader by construction -- except that the sub's own 2nd harmonic (gbuzz knh=2) sits exactly at the fundamental's own frequency, so the two interfere: measured a symmetric dip up to 1.8 db deep at 220 hz in the middle of the crossfade, shallower (0.6-1.1 db) at other registers. kwcomp is a fitted, partial (78%) correction -- a full correction at 220 hz would overcorrect the shallower registers past their own bound -- which holds the spread to 0.34-0.82 db across 110/220/440/880 over the whole range, against 1.06-1.81 db uncompensated. centroid at 220 hz runs 220 -> 171 hz as the balance moves to the sub. default 0.249 (not the crossfade's own midpoint) is where the two channels' fixed gains reproduce today's exact 0.50/0.28 amplitude pair.",
+     "anchors": {
+      "fundamental": {
+       "value": 0.0,
+       "gloss": "a plain sine, no sub at all"
+      },
+      "default": {
+       "value": 0.249,
+       "gloss": "today's balance, fundamental with a sub floor beneath it"
+      },
+      "sub": {
+       "value": 1.0,
+       "gloss": "the sub octave alone, an octave-down hum"
+      }
+     }
+    }
+   },
+   "anchor_code": {
+    "weight=fundamental": "kweight = 0                        ; weight [0..1]: 0 pure fundamental .. 1 pure sub octave, equal-power crossfade -- default is today's balance\nkgf     = cos(kweight * 1.5707963268)\nkgs     = sin(kweight * 1.5707963268)\n; the sub octave's own 2nd harmonic sits exactly at the fundamental's frequency, so the\n; two interfere: measured at 220 Hz, a symmetric dip up to 1.8 dB deep centred on the\n; crossfade's middle, shallower at other registers (0.6-1.1 dB). kwcomp is 78% of a\n; degree-4 fit of the 220 Hz dip's inverse -- full correction there would overcorrect\n; the shallower registers past their own bound; 78% is the balance that clears all of\n; 110/220/440/880 Hz. Referenced to today's default so the default point is untouched.\nkwx     = kweight - 0.249\nkwexc   = -3.41150534*kwx + 4.26624332*kwx*kwx + 9.90519506*kwx*kwx*kwx + -9.78084940*kwx*kwx*kwx*kwx\nkwcomp  = 10^(-kwexc/20)\nksbw0   poscil 0.0006, 0.067         ; divider drift\nasb0    gbuzz 0.7344614176 * kgs, (kfreq * koct1) * 0.5 * (1 + ksbw0), 2, 1, 0.55, giCos ; sub octave (divider)\nafn0    poscil 0.5408448694 * kgf, (kfreq * koct1)          ; fundamental\nasig    = (afn0 + asb0) * kwcomp",
+    "weight=default": "kweight = 0.249                        ; weight [0..1]: 0 pure fundamental .. 1 pure sub octave, equal-power crossfade -- default is today's balance\nkgf     = cos(kweight * 1.5707963268)\nkgs     = sin(kweight * 1.5707963268)\n; the sub octave's own 2nd harmonic sits exactly at the fundamental's frequency, so the\n; two interfere: measured at 220 Hz, a symmetric dip up to 1.8 dB deep centred on the\n; crossfade's middle, shallower at other registers (0.6-1.1 dB). kwcomp is 78% of a\n; degree-4 fit of the 220 Hz dip's inverse -- full correction there would overcorrect\n; the shallower registers past their own bound; 78% is the balance that clears all of\n; 110/220/440/880 Hz. Referenced to today's default so the default point is untouched.\nkwx     = kweight - 0.249\nkwexc   = -3.41150534*kwx + 4.26624332*kwx*kwx + 9.90519506*kwx*kwx*kwx + -9.78084940*kwx*kwx*kwx*kwx\nkwcomp  = 10^(-kwexc/20)\nksbw0   poscil 0.0006, 0.067         ; divider drift\nasb0    gbuzz 0.7344614176 * kgs, (kfreq * koct1) * 0.5 * (1 + ksbw0), 2, 1, 0.55, giCos ; sub octave (divider)\nafn0    poscil 0.5408448694 * kgf, (kfreq * koct1)          ; fundamental\nasig    = (afn0 + asb0) * kwcomp",
+    "weight=sub": "kweight = 1                        ; weight [0..1]: 0 pure fundamental .. 1 pure sub octave, equal-power crossfade -- default is today's balance\nkgf     = cos(kweight * 1.5707963268)\nkgs     = sin(kweight * 1.5707963268)\n; the sub octave's own 2nd harmonic sits exactly at the fundamental's frequency, so the\n; two interfere: measured at 220 Hz, a symmetric dip up to 1.8 dB deep centred on the\n; crossfade's middle, shallower at other registers (0.6-1.1 dB). kwcomp is 78% of a\n; degree-4 fit of the 220 Hz dip's inverse -- full correction there would overcorrect\n; the shallower registers past their own bound; 78% is the balance that clears all of\n; 110/220/440/880 Hz. Referenced to today's default so the default point is untouched.\nkwx     = kweight - 0.249\nkwexc   = -3.41150534*kwx + 4.26624332*kwx*kwx + 9.90519506*kwx*kwx*kwx + -9.78084940*kwx*kwx*kwx*kwx\nkwcomp  = 10^(-kwexc/20)\nksbw0   poscil 0.0006, 0.067         ; divider drift\nasb0    gbuzz 0.7344614176 * kgs, (kfreq * koct1) * 0.5 * (1 + ksbw0), 2, 1, 0.55, giCos ; sub octave (divider)\nafn0    poscil 0.5408448694 * kgf, (kfreq * koct1)          ; fundamental\nasig    = (afn0 + asb0) * kwcomp"
+   }
   },
   {
    "key": "analog_osc",
