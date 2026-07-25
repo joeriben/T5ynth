@@ -1091,13 +1091,24 @@ void SamplePlayer::primeStretcher()
     // ── Step 1: seek() — fill STFT analysis context with pre-roll audio ──
     // Reads audio BEFORE readPosition so the first STFT frames
     // have real left context instead of post-reset silence.
-    int seekLen = stretcher.blockSamples() + stretcher.intervalSamples();
-    double seekStart = readPosition - seekLen * srRatio;
-    if (seekStart < 0.0)
-    {
-        seekLen = std::max(0, static_cast<int>(readPosition / srRatio));
-        seekStart = readPosition - seekLen * srRatio;
-    }
+    //
+    // When the start point sits at (or near) the very beginning of the buffer
+    // there IS no audio before it. This used to clamp seekLen down to whatever
+    // fit — to zero at P1 = 0 — so the STFT started from empty history and the
+    // synthesis-window overlap faded the first ~windowSize of output in from
+    // silence: measured 46 ms to 10 % of level on every transposed note (the
+    // root takes the nearUnity bypass and never enters the stretcher), and a
+    // fresh generation lands in exactly this state because loadGeneratedAudio
+    // trims leading silence and auto-positions P1 at the first active window.
+    // Standard edge handling instead: REFLECT the buffer around the start
+    // point (read -pos for pos < 0), so the analysis windows are always FULL
+    // of real local material — time-reversed, which only matters to the prime
+    // as spectral content — and the full pre-roll is always paid.
+    // cubicSampleFrom bounds-clamps, so a buffer shorter than the mirrored
+    // reach degrades to an edge-hold, never an OOB. Measured (96 kHz,
+    // tools/measure_note_latency): transposed note at P1 = 0 was 46 ms to
+    // 10 % of level before, ~1 ms after — same as with real pre-roll.
+    const int seekLen = stretcher.blockSamples() + stretcher.intervalSamples();
     if (seekLen > 0)
     {
         // Capacity is sized in prepareStretcher() from the same stretcher
@@ -1106,11 +1117,17 @@ void SamplePlayer::primeStretcher()
         jassert (static_cast<size_t>(seekLen) <= primeSeekBuf.size());
         if (static_cast<size_t>(seekLen) <= primeSeekBuf.size())
         {
-            double pos = seekStart;
+            const bool useFP = inFirstPass_ && loopMode == LoopMode::Loop;
+            double pos = readPosition - seekLen * srRatio;
             for (int i = 0; i < seekLen; ++i)
             {
-                primeSeekBuf[static_cast<size_t>(i)] = playbackSample(
-                    pos, inFirstPass_ && loopMode == LoopMode::Loop);
+                // sourceGain_ matches what processSample()/readRawSamples()
+                // apply to the real audio that follows this pre-roll — without
+                // it the analysis history sits at a different level than the
+                // input, and with Normalize active the first ~windowSize/2 of
+                // output rides that mismatch (adversarial-review finding).
+                primeSeekBuf[static_cast<size_t>(i)] =
+                    playbackSample(pos < 0.0 ? -pos : pos, useFP) * sourceGain_;
                 pos += srRatio;
             }
             float* seekPtr = primeSeekBuf.data();
