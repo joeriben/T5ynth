@@ -269,25 +269,52 @@ def logspec_rel(y, freq, lo_c=-600.0, hi_c=4200.0, cents_per_bin=20.0,
     since scaling f0 is a pure translation on a log axis. One that ignores the
     keyboard has a spectrum that slides by exactly the interval played.
 
-    The band is bounded at both ends on purpose. Above ~+4200 cents (five
-    harmonics past the fourth octave) a 20-cent grid can no longer RESOLVE
-    adjacent harmonics — the spacing 1200*log2(1+1/h) falls under two bins around
-    h=43 — so a saw's comb turns into a smooth mush that correlates with itself at
-    any shift, which is what read a saw's octave as 1360 of 3600 cents. Below the
-    fundamental there is nothing an oscillator should be putting energy into.
+    The upper bound is a resolution limit. Above ~+4200 cents (five harmonics past
+    the fourth octave) a 20-cent grid can no longer RESOLVE adjacent harmonics —
+    the spacing 1200*log2(1+1/h) falls under two bins around h=43 — so a saw's comb
+    turns into a smooth mush that correlates with itself at any shift, which is
+    what read a saw's octave as 1360 of 3600 cents. The lower bound only has to
+    reach under anything an oscillator puts energy into, and -1500 cents does:
+    it was -600, which is above a sub-octave, and a body an octave down (`sub_sine`
+    territory) then fell out of the band entirely and was reported "mixed".
+
+    Each grid cell takes the LARGEST bin it spans, not a sample at its centre.
+    This is not a refinement — a point sample makes the meter lie about most of
+    the library. Vibrato smears a partial over several FFT bins, and the grid step
+    at the top of the band is wider than that smear, so the point at the nominal
+    frequency can land in the notch BETWEEN the two turning-point peaks: measured
+    on the shipped `saw` at 880 Hz, the band around the fundamental peaks at 12349
+    while the sample at exactly 880.0 Hz reads 11.5, a factor of 1073. That drove
+    `r_note` for `saw` to 0.149 (0.957 with the max, 0.992 with the vibrato
+    switched off), and `pulse` to within 0.032 of the meter declaring a plain pulse
+    wave not to follow the keyboard. `comb_contrast` in this file already takes the
+    band peak for exactly this reason.
     """
     S, fq = _mag(y, t0, t1)
     grid = np.arange(lo_c, hi_c, cents_per_bin)
-    return grid, np.interp(freq * 2 ** (grid / 1200.0), fq, S)
+    edges = freq * 2 ** ((np.append(grid, grid[-1] + cents_per_bin)
+                          - cents_per_bin / 2) / 1200.0)
+    idx = np.searchsorted(fq, edges)
+    out = np.empty(len(grid))
+    for i in range(len(grid)):
+        a, b = idx[i], max(idx[i + 1], idx[i] + 1)
+        seg = S[a:b]
+        out[i] = seg.max() if seg.size else 0.0
+    return grid, out
 
 
 def _corr(a, b):
+    """Pearson r, or None where there is nothing to correlate.
+
+    None rather than a sentinel number: a -2.0 standing in for "cannot measure"
+    compares as a correlation, and `tracks` would then read an unmeasurable fixed
+    hypothesis as proof that the sound follows the keyboard."""
     n = min(len(a), len(b))
     if n < 8:
-        return -2.0
+        return None
     a, b = a[:n] - a[:n].mean(), b[:n] - b[:n].mean()
     den = float(np.sqrt((a ** 2).sum() * (b ** 2).sum()))
-    return float((a * b).sum() / den) if den > 0 else -2.0
+    return float((a * b).sum() / den) if den > 0 else None
 
 
 def tracks(y_low, y_high, f_low, f_high, cents_per_bin=20.0):
@@ -322,7 +349,7 @@ def tracks(y_low, y_high, f_low, f_high, cents_per_bin=20.0):
         1760, and its centroid rises far less than proportionally — measured slope
         0.675 against a keyboard it follows to the cent.
     """
-    lo_c, hi_c = -600.0, 4200.0
+    lo_c, hi_c = -1500.0, 4200.0
     _, A = logspec_rel(y_low, f_low, lo_c, hi_c, cents_per_bin)
     _, B = logspec_rel(y_high, f_high, lo_c, hi_c, cents_per_bin)
     r_note = _corr(A, B)
@@ -332,10 +359,14 @@ def tracks(y_low, y_high, f_low, f_high, cents_per_bin=20.0):
     _, Aa = logspec_rel(y_low, lo_hz, 0.0, span_c, cents_per_bin)
     _, Ba = logspec_rel(y_high, lo_hz, 0.0, span_c, cents_per_bin)
     r_fixed = _corr(Aa, Ba)
-    verdict = ("tracks" if r_note > r_fixed + 0.1 else
-               "fixed register" if r_fixed > r_note + 0.1 else "mixed")
+    if r_note is None or r_fixed is None:
+        verdict = "not measurable"
+    else:
+        verdict = ("tracks" if r_note > r_fixed + 0.1 else
+                   "fixed register" if r_fixed > r_note + 0.1 else "mixed")
     return {"asked_cents": round(float(1200 * np.log2(f_high / f_low)), 1),
-            "r_note": round(r_note, 3), "r_fixed": round(r_fixed, 3),
+            "r_note": None if r_note is None else round(r_note, 3),
+            "r_fixed": None if r_fixed is None else round(r_fixed, 3),
             "verdict": verdict}
 
 
@@ -361,15 +392,53 @@ def travel(y, n=8):
     return cs, (max(cs) - min(cs))
 
 
+def coherence(y, n=128):
+    """How much of that travel is MOVEMENT and how much is just noise variance.
+
+    The span `travel` returns cannot tell the two apart, and on this library the
+    difference decides a platform fundamental. A stochastic source's centroid
+    wanders from window to window all by itself: measured, plain `rand` with
+    nothing modulating it reads 830 Hz of travel at n=128, more than most of the
+    genuinely moving entries, while a standing sine reads 0.4. So a movement test
+    built on the span alone passes every noise bed in the library and would certify
+    "movement by default" on a body that provably cannot move.
+
+    What separates them is the SHAPE of the centroid track, not its range. A track
+    driven by an LFO or an envelope is smooth — successive windows are near each
+    other because the thing moving them is slow relative to the window. A track
+    that is only variance is white: each window is independent of the last. The
+    lag-1 autocorrelation reads exactly that, near 1 for the first and near 0 for
+    the second, and it is scale-free, so it needs no threshold per instrument.
+    """
+    cs, _ = travel(y, n)
+    a = np.asarray(cs, dtype=float)
+    a = a - a.mean()
+    den = float((a * a).sum())
+    if den <= 0 or len(a) < 4:
+        return 0.0
+    return float((a[:-1] * a[1:]).sum() / den)
+
+
+def moves(y, n=128, span_hz=8.0, min_coherence=0.35):
+    """Does the colour actually travel over the note? Span AND shape must agree."""
+    _, span = travel(y, n)
+    r1 = coherence(y, n)
+    return bool(span > span_hz and r1 > min_coherence), round(span, 1), round(r1, 3)
+
+
 def measure(y, asked_freq):
     f = f0(y)
     cs, span = travel(y, 8)
     _, fast = travel(y, 128)
+    does_move, _, r1 = moves(y)
     return {"f0": None if f is None else round(f, 2),
             "cents": None if f is None else round(cents(f, asked_freq), 1),
             "centroid": round(centroid(y), 1),
             "centroid_travel_hz": round(span, 1),
             "centroid_motion_hz": round(fast, 1),
+            # The span alone calls static noise the most mobile thing here.
+            "motion_coherence": r1,
+            "moves": does_move,
             "centroid_over_note": [round(c) for c in cs],
             "rms_db": round(rms_db(y), 2),
             "peak_p999": round(peak_p999(y), 3),
@@ -461,6 +530,30 @@ asig    tone asaw, kcut""")
         check("a sweep travels", span_mov > 800, f"{span_mov:.0f} Hz")
         check("a standing sine does not", span_still < 20, f"{span_still:.0f} Hz")
 
+    # The trap the span alone walks into: an unmodulated noise source. Its centroid
+    # wanders more than most moving instruments do, so any test that reads only the
+    # span certifies movement on a body that has none. Both readings are asserted
+    # here, on the same signal, because it is their DISAGREEMENT that is the meter.
+    print("movement is told apart from noise variance")
+    yn2, en2 = render(_NOISE)
+    ylfo, elfo = render("""anz     rand 0.4
+kcut    poscil 1500, 0.7
+asig    reson anz, 2200 + kcut, 900, 2""")
+    if en2 or elfo:
+        check("the movement calibration renders", False, en2 or elfo)
+    else:
+        m_n, sp_n, r_n = moves(yn2)
+        m_l, sp_l, r_l = moves(ylfo)
+        m_s, sp_s, r_s = moves(ys)
+        m_m, sp_m, r_m = moves(ymov)
+        check("static noise travels but does NOT move", not m_n,
+              f"span {sp_n:.0f} Hz, coherence {r_n:+.2f}")
+        check("the same noise under an LFO does move", m_l,
+              f"span {sp_l:.0f} Hz, coherence {r_l:+.2f}")
+        check("a swept saw moves", m_m, f"span {sp_m:.0f} Hz, coherence {r_m:+.2f}")
+        check("a standing sine does not move", not m_s,
+              f"span {sp_s:.0f} Hz, coherence {r_s:+.2f}")
+
     print("tracking sees what follows the keyboard and what does not")
     _FIXED = "asig    poscil 0.4, 800, giSine"          # a fixed register: ignores kfreq
     _BANK = """aex     rand 0.06, 0.5, 1
@@ -468,7 +561,17 @@ a1      mode aex, kfreq * koct1 * 1.0, 40
 a2      mode aex, kfreq * koct1 * 2.14, 36
 a3      mode aex, kfreq * koct1 * 3.77, 32
 asig    = (a1 + a2 + a3) * 0.5"""
+    # A VIBRATOED saw, because every analogue-flavoured entry in the library has a
+    # slow detune on it and the un-vibratoed cases above cannot see the trap it
+    # sets: the smear moves the partial off the grid point. Shipped `saw` read
+    # r_note 0.149 against a keyboard it follows to the cent.
+    _VIB = """kvib    poscil 0.0025, 4.7
+asig    vco2 0.5, kfreq * koct1 * (1 + kvib), 0"""
+    # An octave below the played note — the whole reason the band reaches to -1500.
+    _SUB = "asig    poscil 0.5, kfreq * koct1 * 0.5, giSine"
     for name, body, want_tracking in (("saw (band-limited)", _SAW, True),
+                                      ("saw with vibrato", _VIB, True),
+                                      ("a sub-octave sine", _SUB, True),
                                       ("sine", _SINE, True),
                                       ("inharmonic modal bank", _BANK, True),
                                       ("a fixed 800 Hz register", _FIXED, False)):

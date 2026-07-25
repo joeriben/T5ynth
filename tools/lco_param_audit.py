@@ -316,10 +316,15 @@ def verdicts(rep):
                           f"across 110-880 Hz ({t['db_per_octave']:+.2f} dB/octave)"))
 
     mid = rep["registers"].get("220.0", {})
-    mot = mid.get("centroid_motion_hz")
-    if mot is not None and mot < 8.0:
-        out.append(("M4", f"stands still — colour motion {mot:.1f} Hz "
-                          "(movement by default)"))
+    # `moves` and not the travel span: a stochastic source's centroid wanders on
+    # its own, so the span alone passed every noise bed in the library — `noise`
+    # read 830 Hz, `crackle` 1354, `surf` 2690, all with nothing modulating them.
+    # A movement rule that a provably static body satisfies certifies nothing.
+    if "moves" in mid and not mid["moves"]:
+        out.append(("M4", f"stands still — colour motion "
+                          f"{mid.get('centroid_motion_hz')} Hz at coherence "
+                          f"{mid.get('motion_coherence')} (movement by default; "
+                          f"travel without coherence is noise variance, not motion)"))
 
     for axis, a in rep["axes"].items():
         if a.get("unmeasurable"):
@@ -347,11 +352,24 @@ def verdicts(rep):
 
 
 def split_declared(key, findings):
-    """Findings the entry DECLARES as its own nature, and the rest."""
+    """Findings the entry DECLARES as its own nature, and the rest.
+
+    A declaration covers a RULE and a rule fires for more than one reason, so the
+    rule level alone is not enough to match on. Checked with a deliberately broken
+    body: `noise` declares M2 ("an unpitched bed, it has no pitch to follow the
+    keyboard with"), and a `noise` that did not even COMPILE was filed under that
+    declaration and printed with it as the reason — a syntax error absorbed as the
+    instrument's nature. Two things are therefore never declarable: a finding whose
+    message reports a failure to measure, and a finding whose numbers exceed what
+    the declaration itself claims.
+    """
     d = DECLARED.get(key) or {}
     real, declared = [], []
     for level, msg in findings:
-        (declared if level in d else real).append((level, msg))
+        reason = d.get(level)
+        unmeasurable = ("csound:" in msg or "cannot be measured" in msg
+                        or "SILENT" in msg or msg.startswith("HOT"))
+        (real if (reason is None or unmeasurable) else declared).append((level, msg))
     return real, declared
 
 
