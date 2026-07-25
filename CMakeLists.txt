@@ -165,6 +165,21 @@ if(APPLE AND TARGET T5ynth_AU)
         VERBATIM)
 endif()
 
+# Standalone has issue 2 as well, and it is the one a developer hits first:
+# the .app that comes out of a local build fails `codesign --verify` with the
+# same "code has no resources but signature indicates they must be present",
+# and LaunchServices then refuses to open it. Running the Mach-O directly still
+# works, which makes it read as "the app won't start" with no error anywhere —
+# the CI already re-signs the .app for exactly this reason
+# (.github/workflows/build.yml), so only the local build was left out.
+if(APPLE AND TARGET T5ynth_Standalone)
+    add_custom_command(TARGET T5ynth_Standalone POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E echo "ad-hoc signing Standalone app bundle"
+        COMMAND codesign --force --sign - --deep
+            "$<TARGET_BUNDLE_DIR:T5ynth_Standalone>"
+        VERBATIM)
+endif()
+
 juce_generate_juce_header(T5ynth)
 
 target_sources(T5ynth PRIVATE
