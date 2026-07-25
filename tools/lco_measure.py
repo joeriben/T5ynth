@@ -489,6 +489,17 @@ def beat(y, lo_hz=0.5, hi_hz=25.0, t0=0.5, t1=3.5, at_hz=None):
     as inert on exactly the axis it is named for. Calibrated on a sum of two AMs
     where one is deliberately the louder: asked 0.30 at 3 Hz alongside 0.45 at
     9 Hz, `at_hz=3` reads 0.299 while the plain call reports the 9 Hz line.
+
+    It has one limit, and it is not small: a STRONGER line within about a hertz
+    leaks in and is reported instead. Measured, a 0.45-deep line at a distance of
+    0.4 / 0.8 / 1.2 / 1.6 Hz makes `at_hz=4.6` read 0.400 / 0.350 / 0.021 / 0.000 —
+    so the answer is trustworthy from roughly 1.2 Hz of separation onward and is
+    simply the neighbour below that. This is the window's own resolution and no
+    choice of band fixes it; 3 s at 200 Hz gives 0.33 Hz bins and a Hann main lobe
+    two bins wide. The glass harp is exactly the case that found it: asking about
+    its 4.6 Hz pulsation returned 0.23 at the pulsation depth of ZERO, because its
+    3.4 Hz beat sits one bin below the band edge. If two rates are that close, they
+    are one measurement, and the axis must be judged by colour instead.
     """
     s = y[int(t0 * SR):int(t1 * SR)]
     if len(s) < SR // 4:
@@ -778,6 +789,20 @@ asig    poscil 0.4 * (1 + 2 * ka + 2 * kb), kfreq * koct1, giSine""")
         check("at_hz finds the quieter beat the maximum hides",
               abs(d3 - 0.30) < 0.03 and abs(d9 - 0.45) < 0.03,
               f"3 Hz reads {d3:.3f} (asked 0.30), 9 Hz reads {d9:.3f} (asked 0.45)")
+    # …and the limit of that, asserted rather than left to be rediscovered: a
+    # stronger line about a hertz away IS the answer at 4 s.
+    near, far = [], []
+    for d, into in ((0.8, near), (1.6, far)):
+        yl, el = render(f"""ka      poscil 0.225, {4.6 - d:.3f}
+asig    poscil 0.4 * (1 + 2 * ka), kfreq * koct1, giSine""")
+        into.append(None if el else beat(yl, at_hz=4.6)[0])
+    if near[0] is None or far[0] is None:
+        check("at_hz leakage", False, "render failed")
+    else:
+        check("at_hz reports a stronger neighbour under ~1 Hz away, and not beyond",
+              near[0] > 0.25 and far[0] < 0.05,
+              f"0.8 Hz away reads {near[0]:.3f}, 1.6 Hz away reads {far[0]:.3f} "
+              f"(nothing is modulating 4.6 Hz in either)")
 
     print("comb contrast tracks the resonator, not the exciter")
     (yn, en), (yh, eh), (yl, el) = (render(_NOISE), render(_comb(0.995)),
