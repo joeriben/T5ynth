@@ -130,17 +130,24 @@ def narrowing_forms(lex):
     "bright voice" leaves "voice", which is another entry's key, so both are fair.
     "breathy tone" and "breathy whisper" leave a word for sound-in-general and are not.
 
-    That test had two structural holes, both found against the router and both worth
+    That test had THREE structural holes, all found against the router and all worth
     naming because a closed filler list would never have closed either. A form of
     NOTHING but quality words leaves the remainder EMPTY — the strongest possible
     answer — and an `and rest` guard short-circuited it to silence, so `flute` claiming
     "soft breathy" and `wind` claiming "slowly evolving" each opened 1 entry of 57 in
-    quiet. And the filler list held `tone` but not `tones`, so "breathy tones",
-    "steady textures", "soft layers" and "gritty sounds" all walked through the exact
-    rule that caught their singulars. An empty remainder now reads as the empty phrase
-    it is, the inflection is stripped before the list is consulted, and adverbs are a
-    set of their own: an adverb modifies the quality beside it and can never head the
-    phrase, which is a grammatical fact rather than one more word to remember.
+    quiet. The filler list held `tone` but not `tones`, so "breathy tones", "steady
+    textures", "soft layers" and "gritty sounds" all walked through the exact rule that
+    caught their singulars. And the scan itself was word by word while the quality index
+    is keyed by PHRASE, so a MULTI-WORD quality plus a filler was invisible: "washed out"
+    fired and "washed out tone" was silent, opening the same 1 entry of 57, and all
+    thirteen multi-word qualities in the lexicon behaved that way. An empty remainder now
+    reads as the empty phrase it is, the inflection is stripped before the list is
+    consulted (including -y -> -ies, or `quality` and `sonority` are listed while
+    "qualities" and "sonorities" are not), the quality phrases are matched longest-first,
+    and adverbs are a set of their own: an adverb modifies the quality beside it and can
+    never head the phrase, which is a grammatical fact rather than one more word to
+    remember. Articles are theirs too — "bit" was in the adverb set, where it made the
+    guard fire on `chiptune` claiming "gritty bit", a form an 8-bit entry has earned.
 
     DIRECTION decides the near misses, and it is structural rather than semantic. An
     instrument reaching for a quality word is the hazard; a quality listing the
@@ -155,7 +162,7 @@ def narrowing_forms(lex):
     Underscores AND hyphens are normalised to spaces as well as case, so `washed_out`,
     `washed-out` and `washed out` cannot pass by spelling — the hyphen was a live hole.
 
-    `--selftest` asserts all of this, in both directions, on thirty-two cases.
+    `--selftest` asserts all of this, in both directions, on forty-four cases.
     """
     def norm(s):
         return " ".join(str(s).lower().replace("_", " ").replace("-", " ").split())
@@ -202,19 +209,53 @@ def narrowing_forms(lex):
     adverbs = {"slowly", "quickly", "gently", "softly", "barely", "slightly",
                "faintly", "heavily", "lightly", "deeply", "richly", "subtly",
                "steadily", "smoothly", "roughly", "very", "quite", "rather",
-               "somewhat", "mostly", "nearly", "almost", "just", "a", "bit"}
+               "somewhat", "mostly", "nearly", "almost", "just"}
+    # Articles, which are not adverbs and were in that set by mistake — along with
+    # "bit", which is a NOUN and made the guard fire on `chiptune` claiming "gritty
+    # bit", a form an 8-bit entry has every right to. A word that is neither a quality
+    # nor a word for sound-in-general must not be treated as absent.
+    articles = {"a", "an", "the"}
 
     def filler(w):
-        """A word for sound-in-general, or an adverb — in the singular or the plural.
+        """A word for sound-in-general, an adverb or an article — singular or plural.
 
         The plural is not a nicety: with `tone` listed and `tones` not, "breathy tone"
         was caught and "breathy tones" walked straight through, and the same held for
         every other noun in the list. Stripping the inflection is one rule instead of
-        twenty more entries that would each have to be thought of.
+        twenty more entries that would each have to be thought of — and it has to
+        cover -y -> -ies, or `quality` and `sonority` are on the list while "qualities"
+        and "sonorities" are not, which is two of the list's own twenty-one words.
         """
-        return (w in generic or w in adverbs
+        return (w in generic or w in adverbs or w in articles
                 or (w.endswith("s") and w[:-1] in generic)
-                or (w.endswith("es") and w[:-2] in generic))
+                or (w.endswith("es") and w[:-2] in generic)
+                or (w.endswith("ies") and w[:-3] + "y" in generic))
+
+    def qualities_in(words):
+        """The quality phrases in `words`, longest first, and the words left over.
+
+        Word by word is not enough and was the third structural hole in this branch:
+        `keys` is keyed by PHRASE, so a multi-word quality plus one filler evaded the
+        test completely. `flute` claiming "washed out" fired, and "washed out tone"
+        and "washed out texture" were silent while opening the same 1 entry of 57 —
+        because neither "washed" nor "out" is a key on its own. All thirteen multi-word
+        qualities in the lexicon behaved that way (`washed out`, `fades away`,
+        `builds up`, `open up`, `opens up`, `close down`, `back and forth`, `ping
+        pong`, `entwickelt sich`, `beruhigt sich`, `schließt sich`, `öffnet sich`,
+        `hin und her`) against any filler noun.
+        """
+        found, rest, i = [], [], 0
+        longest = max((len(k.split()) for k in keys), default=1)
+        while i < len(words):
+            for n in range(min(longest, len(words) - i), 0, -1):
+                if " ".join(words[i:i + n]) in keys:
+                    found.append(" ".join(words[i:i + n]))
+                    i += n
+                    break
+            else:
+                rest.append(words[i])
+                i += 1
+        return found, rest
 
     bad = []
     for e in lex["techniques"]:
@@ -227,8 +268,7 @@ def narrowing_forms(lex):
             words = n.split()
             if len(words) < 2:
                 continue
-            quality = [w for w in words if w in keys]
-            rest = [w for w in words if w not in keys]
+            quality, rest = qualities_in(words)
             # The same direction rule as above: if the instrument's OWN key is one of
             # the words, the phrase belongs to the instrument whatever else is in it.
             # `glass`'s form "glass pad" is the instrument's key plus a word for
@@ -277,6 +317,18 @@ _NARROWING_CASES = [
     # thing is still a thing, and an adverb beside a real noun still leaves the noun.
     ("mbira", "thumb pianos", False), ("flute", "breathy pipes", False),
     ("flute", "softly blown reed", False), ("glass", "glass layers", False),
+    # A MULTI-WORD quality plus a filler. The word-by-word scan could not see any of
+    # these, because `washed` and `out` are not keys on their own — only "washed out"
+    # is. All thirteen multi-word qualities in the lexicon evaded it the same way.
+    ("flute", "washed out", True), ("flute", "washed out tone", True),
+    ("flute", "washed out texture", True), ("wind", "fades away slowly", True),
+    ("hiss", "back and forth", True), ("wind", "builds up", True),
+    # The -y -> -ies plural, two of the filler list's own words.
+    ("flute", "breathy qualities", True), ("hiss", "steady sonorities", True),
+    # And "bit" is a noun, not an adverb: an 8-bit entry may claim this.
+    ("chiptune", "gritty bit", False), ("chiptune", "gritty bits", False),
+    # A multi-word quality is still only a quality when what remains names something.
+    ("flute", "washed out reed", False), ("glass", "washed out glass", False),
 ]
 
 
