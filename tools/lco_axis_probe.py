@@ -74,15 +74,19 @@ AXIS = re.compile(r"^(?P<pad>\s*)k(?P<var>[a-z][a-z0-9]*)(?P<gap>\s+)=(?P<sp>\s*
 # `mbira` a second mechanism and the comment kept naming mbira as an entry that stands
 # still. Re-derive with `--census`, which recomputes the split over the whole lexicon
 # and says outright whether this line is out of date.
-_MOVE_CENSUS = (34, 24, "2026-07-25")
+# The third number is the count of entries among the standing-still ones that DECLARE
+# `; MOVEMENT: TEXTURE`. Without it the census was cited in every gate run as "N of the
+# M shipped entries are in the same position" about entries that are not in the same
+# position at all: they are exempt from that rule by BJ's ruling of 2026-07-25.
+_MOVE_CENSUS = (37, 26, 5, "2026-07-25")
 _MOVE_REGISTERS = (55.0, 110.0, 220.0, 440.0, 880.0, 1760.0)
 
 
 def census():
-    """Recount which shipped entries move at every register. ~340 renders."""
+    """Recount which shipped entries move at every register. ~378 renders."""
     import json
     lex = json.loads((REPO / "backend" / "dco_lexicon.json").read_text())
-    still = {}
+    still, exempt = {}, set()
     for e in lex["techniques"]:
         bad = []
         for f in _MOVE_REGISTERS:
@@ -96,16 +100,20 @@ def census():
                                f"{r['motion_coherence']}"))
         if bad:
             still[e["key"]] = bad
+            if declares_texture(e["code"]):
+                exempt.add(e["key"])
     n = len(lex["techniques"])
     print(f"{n - len(still)} of {n} entries move at all six registers, "
-          f"{len(still)} do not")
+          f"{len(still)} do not, of which {len(exempt)} declare the event-texture class "
+          f"and are exempt from the rule rather than failing it")
     for k, bad in still.items():
-        print(f"  {k:16s} " + "  ".join(f"{f:.0f}:{d}" for f, d in bad))
-    want = (n - len(still), len(still))
-    if want != _MOVE_CENSUS[:2]:
-        print(f"\n  STALE  _MOVE_CENSUS says {_MOVE_CENSUS[0]}/{_MOVE_CENSUS[1]} "
-              f"(measured {_MOVE_CENSUS[2]}); it is now {want[0]}/{want[1]}. "
-              f"Update it and every comment that quotes it.")
+        mark = "  [TEXTURE]" if k in exempt else ""
+        print(f"  {k:16s}{mark} " + "  ".join(f"{f:.0f}:{d}" for f, d in bad))
+    want = (n - len(still), len(still), len(exempt))
+    if want != _MOVE_CENSUS[:3]:
+        print(f"\n  STALE  _MOVE_CENSUS says {_MOVE_CENSUS[0]}/{_MOVE_CENSUS[1]}/"
+              f"{_MOVE_CENSUS[2]} (measured {_MOVE_CENSUS[3]}); it is now "
+              f"{want[0]}/{want[1]}/{want[2]}. Update it and every comment that quotes it.")
         return 1
     print(f"\n  _MOVE_CENSUS is current at {want[0]}/{want[1]}")
     return 0
@@ -119,9 +127,48 @@ def census():
 # And an end-of-line form (`asig = anz   ; MOVEMENT: TEXTURE`) is the library's own house
 # style for axis comments, so a declaration written that way was silently IGNORED with no
 # diagnostic — `_mentions_texture` below now makes that an error instead.
+# k-rate generators. A body driving its colour from one of these has a shape over the
+# note that depends on the PLUGIN'S UPTIME, because the host's sixteen instances have
+# been running since load and only `knote` is reset at note-on. `tanpura` shipped its
+# entire reason for existing that way: a 3.70 s `poscil` that climbed after the attack
+# offline (where the instance begins at the note) and darkened at a quarter turn.
+_KGEN = re.compile(r"^\s*k\w+\s+(poscil|poscil3|oscili|oscil|oscil3|lfo|randi|randh"
+                   r"|rand|phasor|jspline|bspline|dust|dust2|randomi|randomh)\b")
+_KNOTE = re.compile(r"\bknote\b")
+
 TEXTURE = re.compile(r"^;\s*MOVEMENT:\s*TEXTURE\s*$")
 _MENTIONS = re.compile(r"movement\s*:\s*texture", re.I)
 _BLOCK = re.compile(r"/\*.*?\*/", re.S)
+
+
+def free_running(body):
+    """The k-rate generator lines whose phase at note-on the plugin does not control."""
+    out = []
+    for l in (body or "").splitlines():
+        if l.lstrip().startswith(";"):
+            continue
+        if _KGEN.match(l):
+            out.append(l.strip())
+    return out
+
+
+def phase_spread(body, freq, phases=(0.0, 0.925, 1.85, 2.775)):
+    """How much the note's own shape depends on the instance's phase at note-on.
+
+    Returns (worst_first_window_spread_hz, per_phase_centroid_tracks) or None. This is
+    REPORTED and not gated: whether a body may sound different depending on how long
+    the plugin has been open is a judgement about that body's character, not a rule in
+    §4. What the gate owes is that the fact is visible — it was not, and `tanpura`
+    shipped a documented behaviour that only happened at phase zero.
+    """
+    tracks = []
+    for p in phases:
+        y, err = M.render(body, dur=4.0, freq=freq, preroll=(p or M.MIN_PREROLL))
+        if y is None:
+            return None
+        tracks.append(M.measure(y, freq)["centroid_over_note"])
+    firsts = [t[0] for t in tracks if t]
+    return (max(firsts) - min(firsts) if firsts else 0.0), tracks
 
 
 def declares_texture(body):
@@ -466,8 +513,18 @@ def gate(body, freq=220.0, steps=3, registers=(55, 110, 220, 440, 880, 1760)):
     stats["over_clip"] = (len(over), over[0] if over else None)
     # The onset is reported even when nothing fails, so that a body whose start-up sample
     # is 4x its sustained level cannot be invisible here — it is just not a failure.
+    # (It was invisible: this stat was written and never printed, and the onset appeared
+    # only inside a headroom FAILURE string — the one case that needed no help.)
     onset = max(peaks, key=lambda t: t[1] - t[0])
     stats["worst_onset"] = (onset[1], onset[0], onset[2])
+    # And what the plugin's uptime does to this body's note. Only for bodies that have a
+    # free-running k-rate generator, since for anything else there is nothing to sweep.
+    stats["free_running"] = free_running(body)
+    stats["phase_spread"] = None
+    if stats["free_running"]:
+        got = phase_spread(body, float(freq))
+        if got is not None:
+            stats["phase_spread"] = got[0]
     if over:
         worst = over[0]
         limited = (" — past the absolute ceiling, so the host lets NONE of it out"
@@ -583,6 +640,23 @@ def main():
               f"{st.get('cross_spread_db')} dB, worst p99.9 "
               f"{st['worst_peak'][0]:.2f} at {st['worst_peak'][1]}"
               if st else "\ngate: nothing rendered")
+        if st.get("worst_onset"):
+            _pk, _late, _where = st["worst_onset"]
+            if _late > 0 and _pk > _late * 1.5:
+                print(f"  note  the onset is {_pk / _late:.1f}x the sustained peak "
+                      f"({_pk:.2f} against {_late:.2f}) at {_where}. Not a failure — the "
+                      f"host's clip is judged after the first {M.ONSET_S * 1000:.0f} ms, "
+                      f"and a fresh instance's `balance` accounts for most of this — but "
+                      f"it is what the note STARTS with, so it is audible")
+        if st.get("free_running"):
+            _sp = st.get("phase_spread")
+            print(f"  note  {len(st['free_running'])} free-running k-rate generator(s), so "
+                  f"this body's note depends on how long the plugin has been open: the "
+                  f"first window's colour moves "
+                  + (f"{_sp:.0f} Hz" if _sp is not None else "an unmeasured amount")
+                  + " across four instance phases. Key anything that must happen AFTER "
+                    "the attack to `knote`, which the host resets; a generator's phase it "
+                    "does not. First: " + st["free_running"][0])
         if st.get("worst_travel"):
             # Reported with its verdict, because the span alone was meaningless: a narrow
             # filter fed noise has a fluctuating envelope with nothing modulating it, and
@@ -634,10 +708,12 @@ def main():
             print(f"  note  {len(el)} of {st['renders'] - st['corners']} corner-renders "
                   f"away from {args.freq:.0f} Hz do not move: "
                   + ", ".join(f"{n} at {f:.0f} Hz" for f, n in sorted(by_hz.items()))
-                  + f" (reported, not gated: {_MOVE_CENSUS[1]} of the "
-                    f"{_MOVE_CENSUS[0] + _MOVE_CENSUS[1]} shipped "
-                    f"entries are in the same position at some register, measured "
-                    f"{_MOVE_CENSUS[2]} — re-derive with --census)")
+                  + f" (reported, not gated: {_MOVE_CENSUS[1] - _MOVE_CENSUS[2]} of the "
+                    f"{_MOVE_CENSUS[0] + _MOVE_CENSUS[1]} shipped entries are in the same "
+                    f"position at some register — a further {_MOVE_CENSUS[2]} stand still "
+                    f"too but DECLARE the event-texture class, so they are not in the same "
+                    f"position and are not counted here. Measured {_MOVE_CENSUS[3]}; "
+                    f"re-derive with --census)")
         print(("  PASS  every corner renders and holds one loudness; movement is this "
                "class's declared exemption and stands on BJ's ear, not on this run"
                if st.get("texture") else

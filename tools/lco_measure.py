@@ -62,6 +62,21 @@ def _sub(text, old, new, what):
     return text.replace(old, new)
 
 
+MIN_PREROLL = 2.0 * W.KSMPS / SR      # two k-periods: one to be low in, one to rise
+
+
+def preroll_edge(preroll):
+    """The sample at which the note's trigger edge lands for this preroll.
+
+    Not `int(preroll * SR)`. Csound's `timeinsts()` returns n * ksmps / sr on k-cycle
+    n, so the comparison first holds on cycle ceil(preroll * kr), and the audio of
+    that cycle starts at (ceil(preroll * kr) - 1) * ksmps.
+    """
+    import math
+    cycles = math.ceil(preroll * SR / W.KSMPS)
+    return max(0, (cycles - 1) * W.KSMPS)
+
+
 def scaffold(body, dur=4.0, freq=220.0, glide=None, preroll=0.0):
     """The authored body inside the REAL host, driven offline.
 
@@ -106,6 +121,15 @@ def scaffold(body, dur=4.0, freq=220.0, glide=None, preroll=0.0):
     # high at `preroll`, `changed2(ktrig)` fires there, and `knote` resets there. The
     # glide has to wait too, or it would sweep during the preroll — a flat first
     # segment does that, and `expseg` interpolates a constant segment as a constant.
+    if 0 < preroll < MIN_PREROLL:
+        # Below two k-periods `ktrig` is already 1 on the first cycle, `changed2` has
+        # no edge to fire on, and `knote` silently becomes the instance's uptime —
+        # which is the very state the preroll exists to avoid. Refuse rather than
+        # return a buffer that looks trimmed and is not keyed to a note.
+        raise ValueError(
+            f"preroll {preroll} is shorter than two k-periods ({MIN_PREROLL:.6f} s at "
+            f"ksmps {W.KSMPS}); there would be no trigger edge and `knote` would read "
+            f"the instance's uptime. Use 0 for no preroll, or at least {MIN_PREROLL:.6f}.")
     if preroll > 0:
         gate_expr = f"  kgateraw = (timeinsts() >= {preroll} ? 1 : 0)\n"
         trig_expr = f"  ktrig    = (timeinsts() >= {preroll} ? 1 : 0)\n"
@@ -168,11 +192,15 @@ def render(body, dur=4.0, freq=220.0, glide=None, keep=None, preroll=0.0):
     if not np.isfinite(y).all():
         return None, "NaN/Inf"
     if preroll > 0:
-        # Trim to the note. Checked before trimming rather than after, so a preroll
-        # that produced garbage cannot be discarded silently.
-        if not np.isfinite(y).all():
-            return None, "NaN/Inf during the preroll"
-        y = y[int(preroll * SR):]
+        # Trim at the sample where the trigger EDGE actually landed, not at
+        # int(preroll * SR). `timeinsts()` reads n * ksmps / sr on k-cycle n, so
+        # `changed2(ktrig)` fires on cycle ceil(preroll * kr) and that cycle's audio
+        # begins one k-period earlier. Trimming at the nominal time dropped 0.09 to
+        # 0.95 ms of the note and left every buffer frame-misaligned, which made a
+        # body keyed entirely to `knote` differ at full amplitude between prerolls —
+        # so `render(preroll=...)` did not return the note it promised, and a
+        # calibration case that compared raw samples could not fail.
+        y = y[preroll_edge(preroll):]
         if len(y) < int(0.1 * SR):
             return None, "the preroll consumed the note"
     peak = float(np.abs(y).max())
@@ -1209,7 +1237,7 @@ asig    streson aex, kfreq * koct1, {fb}"""
 # How many calibration cases there are. Asserted at the end so a group that stops
 # running — an early `return`, a render failure that `continue`s past its check, a
 # refactor that drops a block — is a FAILURE and not a quietly shorter green run.
-_CASES = 81
+_CASES = 86
 
 
 def selftest():
@@ -1282,6 +1310,22 @@ def selftest():
           and _curve["ceiling"] < 0.95,
           "could not measure the curve" if _curve is None else
           f"ceiling {_curve['ceiling']:.5f} against an `ilimit` of 0.95")
+    # The two constants against the MEASURED curve. Without these the cases above only
+    # described the opcode and left the numbers the library is judged by unconstrained:
+    # HOST_TRANSPARENT could be scaled by 0.7 — which would condemn `ice` and `bagpipe`
+    # as clipping — and the suite stayed green. A wrong constant is the failure mode that
+    # actually happened; a changed host line was never the risk.
+    check("HOST_TRANSPARENT is the measured knee, divided by HEADROOM",
+          _curve is not None
+          and abs(HOST_TRANSPARENT - _curve["transparent_to"] / W.HEADROOM) < 0.12,
+          "could not measure the curve" if _curve is None else
+          f"{HOST_TRANSPARENT:.4f} against the measured "
+          f"{_curve['transparent_to'] / W.HEADROOM:.4f}")
+    check("HOST_CLIP is the measured asymptote, divided by HEADROOM",
+          _curve is not None
+          and abs(HOST_CLIP - _curve["ceiling"] / W.HEADROOM) < 0.01,
+          "could not measure the curve" if _curve is None else
+          f"{HOST_CLIP:.4f} against the measured {_curve['ceiling'] / W.HEADROOM:.4f}")
     check("the transparent ceiling is below the absolute one, and both below the old 2.97",
           HOST_TRANSPARENT < HOST_CLIP < 0.95 / W.HEADROOM,
           f"transparent {HOST_TRANSPARENT:.3f} < absolute {HOST_CLIP:.3f} < "
@@ -1316,9 +1360,28 @@ def selftest():
               abs(r["peak"] - r2["peak"]) > 0.05,
               f"true peak {r['peak']:.3f} from a fresh instance against "
               f"{r2['peak']:.3f} with a 1 s preroll — the plugin is always the second")
-    check("the two peak statistics can differ, so judging on the wrong one is possible",
-          y is None or measure(y, 220.0)["peak"] >= measure(y, 220.0)["peak_late"],
-          "the true peak is never below the peak after the onset, by construction")
+    # `peak_late` must actually be SMALLER on a body with a transient, and the window
+    # must be the one ONSET_S says. Without this, ONSET_S = 0.0 (which restores the
+    # behaviour that condemned `string`) and a `peak_late` that just returns `peak`
+    # both left the suite green — the two cases that looked like coverage were a
+    # tautology and a case that passes MORE strongly when the statistic is broken.
+    _spike = ("kramp    = (knote < 0.004 ? 1 : 0.12)\n"
+              "asig     poscil 2.2 * kramp, kfreq * koct1, giSine\n")
+    ys, errs = render(_spike, dur=2.0)
+    if ys is None:
+        check("a body with a 4 ms transient reads a smaller peak after the onset",
+              False, errs)
+    else:
+        rs = measure(ys, 220.0)
+        check("a body with a 4 ms transient reads a smaller peak after the onset",
+              rs["peak_late"] < rs["peak"] * 0.5,
+              f"true peak {rs['peak']:.3f}, after {ONSET_S * 1000:.0f} ms "
+              f"{rs['peak_late']:.3f} — the window has to be wide enough to clear the "
+              f"transient and narrow enough to leave the note")
+        check("the onset window is where ONSET_S says, not zero and not the whole note",
+              0.010 <= ONSET_S <= 0.200,
+              f"ONSET_S = {ONSET_S * 1000:.0f} ms: at 0 the transient is judged as the "
+              f"body, and past ~200 ms a real sustained over could hide inside it")
     check("a steady body's two peaks agree, so the onset window costs nothing there",
           abs(measure(render(_SINE)[0], 220.0)["peak"]
               - measure(render(_SINE)[0], 220.0)["peak_late"]) < 0.01,
@@ -1348,17 +1411,60 @@ def selftest():
               f"a body that ramps over its first second reads the same envelope with "
               f"and without a 1.5 s preroll (worst window differs by {worst:.4f}) — so "
               f"the trigger edge fired and knote restarted")
-    _lfo = "asig     poscil 0.4, kfreq * koct1, giSine, 0\nasig     = asig * (0.5 + poscil:k(0.5, 0.27))\n"
-    yc, _ = render(_lfo, dur=2.0)
-    yd, _ = render(_lfo, dur=2.0, preroll=0.925)   # a quarter of the 3.70 s cycle
-    if yc is None or yd is None:
-        check("a free-running LFO does NOT reset at the note", False, "render failed")
-    else:
-        n = min(len(yc), len(yd))
-        check("a free-running LFO does NOT reset at the note — this is the tanpura class",
-              float(np.abs(yc[:n] - yd[:n]).max()) > 0.05,
-              "a quarter turn of preroll changes the note audibly, which is what the "
-              "plugin's arbitrary uptime does to any body keyed to an LFO instead of knote")
+
+    # The trim itself, which is the thing that makes any of the above mean anything: a
+    # body that is a function of `knote` ALONE must come back bit-identical whatever the
+    # preroll. It did not, when the trim was `int(preroll * SR)` — the edge lands on a
+    # k-cycle boundary and the nominal time does not, so every buffer was up to 0.95 ms
+    # short and frame-misaligned. Compared from the second k-cycle, because `a()`
+    # interpolates the first one from the value the preroll left behind.
+    _ramp = "asig     = a(0.4 * (knote < 1 ? knote : 2 - knote))\n"
+    _base, _ = render(_ramp, dur=2.0, preroll=1.0)
+    _worst, _detail = 0.0, "render failed"
+    if _base is not None:
+        for _pr in (0.3333, 0.5, 0.925, 1.5, 2.0):
+            _y, _ = render(_ramp, dur=2.0, preroll=_pr)
+            if _y is None:
+                _worst = 9.9
+                break
+            _n = min(len(_y), len(_base))
+            _worst = max(_worst, float(np.abs(_y[W.KSMPS:_n] - _base[W.KSMPS:_n]).max()))
+        _detail = (f"five prerolls from 0.33 to 2.0 s agree to {_worst:.9f} — the trim is "
+                   f"the trigger edge, not `int(preroll * SR)`")
+    check("the trim lands on the trigger edge, so the note is the same note",
+          _base is not None and _worst < 1e-9, _detail)
+
+    # The tanpura class, and it has to be judged on the ENVELOPE. A raw-sample
+    # comparison passes even when nothing in the fixture is free-running at all — the
+    # carrier's own phase is not note-relative either — so this case asserted nothing
+    # until it was written this way: the same body keyed to `knote` differs by 0.80 in
+    # raw samples and by 0.0005 in envelope.
+    _lfo = ("asig     poscil 0.4, kfreq * koct1, giSine, 0\n"
+            "asig     = asig * (0.5 + poscil:k(0.5, 0.27))\n")
+    _lfo_knote = ("asig     poscil 0.4, kfreq * koct1, giSine, 0\n"
+                  "asig     = asig * (0.5 + 0.5 * cos(6.2832 * 0.27 * knote))\n")
+
+    def env50(y):
+        k = int(0.05 * SR)
+        return np.array([float(np.abs(y[i:i + k]).max())
+                         for i in range(0, len(y) - k, k)])
+
+    def phase_spread(body):
+        """How much a quarter turn of instance phase changes the note's envelope."""
+        a, _ = render(body, dur=2.0)
+        b, _ = render(body, dur=2.0, preroll=0.925)   # a quarter of the 3.70 s cycle
+        if a is None or b is None:
+            return None
+        ea, eb = env50(a), env50(b)
+        n = min(len(ea), len(eb))
+        return float(np.abs(ea[:n] - eb[:n]).max())
+    free, keyed = phase_spread(_lfo), phase_spread(_lfo_knote)
+    check("a free-running LFO does NOT reset at the note — this is the tanpura class",
+          free is not None and keyed is not None and free > 0.05 and keyed < 0.01,
+          "one render failed" if free is None or keyed is None else
+          f"a quarter turn of preroll moves the free-running body's envelope by "
+          f"{free:.4f} and the same body keyed to `knote` by {keyed:.4f} — the first is "
+          f"what the plugin's arbitrary uptime does, the second is what it must not do")
 
     print("colour orders as it must")
     ys, _ = render(_SINE)
@@ -1852,9 +1958,14 @@ asig    poscil 0.4 * (1 + 2 * kam), kfreq * koct1, giSine""", freq=880.0)
 
     # A calibration that silently stops running cases is as bad as one that fails:
     # the count is part of the verdict, not decoration.
-    if len(total) < _CASES:
-        fails.append(f"only {len(total)} of {_CASES} calibration cases ran")
-        print(f"  FAIL  the calibration is incomplete: {len(total)}/{_CASES} cases")
+    # `!=`, not `<`. With `<` the constant could sit one below the real count and a
+    # deleted case would then run 81 of 81 and print a green suite — which it did.
+    # A case ADDED without updating the constant is equally a bookkeeping error, and
+    # the whole point of the constant is that the count cannot drift unnoticed.
+    if len(total) != _CASES:
+        fails.append(f"{len(total)} calibration cases ran, and _CASES says {_CASES}")
+        print(f"  FAIL  the calibration count drifted: {len(total)} ran, "
+              f"_CASES = {_CASES}")
     print(f"\n{len(total) - len(fails)}/{len(total)} cases pass")
     if fails:
         print("METER IS WRONG — do not trust it. Failed: " + ", ".join(fails))

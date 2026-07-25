@@ -39,9 +39,15 @@ calibration here too (`LCO_CONCEPT.md` §7.7):
     period, so a period-based f0 locks onto the set's quasi-period and reads
     -2773 cents against the played note. `fm_bell` is not mistuned; it is a bell.
     What §4 actually requires is that the sound follow `kfreq` — so the check
-    renders an OCTAVE and asks whether the measured pitch (or, where there is
-    none, the spectral centroid) doubled. That is also the check that catches
-    what §4 is aimed at: an opcode inventing its own register.
+    renders 110 -> 880 Hz as a glide and CORRELATES the spectrum against the note
+    and against a fixed reference, via `lco_measure.tracks`. Not "renders an octave
+    and asks whether the pitch doubled", which is what this paragraph said for
+    weeks: `tracks`' own docstring, quoted eight lines below, says outright that
+    neither `f0` nor the centroid nor a lag search could do this job. This is the
+    check that catches what §4 is aimed at — an opcode inventing its own register —
+    and it is also the check that settles an inharmonic body, where the loudest
+    partial and the period finder both say the wrong thing. Two entries were nearly
+    rebuilt, and one nearly dropped, on a `f0` reading that this check answers.
   - **A HOT flag on a randomly-excited body is re-measured before it counts.**
     `render()`'s guard reads the true peak, and the peak of a dust/rand process
     is itself random (HANDOVER §5: the same body measured 2.89 and 0.79). So a
@@ -65,6 +71,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "tools"))
 
 import lco_measure as M  # noqa: E402
+import lco_axis_probe as _P  # noqa: E402
 
 LIB = REPO / "backend" / "lco_library.json"
 
@@ -137,6 +144,37 @@ DECLARED = {
 
 def load():
     return json.loads(LIB.read_text())
+
+
+# The event-texture class, BJ 2026-07-25 („Hiermit freigeschaltet"). It is NOT an entry
+# in DECLARED above, because it is not a per-entry exception: it is a property a body
+# asserts in its own code and `LCO_CONCEPT.md` §4 codifies. Read from the body, so that
+# adding or removing the declaration cannot leave this list behind.
+#
+# Until this existed the project had two movement gates giving two answers on the same
+# invariant: `lco_axis_probe.gate()` exempted the five declaring entries and this file
+# printed them as real undeclared M4 failures. The one that cries wolf is the one that
+# stops being read.
+def texture_declared(code):
+    return _P.declares_texture(code or "")
+
+
+TEXTURE_REASON = ("the event-texture class: this body declares `; MOVEMENT: TEXTURE` and "
+                  "§4 reports its movement reading instead of failing on it "
+                  "(BJ 2026-07-25). Its liveness is where and when its events fall, "
+                  "which no statistic in `lco_measure` separates from a static bed.")
+
+
+def declared_reason(key, level, code=None):
+    """Why this finding is the instrument and not a defect — or None if it is a defect.
+
+    ONE place, because the printer used to read `DECLARED[key][level]` directly and
+    crashed with a KeyError the moment a declaration came from anywhere else.
+    """
+    reason = (DECLARED.get(key) or {}).get(level)
+    if reason is None and level == "M4" and texture_declared(code):
+        return TEXTURE_REASON
+    return reason
 
 
 def _axis_of(anchor_key):
@@ -401,7 +439,7 @@ def verdicts(rep):
     return out
 
 
-def split_declared(key, findings):
+def split_declared(key, findings, code=None):
     """Findings the entry DECLARES as its own nature, and the rest.
 
     A declaration covers a RULE and a rule fires for more than one reason, so the
@@ -409,14 +447,24 @@ def split_declared(key, findings):
     body: `noise` declares M2 ("an unpitched bed, it has no pitch to follow the
     keyboard with"), and a `noise` that did not even COMPILE was filed under that
     declaration and printed with it as the reason — a syntax error absorbed as the
-    instrument's nature. Two things are therefore never declarable: a finding whose
-    message reports a failure to measure, and a finding whose numbers exceed what
-    the declaration itself claims.
+    instrument's nature. So a finding whose message reports a failure to MEASURE is
+    never declarable, whatever the entry claims about itself.
+
+    That is the whole guard, and it used to claim a second one it did not implement:
+    "a finding whose numbers exceed what the declaration itself claims". There is no
+    numeric comparison against a declaration anywhere in this file, and a prose
+    declaration has no numbers to compare against — so the promise is withdrawn here
+    rather than left standing as though the code kept it. The `HOT` clause in the
+    unmeasurable test is also dead by construction: every M1 message is built as
+    "<Hz>: <error>" or "<axis>/<anchor>: …" and cannot begin with HOT. It is kept
+    because a future message format might, and it costs nothing.
+
+    `code` is the body, so that the event-texture class can be read from the body
+    itself instead of from a list here — see `texture_declared`.
     """
-    d = DECLARED.get(key) or {}
     real, declared = [], []
     for level, msg in findings:
-        reason = d.get(level)
+        reason = declared_reason(key, level, code)
         unmeasurable = ("csound:" in msg or "cannot be measured" in msg
                         or "SILENT" in msg or msg.startswith("HOT"))
         (real if (reason is None or unmeasurable) else declared).append((level, msg))
@@ -442,7 +490,8 @@ def main():
     for inst in insts:
         rep = audit_one(inst)
         rep["verdicts"], rep["declared"] = split_declared(inst["key"],
-                                                          verdicts(rep))
+                                                          verdicts(rep),
+                                                          inst.get("code"))
         reports.append(rep)
         mid = rep["registers"].get("220.0", {})
         tr = rep["tracking"]
@@ -461,7 +510,10 @@ def main():
             print(f"    {level}  [declared] {msg}", flush=True)
             if level not in seen:      # the reason once per rule, not per register
                 seen.add(level)
-                print(f"           because: {DECLARED[inst['key']][level]}",
+                print("           because: "
+                      + (declared_reason(inst["key"], level, inst.get("code"))
+                         or "NO REASON RECORDED — this is a bug in the audit, not a "
+                            "property of the instrument"),
                       flush=True)
 
     if args.out:
