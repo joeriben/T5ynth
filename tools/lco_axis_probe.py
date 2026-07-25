@@ -289,9 +289,18 @@ def gate(body, freq=220.0, steps=3, registers=(55, 110, 220, 440, 880, 1760)):
     at_freq = [(c, r) for c, r in rows if c["Hz"] == freq]
     lv = [r["rms_db"] for _, r in at_freq]
     pk = max(((r["peak_p999"], c) for c, r in rows), key=lambda t: t[0])
+    # Loudness travelling INSIDE a note, reported and not gated — for the same reason
+    # movement everywhere is reported: the number does not distinguish a defect from a
+    # deliberate beat, and 15 shipped entries read above 6 dB because a detune beat IS
+    # loudness moving within the note (`supersaw` 14.3, `strings` 12.6, and `fm_bell`'s
+    # doublet 9.8, which is a protected invariant). Whether a beat counts against §4 is
+    # the question `LCO_PARAM_AUDIT.md` already records as BJ's. What this DOES do is
+    # make the class visible: `overtone_voice`'s 6.08 dB step train was invisible to
+    # every number this gate printed, because each corner's MEAN was steady.
+    tv = max(((r["loudness_travel_db"], c) for c, r in rows), key=lambda t: t[0])
     stats = {"corners": len(at_freq), "renders": len(rows),
              "loudness_spread_db": round(max(lv) - min(lv), 2) if lv else None,
-             "worst_peak": pk, "moves_elsewhere": elsewhere}
+             "worst_peak": pk, "worst_travel": tv, "moves_elsewhere": elsewhere}
     if stats["loudness_spread_db"] is not None and stats["loudness_spread_db"] > 1.0:
         fails.append(("one loudness", pk[1],
                       f"{stats['loudness_spread_db']:.2f} dB across the corners"))
@@ -401,6 +410,11 @@ def main():
               f"{st.get('cross_spread_db')} dB, worst p99.9 "
               f"{st['worst_peak'][0]:.2f} at {st['worst_peak'][1]}"
               if st else "\ngate: nothing rendered")
+        if st.get("worst_travel"):
+            print(f"  note  worst loudness travel INSIDE a note "
+                  f"{st['worst_travel'][0]:.2f} dB at {st['worst_travel'][1]} "
+                  f"(reported, not gated — a detune beat reads high here too; "
+                  f"15 shipped entries are above 6 dB)")
         for rule, corner, detail in fails:
             print(f"  FAIL  {rule}: {corner}  {detail}")
         # Reported, not gated — see `gate`. Grouped by register, because the shape of

@@ -321,3 +321,27 @@ byte-for-byte before it will emit anything new.
    shrinks in cents as the note climbs past their formants. The gate reports these
    and fails only at the asked pitch, because condemning 24 shipped entries in the
    name of a meter limit is not a defect fix.
+7. **Loudness travelling INSIDE one held note** — the §4 rule that had no meter
+   pointed at it. `rms_db` averages the note and `sustain` only sees a level that
+   drifts one way, so a level that moves and comes back was invisible: measured on
+   `overtone_voice`, a held note stepped −12.1 → −15.4 → recover → −9.5 → recover,
+   6.66 dB peak to peak, while the crossed gate passed it at a 0.31 dB spread
+   because every corner's MEAN was steady. `lco_measure.loudness_travel` now reads
+   it (50 ms RMS in dB, linearly detrended so an exponential decay cancels exactly)
+   and the gate reports the worst corner. Two things for BJ:
+   - **Does a beat count?** The number cannot tell a defect from a deliberate beat,
+     and 15 of 57 entries read above 6 dB because a detune beat IS loudness moving
+     inside the note — `supersaw` 14.3, `strings` 12.6, `free_reed` 8.9, and
+     `fm_bell`'s doublet 9.8, which is a protected platform invariant. This is the
+     same beat-versus-loudness question §2 records, now with a number on it. Until
+     it is answered the measurement is reported and not gated.
+   - **`overtone_voice`'s 6.66 dB is a defect and not a beat**, and it does not
+     yield to a constant. The lift that cancels the drone's roll-off changes the
+     picked harmonic's level as the melody steps from one harmonic to the next, and
+     `balance`'s 1 Hz tracker chases the step train. Measured: the ceiling at 12
+     gives 6.66 dB worst-case (5 corners of 162 over 5 dB), at 30 gives 6.75 (6
+     corners) while fixing the corner it was first found at, removing the lift
+     entirely gives 8.47 and costs a whistle corner, and bounding `kn` to where the
+     lift reaches gives 11.67. With the lift off at that one corner the level holds
+     to 0.67 dB, so the lift is the mechanism — which means the fix is a different
+     way of holding the whistle level, not another constant. Left at the shipped 12.

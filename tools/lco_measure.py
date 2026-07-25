@@ -161,6 +161,51 @@ def sustain(y):
                  / max(np.sqrt((y[:n // 5] ** 2).mean()), 1e-12))
 
 
+def loudness_travel(y, t0=1.0, win=0.05):
+    """Loudness travelling INSIDE one held note, in dB, with the decay taken out.
+
+    `rms_db` averages the whole note and `sustain` compares its ends, so between them
+    they see a level that is wrong and a level that drifts — and neither sees a level
+    that MOVES and comes back. `overtone_voice` at `press` 0 stepped -12.1 -> -15.4 ->
+    recover -> -9.5 -> recover over a held note, 6.08 dB peak to peak, and the crossed
+    gate passed it at a 0.33 dB spread because every corner's MEAN was steady. §4 of
+    `LCO_CONCEPT.md` lets the colour travel over a note and not the loudness, so that
+    was an invariant violation with no meter pointed at it.
+
+    The envelope is read in dB and LINEARLY DETRENDED before the peak-to-peak is taken,
+    which is what makes one number work for a standing tone and a struck one alike: an
+    exponential decay is a straight line in dB, so detrending removes it exactly and
+    leaves what the decay does not explain. A struck body therefore reads small here
+    even though its `sustain` is 0.001.
+
+    Calibrated on signals whose answer is known — a steady tone reads 0.02 dB, a clean
+    exponential decay over 60 dB reads 0.16, and an asked 3.00 dB of 2 Hz tremolo reads
+    3.00 — and on the library, where the honest floor is set by noise: a 50 ms window on
+    white noise has about 0.13 dB of RMS scatter, so an unmodulated bed lands near 0.8
+    and bodies whose SUBSTANCE is amplitude events (`rain`, `crackle`, `thunder`) land
+    far above that and are not defects.
+
+    The first second is skipped: an attack is not travel.
+    """
+    s = y[int(t0 * SR):]
+    n = int(win * SR)
+    if len(s) < 4 * n:
+        return 0.0
+    e = np.array([np.sqrt((s[i:i + n] ** 2).mean()) for i in range(0, len(s) - n, n)])
+    e = 20 * np.log10(np.maximum(e, 1e-12))
+    # Windows more than 60 dB under the loudest are dropped, and that is not cosmetic:
+    # a body that decays to true silence runs off to -240 dB, no straight line fits
+    # that, and the residual is enormous — `rhodes` and `wurlitzer` read 212 and 218 dB
+    # before this line, which is a meter reporting its own arithmetic.
+    keep = e > e.max() - 60.0
+    if keep.sum() < 4:
+        return 0.0
+    e = e[keep]
+    t = np.arange(len(e))
+    a, b = np.polyfit(t, e, 1)
+    return float(np.ptp(e - (a * t + b)))
+
+
 def f0(y, t0=0.5, t1=2.5):
     """Period-based, octave-safe f0 — or None when the signal has no pitch.
 
@@ -675,6 +720,10 @@ def measure(y, asked_freq):
             # The span alone calls static noise the most mobile thing here.
             "motion_coherence": r1,
             "moves": does_move,
+            # Loudness travelling INSIDE the note, which `rms_db` averages away and
+            # `sustain` only sees if it drifts one way. `overtone_voice` stepped 6.08 dB
+            # over a held note while every corner's mean was steady to 0.33 dB.
+            "loudness_travel_db": round(loudness_travel(y), 2),
             "beat_depth": round(bd, 3),
             "beat_rate_hz": round(br, 2),
             "centroid_over_note": [round(c) for c in cs],
@@ -722,7 +771,7 @@ asig    streson aex, kfreq * koct1, {fb}"""
 # How many calibration cases there are. Asserted at the end so a group that stops
 # running — an early `return`, a render failure that `continue`s past its check, a
 # refactor that drops a block — is a FAILURE and not a quietly shorter green run.
-_CASES = 47
+_CASES = 52
 
 
 def selftest():
@@ -1006,6 +1055,38 @@ asig    poscil 0.4 * (1 + 2 * kam), kfreq * koct1, giSine""", freq=880.0)
         check("a 90 Hz beat reads back its depth, well above the old envelope rate",
               abs(dfa - 0.30) < 0.03 and abs(rfa - 90.0) < 0.5,
               f"read {dfa:.3f} at {rfa:.2f} Hz (asked 0.30 at 90 Hz)")
+
+    print("loudness travelling inside one held note")
+    # The invariant §4 states and nothing measured: the colour may travel over a note,
+    # the loudness may not. `overtone_voice` stepped 6.66 dB inside a held note while the
+    # gate's own numbers — a mean RMS per corner — read a 0.31 dB spread and passed it.
+    # The decay case is asserted because it is what makes ONE number work for a standing
+    # tone and a struck one: an exponential decay is a straight line in dB, so detrending
+    # removes it exactly. Before the -60 dB floor went in, a body decaying to true silence
+    # read 212 and 218 dB — the meter reporting its own arithmetic.
+    for label, body, dur, want in (
+        ("a steady tone reads no travel",
+         "asig    poscil 0.4, kfreq * koct1", 6.0, (0.0, 0.10)),
+        ("a 60 dB exponential decay reads no travel",
+         "kenv    expon 1.0, 4.0, 0.001\nasig    poscil 0.4 * kenv, kfreq * koct1",
+         6.0, (0.0, 0.30)),
+        ("a decay into silence reads no travel, not its own arithmetic",
+         "kenv    expseg 1.0, 3.0, 0.0001, 0.01, 0.00001, 9.0, 0.00001\n"
+         "asig    poscil 0.4 * kenv, kfreq * koct1", 12.0, (0.0, 0.50)),
+        ("3.00 dB of tremolo reads back its depth",
+         "ktr     poscil 0.5, 2.0\n"
+         "asig    poscil 0.4 * (10 ^ ((3.0 * ktr) / 20)), kfreq * koct1",
+         6.0, (2.8, 3.4)),
+        ("white noise reads its own 50 ms scatter and no more",
+         "asig    rand 0.3, 0.5, 1", 6.0, (0.0, 0.80)),
+    ):
+        yt, et = render(body, dur=dur, freq=220.0)
+        if et:
+            check(label, False, et)
+            continue
+        v = loudness_travel(yt)
+        check(label, want[0] <= v <= want[1],
+              f"{v:.2f} dB (expected {want[0]:.2f}..{want[1]:.2f})")
 
     print("comb contrast tracks the resonator, not the exciter")
     (yn, en), (yh, eh), (yl, el) = (render(_NOISE), render(_comb(0.995)),
