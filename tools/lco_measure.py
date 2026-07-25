@@ -856,6 +856,21 @@ def measure(y, asked_freq):
     # 220, with nothing in it modulating faster than 0.043 Hz. When there is no
     # fundamental to find there is no ripple to exclude either, so an unpitched bed
     # is read uncapped.
+    #
+    # THE CAP HIDES REAL MODULATION ABOVE THE FUNDAMENTAL, and at the bass end of the
+    # keyboard that is exactly where several axes live. Measured at a 55 Hz note:
+    # `cricket`'s chirp runs at 31 Hz and reads 0.033 at 24.00 Hz capped against 0.401
+    # at its own rate — twelve times understated, because `f0` returns 27.56 there, a
+    # subharmonic of 55, and the cap follows it down. `frog`'s 57.7 Hz pulse reads
+    # 0.064 against 0.187, `didgeridoo`'s 97 Hz hum 0.059 against 0.158. The cap's rule
+    # is still the right one (a component at or above the fundamental IS a sideband,
+    # and without it a plain saw read 0.434), and the cap cannot be raised on a hunch
+    # about which f0 is the "real" one — `bass_saw` genuinely sounds an octave below
+    # the note it is given, and its ripple is genuinely down there. So the cap is
+    # REPORTED as `beat_cap_hz`, and an axis whose rate is known is read at that rate
+    # with `beat(y, at_hz=rate)`, which ignores the cap by construction. A capped
+    # reading near zero on an entry whose note quotes a rate above `beat_cap_hz` is a
+    # floor and not a measurement.
     bd, br = beat(y, lo_hz=0.5, hi_hz=120.0, f0_hz=f)
     return {"f0": None if f is None else round(f, 2),
             "cents": None if f is None else round(cents(f, asked_freq), 1),
@@ -877,6 +892,11 @@ def measure(y, asked_freq):
             "loudness_drift_db": _r2(loudness_drift_db(y)),
             "beat_depth": round(bd, 3),
             "beat_rate_hz": round(br, 2),
+            # The cap that was applied, so a reading suppressed by it is visible as
+            # such. Reporting the UNCAPPED depth beside it was tried and is worthless:
+            # it measures the very ripple the cap removes, so a plain sine reads 0.667
+            # and 30 of 57 entries "disagree with the cap" while nothing is wrong.
+            "beat_cap_hz": None if f is None else round(max(f - 2.0, 0.6), 2),
             "centroid_over_note": [round(c) for c in cs],
             "rms_db": round(rms_db(y), 2),
             "peak_p999": round(peak_p999(y), 3),
