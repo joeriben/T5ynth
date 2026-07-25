@@ -360,6 +360,9 @@ def _clip_transfer():
     they were wrong the first time was by reading `clip`'s arguments instead of
     measuring what it does. `render` cannot be used — it outputs `asig`, upstream of
     the clip — so this builds the smallest orchestra that contains the real line.
+
+    Its scratch directory is removed on every path out, for the reason given in
+    `render`: this one leaked too, on every path that got as far as creating it.
     """
     line = [l for l in W._TAIL.splitlines() if " clip " in l]
     if len(line) != 1:
@@ -374,9 +377,12 @@ def _clip_transfer():
            "  printks \"%.6f %.6f\\n\", 0.005, kin, kout\nendin\n"
            "</CsInstruments>\n<CsScore>\ni1 0 1\ne\n</CsScore>\n</CsoundSynthesizer>\n")
     d = Path(tempfile.mkdtemp())
-    (d / "c.csd").write_text(csd)
-    r = subprocess.run(["csound", "-n", "-d", str(d / "c.csd")],
-                       capture_output=True, text=True, timeout=60)
+    try:
+        (d / "c.csd").write_text(csd)
+        r = subprocess.run(["csound", "-n", "-d", str(d / "c.csd")],
+                           capture_output=True, text=True, timeout=60)
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
     rows = []
     for raw in (r.stdout + r.stderr).splitlines():
         parts = re.sub(r"\x1b\[[0-9;]*m", "", raw).split()
