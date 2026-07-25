@@ -1,14 +1,20 @@
-# Two finished nature sounds that the movement gate cannot pass
+# Three finished sounds that do not ship
 
-**Status: parked, needs BJ.** Both bodies work, both are physically derived, both hold
-loudness better than most of the library. Neither ships, because I cannot pass the
-movement gate on them honestly and the alternative is tuning constants until the meter's
-own variance falls the right side of a threshold. That is fitting the meter, not making
-the sound move, so I stopped and wrote this instead.
+**Status: parked, needs BJ.** All three bodies work, all three are physically derived, all
+three hold loudness better than most of the library. None ships, and there are two separate
+reasons, so this file has two halves:
 
-No Csound was taken from anywhere. Both are written from published acoustics: the
-Minnaert resonance of a gas bubble in water, and flexural-wave dispersion in a thin
-plate.
+- **`bubbles` and `ice`** cannot pass the movement gate, and the only way past it is tuning
+  constants until the meter's own variance falls the right side of a threshold. That is
+  fitting the meter, not making the sound move.
+- **`waterphone`** can pass the movement gate or sound at the played note, but not both, and
+  which one to give up is not my decision.
+
+No Csound was taken from anywhere. All three are written from published acoustics: the
+Minnaert resonance of a gas bubble in water, flexural-wave dispersion in a thin plate, and
+free-cantilever mode ratios with mass loading.
+
+# Part one: `bubbles` and `ice` — the movement gate
 
 ## What they are
 
@@ -165,3 +171,99 @@ amix    = ach1 + ach2 + ank * 0.55
 aref    poscil 0.3000, 400
 asig    balance amix, aref, 1
 ```
+
+# Part two: `waterphone` — the played note against the movement
+
+A different conflict, and a sharper one. This body passes the movement gate cleanly, holds
+0.39 dB of loudness across its cube and the keyboard, and is the only thing in the library
+that sounds like what it is. It does not sound at the played note, and it cannot be made to
+without ceasing to be a waterphone.
+
+## What it is
+
+A steel bowl with bronze rods of unequal length brazed round its rim and WATER sealed
+inside. The rods are cantilevers — clamped at one end, free at the other — and a
+cantilever's mode ratios are **1 : 6.267 : 17.55 : 34.39**. Not the 1 : 2.76 : 5.40 of a
+free-free bar, and nothing like a harmonic series. That is why it reads as neither pitched
+metal nor a bell: `struck_bar`, `glass`, `cymbal` and `handpan` are all far closer to
+harmonic. The water is the second half: as it moves it loads the rods, and a cantilever's
+upper modes are much more mass-sensitive than the bowl's fundamental, so the high
+inharmonic partials GLIDE while the note stays put. Two axes: `water` (how much is in the
+bowl) and `bow` (how hard the rod is bowed).
+
+## The conflict, measured
+
+The perceived pitch is whichever mode dominates, and on a real cantilever that is not the
+first one — the second mode at 6.267× radiates far more readily. Pushing the fundamental up
+until the played note is findable is a single monotone trade, measured over all 36
+corner-registers and the nine-corner cube at 220 Hz:
+
+| fundamental gain | reads at the played note | no pitch found | median f0 | movement failures |
+|---|---|---|---|---|
+| ×1 (physical) | 0 of 36 | 14 | **5.88× the note** | 0 of 9 |
+| ×4 | 5 of 36 | 15 | 1.32× | 3 of 9 |
+| ×8 | 12 of 36 | 11 | 1.04× | 4 of 9 |
+| ×16 | 14 of 36 | 5 | 1.02× | 5 of 9 |
+| ×32 | **24 of 36** | 0 | 1.01× | **6 of 9** |
+
+At ×1 the reading is 5.3 to 10.2 times the played note wherever it is found at all. At ×32
+it is the note — and the fundamental is then about 30 dB above the cantilever modes, which
+makes them decoration on a sine. That is not a waterphone; `struck_bar` and `glass` already
+cover struck metal that sounds at its note.
+
+Nothing in between works either: at every intermediate weighting the movement failures are
+already there before the pitch arrives. The two requirements move in opposite directions
+across the whole range, monotonically, so there is no setting to find.
+
+## Why it is a real conflict and not a defect
+
+§4 of `docs/LCO_CONCEPT.md` gives pitch to the synth: the oscillator sounds at the played
+note. Movement-by-default is a platform fundamental. This instrument's defining physics —
+a mode series whose second member is 6.267× the first and louder than it — is incompatible
+with the first of those unless the physics is overridden, and overriding it costs the
+second.
+
+Three ways forward, none of them mine to pick:
+
+- **Ship it at ×1 and accept that this entry sounds an inharmonic shoal rather than the
+  played note.** Defensible for a body whose whole character is unpitched metal, but it is a
+  §4 exception and would need to be stated as one.
+- **Ship it at ×8, where the note is findable at 12 of 36 corner-registers and 4 of 9
+  corners fail movement.** The worst of both, but it is the honest middle if both
+  requirements have to be partly met.
+- **Do not ship it.** The library then has no waterphone, and the reason is written here.
+
+## The body
+
+Complete and gate-clean on everything except the played note, reproduced in full.
+
+```
+kwater  = 0.45                              ; water [0..1]: how much water is in the bowl
+kbow    = 0.50                              ; bow [0..1]: how hard the rod is bowed
+kf0     = (kfreq * koct1)
+aex     rand 0.06, 0.5, 1
+kslo    poscil 0.5, 1.32                     ; the water moving in the bowl
+kbnd    = 1 - (0.16 + 0.18 * kwater) * (0.5 + kslo)   ; loading, upper modes only
+kq      = 220 + 900 * kbow
+kn0     limit kf0, 20, 15000
+an0     mode aex, kn0, kq
+kn1     limit kf0 * 6.267 * kbnd, 20, 15000
+an1     mode aex, kn1, kq * 1.15
+kn2     limit kf0 * 17.55 * kbnd * kbnd, 20, 15000
+an2     mode aex, kn2, kq * 1.30
+kn3     limit kf0 * 34.39 * kbnd * kbnd * kbnd, 20, 15000
+an3     mode aex, kn3, kq * 1.45
+kg1     = 0.62 * 6.267 * (0.35 + 0.85 * kbow)
+kg2     = 0.40 * 17.55 * (0.15 + 1.05 * kbow)
+kg3     = 0.22 * 34.39 * (0.22 + 0.52 * kbow)
+amix    = an0 * 1.00 + an1 * kg1 + an2 * kg2 + an3 * kg3
+aref    poscil 0.3000, 400
+asig    balance amix, aref, 1
+```
+
+Two things in it are worth keeping whatever is decided. `mode` hands a resonance at f/2
+twice the amplitude of one at f for the same drive, so every weight here carries its own
+frequency ratio — learned on `handpan`, where omitting that put the pitch 1207 cents low.
+And the water's bend has a FLOOR no setting removes, for the same reason `tanpura`'s halo
+does: a waterphone with no water in it is not a dry waterphone, it is a bowl with rods
+brazed on, which is `cymbal`.
