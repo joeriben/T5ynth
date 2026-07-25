@@ -109,8 +109,26 @@ def scaffold(body, dur=4.0, freq=220.0, glide=None, preroll=0.0):
       its note must key that behaviour to `knote`, which the host does reset.
 
     preroll stays 0.0 by default so that the recorded calibration keeps meaning what
-    it says. `lco_axis_probe` sweeps it on any body that contains a free-running
+    it says. `lco_axis_probe.gate` sweeps it on any body that contains a free-running
     k-rate oscillator, which is where the difference decides anything.
+
+    A SECOND difference from the plugin is open and is not addressed here: the RATE.
+    Since `5e65c0d4` the engine compiles Csound at `sampleRate x factor` (1/2/4, a
+    Settings control since `667d8bea`) and decimates each voice back with a 63-tap
+    halfband FIR, so `%SR%` in the plugin resolves to the oversampled rate. This
+    harness substitutes `sr = 44100` unconditionally. Two consequences, both real:
+
+    - a body that derives its own bandwidth from `sr` — `tanpura`'s `kmax = int(sr *
+      0.45 / kf0)`, `fm_ep`'s tine-ratio cap — gets a different Nyquist here than in
+      the plugin, so its partial count is measured at the most conservative setting
+      the player can choose;
+    - ALIASING is invisible to every meter in this file, because folding happens at
+      the rate the generators are computed at and that rate is not this one.
+
+    Nothing here is calibrated for that, and it must not be faked by resampling in
+    Python: the plugin's decimator is a specific filter, and a second, different one
+    would produce numbers that look like the plugin's and are not. The measurement
+    that exists for it is `tools/audition_lro_oversampling.cpp`, on the real engine.
     """
     head = W._HEAD
     head = _sub(head, "<CsOptions>\n-n -d\n</CsOptions>",
