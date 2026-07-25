@@ -311,10 +311,61 @@ byte-for-byte before it will emit anything new.
      carries ONE `vco2` copy, so declaring `drive` and `fat` means writing a
      saturator and detuned copies: new DSP, not a mapping, and BJ's call. `fat` and
      `age` also have no note at all (item 3).
-2. **Parametrise the 29 entries that still carry no parameter at all.** Done so
-   far: the five §8 named (`saw`/`square`/`pulse`/`triangle` duty and `pwm`'s lost
-   `rate`) and the wind family (`clarinet`/`flute` breath, `brass` press, `organ`
-   registration).
+2. **Parametrise the entries that carry no parameter at all — 21 left of 29.** Done
+   so far: the five §8 named (`saw`/`square`/`pulse`/`triangle` duty and `pwm`'s lost
+   `rate`), the wind family (`clarinet`/`flute` breath, `brass` press, `organ`
+   registration), the five nature beds (`wind` speed, `rain` surface, `surf` water,
+   `thunder` distance, `crackle` blaze) and the three `mode` banks (`struck_bar`,
+   `glass`, `cymbal`, each with `strike` and `ring`). 37 of 58 entries, 83 axes, 302
+   exemplars.
+
+   Four things that batch established, all of which the next one inherits:
+
+   - **The default must render SAMPLE-IDENTICALLY to the shipped body**, at six
+     registers, and that is now part of the apply step rather than a separate check.
+     Exposing a literal is a parametrisation only if the axis AT ITS DEFAULT *is* that
+     literal; anything else is a new sound wearing an old name, which is BJ's call.
+     Every axis is written so its default factor is exactly 1.0 in floating point
+     (`8.0 ^ (0.40 - kdist)`, `1 + 1.30 * (kspeed - 0.45)`), so identity is achievable
+     and a near-miss is a real defect rather than rounding.
+   - **A movement failure is forgiven only if the body at HEAD fails it too, at the
+     same register, proven per corner.** Assuming it nearly shipped a `wind` corner
+     that stood still (coherence 0.335) where the shipped body moves (0.528).
+   - **An axis on a body that modulates its own loudness must not touch that LFO.**
+     Putting the first version of `wind`/`surf`/`thunder` on the gust, swell and roll
+     RATE made a three-second note catch a different phase of a 0.02 Hz LFO at every
+     setting: 1.99, 4.28 and 2.10 dB apart, with the worst corner in the MIDDLE. That
+     is a window artefact, not a fader — and an axis that leaves the LFO alone has the
+     same artefact in every corner, where it cancels.
+   - **Three opcode facts**, measured, that decide where an axis can go at all:
+     `reson` with iscl=2 holds its level whatever its centre or width; `tone` passes
+     power in exact proportion to its corner (so 1/sqrt(fc) compensates exactly);
+     `atone` obeys no such law, so no axis is put on an `atone` corner.
+
+   Of the 21 left, three groups and one deliberate refusal:
+   - **`rhodes`, `wurlitzer`, `vibraphone`** wrap `fmrhode`, `fmwurlie` and `vibes`,
+     whose arguments are the model's own physical parameters and are all literals —
+     stick hardness and strike position on `vibes`, the two index scalers and the
+     tremolo on the FM pair. These decay rather than stand and have no `balance`, so
+     the level needs care the mode banks did not.
+   - **`strings`, `supersaw`, `sync`, `bass_saw`, `harpsichord`, `chiptune`,
+     `theremin`, `sub_sine`, `additive`, `ring_mod`, `cheby`** — ordinary synthesis
+     bodies with obvious literals (detune spread, sync ratio, partial count,
+     Chebyshev order).
+   - **`voice`, `voice_ee`, `voice_oo`** are blocked behind item 4, the fixed
+     formants.
+   - **`sine`, `noise`, `pink_noise`, `hiss` have no constant worth exposing** and
+     should stay unparametrised rather than be given invented DSP. `sine` is one line;
+     `noise` and `pink_noise` are the reference spectra and have nothing but an
+     amplitude; `hiss` has only an `atone` corner, which is exactly the opcode whose
+     level cannot be compensated by any law. Reporting them as deliberately bare is
+     the correct outcome, not a gap.
+
+   **Two findings for BJ from that batch, not acted on**, because changing either
+   changes a shipped sound: `rain`'s patter measures −25.27 dB against its wash's
+   −11.52, and `crackle`'s pops −34.09 dB against its sizzle's −15.41. In both, the
+   thing the entry is NAMED for sits 14 to 19 dB under its own bed. It is audible —
+   transients unmask — but it is a quiet layer, not the subject.
 3. **`analog_osc`'s three missing notes**, moved out of §5 into the entry.
 4. **The vowel family's fixed formants** — a real ceiling, and fixing it changes
    timbre, so it needs BJ's word. They are also the only three entries left with a
