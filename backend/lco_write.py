@@ -330,20 +330,28 @@ def render_library(sel=None):
                        f"{spec.get('default')}: {spec.get('note', '')}")
             for aname, a in (spec.get("anchors") or {}).items():
                 out.append(f"    {pname}={a['value']} — {aname}: {a['gloss']}")
-        # The anchor code shows which LINE moves with the character parameter. The
-        # full body is already printed above, so quote only the lines that differ
-        # from it at each anchor — the base plus five copies of the same twelve
-        # lines is exactly the recital this file just stopped doing.
+        # The anchor code shows which LINE moves with a parameter. The full body is
+        # already printed above, so quote only the lines that differ from it at each
+        # anchor — the base plus five copies of the same twelve lines is exactly the
+        # recital this file just stopped doing.
+        #
+        # A key is `axis=anchor`. It has to carry the axis, because an entry can
+        # have exemplars for MORE THAN ONE of its parameters and this used to print
+        # them all under `next(iter(params))` — the first parameter's name, whether
+        # or not the variant belonged to it. `lco_param_audit.py` already read the
+        # key this way; the two now agree.
         base_lines = set((it.get("code") or "").splitlines())
-        deltas = []
+        deltas = {}
         for label, code in (it.get("anchor_code") or {}).items():
+            axis, _, anchor = label.partition("=")
             changed = [l for l in code.splitlines() if l not in base_lines]
             if changed:
-                deltas.append((label, changed))
-        if deltas:
-            out.append(f"  # how the code changes across `{next(iter(it['params']))}`:")
-            for label, changed in deltas:
-                out.append(f"    # {label}")
+                deltas.setdefault(axis.strip(), []).append((anchor.strip() or axis,
+                                                            changed))
+        for axis, rows in deltas.items():
+            out.append(f"  # how the code changes across `{axis}`:")
+            for anchor, changed in rows:
+                out.append(f"    # {anchor}")
                 for l in changed:
                     out.append(f"    {l.strip()}")
 
