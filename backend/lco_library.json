@@ -1,6 +1,6 @@
 {
  "generated_from": {
-  "lexicon_version": 27
+  "lexicon_version": 28
  },
  "instruments": [
   {
@@ -1176,23 +1176,159 @@
   },
   {
    "key": "wind",
-   "why": "wind / breeze / gust -- a wide `reson` band walking up and down over noise, driven by two incommensurate slow oscillators (0.071 and 0.113 Hz) so the gusts never fall into a pattern: the band rises from 380 to about 1420 Hz as it blows AND gets louder at the same time, which is what makes it read as air moving rather than as a filter sweep. No pitch, and the keyboard does not change it.",
-   "code": "anz0    rand 1.0, 0.5, 1         ; broadband noise source (31-bit: no 1.365 s loop)\nkgsa0   poscil 0.5, 0.071            ; gust, slow\nkgsb0   poscil 0.3, 0.113            ; second, incommensurate\nkgst0   = 0.5 + kgsa0 + kgsb0  ; gust strength\nawd0    reson anz0, 380 + 520 * kgst0, 400, 2 ; higher when it blows\nasig    = awd0 * (0.30 + 0.42 * kgst0) ; and louder"
+   "why": "wind / breeze / gust -- a wide `reson` band walking up and down over noise, driven by two incommensurate slow oscillators (0.071 and 0.113 Hz) so the gusts never fall into a pattern: the band rises from 380 to about 1420 Hz as it blows AND gets louder at the same time, which is what makes it read as air moving rather than as a filter sweep. No pitch, and the keyboard does not change it. `speed` is how hard it is blowing: the aeolian tone rises with the wind (f = St * v / d) and takes its whole gust sweep with it, and the band widens faster than it rises, so a light breeze is a nearly pure whistle at 745 Hz and a gale a broadband roar at 3046.",
+   "code": "kspeed  = 0.45                              ; speed [0..1]: how hard it is blowing\nanz0    rand 1.0, 0.5, 1         ; broadband noise source (31-bit: no 1.365 s loop)\nkgsa0   poscil 0.5, 0.071            ; gust, slow\nkgsb0   poscil 0.3, 0.113            ; second, incommensurate\nkgst0   = 0.5 + kgsa0 + kgsb0  ; gust strength\n; An aeolian tone rises with the wind: f = St * v / d, so a stronger wind whistles higher\n; through the same gap. The width goes up FASTER than the centre, because turbulence\n; intensity rises with speed -- a light breeze through a gap is a nearly pure whistle and a\n; gale is a broadband roar, so 69 Hz of bandwidth at one end and 1177 at the other. Both are\n; free of level: `reson` with iscl=2 measures -4.8 dB on white noise at a 171 Hz centre and\n; at 760, at 180 Hz of width and at 800, so this stays a colour axis on a bed whose loudness\n; already swells. The width has to move: held at 400 Hz it is nearly a flat filter under a\n; 171 Hz centre, the centroid stops tracking the resonance and the light-breeze corner reads\n; as standing still (coherence 0.335 against the 0.35 the meter asks for).\nkwsp    = 1 + 1.30 * (kspeed - 0.45)         ; exactly 1 at the default\nawd0    reson anz0, (380 + 520 * kgst0) * kwsp, 400 * kwsp * kwsp, 2 ; higher when it blows\nasig    = awd0 * (0.30 + 0.42 * kgst0) ; and louder",
+   "params": {
+    "speed": {
+     "range": [
+      0.0,
+      1.0
+     ],
+     "default": 0.45,
+     "note": "how hard it is blowing. An aeolian tone rises with wind speed -- f = St * v / d, so a stronger wind whistles higher through the same gap -- and this scales the whole band the gust already sweeps, from 158-417 Hz at a light breeze to 652-1722 at a gale. Its WIDTH goes up as the square of that, 69 Hz to 1176, because turbulence intensity rises with speed: a light breeze through a gap is very nearly a pure whistle and a gale is a broadband roar. Centroid 745 -> 3046 Hz, motion 204 -> 826 Hz, and the envelope smooths as it rises (roughness 0.375 -> 0.152) because a faster air stream is a steadier one. Loudness 0.14 dB across all of it, which it can be because `reson` with iscl=2 holds its level whatever its centre or width -- measured -4.8 dB on white noise at a 171 Hz centre and at 760, at 180 Hz of width and at 800. The width HAS to move, and this is the reason the exponent is 2 and not 1: held at 400 Hz it is nearly a flat filter under a 158 Hz centre, the centroid stops tracking the resonance and the light-breeze corner reads as standing still -- coherence 0.335 against the 0.35 the meter asks for, where the shipped body reads 0.528.",
+     "anchors": {
+      "light breeze": {
+       "value": 0.0,
+       "gloss": "air moving in the trees, low and soft"
+      },
+      "breeze": {
+       "value": 0.25,
+       "gloss": "a steady wind with an edge coming up"
+      },
+      "wind": {
+       "value": 0.45,
+       "gloss": "the ordinary wind"
+      },
+      "gale": {
+       "value": 1.0,
+       "gloss": "a hard, high, whistling blow"
+      }
+     }
+    }
+   },
+   "anchor_code": {
+    "speed=light breeze": "kspeed  = 0                              ; speed [0..1]: how hard it is blowing\nanz0    rand 1.0, 0.5, 1         ; broadband noise source (31-bit: no 1.365 s loop)\nkgsa0   poscil 0.5, 0.071            ; gust, slow\nkgsb0   poscil 0.3, 0.113            ; second, incommensurate\nkgst0   = 0.5 + kgsa0 + kgsb0  ; gust strength\n; An aeolian tone rises with the wind: f = St * v / d, so a stronger wind whistles higher\n; through the same gap. The width goes up FASTER than the centre, because turbulence\n; intensity rises with speed -- a light breeze through a gap is a nearly pure whistle and a\n; gale is a broadband roar, so 69 Hz of bandwidth at one end and 1177 at the other. Both are\n; free of level: `reson` with iscl=2 measures -4.8 dB on white noise at a 171 Hz centre and\n; at 760, at 180 Hz of width and at 800, so this stays a colour axis on a bed whose loudness\n; already swells. The width has to move: held at 400 Hz it is nearly a flat filter under a\n; 171 Hz centre, the centroid stops tracking the resonance and the light-breeze corner reads\n; as standing still (coherence 0.335 against the 0.35 the meter asks for).\nkwsp    = 1 + 1.30 * (kspeed - 0.45)         ; exactly 1 at the default\nawd0    reson anz0, (380 + 520 * kgst0) * kwsp, 400 * kwsp * kwsp, 2 ; higher when it blows\nasig    = awd0 * (0.30 + 0.42 * kgst0) ; and louder",
+    "speed=breeze": "kspeed  = 0.25                              ; speed [0..1]: how hard it is blowing\nanz0    rand 1.0, 0.5, 1         ; broadband noise source (31-bit: no 1.365 s loop)\nkgsa0   poscil 0.5, 0.071            ; gust, slow\nkgsb0   poscil 0.3, 0.113            ; second, incommensurate\nkgst0   = 0.5 + kgsa0 + kgsb0  ; gust strength\n; An aeolian tone rises with the wind: f = St * v / d, so a stronger wind whistles higher\n; through the same gap. The width goes up FASTER than the centre, because turbulence\n; intensity rises with speed -- a light breeze through a gap is a nearly pure whistle and a\n; gale is a broadband roar, so 69 Hz of bandwidth at one end and 1177 at the other. Both are\n; free of level: `reson` with iscl=2 measures -4.8 dB on white noise at a 171 Hz centre and\n; at 760, at 180 Hz of width and at 800, so this stays a colour axis on a bed whose loudness\n; already swells. The width has to move: held at 400 Hz it is nearly a flat filter under a\n; 171 Hz centre, the centroid stops tracking the resonance and the light-breeze corner reads\n; as standing still (coherence 0.335 against the 0.35 the meter asks for).\nkwsp    = 1 + 1.30 * (kspeed - 0.45)         ; exactly 1 at the default\nawd0    reson anz0, (380 + 520 * kgst0) * kwsp, 400 * kwsp * kwsp, 2 ; higher when it blows\nasig    = awd0 * (0.30 + 0.42 * kgst0) ; and louder",
+    "speed=wind": "kspeed  = 0.45                              ; speed [0..1]: how hard it is blowing\nanz0    rand 1.0, 0.5, 1         ; broadband noise source (31-bit: no 1.365 s loop)\nkgsa0   poscil 0.5, 0.071            ; gust, slow\nkgsb0   poscil 0.3, 0.113            ; second, incommensurate\nkgst0   = 0.5 + kgsa0 + kgsb0  ; gust strength\n; An aeolian tone rises with the wind: f = St * v / d, so a stronger wind whistles higher\n; through the same gap. The width goes up FASTER than the centre, because turbulence\n; intensity rises with speed -- a light breeze through a gap is a nearly pure whistle and a\n; gale is a broadband roar, so 69 Hz of bandwidth at one end and 1177 at the other. Both are\n; free of level: `reson` with iscl=2 measures -4.8 dB on white noise at a 171 Hz centre and\n; at 760, at 180 Hz of width and at 800, so this stays a colour axis on a bed whose loudness\n; already swells. The width has to move: held at 400 Hz it is nearly a flat filter under a\n; 171 Hz centre, the centroid stops tracking the resonance and the light-breeze corner reads\n; as standing still (coherence 0.335 against the 0.35 the meter asks for).\nkwsp    = 1 + 1.30 * (kspeed - 0.45)         ; exactly 1 at the default\nawd0    reson anz0, (380 + 520 * kgst0) * kwsp, 400 * kwsp * kwsp, 2 ; higher when it blows\nasig    = awd0 * (0.30 + 0.42 * kgst0) ; and louder",
+    "speed=gale": "kspeed  = 1                              ; speed [0..1]: how hard it is blowing\nanz0    rand 1.0, 0.5, 1         ; broadband noise source (31-bit: no 1.365 s loop)\nkgsa0   poscil 0.5, 0.071            ; gust, slow\nkgsb0   poscil 0.3, 0.113            ; second, incommensurate\nkgst0   = 0.5 + kgsa0 + kgsb0  ; gust strength\n; An aeolian tone rises with the wind: f = St * v / d, so a stronger wind whistles higher\n; through the same gap. The width goes up FASTER than the centre, because turbulence\n; intensity rises with speed -- a light breeze through a gap is a nearly pure whistle and a\n; gale is a broadband roar, so 69 Hz of bandwidth at one end and 1177 at the other. Both are\n; free of level: `reson` with iscl=2 measures -4.8 dB on white noise at a 171 Hz centre and\n; at 760, at 180 Hz of width and at 800, so this stays a colour axis on a bed whose loudness\n; already swells. The width has to move: held at 400 Hz it is nearly a flat filter under a\n; 171 Hz centre, the centroid stops tracking the resonance and the light-breeze corner reads\n; as standing still (coherence 0.335 against the 0.35 the meter asks for).\nkwsp    = 1 + 1.30 * (kspeed - 0.45)         ; exactly 1 at the default\nawd0    reson anz0, (380 + 520 * kgst0) * kwsp, 400 * kwsp * kwsp, 2 ; higher when it blows\nasig    = awd0 * (0.30 + 0.42 * kgst0) ; and louder"
+   }
   },
   {
    "key": "rain",
-   "why": "rain / rainfall / drizzle -- a real particle bed, not a hiss: `dust2` fires about 1400 separate impacts a second and each one rings a surface (`reson` at 2400 Hz), over a darker wash of merged distant drops, with the whole shower swelling and easing at 0.043 Hz. This is the architecture for anything made of many small events -- change the rate and what it is made of changes with it. No pitch, and the keyboard does not change it.",
-   "code": "anz0    rand 1.0, 0.5, 1         ; broadband noise source (31-bit: no 1.365 s loop)\nadrp0   dust2 0.5, 1400              ; the patter: ~1400 impacts/s\narzn0   reson adrp0, 2400, 1800, 2 ; each drop rings the surface\nawsh0   atone anz0, 2000             ; distant drops, merged to a wash\nkint0   poscil 0.22, 0.043           ; the rain comes and goes\nasig    = (arzn0 * 0.94 + awsh0 * 0.51) * (1 + kint0)"
+   "why": "rain / rainfall / drizzle -- a real particle bed, not a hiss: `dust2` fires about 1400 separate impacts a second and each one rings a surface (`reson` at 2400 Hz), over a darker wash of merged distant drops, with the whole shower swelling and easing at 0.043 Hz. This is the architecture for anything made of many small events -- change the rate and what it is made of changes with it. No pitch, and the keyboard does not change it. `surface` is what it is falling on -- leaves answer low and soft, a tin roof rings high and hard -- which is the resonance the patter is heard through.",
+   "code": "ksurf   = 0.45                              ; surface [0..1]: what the rain is falling on\nanz0    rand 1.0, 0.5, 1         ; broadband noise source (31-bit: no 1.365 s loop)\nadrp0   dust2 0.5, 1400              ; the patter\n; A drop makes the sound of whatever it lands on: leaves absorb and answer low, a tin roof\n; rings high and hard. So the surface IS the resonance the patter is heard through. `reson`\n; with iscl=2 holds its level whatever its centre or width -- measured -4.8 dB on white\n; noise at 171 Hz and at 760, at 180 Hz of bandwidth and at 800 -- so this is exactly a\n; colour axis. Width follows centre to keep Q constant, because a band 1800 Hz wide centred\n; at 900 is most of the way to a flat filter and would stop colouring anything.\n; The DENSITY of the patter is deliberately not the axis: measured on its own, `dust2` from\n; 366 to 7300 impacts a second moves its envelope roughness 0.667 -> 0.108, but inside this\n; body the same sweep moves it 0.057 -> 0.055, because the patter sits 13.8 dB under the\n; wash and the wash is smooth. An axis has to act on what is actually heard.\nksrf    = 6.0 ^ (ksurf - 0.45)               ; exactly 1 at the default\narzn0   reson adrp0, 2400 * ksrf, 1800 * ksrf, 2 ; each drop rings the surface\nawsh0   atone anz0, 2000             ; distant drops, merged to a wash\nkint0   poscil 0.22, 0.043           ; the rain comes and goes\nasig    = (arzn0 * 0.94 + awsh0 * 0.51) * (1 + kint0)",
+   "params": {
+    "surface": {
+     "range": [
+      0.0,
+      1.0
+     ],
+     "default": 0.45,
+     "note": "what the rain is falling on. A drop makes the sound of whatever it lands on: leaves absorb and answer low, a tin roof rings high and hard, so the surface IS the resonance the patter is heard through. Centroid 11393 -> 11622 Hz and the crest factor 3.20 -> 3.95, both monotone, at 0.01 dB of loudness -- exactly free, because `reson` with iscl=2 holds its level whatever its centre or width. Width follows centre to hold Q, since 1800 Hz of width on a 900 Hz centre is nearly a flat filter. The patter's DENSITY is deliberately not the axis, and the reason is worth knowing: on a bare `dust2` a sweep from 366 to 7300 impacts a second moves the envelope roughness 0.667 -> 0.108, but inside this body it moves 0.057 -> 0.055, because the patter sits 13.8 dB under the wash and the wash is smooth. An axis has to act on what is heard.",
+     "anchors": {
+      "on leaves": {
+       "value": 0.0,
+       "gloss": "soft and low, absorbed by what it hits"
+      },
+      "on earth": {
+       "value": 0.25,
+       "gloss": "a dull, close patter"
+      },
+      "on stone": {
+       "value": 0.45,
+       "gloss": "the ordinary rain"
+      },
+      "on a tin roof": {
+       "value": 1.0,
+       "gloss": "hard, high, ringing drops"
+      }
+     }
+    }
+   },
+   "anchor_code": {
+    "surface=on leaves": "ksurf   = 0                              ; surface [0..1]: what the rain is falling on\nanz0    rand 1.0, 0.5, 1         ; broadband noise source (31-bit: no 1.365 s loop)\nadrp0   dust2 0.5, 1400              ; the patter\n; A drop makes the sound of whatever it lands on: leaves absorb and answer low, a tin roof\n; rings high and hard. So the surface IS the resonance the patter is heard through. `reson`\n; with iscl=2 holds its level whatever its centre or width -- measured -4.8 dB on white\n; noise at 171 Hz and at 760, at 180 Hz of bandwidth and at 800 -- so this is exactly a\n; colour axis. Width follows centre to keep Q constant, because a band 1800 Hz wide centred\n; at 900 is most of the way to a flat filter and would stop colouring anything.\n; The DENSITY of the patter is deliberately not the axis: measured on its own, `dust2` from\n; 366 to 7300 impacts a second moves its envelope roughness 0.667 -> 0.108, but inside this\n; body the same sweep moves it 0.057 -> 0.055, because the patter sits 13.8 dB under the\n; wash and the wash is smooth. An axis has to act on what is actually heard.\nksrf    = 6.0 ^ (ksurf - 0.45)               ; exactly 1 at the default\narzn0   reson adrp0, 2400 * ksrf, 1800 * ksrf, 2 ; each drop rings the surface\nawsh0   atone anz0, 2000             ; distant drops, merged to a wash\nkint0   poscil 0.22, 0.043           ; the rain comes and goes\nasig    = (arzn0 * 0.94 + awsh0 * 0.51) * (1 + kint0)",
+    "surface=on earth": "ksurf   = 0.25                              ; surface [0..1]: what the rain is falling on\nanz0    rand 1.0, 0.5, 1         ; broadband noise source (31-bit: no 1.365 s loop)\nadrp0   dust2 0.5, 1400              ; the patter\n; A drop makes the sound of whatever it lands on: leaves absorb and answer low, a tin roof\n; rings high and hard. So the surface IS the resonance the patter is heard through. `reson`\n; with iscl=2 holds its level whatever its centre or width -- measured -4.8 dB on white\n; noise at 171 Hz and at 760, at 180 Hz of bandwidth and at 800 -- so this is exactly a\n; colour axis. Width follows centre to keep Q constant, because a band 1800 Hz wide centred\n; at 900 is most of the way to a flat filter and would stop colouring anything.\n; The DENSITY of the patter is deliberately not the axis: measured on its own, `dust2` from\n; 366 to 7300 impacts a second moves its envelope roughness 0.667 -> 0.108, but inside this\n; body the same sweep moves it 0.057 -> 0.055, because the patter sits 13.8 dB under the\n; wash and the wash is smooth. An axis has to act on what is actually heard.\nksrf    = 6.0 ^ (ksurf - 0.45)               ; exactly 1 at the default\narzn0   reson adrp0, 2400 * ksrf, 1800 * ksrf, 2 ; each drop rings the surface\nawsh0   atone anz0, 2000             ; distant drops, merged to a wash\nkint0   poscil 0.22, 0.043           ; the rain comes and goes\nasig    = (arzn0 * 0.94 + awsh0 * 0.51) * (1 + kint0)",
+    "surface=on stone": "ksurf   = 0.45                              ; surface [0..1]: what the rain is falling on\nanz0    rand 1.0, 0.5, 1         ; broadband noise source (31-bit: no 1.365 s loop)\nadrp0   dust2 0.5, 1400              ; the patter\n; A drop makes the sound of whatever it lands on: leaves absorb and answer low, a tin roof\n; rings high and hard. So the surface IS the resonance the patter is heard through. `reson`\n; with iscl=2 holds its level whatever its centre or width -- measured -4.8 dB on white\n; noise at 171 Hz and at 760, at 180 Hz of bandwidth and at 800 -- so this is exactly a\n; colour axis. Width follows centre to keep Q constant, because a band 1800 Hz wide centred\n; at 900 is most of the way to a flat filter and would stop colouring anything.\n; The DENSITY of the patter is deliberately not the axis: measured on its own, `dust2` from\n; 366 to 7300 impacts a second moves its envelope roughness 0.667 -> 0.108, but inside this\n; body the same sweep moves it 0.057 -> 0.055, because the patter sits 13.8 dB under the\n; wash and the wash is smooth. An axis has to act on what is actually heard.\nksrf    = 6.0 ^ (ksurf - 0.45)               ; exactly 1 at the default\narzn0   reson adrp0, 2400 * ksrf, 1800 * ksrf, 2 ; each drop rings the surface\nawsh0   atone anz0, 2000             ; distant drops, merged to a wash\nkint0   poscil 0.22, 0.043           ; the rain comes and goes\nasig    = (arzn0 * 0.94 + awsh0 * 0.51) * (1 + kint0)",
+    "surface=on a tin roof": "ksurf   = 1                              ; surface [0..1]: what the rain is falling on\nanz0    rand 1.0, 0.5, 1         ; broadband noise source (31-bit: no 1.365 s loop)\nadrp0   dust2 0.5, 1400              ; the patter\n; A drop makes the sound of whatever it lands on: leaves absorb and answer low, a tin roof\n; rings high and hard. So the surface IS the resonance the patter is heard through. `reson`\n; with iscl=2 holds its level whatever its centre or width -- measured -4.8 dB on white\n; noise at 171 Hz and at 760, at 180 Hz of bandwidth and at 800 -- so this is exactly a\n; colour axis. Width follows centre to keep Q constant, because a band 1800 Hz wide centred\n; at 900 is most of the way to a flat filter and would stop colouring anything.\n; The DENSITY of the patter is deliberately not the axis: measured on its own, `dust2` from\n; 366 to 7300 impacts a second moves its envelope roughness 0.667 -> 0.108, but inside this\n; body the same sweep moves it 0.057 -> 0.055, because the patter sits 13.8 dB under the\n; wash and the wash is smooth. An axis has to act on what is actually heard.\nksrf    = 6.0 ^ (ksurf - 0.45)               ; exactly 1 at the default\narzn0   reson adrp0, 2400 * ksrf, 1800 * ksrf, 2 ; each drop rings the surface\nawsh0   atone anz0, 2000             ; distant drops, merged to a wash\nkint0   poscil 0.22, 0.043           ; the rain comes and goes\nasig    = (arzn0 * 0.94 + awsh0 * 0.51) * (1 + kint0)"
+   }
   },
   {
    "key": "surf",
-   "why": "surf / ocean / the sea -- two bands of noise moved by one swell: a low body (`tone` 700) that is always there and a bright break (`atone` 1800) that only arrives at the top of the swell, and arrives as the SQUARE of it, so the crest breaks instead of fading in. Two incommensurate swells (0.055 and 0.083 Hz, ~18 s and ~12 s) keep the sea from repeating. No pitch; the keyboard does not change it.",
-   "code": "anz0    rand 1.0, 0.5, 1         ; broadband noise source (31-bit: no 1.365 s loop)\nkswa0   poscil 0.5, 0.055            ; swell, ~18 s\nkswb0   poscil 0.22, 0.083           ; second, incommensurate\nkswl0   = 0.5 + kswa0 + kswb0  ; 0 .. 1.2\nasfl0   tone anz0, 700               ; the body of the wave\nasfb0   atone anz0, 1800             ; the break, bright\nasig    = asfl0 * (0.35 + 0.35 * kswl0) + asfb0 * 0.30 * kswl0 * kswl0"
+   "why": "surf / ocean / the sea -- two bands of noise moved by one swell: a low body (`tone` 700) that is always there and a bright break (`atone` 1800) that only arrives at the top of the swell, and arrives as the SQUARE of it, so the crest breaks instead of fading in. Two incommensurate swells (0.055 and 0.083 Hz, ~18 s and ~12 s) keep the sea from repeating. No pitch; the keyboard does not change it. `water` is how big the body of water is: a choppy lake has nothing below a few hundred hertz, an ocean swell is mostly down there.",
+   "code": "kwater  = 0.45                              ; water [0..1]: how big the body of water is\nanz0    rand 1.0, 0.5, 1         ; broadband noise source (31-bit: no 1.365 s loop)\nkswa0   poscil 0.5, 0.055            ; swell\nkswb0   poscil 0.22, 0.083           ; second, incommensurate\nkswl0   = 0.5 + kswa0 + kswb0  ; 0 .. 1.2\n; A lake's chop has no energy below a few hundred hertz; an ocean swell is mostly down\n; there. So the size of the water IS where the body's weight sits. `tone` passes power in\n; exact proportion to its corner -- measured +3.70 dB from 300 to 700 Hz against +3.68\n; predicted -- so 1/sqrt of it holds the level exactly, and this stays a colour axis on a\n; bed whose loudness already swells. The break is left alone: `atone` obeys no such clean\n; law (it loses 4.33 dB from 600 to 5200 Hz where the analytic model says 1.05), and a\n; fitted exponent in a body is a number nobody can re-derive.\nkbf     = 700 * 6.0 ^ (0.45 - kwater)        ; 1571 Hz (a choppy lake) .. 262 (an ocean swell)\nasfl0   tone anz0, kbf               ; the body of the wave\nasfb0   atone anz0, 1800             ; the break, bright\nasig    = asfl0 * sqrt(700 / kbf) * (0.35 + 0.35 * kswl0) + asfb0 * 0.30 * kswl0 * kswl0",
+   "params": {
+    "water": {
+     "range": [
+      0.0,
+      1.0
+     ],
+     "default": 0.45,
+     "note": "how big the body of water is. A lake's chop has no energy below a few hundred hertz; an ocean swell is mostly down there, so the size of the water IS where the wave's body sits -- 1571 Hz at one end and 262 at the other. Centroid 10647 -> 10892 Hz, motion 5307 -> 7825, crest 2.34 -> 3.20, loudness 0.86 dB. It is put on the BODY and not on the break because `tone` passes power in exact proportion to its corner (+3.70 dB measured from 300 to 700 Hz against +3.68 predicted) so 1/sqrt(fc) compensates it exactly, while `atone` obeys no such law -- it loses 4.33 dB from 600 to 5200 Hz where the analytic model says 1.05 -- and a fitted exponent in a body is a number nobody can re-derive. The break stays gated by the swell SQUARED, because a wave only breaks at its crest.",
+     "anchors": {
+      "a choppy lake": {
+       "value": 0.0,
+       "gloss": "small, quick, no weight underneath"
+      },
+      "a big lake": {
+       "value": 0.25,
+       "gloss": "some body coming into it"
+      },
+      "surf": {
+       "value": 0.45,
+       "gloss": "the ordinary shoreline"
+      },
+      "an ocean swell": {
+       "value": 1.0,
+       "gloss": "deep and slow, the weight of open water"
+      }
+     }
+    }
+   },
+   "anchor_code": {
+    "water=a choppy lake": "kwater  = 0                              ; water [0..1]: how big the body of water is\nanz0    rand 1.0, 0.5, 1         ; broadband noise source (31-bit: no 1.365 s loop)\nkswa0   poscil 0.5, 0.055            ; swell\nkswb0   poscil 0.22, 0.083           ; second, incommensurate\nkswl0   = 0.5 + kswa0 + kswb0  ; 0 .. 1.2\n; A lake's chop has no energy below a few hundred hertz; an ocean swell is mostly down\n; there. So the size of the water IS where the body's weight sits. `tone` passes power in\n; exact proportion to its corner -- measured +3.70 dB from 300 to 700 Hz against +3.68\n; predicted -- so 1/sqrt of it holds the level exactly, and this stays a colour axis on a\n; bed whose loudness already swells. The break is left alone: `atone` obeys no such clean\n; law (it loses 4.33 dB from 600 to 5200 Hz where the analytic model says 1.05), and a\n; fitted exponent in a body is a number nobody can re-derive.\nkbf     = 700 * 6.0 ^ (0.45 - kwater)        ; 1571 Hz (a choppy lake) .. 262 (an ocean swell)\nasfl0   tone anz0, kbf               ; the body of the wave\nasfb0   atone anz0, 1800             ; the break, bright\nasig    = asfl0 * sqrt(700 / kbf) * (0.35 + 0.35 * kswl0) + asfb0 * 0.30 * kswl0 * kswl0",
+    "water=a big lake": "kwater  = 0.25                              ; water [0..1]: how big the body of water is\nanz0    rand 1.0, 0.5, 1         ; broadband noise source (31-bit: no 1.365 s loop)\nkswa0   poscil 0.5, 0.055            ; swell\nkswb0   poscil 0.22, 0.083           ; second, incommensurate\nkswl0   = 0.5 + kswa0 + kswb0  ; 0 .. 1.2\n; A lake's chop has no energy below a few hundred hertz; an ocean swell is mostly down\n; there. So the size of the water IS where the body's weight sits. `tone` passes power in\n; exact proportion to its corner -- measured +3.70 dB from 300 to 700 Hz against +3.68\n; predicted -- so 1/sqrt of it holds the level exactly, and this stays a colour axis on a\n; bed whose loudness already swells. The break is left alone: `atone` obeys no such clean\n; law (it loses 4.33 dB from 600 to 5200 Hz where the analytic model says 1.05), and a\n; fitted exponent in a body is a number nobody can re-derive.\nkbf     = 700 * 6.0 ^ (0.45 - kwater)        ; 1571 Hz (a choppy lake) .. 262 (an ocean swell)\nasfl0   tone anz0, kbf               ; the body of the wave\nasfb0   atone anz0, 1800             ; the break, bright\nasig    = asfl0 * sqrt(700 / kbf) * (0.35 + 0.35 * kswl0) + asfb0 * 0.30 * kswl0 * kswl0",
+    "water=surf": "kwater  = 0.45                              ; water [0..1]: how big the body of water is\nanz0    rand 1.0, 0.5, 1         ; broadband noise source (31-bit: no 1.365 s loop)\nkswa0   poscil 0.5, 0.055            ; swell\nkswb0   poscil 0.22, 0.083           ; second, incommensurate\nkswl0   = 0.5 + kswa0 + kswb0  ; 0 .. 1.2\n; A lake's chop has no energy below a few hundred hertz; an ocean swell is mostly down\n; there. So the size of the water IS where the body's weight sits. `tone` passes power in\n; exact proportion to its corner -- measured +3.70 dB from 300 to 700 Hz against +3.68\n; predicted -- so 1/sqrt of it holds the level exactly, and this stays a colour axis on a\n; bed whose loudness already swells. The break is left alone: `atone` obeys no such clean\n; law (it loses 4.33 dB from 600 to 5200 Hz where the analytic model says 1.05), and a\n; fitted exponent in a body is a number nobody can re-derive.\nkbf     = 700 * 6.0 ^ (0.45 - kwater)        ; 1571 Hz (a choppy lake) .. 262 (an ocean swell)\nasfl0   tone anz0, kbf               ; the body of the wave\nasfb0   atone anz0, 1800             ; the break, bright\nasig    = asfl0 * sqrt(700 / kbf) * (0.35 + 0.35 * kswl0) + asfb0 * 0.30 * kswl0 * kswl0",
+    "water=an ocean swell": "kwater  = 1                              ; water [0..1]: how big the body of water is\nanz0    rand 1.0, 0.5, 1         ; broadband noise source (31-bit: no 1.365 s loop)\nkswa0   poscil 0.5, 0.055            ; swell\nkswb0   poscil 0.22, 0.083           ; second, incommensurate\nkswl0   = 0.5 + kswa0 + kswb0  ; 0 .. 1.2\n; A lake's chop has no energy below a few hundred hertz; an ocean swell is mostly down\n; there. So the size of the water IS where the body's weight sits. `tone` passes power in\n; exact proportion to its corner -- measured +3.70 dB from 300 to 700 Hz against +3.68\n; predicted -- so 1/sqrt of it holds the level exactly, and this stays a colour axis on a\n; bed whose loudness already swells. The break is left alone: `atone` obeys no such clean\n; law (it loses 4.33 dB from 600 to 5200 Hz where the analytic model says 1.05), and a\n; fitted exponent in a body is a number nobody can re-derive.\nkbf     = 700 * 6.0 ^ (0.45 - kwater)        ; 1571 Hz (a choppy lake) .. 262 (an ocean swell)\nasfl0   tone anz0, kbf               ; the body of the wave\nasfb0   atone anz0, 1800             ; the break, bright\nasig    = asfl0 * sqrt(700 / kbf) * (0.35 + 0.35 * kswl0) + asfb0 * 0.30 * kswl0 * kswl0"
+   }
   },
   {
    "key": "thunder",
-   "why": "thunder / a distant storm / rumble -- low broadband body (`tone` 400) rolled by three incommensurate slow oscillators (0.037, 0.061, 0.091 Hz) so the rumble keeps folding over itself and never pulses. No pitch, and the keyboard does not change it.",
-   "code": "anz0    rand 1.0, 0.5, 1         ; broadband noise source (31-bit: no 1.365 s loop)\nkrla0   poscil 0.5, 0.037            ; the roll\nkrlb0   poscil 0.28, 0.061\nkrlc0   poscil 0.16, 0.091\nathl0   tone anz0, 400               ; low broadband body\nasig    = athl0 * (0.80 + 0.61 * (krla0 + krlb0 + krlc0))"
+   "why": "thunder / a distant storm / rumble -- low broadband body (`tone` 400) rolled by three incommensurate slow oscillators (0.037, 0.061, 0.091 Hz) so the rumble keeps folding over itself and never pulses. No pitch, and the keyboard does not change it. `distance` is how far away the storm is: air absorbs the highs, so a strike overhead cracks and one across the county is a rumble with no edge left on it.",
+   "code": "kdist   = 0.40                              ; distance [0..1]: how far away the storm is\nanz0    rand 1.0, 0.5, 1         ; broadband noise source (31-bit: no 1.365 s loop)\nkrla0   poscil 0.5, 0.037            ; the roll\nkrlb0   poscil 0.28, 0.061\nkrlc0   poscil 0.16, 0.091\n; Air absorbs the highs, and the further the sound travels the less of them arrive: a\n; strike overhead cracks, one across the county is a rumble with no edge left on it. So\n; distance IS the corner frequency. A one-pole lowpass passes power in proportion to its\n; corner, so the amplitude carries 1/sqrt of it -- otherwise moving the corner is a volume\n; control, and a distant storm is just a quiet near one.\nkfc     = 400 * 8.0 ^ (0.40 - kdist)         ; 919 Hz overhead .. 115 Hz miles off\nathl0   tone anz0, kfc               ; low broadband body\nasig    = athl0 * sqrt(400 / kfc) * (0.80 + 0.61 * (krla0 + krlb0 + krlc0))",
+   "params": {
+    "distance": {
+     "range": [
+      0.0,
+      1.0
+     ],
+     "default": 0.4,
+     "note": "how far away the storm is. Air absorbs the highs and the further the sound travels the fewer of them arrive, so distance IS the corner frequency -- 919 Hz overhead down to 115 Hz miles off. Centroid 6020 -> 4147 Hz, and the envelope gets ROUGHER as it recedes (0.161 -> 0.334) because with the highs gone what is left is the slow roll. Loudness 0.10 dB, held exactly: `tone` passes power in proportion to its corner (+3.70 dB measured from 300 to 700 Hz against +3.68 predicted), so the amplitude carries 1/sqrt of it. Without that compensation the axis is a volume control and a distant storm is just a quiet near one.",
+     "anchors": {
+      "overhead": {
+       "value": 0.0,
+       "gloss": "the crack right above you, edge still on it"
+      },
+      "close": {
+       "value": 0.2,
+       "gloss": "a near strike, already rounding off"
+      },
+      "thunder": {
+       "value": 0.4,
+       "gloss": "the ordinary storm"
+      },
+      "miles off": {
+       "value": 1.0,
+       "gloss": "a low roll with no edge left at all"
+      }
+     }
+    }
+   },
+   "anchor_code": {
+    "distance=overhead": "kdist   = 0                              ; distance [0..1]: how far away the storm is\nanz0    rand 1.0, 0.5, 1         ; broadband noise source (31-bit: no 1.365 s loop)\nkrla0   poscil 0.5, 0.037            ; the roll\nkrlb0   poscil 0.28, 0.061\nkrlc0   poscil 0.16, 0.091\n; Air absorbs the highs, and the further the sound travels the less of them arrive: a\n; strike overhead cracks, one across the county is a rumble with no edge left on it. So\n; distance IS the corner frequency. A one-pole lowpass passes power in proportion to its\n; corner, so the amplitude carries 1/sqrt of it -- otherwise moving the corner is a volume\n; control, and a distant storm is just a quiet near one.\nkfc     = 400 * 8.0 ^ (0.40 - kdist)         ; 919 Hz overhead .. 115 Hz miles off\nathl0   tone anz0, kfc               ; low broadband body\nasig    = athl0 * sqrt(400 / kfc) * (0.80 + 0.61 * (krla0 + krlb0 + krlc0))",
+    "distance=close": "kdist   = 0.2                              ; distance [0..1]: how far away the storm is\nanz0    rand 1.0, 0.5, 1         ; broadband noise source (31-bit: no 1.365 s loop)\nkrla0   poscil 0.5, 0.037            ; the roll\nkrlb0   poscil 0.28, 0.061\nkrlc0   poscil 0.16, 0.091\n; Air absorbs the highs, and the further the sound travels the less of them arrive: a\n; strike overhead cracks, one across the county is a rumble with no edge left on it. So\n; distance IS the corner frequency. A one-pole lowpass passes power in proportion to its\n; corner, so the amplitude carries 1/sqrt of it -- otherwise moving the corner is a volume\n; control, and a distant storm is just a quiet near one.\nkfc     = 400 * 8.0 ^ (0.40 - kdist)         ; 919 Hz overhead .. 115 Hz miles off\nathl0   tone anz0, kfc               ; low broadband body\nasig    = athl0 * sqrt(400 / kfc) * (0.80 + 0.61 * (krla0 + krlb0 + krlc0))",
+    "distance=thunder": "kdist   = 0.4                              ; distance [0..1]: how far away the storm is\nanz0    rand 1.0, 0.5, 1         ; broadband noise source (31-bit: no 1.365 s loop)\nkrla0   poscil 0.5, 0.037            ; the roll\nkrlb0   poscil 0.28, 0.061\nkrlc0   poscil 0.16, 0.091\n; Air absorbs the highs, and the further the sound travels the less of them arrive: a\n; strike overhead cracks, one across the county is a rumble with no edge left on it. So\n; distance IS the corner frequency. A one-pole lowpass passes power in proportion to its\n; corner, so the amplitude carries 1/sqrt of it -- otherwise moving the corner is a volume\n; control, and a distant storm is just a quiet near one.\nkfc     = 400 * 8.0 ^ (0.40 - kdist)         ; 919 Hz overhead .. 115 Hz miles off\nathl0   tone anz0, kfc               ; low broadband body\nasig    = athl0 * sqrt(400 / kfc) * (0.80 + 0.61 * (krla0 + krlb0 + krlc0))",
+    "distance=miles off": "kdist   = 1                              ; distance [0..1]: how far away the storm is\nanz0    rand 1.0, 0.5, 1         ; broadband noise source (31-bit: no 1.365 s loop)\nkrla0   poscil 0.5, 0.037            ; the roll\nkrlb0   poscil 0.28, 0.061\nkrlc0   poscil 0.16, 0.091\n; Air absorbs the highs, and the further the sound travels the less of them arrive: a\n; strike overhead cracks, one across the county is a rumble with no edge left on it. So\n; distance IS the corner frequency. A one-pole lowpass passes power in proportion to its\n; corner, so the amplitude carries 1/sqrt of it -- otherwise moving the corner is a volume\n; control, and a distant storm is just a quiet near one.\nkfc     = 400 * 8.0 ^ (0.40 - kdist)         ; 919 Hz overhead .. 115 Hz miles off\nathl0   tone anz0, kfc               ; low broadband body\nasig    = athl0 * sqrt(400 / kfc) * (0.80 + 0.61 * (krla0 + krlb0 + krlc0))"
+   }
   },
   {
    "key": "hiss",
@@ -1201,8 +1337,37 @@
   },
   {
    "key": "crackle",
-   "why": "crackle / fire / a campfire -- the same particle architecture as `rain` at a hundredth of the rate: `dust2` fires about 22 pops a second and each rings wood (`reson` 1600 Hz, wide), over a fine sizzle that breathes at 0.13 Hz. Sparse enough that individual events are heard, which is the difference between fire and rain. No pitch, and the keyboard does not change it.",
-   "code": "anz0    rand 1.0, 0.5, 1         ; broadband noise source (31-bit: no 1.365 s loop)\nacrk0   dust2 0.8, 22                ; ~22 pops a second\napop0   reson acrk0, 1600, 1200, 2 ; each pop rings the wood\nkbed0   poscil 0.5, 0.13             ; the fire breathes\nabsd0   atone anz0, 3000             ; fine sizzle between pops\nasig    = apop0 * 1.90 + absd0 * (0.34 + 0.20 * kbed0)"
+   "why": "crackle / fire / a campfire -- the same particle architecture as `rain` at a hundredth of the rate: `dust2` fires about 22 pops a second and each rings wood (`reson` 1600 Hz, wide), over a fine sizzle that breathes at 0.13 Hz. Sparse enough that individual events are heard, which is the difference between fire and rain. No pitch, and the keyboard does not change it. `blaze` is how big the fire is, and it is the POP RATE: a bigger fire pops more often, it does not pop louder.",
+   "code": "kblaze  = 0.40                              ; blaze [0..1]: how big the fire is\nanz0    rand 1.0, 0.5, 1         ; broadband noise source (31-bit: no 1.365 s loop)\n; A bigger fire pops MORE OFTEN, it does not pop louder. As in `rain`, the amplitude carries\n; 1/sqrt of the rate, because a Poisson impulse train's RMS goes as its square root --\n; without that the axis is a fader with a crackle attached.\nkpop    = 22 * 30.0 ^ (kblaze - 0.40)        ; 5.7 (embers) .. 170 (a bonfire) pops/s\nacrk0   dust2 0.8 * sqrt(22 / kpop), kpop\napop0   reson acrk0, 1600, 1200, 2 ; each pop rings the wood\nkbed0   poscil 0.5, 0.13             ; the fire breathes\nabsd0   atone anz0, 3000             ; fine sizzle between pops\nasig    = apop0 * 1.90 + absd0 * (0.34 + 0.20 * kbed0)",
+   "params": {
+    "blaze": {
+     "range": [
+      0.0,
+      1.0
+     ],
+     "default": 0.4,
+     "note": "how big the fire is -- which is the POP RATE, from under six a second in embers to 170 in a bonfire. A bigger fire pops more OFTEN, it does not pop louder, so the amplitude carries 1/sqrt of the rate: a Poisson impulse train's RMS goes as the square root of its rate, and without that the axis is a fader with a crackle attached. Its mark is the crest factor, 8.94 -> 3.47 monotone, and the motion 3441 -> 1483 Hz -- individual pops merging into a continuum -- at 0.02 dB of loudness. The centroid moves 54 Hz and nothing else the spectral meter has can see this axis at all, which is why the crest is quoted: more of the same event is not a different spectrum.",
+     "anchors": {
+      "embers": {
+       "value": 0.0,
+       "gloss": "a few isolated ticks over the sizzle"
+      },
+      "a hearth": {
+       "value": 0.4,
+       "gloss": "the ordinary fire"
+      },
+      "a bonfire": {
+       "value": 1.0,
+       "gloss": "so many pops they run into one another"
+      }
+     }
+    }
+   },
+   "anchor_code": {
+    "blaze=embers": "kblaze  = 0                              ; blaze [0..1]: how big the fire is\nanz0    rand 1.0, 0.5, 1         ; broadband noise source (31-bit: no 1.365 s loop)\n; A bigger fire pops MORE OFTEN, it does not pop louder. As in `rain`, the amplitude carries\n; 1/sqrt of the rate, because a Poisson impulse train's RMS goes as its square root --\n; without that the axis is a fader with a crackle attached.\nkpop    = 22 * 30.0 ^ (kblaze - 0.40)        ; 5.7 (embers) .. 170 (a bonfire) pops/s\nacrk0   dust2 0.8 * sqrt(22 / kpop), kpop\napop0   reson acrk0, 1600, 1200, 2 ; each pop rings the wood\nkbed0   poscil 0.5, 0.13             ; the fire breathes\nabsd0   atone anz0, 3000             ; fine sizzle between pops\nasig    = apop0 * 1.90 + absd0 * (0.34 + 0.20 * kbed0)",
+    "blaze=a hearth": "kblaze  = 0.4                              ; blaze [0..1]: how big the fire is\nanz0    rand 1.0, 0.5, 1         ; broadband noise source (31-bit: no 1.365 s loop)\n; A bigger fire pops MORE OFTEN, it does not pop louder. As in `rain`, the amplitude carries\n; 1/sqrt of the rate, because a Poisson impulse train's RMS goes as its square root --\n; without that the axis is a fader with a crackle attached.\nkpop    = 22 * 30.0 ^ (kblaze - 0.40)        ; 5.7 (embers) .. 170 (a bonfire) pops/s\nacrk0   dust2 0.8 * sqrt(22 / kpop), kpop\napop0   reson acrk0, 1600, 1200, 2 ; each pop rings the wood\nkbed0   poscil 0.5, 0.13             ; the fire breathes\nabsd0   atone anz0, 3000             ; fine sizzle between pops\nasig    = apop0 * 1.90 + absd0 * (0.34 + 0.20 * kbed0)",
+    "blaze=a bonfire": "kblaze  = 1                              ; blaze [0..1]: how big the fire is\nanz0    rand 1.0, 0.5, 1         ; broadband noise source (31-bit: no 1.365 s loop)\n; A bigger fire pops MORE OFTEN, it does not pop louder. As in `rain`, the amplitude carries\n; 1/sqrt of the rate, because a Poisson impulse train's RMS goes as its square root --\n; without that the axis is a fader with a crackle attached.\nkpop    = 22 * 30.0 ^ (kblaze - 0.40)        ; 5.7 (embers) .. 170 (a bonfire) pops/s\nacrk0   dust2 0.8 * sqrt(22 / kpop), kpop\napop0   reson acrk0, 1600, 1200, 2 ; each pop rings the wood\nkbed0   poscil 0.5, 0.13             ; the fire breathes\nabsd0   atone anz0, 3000             ; fine sizzle between pops\nasig    = apop0 * 1.90 + absd0 * (0.34 + 0.20 * kbed0)"
+   }
   },
   {
    "key": "voice",
