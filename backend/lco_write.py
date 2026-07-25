@@ -210,11 +210,20 @@ def named_entries(text, lib=None):
     t_idx, a_idx, m_idx = _indexes()
     have = {s: {e["key"] for e in lib[s]}
             for s in ("instruments", "adjectives", "motions")}
-    return {
-        "instruments": [k for k in _lookup(text, t_idx) if k in have["instruments"]],
-        "adjectives": [k for k in _lookup(text, a_idx) if k in have["adjectives"]],
-        "motions": [k for k in _lookup(text, m_idx) if k in have["motions"]],
-    }
+    hits = {"instruments": _lookup(text, t_idx),
+            "adjectives": _lookup(text, a_idx),
+            "motions": _lookup(text, m_idx)}
+    out = {s: [k for k in hits[s] if k in have[s]] for s in hits}
+    # The forms are indexed from the LEXICON and matched against the LIBRARY, and an
+    # entry can be in the first and deliberately withheld from the second (see
+    # `lco_build_library.assemble`). Ten forms are in that state — `noise`,
+    # `white noise`, `rauschen`, `pink noise`, `rosa rauschen` and five more — and the
+    # drop used to be silent, so a reply naming "white noise" precisely was
+    # indistinguishable in the trace from a reply that named no instrument at all.
+    # Reported, not repaired: the entry really is unavailable, and the honest record is
+    # that the author asked for something the library does not offer.
+    out["withheld"] = sorted({k for s in hits for k in hits[s] if k not in have[s]})
+    return out
 
 
 def open_entries(named, lib=None):
@@ -257,6 +266,10 @@ def open_entries(named, lib=None):
         "named": {s: sorted(asked[s]) for s in sections},
         "opened": {s: sorted(wanted[s]) for s in sections},
         "library_size": sum(len(lib[s]) for s in sections),
+        # The THIRD case `named`/`opened` alone cannot express: the author named an
+        # entry that exists in the lexicon and is withheld from the library. Without
+        # this, that reply looks exactly like one that named nothing.
+        "named_withheld": sorted(named.get("withheld") or ()),
     }
     return sel
 
@@ -284,7 +297,7 @@ def render_index(lib=None):
 
     This is what the author reads before it has decided anything: enough to size
     up the tools ("does this library have something that rubs? something that
-    beats? something hollow?") without the weight of ninety-eight code blocks.
+    beats? something hollow?") without the weight of every code block in the library.
     It costs about what the old word-matched excerpt cost (~6k tokens) and shows
     everything instead of eight entries a word comparison happened to hit.
 

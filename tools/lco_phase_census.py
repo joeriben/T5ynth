@@ -10,7 +10,7 @@ than written down:
 
 **1. One grid is not a measurement.** Three grids of the same construction -- same
 settle, same span, same irregular fractions -- give medians 73 / 137 / 107 Hz over
-the same 56 bodies, and reorder the tail: `sync` reads 498 on one and 1182 on
+the same bodies, and reorder the tail: `sync` reads 498 on one and 1182 on
 another, `glass` 67 / 289 / 298. A four-sample max-min is a draw, not a statistic.
 So every body is measured on several grids and what is reported is the SPREAD ACROSS
 GRIDS next to the value. A body whose three grids disagree by 4x has no single

@@ -2,7 +2,8 @@
 """Does every ANCHOR the author is handed still move, at every register?
 
 The movement gate asks its question of the DEFAULT body at 220 Hz. But what the
-author is actually handed is `anchor_code` -- 355 whole bodies, one per named anchor
+author is actually handed is `anchor_code` -- one whole body per named anchor (409 of
+them at lexicon_version 40; `_ANCHOR_COUNT` below fails the run if that has moved)
 -- and a named anchor is a recommendation. An anchor that stands still at 55 Hz is a
 recommendation to break a platform fundamental ("movement by default",
 `docs/LCO_CONCEPT.md` §4), and until this file existed nothing looked.
@@ -54,13 +55,19 @@ import lco_measure as M  # noqa: E402
 REGISTERS = (55.0, 110.0, 220.0, 440.0, 880.0, 1760.0)
 # The plugin's voice instances have been running since load, so a fresh instance is
 # not the case that matters. Long enough to settle a `balance` averager, short enough
-# that 2130 renders still finish.
+# that a full run's renders still finish -- 409 anchors x 6 registers as of v40.
 PREROLL = 0.5
 # `moves()`'s own two thresholds, restated here so the classifier splits on exactly
 # what the verdict used. Splitting on a raw hertz span instead mislabelled 28 of 250
 # readings, every one of them at 55 or 110 Hz.
 SPAN_CENTS = 60.0
 MIN_COHERENCE = 0.35
+# How many anchors the whole lexicon carried when the figures in this file's docstring
+# were measured, and at which lexicon version. Checked at every full run, because this
+# file's own numbers went stale inside a day: it said 355 anchors and 2130 renders while
+# the lexicon had moved to 385 and then 409. A docstring nobody can trust is the same
+# loss as a tool nobody runs.
+_ANCHOR_COUNT = (409, 40)
 
 
 def census(keys=None, registers=REGISTERS):
@@ -83,11 +90,11 @@ def census(keys=None, registers=REGISTERS):
                     body, src = codes[ck], "anchor_code"
                     # A default-valued anchor's `anchor_code` IS the default body, so
                     # its row is a re-measurement of the default and not of a variant.
-                    # 24 of the 355 shipped anchors are in that position.
+                    # A minority of shipped anchors are in that position.
                     if body == e["code"]:
                         src = "anchor_code (= the default body)"
                 else:
-                    # Currently never taken: all 355 shipped anchors have an
+                    # Currently never taken: every shipped anchor has an
                     # `anchor_code`. Kept for an entry that has not been generated yet,
                     # and `with_axis` EXITS rather than returning the body unchanged
                     # when there is no line to set, which is why that is caught here.
@@ -185,6 +192,16 @@ def main():
             raise SystemExit(f"--registers {a.registers!r}: needs at least one positive "
                              f"frequency; an empty list used to revert to the default "
                              f"six and print as a normal run")
+    if not a.key:
+        lex = json.loads((REPO / "backend" / "dco_lexicon.json").read_text())
+        n_anch = sum(len(sp.get("anchors") or {})
+                     for t in lex["techniques"]
+                     for sp in (t.get("params") or {}).values())
+        if (n_anch, lex.get("lexicon_version")) != _ANCHOR_COUNT:
+            print(f"  STALE  _ANCHOR_COUNT says {_ANCHOR_COUNT[0]} anchors at "
+                  f"lexicon_version {_ANCHOR_COUNT[1]}; the lexicon now has {n_anch} at "
+                  f"version {lex.get('lexicon_version')}. Update it and every figure in "
+                  f"this file's docstring that quotes it.")
     out = census(a.key, regs)
     rows = out["rows"]
     keys = sorted({r["key"] for r in rows})
