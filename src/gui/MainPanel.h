@@ -357,8 +357,10 @@ private:
     // Model settings overlay
     SettingsPage settingsPage;
     GeneralSettingsPage generalSettingsPage;
-    // Tabbed settings overlay: "Models" (model manager, default) + "Settings".
-    // Declared AFTER its tab contents → destroyed FIRST (it references them).
+    LroAuthorSettingsPage lroAuthorSettingsPage;
+    // Tabbed settings overlay: "Models" (model manager, default) + "Settings" +
+    // "LRO Author". Declared AFTER its tab contents → destroyed FIRST (it
+    // references them).
     juce::TabbedComponent settingsTabs { juce::TabbedButtonBar::TabsAtTop };
     Scrim settingsScrim;
     bool settingsVisible = false;

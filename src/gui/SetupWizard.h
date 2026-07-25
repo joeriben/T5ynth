@@ -2,6 +2,7 @@
 #include <JuceHeader.h>
 #include <atomic>
 #include <vector>
+#include "../inference/PipeInference.h"   // PipeInference::AuthorProviderConfig
 
 // One required file of a model, with its CURRENT published byte size from
 // HuggingFace's tree API. A model's "manifest" is the vector of these — the
@@ -62,6 +63,14 @@ public:
      *  loadable. MainPanel feeds it to the LCO model tab, which names the model
      *  instead of showing a role placeholder. */
     juce::String resolvedCoderDirName() const;
+
+    /** The language model's install row. It is re-parented onto the Language
+     *  Model tab (LroAuthorSettingsPage::adoptCoderRow) so the model is offered
+     *  where it is explained, instead of sitting among the unrelated sound
+     *  models: this page keeps OWNING it and all of its download machinery
+     *  (startDownload / cancelDownload / refreshCoderRow / activeRow), only the
+     *  visual home moves. Never null after construction. */
+    juce::Component* coderRowComponent() const { return coderRow_.get(); }
 
     static juce::File getAppSupportModelDir();
     static juce::File getAppSupportModelDir(const juce::String& modelId);
@@ -348,4 +357,136 @@ private:
     juce::ToggleButton   eventLogToggle_ { "Record Event Log (.t5evt)" };
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(GeneralSettingsPage)
+};
+
+
+/**
+ * The "Language Model" tab: where the LRO's author model is chosen, explained
+ * and installed. BJ 2026-07-25 — the audience is AI/API laypeople, so the tab
+ * owns the WHOLE subject: the local model's install row lives here (adopted
+ * from SettingsPage, which keeps the download machinery), not among the sound
+ * models on the first tab, and the page reads as orientation first, controls
+ * second.
+ *
+ * Visual grammar is the sibling settings pages', not its own: painted family
+ * headers with a rule (SettingsPage::paint), 26 px control rows with a 150 px
+ * label column (GeneralSettingsPage::layoutRows), and one flexible detail
+ * strip at the foot that takes the leftover height and scrolls
+ * (SettingsPage::instructionsLabel) — the settings overlay is only 300 px tall
+ * at its floor, so the long text must be the element that gives, never a
+ * fixed-height block that clips.
+ *
+ * External API: an alternative for a machine that cannot spare the local
+ * model's ~7 GB. Any OpenAI-compatible endpoint (OpenRouter, OpenAI, Mistral,
+ * a self-hosted `llama.cpp server`, ...) or Anthropic natively — see
+ * docs/IPC_PROTOCOL.md's coder_provider. The key is sent over the existing
+ * stdin/stdout IPC pipe on every translate/interpret/csound request; this page
+ * itself writes nothing to disk.
+ */
+class LroAuthorSettingsPage : public juce::Component
+{
+public:
+    LroAuthorSettingsPage();
+
+    void paint(juce::Graphics& g) override;
+    void resized() override;
+
+    /** Host the language model's install row (SettingsPage::coderRowComponent,
+     *  which keeps ownership) inside this page's Local section. Raw pointer by
+     *  design: MainPanel declares this page AFTER SettingsPage, so it destructs
+     *  FIRST and the row is un-parented before its owner deletes it. */
+    void adoptCoderRow(juce::Component* row);
+
+    /** Seed every control from a stored config without firing onConfigChanged
+     *  (construction-time load, mirrors GeneralSettingsPage's setOsQuality()
+     *  etc.). provider empty selects the Local section. */
+    void setConfig(const PipeInference::AuthorProviderConfig& config);
+
+    /** The config to send, exactly as PipeInference::AuthorProviderConfig
+     *  expects. Local selected, or External selected but not every field the
+     *  chosen provider needs is filled in yet, both return provider="" — a
+     *  half-filled External choice is never sent partially populated (it
+     *  would just fail server-side with a confusing error instead of falling
+     *  back cleanly to "local, not installed"). */
+    PipeInference::AuthorProviderConfig getConfig() const;
+
+    /** True iff getConfig() would return a fully-populated external config.
+     *  MainPanel ORs this with SettingsPage::isCoderModelInstalled() to drive
+     *  PromptPanel's "language model available" gate — External is a second
+     *  way to satisfy that gate, not a replacement for the Local check. */
+    bool isExternallyConfigured() const;
+
+    /** Fired on any control edit (engine choice, provider, base URL, model,
+     *  key). MainPanel uses this to push getConfig() into
+     *  PluginProcessor::setLroAuthorProviderConfig() and to refresh
+     *  PromptPanel's availability gate live, with no restart. */
+    std::function<void()> onConfigChanged;
+
+    /** Where the running API bill comes from. Asked whenever this page becomes
+     *  visible or its controls change — NOT polled: the total only moves when a
+     *  sound is authored, and a timer running behind a closed overlay is exactly
+     *  the idle-CPU pattern docs/PERFORMANCE_GUIDE.md catalogues. Unset (plugin
+     *  contexts that never build the page against a processor) simply leaves the
+     *  line blank. */
+    std::function<PipeInference::ApiSpend()> apiSpendSource;
+
+    /** Re-read apiSpendSource and relay out. Called by this page when it becomes
+     *  visible, and by MainPanel when the settings overlay opens — re-showing an
+     *  overlay on the tab that was already current does not flip this page's own
+     *  visibility flag, so the page alone cannot notice it. */
+    void refreshApiSpend();
+
+private:
+    void layout();
+    void updateSectionVisibility();
+    void notifyChanged();
+    void visibilityChanged() override;
+
+    // The foot-strip copy for each choice: what it means, what it needs, what
+    // leaves the machine, where a key comes from, what it costs.
+    static juce::String localDetailText();
+    static juce::String externalDetailText();
+
+    // Refill the model list from the selected provider, keeping a typed id.
+    void repopulateModels();
+    void setModelText(const juce::String& model);
+
+    // Owned by SettingsPage; only parented here. See adoptCoderRow().
+    juce::Component* coderRow_ = nullptr;
+
+    juce::Label    engineLabel_ { {}, "Author engine" };
+    juce::ComboBox engineCombo_;
+
+    // ── External section ──
+    juce::Label      providerLabel_ { {}, "Provider" };
+    juce::ComboBox   providerCombo_;
+    juce::Label      baseLabel_ { {}, "API base URL" };
+    juce::TextEditor baseEditor_;
+    juce::Label      modelLabel_ { {}, "Model" };
+    // Editable on purpose: the list offers the models curated per provider, but
+    // any id the provider publishes can still be typed in.
+    juce::ComboBox   modelCombo_;
+    juce::Label      keyLabel_ { {}, "API key" };
+    juce::TextEditor keyEditor_;
+    // Says whether the External choice is actually usable yet — the Local
+    // section has the install row's own "Installed" light for that, and a
+    // half-filled External choice would otherwise look configured while the
+    // instrument still treats the author as absent.
+    juce::Label      externalStatus_;
+    // What the external author has actually cost this session. Tokens for every
+    // provider; a money figure only where the provider states one itself.
+    juce::Label      spendLabel_;
+
+    // The foot-of-page detail strip: whatever the current choice needs to say
+    // (system requirement / what leaves the machine / where a key comes from /
+    // what it costs). Read-only, scrolls, takes the leftover height — the same
+    // widget and role as SettingsPage::instructionsLabel.
+    juce::TextEditor detail_;
+
+    // Painted family headers, exactly SettingsPage's: text + the rect its rule
+    // is drawn under. Rebuilt in layout(), consumed by paint().
+    struct SectionHeader { juce::String text; juce::Rectangle<int> bounds; };
+    std::vector<SectionHeader> headers_;
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(LroAuthorSettingsPage)
 };

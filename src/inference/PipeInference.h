@@ -187,6 +187,59 @@ public:
         int attempts = 0;           // how many authoring passes it took (1 = first try)
     };
 
+    /** External-API author config: an alternative to the local GGUF for a
+     *  machine that cannot run a 12B model, for translate()/interpret()/
+     *  authorCsoundOrchestra() alike (they share the one author role, see
+     *  docs/IPC_PROTOCOL.md's coder_provider entry). `provider` empty (the
+     *  default) means "local" and leaves every request's wire bytes exactly
+     *  what they always were — the four fields below are then never sent. */
+    struct AuthorProviderConfig
+    {
+        juce::String provider;   // "", "openai_compatible", or "anthropic"
+        juce::String apiBase;    // openai_compatible only
+        juce::String apiKey;
+        juce::String apiModel;
+    };
+
+    /** Set the external-author config (called from the message thread when
+     *  Settings changes); read by translate()/interpret()/authorCsoundOrchestra()
+     *  on their background thread via addAuthorProviderFields(). Guarded by its
+     *  OWN mutex (authorConfigMutex_), deliberately NOT stateMutex_: authorCsound
+     *  Orchestra() holds stateMutex_ for the WHOLE authoring round-trip (the
+     *  comments elsewhere call this "minutes"), so a Settings-tab edit made
+     *  while a bake is in flight must not block the message thread until that
+     *  bake finishes. */
+    void setAuthorProviderConfig(const AuthorProviderConfig& config);
+
+    /** What the EXTERNAL author has cost since the backend process started.
+     *  Zero-valued while the local model authors — nothing is billed then, and
+     *  nothing is counted.
+     *
+     *  Money is carried only where the provider itself states an amount, never
+     *  derived from a built-in price table — such a table is wrong the day a
+     *  provider changes its rates, and a wrong number about the user's money is
+     *  worse than none.
+     *
+     *  Hence three counts rather than one flag. `calls` is every call made;
+     *  `tokenCalls` and `costCalls` are how many of those came back with a token
+     *  count and with a price. When either is below `calls` the corresponding
+     *  figure is a FLOOR, not a total, and the panel has to say so: providers
+     *  differ (OpenRouter prices, Anthropic does not; a self-hosted llama.cpp
+     *  server may report neither), and one priced call among a hundred printed
+     *  as "charged" is off by two orders of magnitude. */
+    struct ApiSpend
+    {
+        int    calls      = 0;
+        int    tokenCalls = 0;  // of `calls`, how many reported token counts
+        int    costCalls  = 0;  // of `calls`, how many reported a price
+        long long inputTokens  = 0;
+        long long outputTokens = 0;
+        double cost = 0.0;      // in the provider's own unit (OpenRouter: credits ≈ USD)
+    };
+
+    /** The running total, as of the last authoring. Callable from any thread. */
+    ApiSpend authorApiSpend() const;
+
     /** Blocking generation — call from background thread.
      *  Auto-restarts Python if subprocess died. */
     Result generate(const Request& request);
@@ -314,6 +367,21 @@ private:
     std::map<juce::String, ModelMetadata> modelMetadata_;
     juce::File backendDir_;   // remembered for auto-restart
     juce::String lastError_;  // human-readable error from last failed launch
+    mutable std::mutex authorConfigMutex_;       // guards ONLY authorProviderConfig_ below —
+                                                  // see setAuthorProviderConfig()'s doc comment
+                                                  // for why this is not stateMutex_.
+    AuthorProviderConfig authorProviderConfig_;  // guarded by authorConfigMutex_
+    mutable std::mutex apiSpendMutex_;           // guards ONLY apiSpend_ — written on the
+                                                  // authoring thread, read by the Settings tab
+    ApiSpend apiSpend_;                          // guarded by apiSpendMutex_
+
+    /** Adds coder_provider/coder_api_key/coder_api_model/coder_api_base to a
+     *  request's JSON when authorProviderConfig_.provider is set — shared by
+     *  translate()/interpret()/authorCsoundOrchestra() so the field list
+     *  cannot drift between the three call sites. No-op (and no wire change)
+     *  when provider is empty. Takes its own brief lock on authorConfigMutex_;
+     *  independent of whatever the caller already holds. */
+    void addAuthorProviderFields(juce::DynamicObject::Ptr json) const;
 
     juce::File findBundledBinary(const juce::File& backendDir) const;
     bool isCompatibleBundledBinary(const juce::File& binary) const;

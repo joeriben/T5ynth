@@ -1062,6 +1062,36 @@ PipeInference::Result PipeInference::generate(const Request& request)
     return result;
 }
 
+void PipeInference::setAuthorProviderConfig(const AuthorProviderConfig& config)
+{
+    const std::lock_guard<std::mutex> lock(authorConfigMutex_);
+    authorProviderConfig_ = config;
+}
+
+PipeInference::ApiSpend PipeInference::authorApiSpend() const
+{
+    const std::lock_guard<std::mutex> lock(apiSpendMutex_);
+    return apiSpend_;
+}
+
+void PipeInference::addAuthorProviderFields(juce::DynamicObject::Ptr json) const
+{
+    AuthorProviderConfig config;
+    {
+        const std::lock_guard<std::mutex> lock(authorConfigMutex_);
+        config = authorProviderConfig_;
+    }
+    // Provider empty (the default, local model) sends nothing — the entire
+    // point is that a local-only user's wire bytes never change.
+    if (config.provider.isEmpty())
+        return;
+    json->setProperty("coder_provider", config.provider);
+    json->setProperty("coder_api_key", config.apiKey.trim());
+    json->setProperty("coder_api_model", config.apiModel.trim());
+    if (config.apiBase.isNotEmpty())
+        json->setProperty("coder_api_base", config.apiBase.trim());
+}
+
 PipeInference::TranslateResult PipeInference::translate(const juce::String& text,
                                                         const juce::String& device)
 {
@@ -1098,8 +1128,10 @@ PipeInference::TranslateResult PipeInference::translate(const juce::String& text
     json->setProperty("prompt_a", text);
     if (device.isNotEmpty())
         json->setProperty("device", device);
-    // No model key: the backend resolves the ONE language model itself
-    // (_resolve_coder_model_dir). There is nothing here to choose between.
+    // No model key: the backend resolves the ONE language author itself —
+    // local (_resolve_coder_model_dir) unless authorProviderConfig_ names an
+    // external API (addAuthorProviderFields), same as authorCsoundOrchestra().
+    addAuthorProviderFields(json);
 
     auto jsonStr = juce::JSON::toString(juce::var(json.get()), true);
     jsonStr = jsonStr.removeCharacters("\n\r") + "\n";
@@ -1211,7 +1243,8 @@ PipeInference::InterpretResult PipeInference::interpret(const juce::String& syst
     if (device.isNotEmpty())
         json->setProperty("device", device);
     // No model key: as in translate() above, the backend resolves the one
-    // language model itself.
+    // language author itself unless authorProviderConfig_ names an external API.
+    addAuthorProviderFields(json);
 
     auto jsonStr = juce::JSON::toString(juce::var(json.get()), true);
     jsonStr = jsonStr.removeCharacters("\n\r") + "\n";
@@ -1332,6 +1365,7 @@ PipeInference::CsoundAuthorResult PipeInference::authorCsoundOrchestra(const juc
     // pipe for the rest of the session.
     if (onThinking || onBody || onAttempt)
         json->setProperty("stream", true);
+    addAuthorProviderFields(json);
 
     auto jsonStr = juce::JSON::toString(juce::var(json.get()), true);
     jsonStr = jsonStr.removeCharacters("\n\r") + "\n";
@@ -1432,6 +1466,25 @@ PipeInference::CsoundAuthorResult PipeInference::authorCsoundOrchestra(const juc
 
         const auto parsed = juce::JSON::parse(responseJson);
         const bool ok = static_cast<bool>(parsed.getProperty("ok", juce::var(false)));
+
+        // Read BEFORE the ok/else split, because a failed authoring is a paid
+        // authoring: the repair loop bills every round it took before giving
+        // up, and those are the expensive generations. Absent on the wire while
+        // the local model authors, and absent from an older backend entirely —
+        // in both cases the last known total simply stands.
+        if (const auto spend = parsed.getProperty("api_spend", juce::var()); spend.isObject())
+        {
+            ApiSpend s;
+            s.calls        = static_cast<int>(spend.getProperty("calls", juce::var(0)));
+            s.tokenCalls   = static_cast<int>(spend.getProperty("token_calls", juce::var(0)));
+            s.costCalls    = static_cast<int>(spend.getProperty("cost_calls", juce::var(0)));
+            s.inputTokens  = static_cast<juce::int64>(spend.getProperty("input", juce::var(0)));
+            s.outputTokens = static_cast<juce::int64>(spend.getProperty("output", juce::var(0)));
+            s.cost         = static_cast<double>(spend.getProperty("cost", juce::var(0.0)));
+            const std::lock_guard<std::mutex> lock(apiSpendMutex_);
+            apiSpend_ = s;
+        }
+
         if (ok)
         {
             result.orchestra  = parsed.getProperty("orchestra", juce::var()).toString();

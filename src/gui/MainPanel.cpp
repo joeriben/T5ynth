@@ -597,11 +597,18 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
     settingsScrim.setVisible(false);
     addChildComponent(settingsScrim);
 
-    // Settings overlay is tabbed: "Models" (model manager, default-open) +
-    // "Settings" (global options). deleteWhenNotNeeded=false — MainPanel owns the
-    // pages; the TabbedComponent only displays them (and reparents them).
-    settingsTabs.addTab("Models",   kBg, &settingsPage,        false);
-    settingsTabs.addTab("Settings", kBg, &generalSettingsPage, false);
+    // Settings overlay is tabbed, in the order a user meets the instrument:
+    // "Sound Models" (the generation engines, default-open), then "Language
+    // Model" (the LRO's author — local install or an external API, one subject
+    // on one page), then "Settings" (global options). The language model used
+    // to be offered among the sound models on the first tab while a third tab
+    // explained it; nobody could follow that, so the install row itself now
+    // lives on the Language Model tab (adoptCoderRow below).
+    // deleteWhenNotNeeded=false — MainPanel owns the pages; the TabbedComponent
+    // only displays them (and reparents them).
+    settingsTabs.addTab("Sound Models",   kBg, &settingsPage,          false);
+    settingsTabs.addTab("Language Model", kBg, &lroAuthorSettingsPage, false);
+    settingsTabs.addTab("Settings",       kBg, &generalSettingsPage,   false);
     settingsTabs.setCurrentTabIndex(0);
     settingsTabs.setOutline(0);
     addChildComponent(settingsTabs);
@@ -630,20 +637,51 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
     };
 
     // Gate every LLM-dependent control (the LCO bake and its model tab, the
-    // Re-Prompt stance bar + coupling, the Translate flag) on the language model's
-    // install state: disabled and explained via tooltip when absent, re-enabled the
-    // instant it is installed (no restart). ONE model does all three jobs, so it is
-    // one callback and one gate. The callback fires on transitions; this initial
-    // push sets the startup state. The tab also NAMES the model the backend's
-    // resolver will author with (same walk as the gate, so name and gate can't
-    // disagree); each bake's author_model claim then overrides it on the wire.
-    settingsPage.onCoderModelChanged = [this](bool installed)
+    // Re-Prompt stance bar + coupling, the Translate flag) on the language
+    // author's availability: disabled and explained via tooltip when absent,
+    // re-enabled the instant it is available (no restart). ONE author does all
+    // three jobs (translate/interpret/csound), so it is one gate — now
+    // satisfied by EITHER the local model being installed OR the LRO Author
+    // tab's external API being fully configured (an alternative engine, not a
+    // fallback: never silently prefers one over the other, see
+    // LroAuthorSettingsPage's own doc comment). The tab also NAMES whichever
+    // one WOULD author right now; each bake's own author_model claim still
+    // overrides this static label on the wire once a generation actually runs.
+    auto refreshLlmAvailability = [this]
     {
-        promptPanel.setLcoResolvedModel(settingsPage.resolvedCoderDirName());
-        promptPanel.setLlmAvailable(installed);
+        const bool localReady = settingsPage.isCoderModelInstalled();
+        const bool externalReady = lroAuthorSettingsPage.isExternallyConfigured();
+        promptPanel.setLcoResolvedModel(
+            externalReady ? (lroAuthorSettingsPage.getConfig().apiModel + " (external)")
+                          : settingsPage.resolvedCoderDirName());
+        promptPanel.setLlmAvailable(localReady || externalReady);
     };
-    promptPanel.setLcoResolvedModel(settingsPage.resolvedCoderDirName());
-    promptPanel.setLlmAvailable(settingsPage.isCoderModelInstalled());
+
+    settingsPage.onCoderModelChanged = [this, refreshLlmAvailability](bool)
+    {
+        refreshLlmAvailability();
+    };
+    lroAuthorSettingsPage.onConfigChanged = [this, refreshLlmAvailability]
+    {
+        processorRef.setLroAuthorProviderConfig(lroAuthorSettingsPage.getConfig());
+        refreshLlmAvailability();
+    };
+
+    // The language model's install row moves onto the Language Model tab, where
+    // it is explained. SettingsPage keeps owning it and every download it runs;
+    // only the visual parent changes. Safe by declaration order: this page is
+    // declared after settingsPage, so it destructs first and un-parents the row
+    // before its owner deletes it.
+    lroAuthorSettingsPage.adoptCoderRow(settingsPage.coderRowComponent());
+    // The running API bill, pulled when the tab is opened. Reading it takes the
+    // spend mutex only, never stateMutex_, so it cannot block behind an
+    // authoring that is in flight — which is exactly when a user goes looking.
+    lroAuthorSettingsPage.apiSpendSource = [this]
+    {
+        return processorRef.getPipeInference().authorApiSpend();
+    };
+    lroAuthorSettingsPage.setConfig(processorRef.getLroAuthorProviderConfig());
+    refreshLlmAvailability();
 
     presetScrim.onClick = [this] { hidePresetManager(); };
     presetScrim.setVisible(false);
@@ -2613,19 +2651,26 @@ void MainPanel::showSettings()
 {
     settingsVisible = true;
     // When the Settings badge is what drew the user here (a pending update),
-    // open straight to the "Settings" tab (index 1) where the Download row is,
-    // so the update is visible immediately — Chrome/VS Code "open → it's right
-    // there" behaviour. One-shot: cleared after the jump so later opens keep the
-    // default tab and the model-setup open (tab 0) is never hijacked.
+    // open straight to the "Settings" tab (index 2, after Sound Models and
+    // Language Model) where the Download row is, so the update is visible
+    // immediately — Chrome/VS Code "open → it's right there" behaviour.
+    // One-shot: cleared after the jump so later opens keep the default tab and
+    // the model-setup open (tab 0) is never hijacked.
     if (pendingUpdateTabJump_)
     {
-        settingsTabs.setCurrentTabIndex(1);
+        settingsTabs.setCurrentTabIndex(2);
         pendingUpdateTabJump_ = false;
     }
     settingsScrim.setVisible(true);
     settingsScrim.toFront(false);
     settingsTabs.setVisible(true);
     settingsTabs.toFront(false);
+    // The API bill is fetched on OPEN as well as on tab change: the page's own
+    // visibilityChanged() only fires when its own flag flips, and re-showing the
+    // overlay on a tab that was already the current one does not flip it — so
+    // without this the number would freeze at whatever it was when the tab was
+    // last switched to.
+    lroAuthorSettingsPage.refreshApiSpend();
     resized();
 }
 

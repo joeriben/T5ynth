@@ -220,7 +220,11 @@ All fields below are from `PipeInference::generate()` serialization
 | `device`           | string                    | —            | no       | `default_device` from handshake    | One of `"mps"`, `"cuda"`, `"cpu"`, or `"auto"`. Unknown/unreachable values fall through to `default_device`.                                    |
 | `model`            | string                    | —            | no       | `default_model` from handshake     | Model directory name. Unknown values fall through to `default_model`.                                                                          |
 | `mode`             | string                    | —            | no       | `"generate"`                       | One of `"generate"`, `"preload"`, `"interpolate"`, `"decode_cached"`, `"translate"`, `"interpret"`, `"analyze"`. The middle two are latent-cache operations; `"translate"`/`"interpret"` are optional LLM pre-steps and `"analyze"` is the CLAP machine-listening op; see §3.3.                     |
-| `coder_model_path` | string                    | —            | no       | (absent) → auto-discover           | Absolute path to the language-model directory used by `translate`, `interpret` and `csound`. If absent, the server resolves `$T5YNTH_CODER_MODEL` / `$LCO_MODEL_DIR`, then `<model root>/coder/<slot>`. There is ONE such model, and it is the only model these three modes use; the audio model (`model`) plays no part in them. |
+| `coder_model_path` | string                    | —            | no       | (absent) → auto-discover           | Absolute path to the language-model directory used by `translate`, `interpret` and `csound`. If absent, the server resolves `$T5YNTH_CODER_MODEL` / `$LCO_MODEL_DIR`, then `<model root>/coder/<slot>`. There is ONE such model, and it is the only model these three modes use; the audio model (`model`) plays no part in them. Ignored outright if `coder_provider`/`coder_api_key`/`coder_api_model` are all set (see below) — the external-API fields win outright when present, never both at once in practice since the client UI treats local/external as one mutually-exclusive choice (`pipe_inference.py`'s `_resolve_author_backend`). |
+| `coder_provider`   | string enum               | —            | no       | (absent) → local model             | `"openai_compatible"` or `"anthropic"`. Selects an external API author for `translate`, `interpret` and `csound`, in place of the local model, for a machine that cannot run the local GGUF. Only takes effect when `coder_api_model` is also set — plus `coder_api_base` for `openai_compatible`, and `coder_api_key` for `anthropic` (which has no keyless form). A partially-populated set falls through to local resolution. `openai_compatible` deliberately does NOT require a key: an endpoint on the user's own machine (Ollama, a local `llama.cpp server`) has no account, and requiring one would silently route the request to the LOCAL model while the client believes the external author is in use. |
+| `coder_api_key`    | string                    | —            | coder_provider="anthropic" | —                  | Bearer credential for the external author. `openai_compatible` sends it as `Authorization: Bearer <key>`, substituting the placeholder `local` when empty (what the local-server shims expect); `anthropic` sends it as the `x-api-key` header and requires it. Never logged by the server (see `author_api.py`'s own guardrail comment) — treat it like any other credential in transit. |
+| `coder_api_model`  | string                    | —            | coder_provider set | —                          | Model name/ID at the external provider (e.g. `gpt-5.4-pro`, `claude-opus-4-6`). No allow-list — the shipped local author (gemma-4-12B) is what the Csound-authoring prompts were tuned and tested against; a different external model may author less reliably, and a larger one costs more per generation. |
+| `coder_api_base`   | string                    | —            | coder_provider="openai_compatible" | —          | Base URL of the OpenAI-compatible endpoint (e.g. `https://api.openai.com/v1`, a self-hosted `llama.cpp server` URL, or any other provider exposing the same `/chat/completions` wire format). Ignored for `coder_provider="anthropic"`, which always targets `api.anthropic.com`. |
 | `text`             | string                    | —            | mode=translate | falls back to `prompt_a`     | Source text to translate. The server reads `prompt_a` first, then `text`. Ignored by all other modes. |
 | `dimension_offsets`| array of `[int, number]`  | unitless     | no       | (absent) → no-op                   | DimensionExplorer offsets. Each pair is `[dim_index, delta]`. Applied as `manipulated[:, :, idx] += delta` (`pipe_inference.py:815-819`). `dim_index` out of range is silently ignored. This is a **sparse** list, not a 768-element dense array. |
 | `semantic_axes`    | object `{string → number}`| unitless     | no       | (absent) → no-op                   | Per-axis deltas. Keys MUST match the server's `SEMANTIC_AXIS_POLES` dict (`pipe_inference.py:380-389`): `music_noise`, `acoustic_electronic`, `improvised_composed`, `refined_raw`, `solo_ensemble`, `sacred_secular`, `tonal_noisy`, `rhythmic_sustained`. Unknown keys are silently dropped. `abs(value) < 0.001` is skipped. |
@@ -234,6 +238,38 @@ All fields below are from `PipeInference::generate()` serialization
 | `late_phase_alpha` | number                    | -1.0–1.0     | no       | `0.0`                               | Late-phase blend weight. `late_blend = (0.5 − 0.5·α)·A + (0.5 + 0.5·α)·B`. `0` is 50/50, `+1` is pure B, `−1` is pure A. Only honoured by `"late_step"` and the Kombi modes. |
 | `split_start`      | number                    | 0.0–16.0     | no       | `4.0`                               | Lower edge of the per-block A↔B blend zone (DiT block index). `"layer_split"` uses this with a sigmoid top-hat (`smoothness = 2`); the Kombi modes ignore the request value and hardcode their own band but the field MUST be sent so the wire format stays uniform. |
 | `split_end`        | number                    | 0.0–16.0     | no       | `16.0`                              | Upper edge of the per-block blend zone. `"layer_split"` uses this together with `split_start`. |
+
+**`api_spend` (response side, `mode:"csound"` only).** When an external author
+has made at least one call, the `csound` JSON response carries
+
+```json
+"api_spend": {"calls": n, "token_calls": n, "cost_calls": n,
+              "input": n, "output": n, "cost": f}
+```
+
+— the running total since the backend process started, not the cost of this one
+request. It rides on `csound` because that is the only one of the three author
+modes with a JSON envelope (`translate`/`interpret` answer with bare text in a
+`\x03` frame, and wrapping them would change the wire for every existing
+client); the counter is process-wide, so their tokens are included and simply
+appear at the next authoring. Absent entirely while the local model authors.
+
+The three counts can legitimately disagree, and a client that collapses them
+into one number will misreport the user's money. `calls` is every call made,
+counted by the caller. `token_calls` is how many of those came back with a usage
+block at all — an Ollama or an older self-hosted `llama.cpp server` that ignores
+`stream_options.include_usage` reports none, so `input`/`output` are then a
+FLOOR. `cost_calls` is how many stated a PRICE: only OpenRouter does today
+(`usage.cost`, in account credits, and only when the request asks for it), so a
+session that switched providers has `0 < cost_calls < calls` and `cost` covers
+only that subset. The server never multiplies tokens by a price table of its
+own.
+
+A failed authoring carries the field too — the repair loop bills every round it
+took before giving up. For that to work, an author that RAISES (401, 429, a
+dropped stream) is reported in the `\x03` frame as `{"ok": false, "error": ...}`
+rather than through the `\x00` error frame, whose payload is a bare string with
+nowhere to put the counter. Clients see the same error text either way.
 
 ### 3.2 Escaping
 
@@ -260,8 +296,9 @@ valid.
 
 - **`"translate"`** (`backend/pipe_inference.py`, intercepted at the top of
   the request loop): translates `prompt_a` (or `text`) to English using the
-  product's ONE language model — the same model `interpret` and `csound` use
-  (`run_author_instruct` → `_resolve_coder_model_dir`) — and responds with a
+  product's ONE language author — the same author `interpret` and `csound` use
+  (`run_author_instruct` → `_resolve_author_backend`, local GGUF or an
+  external API per `coder_provider` — see above) — and responds with a
   **text frame** (`\x03`, see §4.5) — NOT an audio frame. It is handled
   **before** audio-model routing, so it never requires (and never hard-fails
   on) an audio model being installed. Decoding is greedy (temperature 0,

@@ -1184,6 +1184,21 @@ public:
     void setLroOsQuality(int qualityIndex);
     int  getLroOsQuality() const;
 
+    // ── LRO AUTHOR provider (external API as an alternative to the local GGUF,
+    // NOT to be confused with lroOsFactor_ above, which is Csound's own sample
+    // rate) — see docs/IPC_PROTOCOL.md's coder_provider and
+    // PipeInference::AuthorProviderConfig. Plain juce::String storage: unlike
+    // filterOsFactor_/lroOsFactor_ this is never read on the audio thread or
+    // during Csound compilation, only when the Settings UI changes it or a
+    // PromptPanel background thread builds the next translate/interpret/csound
+    // request via PipeInference — which is why the setter also forwards the
+    // config to pipeInference immediately, so a live edit takes effect on the
+    // very next call. Default provider "" = local model, unchanged wire bytes.
+    void setLroAuthorProviderConfig(const PipeInference::AuthorProviderConfig& config);
+    // Not const: juce::ApplicationProperties::getUserSettings() isn't const
+    // either (it can lazily create the properties file on first access).
+    PipeInference::AuthorProviderConfig getLroAuthorProviderConfig();
+
     // ── Event Log (.t5evt) — global (machine-wide) on/off, mirrors filterOsQuality ──
     void setEventLogEnabled(bool enabled);
     bool getEventLogEnabled() const;

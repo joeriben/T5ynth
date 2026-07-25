@@ -460,7 +460,11 @@ static const KnownModel kKnownModels[] = {
       "describing a sound in words: the model writes the Csound code that becomes "
       "your sound. The same model translates prompts to English (the EN button) "
       "and drives Re-Prompt. About 7 GB.\n\n"
-      "akr\xc3\xb3" "asys does not provide the weights; they download from HuggingFace "
+      // Product name spelled out ASCII here on purpose: this is a const char*
+      // catalog literal, and juce::String's const char* constructor is
+      // ASCII-only (see ProductName.h) -- the accented form renders as
+      // "akrÃ³asys". productName() cannot be used: this table is static.
+      "akroasys does not provide the weights; they download from HuggingFace "
       "(ungated, no account). By downloading you accept the Apache 2.0 "
       "license.", true, false,
       nullptr, 0 },
@@ -4007,19 +4011,12 @@ void SettingsPage::resized()
     familyHeaders_.clear();
     const int headerH = 13;
     const int detailMin = 40;        // detail strip floor; grows on larger panels
-    // The auxiliary row below the engines (the language model) carries its own
-    // "LANGUAGE MODEL" family header, so its fixed vertical cost is one top gap +
-    // one header + one engine-height row. Reserve it in the row budget so the
-    // engine rows shrink to fit instead of pushing the aux row down INTO (and
-    // hiding) the detail strip. The host sizes this page 300–500 px tall
-    // (MainPanel), so the rows MUST give up this space.
-    const int auxBandH = 8 + headerH + 44;   // 44 = max engine rowH (upper bound)
     int numHeaders = 0;
     for (int i = 0; i < kNumRowSpecs; ++i)
         if (kRowSpecs[i].familyHeader != nullptr) ++numHeaders;
 
     const int rowH = juce::jlimit(28, 44,
-        (area.getHeight() - numHeaders * headerH - detailMin - auxBandH)
+        (area.getHeight() - numHeaders * headerH - detailMin)
             / juce::jmax(1, kNumRowSpecs));
 
     for (int i = 0; i < kNumRowSpecs && i < (int) rows_.size(); ++i)
@@ -4032,21 +4029,579 @@ void SettingsPage::resized()
         rows_[(size_t) i]->setBounds(area.removeFromTop(rowH));
     }
 
-    // The language model gets its own family header (painted like the engine
-    // headers) above its engine-height ModelRow, between the engine rows and the
-    // shared detail strip. It is not a generation engine — it writes the LCO's
-    // Csound orchestra, translates prompts and drives Re-Prompt — so it sits
-    // apart from the five engines rather than among them.
-    area.removeFromTop(8);
-    {
-        auto hr = area.removeFromTop(headerH);
-        familyHeaders_.push_back({ "LANGUAGE MODEL", hr });
-    }
-    if (coderRow_ != nullptr)
-        coderRow_->setBounds(area.removeFromTop(rowH));
-
+    // No language-model row here: it is not a generation engine (it writes the
+    // LRO's Csound orchestra, translates prompts and drives Re-Prompt), and
+    // offering it among the sound models while a whole tab explains it was the
+    // thing nobody could follow. It is parented onto the Language Model tab
+    // (coderRowComponent / LroAuthorSettingsPage::adoptCoderRow); this page
+    // still owns it and every download it starts.
     area.removeFromTop(6);
     instructionsLabel.setFont(juce::FontOptions(11.5f));
     instructionsLabel.setBounds(area);   // leftover height (may scroll)
     instructionsLabel.setCaretPosition(0);
+}
+
+
+namespace
+{
+// coder_provider wire values (docs/IPC_PROTOCOL.md), mapped to the provider
+// combo's 1-based item ids (item 1 = OpenAI-compatible, the default; item 2 =
+// Anthropic).
+const juce::String kProviderOpenAiCompat = "openai_compatible";
+const juce::String kProviderAnthropic    = "anthropic";
+// Engine-choice combo item ids (1-based, like every other ComboBox here).
+constexpr int kEngineLocal    = 1;
+constexpr int kEngineExternal = 2;
+
+// The provider list the dropdown offers. A layperson picks a NAME here; the
+// endpoint and a working default model follow from it (BJ 2026-07-25 -- nobody
+// should have to know a base URL). Only "Other" leaves the address to the user,
+// for a service that is not listed.
+//
+// This list is NOT invented here. It is the provider registry already in
+// service in the maintainer's own platform -- sarah's
+// src/lib/server/ai/client.ts PROVIDERS map -- carried over entry for entry,
+// with its base URLs, its default models and, decisively, its region/GDPR
+// column: for a university user "which jurisdiction does my text land in" is a
+// selection criterion, not decoration, so the region rides in the visible
+// label. IONOS and Mammouth exist in that list precisely because they are the
+// EU-hosted answers, and dropping them would have left this instrument with
+// the US-only subset.
+//
+// OpenRouter leads because it is the one answer to "my machine cannot run the
+// local model" that costs nothing to try: its ":free" model ids are served at
+// no charge (rate-limited). The suggested one is a 120B mixture-of-experts
+// with 12B active parameters -- far beyond the 12B the instrument ships, for
+// nothing. Dropping the ":free" suffix buys the paid, unthrottled variant.
+//
+// No routing or retention policy is imposed from here (BJ 2026-07-25). sarah
+// floors its own OpenRouter calls with data_collection=deny; this instrument
+// deliberately does NOT -- who may keep the text is the player's decision, made
+// in their own provider account, and the detail strip says so and names which
+// entries are GDPR-compliant.
+struct ProviderSpec
+{
+    const char* name;
+    const char* base;             // empty = address is not ours to fill in
+    // The models offered for this provider, comma-separated. The FIRST is what
+    // an empty model field is filled with. They are OFFERED, never enforced:
+    // the control is an editable combo, so any id the provider lists can still
+    // be typed — see modelCombo_.
+    const char* models;
+    bool        anthropicNative;  // native Messages API, no base URL
+    bool        needsKey;         // false = a local server, no account
+};
+
+const ProviderSpec kProviders[] = {
+    // The OpenRouter entries are BJ's own picks (2026-07-25): two that cost
+    // nothing (":free"), then the two code-trained ones worth paying for. A
+    // 120B mixture-of-experts at no charge is the answer to "my machine cannot
+    // run the local 12B"; dropping ":free" buys the unthrottled variant.
+    { "OpenRouter (US, free tier available)", "https://openrouter.ai/api/v1",
+      "nvidia/nemotron-3-super-120b-a12b:free,"
+      "google/gemma-4-31b-it:free,"
+      "moonshotai/kimi-k2.7-code,"
+      "xiaomi/mimo-v2.5-pro",                                false, true  },
+    { "Mistral AI (EU)",   "https://api.mistral.ai/v1",
+      "mistral-large-latest",                                false, true  },
+    { "IONOS (EU, Berlin)", "https://openai.inference.de-txl.ionos.com/v1",
+      "meta-llama/Meta-Llama-3.1-70B-Instruct",              false, true  },
+    { "Mammouth AI (EU)",  "https://api.mammouth.ai/v1",
+      "claude-sonnet-4-6",                                   false, true  },
+    { "Anthropic (US)",    "",
+      "claude-opus-4-6",                                     true,  true  },
+    { "OpenAI (US)",       "https://api.openai.com/v1",
+      "gpt-5.4-pro",                                         false, true  },
+    { "Ollama (on this computer)", "http://localhost:11434/v1",
+      "llama3.1",                                            false, false },
+    { "Other (OpenAI-compatible)", "",
+      "",                                                    false, true  },
+};
+
+juce::StringArray providerModels(const ProviderSpec& spec)
+{
+    auto list = juce::StringArray::fromTokens(juce::String(spec.models), ",", "");
+    list.trim();
+    list.removeEmptyStrings();
+    return list;
+}
+constexpr int kNumProviders = (int) (sizeof(kProviders) / sizeof(kProviders[0]));
+constexpr int kProviderOther = kNumProviders;          // 1-based combo id
+constexpr int kProviderOpenRouter = 1;
+
+const ProviderSpec& providerSpec(int comboId)
+{
+    return kProviders[(size_t) juce::jlimit(1, kNumProviders, comboId) - 1];
+}
+
+juce::String providerIdToWireValue(int comboId)
+{
+    return providerSpec(comboId).anthropicNative ? kProviderAnthropic : kProviderOpenAiCompat;
+}
+
+// The stored config carries only the WIRE value plus a base URL, so the list
+// entry is recovered from the base: an exact match selects that provider,
+// anything else is "Other" (which is also what an empty base means -- the user
+// has not filled it in yet).
+int providerIdFor(const juce::String& wireValue, const juce::String& base)
+{
+    for (int i = 0; i < kNumProviders; ++i)
+    {
+        const auto& spec = kProviders[(size_t) i];
+        if (wireValue == kProviderAnthropic)
+        {
+            if (spec.anthropicNative) return i + 1;
+            continue;
+        }
+        if (juce::String(spec.base).isNotEmpty() && base == spec.base)
+            return i + 1;
+    }
+    return kProviderOther;
+}
+
+void styleDetailStrip(juce::TextEditor& e)
+{
+    // Mirrors SettingsPage::instructionsLabel exactly: a read-only TextEditor
+    // used as one wrapping detail strip at the foot of the page. It is the
+    // element that gives when the overlay is at its 300 px floor, and it
+    // scrolls -- so the cost/privacy disclosure can never end up clipped and
+    // unreachable, which is what a fixed-height block did.
+    e.setMultiLine(true);
+    e.setReadOnly(true);
+    e.setCaretVisible(false);
+    e.setSelectAllWhenFocused(false);
+    e.setColour(juce::TextEditor::backgroundColourId, juce::Colours::transparentBlack);
+    e.setColour(juce::TextEditor::textColourId, juce::Colour(0xffcccccc));
+    e.setColour(juce::TextEditor::outlineColourId, juce::Colours::transparentBlack);
+    e.setScrollbarsShown(true);
+}
+
+void styleFieldLabel(juce::Label& l)
+{
+    l.setColour(juce::Label::textColourId, kTextPrimary);
+    l.setJustificationType(juce::Justification::centredLeft);
+}
+} // namespace
+LroAuthorSettingsPage::LroAuthorSettingsPage()
+{
+    styleFieldLabel(engineLabel_);
+    addAndMakeVisible(engineLabel_);
+
+    engineCombo_.addItem("Local model - on this computer", kEngineLocal);
+    engineCombo_.addItem("External API - a provider's server", kEngineExternal);
+    engineCombo_.setSelectedId(kEngineLocal, juce::dontSendNotification);
+    engineCombo_.onChange = [this] { notifyChanged(); };
+    addAndMakeVisible(engineCombo_);
+
+    // ── External section ──
+    styleFieldLabel(providerLabel_);
+    addAndMakeVisible(providerLabel_);
+    for (int i = 0; i < kNumProviders; ++i)
+        providerCombo_.addItem(kProviders[(size_t) i].name, i + 1);
+    providerCombo_.setSelectedId(kProviderOpenRouter, juce::dontSendNotification);
+    // Picking a provider IS picking its address and its model list.
+    providerCombo_.onChange = [this]
+    {
+        const auto& spec = providerSpec(providerCombo_.getSelectedId());
+        if (juce::String(spec.base).isNotEmpty())
+            baseEditor_.setText(spec.base, juce::dontSendNotification);
+        repopulateModels();
+        notifyChanged();
+    };
+    addAndMakeVisible(providerCombo_);
+
+    styleFieldLabel(baseLabel_);
+    addAndMakeVisible(baseLabel_);
+    baseEditor_.setFont(juce::FontOptions(12.5f));
+    baseEditor_.setTextToShowWhenEmpty("https://your-server/v1", kTextMuted);
+    baseEditor_.onFocusLost = [this] { notifyChanged(); };
+    baseEditor_.onReturnKey = [this] { notifyChanged(); };
+    addAndMakeVisible(baseEditor_);
+
+    styleFieldLabel(modelLabel_);
+    addAndMakeVisible(modelLabel_);
+    // Pick from the list, or type an id the list does not carry — a model id is
+    // not something a newcomer can guess, and a provider's catalogue moves
+    // faster than this build does.
+    modelCombo_.setEditableText(true);
+    modelCombo_.setTextWhenNothingSelected("choose a model, or type an id");
+    modelCombo_.onChange = [this] { notifyChanged(); };
+    addAndMakeVisible(modelCombo_);
+
+    styleFieldLabel(keyLabel_);
+    addAndMakeVisible(keyLabel_);
+    keyEditor_.setFont(juce::FontOptions(12.5f));
+    keyEditor_.setPasswordCharacter('*');
+    keyEditor_.setTextToShowWhenEmpty("paste the key from your provider account", kTextMuted);
+    keyEditor_.onFocusLost = [this] { notifyChanged(); };
+    keyEditor_.onReturnKey = [this] { notifyChanged(); };
+    addAndMakeVisible(keyEditor_);
+
+    externalStatus_.setJustificationType(juce::Justification::centredLeft);
+    externalStatus_.setFont(juce::FontOptions(11.5f));
+    addAndMakeVisible(externalStatus_);
+
+    spendLabel_.setJustificationType(juce::Justification::centredLeft);
+    spendLabel_.setFont(juce::FontOptions(11.5f));
+    spendLabel_.setColour(juce::Label::textColourId, kTextMuted);
+    addAndMakeVisible(spendLabel_);
+
+    styleDetailStrip(detail_);
+    addAndMakeVisible(detail_);
+
+    updateSectionVisibility();
+}
+
+void LroAuthorSettingsPage::setModelText(const juce::String& model)
+{
+    repopulateModels();
+    // An id already stored wins over the provider's suggestion, whether or not
+    // it is one of the offered ones.
+    if (model.isNotEmpty())
+        modelCombo_.setText(model, juce::dontSendNotification);
+}
+
+void LroAuthorSettingsPage::repopulateModels()
+{
+    const auto typed  = modelCombo_.getText().trim();
+    const auto models = providerModels(providerSpec(providerCombo_.getSelectedId()));
+
+    modelCombo_.clear(juce::dontSendNotification);
+    for (int i = 0; i < models.size(); ++i)
+        modelCombo_.addItem(models[i], i + 1);
+
+    // A model the user typed themselves survives a provider change untouched —
+    // only an empty field takes the new provider's first suggestion. Switching
+    // provider to compare must never silently discard a chosen id.
+    if (typed.isNotEmpty())
+        modelCombo_.setText(typed, juce::dontSendNotification);
+    else if (! models.isEmpty())
+        modelCombo_.setText(models[0], juce::dontSendNotification);
+}
+
+void LroAuthorSettingsPage::adoptCoderRow(juce::Component* row)
+{
+    coderRow_ = row;
+    if (coderRow_ != nullptr)
+        addAndMakeVisible(*coderRow_);   // re-parents it off SettingsPage
+    updateSectionVisibility();
+}
+
+void LroAuthorSettingsPage::setConfig(const PipeInference::AuthorProviderConfig& config)
+{
+    const bool external = config.provider.isNotEmpty();
+    engineCombo_.setSelectedId(external ? kEngineExternal : kEngineLocal,
+                               juce::dontSendNotification);
+    providerCombo_.setSelectedId(providerIdFor(config.provider, config.apiBase),
+                                 juce::dontSendNotification);
+    baseEditor_.setText(config.apiBase, juce::dontSendNotification);
+    setModelText(config.apiModel);
+    keyEditor_.setText(config.apiKey, juce::dontSendNotification);
+    updateSectionVisibility();
+}
+
+PipeInference::AuthorProviderConfig LroAuthorSettingsPage::getConfig() const
+{
+    PipeInference::AuthorProviderConfig config;
+    // The typed field values always come along, regardless of which engine is
+    // currently selected or whether External is fully filled in — only
+    // `provider` gates whether the wire actually uses them (empty = local,
+    // unchanged wire bytes). Returning an all-empty struct here whenever
+    // Local was selected used to WIPE a previously-configured key/model/base
+    // on the next save, since PluginProcessor persists whatever this returns
+    // unconditionally — switching to Local to try it, then back to External,
+    // must not force re-entering the key.
+    // A listed provider OWNS its address, so the spec wins over whatever the
+    // (then read-only) field shows; only "Other" takes the typed one.
+    const auto& spec = providerSpec(providerCombo_.getSelectedId());
+    config.apiBase  = juce::String(spec.base).isNotEmpty() ? juce::String(spec.base)
+                                                           : baseEditor_.getText().trim();
+    config.apiModel = modelCombo_.getText().trim();
+    config.apiKey   = keyEditor_.getText().trim();
+
+    if (engineCombo_.getSelectedId() != kEngineExternal)
+        return config;   // provider stays "" -> local
+
+    const auto provider = providerIdToWireValue(providerCombo_.getSelectedId());
+
+    // A half-filled External choice reports as local (provider stays "")
+    // rather than sending a partially-populated provider — it would otherwise
+    // fail server-side with a confusing error instead of falling back cleanly
+    // to "local, not installed". The typed values are still returned above,
+    // so nothing already entered is lost while the user finishes filling it in.
+    // A local server (Ollama) has no account and therefore no key: demanding
+    // one there would make a perfectly configured endpoint unreachable.
+    if (config.apiModel.isEmpty() || (spec.needsKey && config.apiKey.isEmpty()))
+        return config;
+    if (provider == kProviderOpenAiCompat && config.apiBase.isEmpty())
+        return config;
+
+    config.provider = provider;
+    return config;
+}
+
+bool LroAuthorSettingsPage::isExternallyConfigured() const
+{
+    return getConfig().provider.isNotEmpty();
+}
+
+void LroAuthorSettingsPage::notifyChanged()
+{
+    updateSectionVisibility();
+    if (onConfigChanged)
+        onConfigChanged();
+}
+
+void LroAuthorSettingsPage::visibilityChanged()
+{
+    // Opening the tab is the moment the number is looked at, so it is the moment
+    // it is fetched. Nothing runs while the overlay is closed.
+    if (isVisible())
+        refreshApiSpend();
+}
+
+void LroAuthorSettingsPage::refreshApiSpend()
+{
+    const bool external = engineCombo_.getSelectedId() == kEngineExternal;
+    PipeInference::ApiSpend spend;
+    if (external && apiSpendSource)
+        spend = apiSpendSource();
+
+    // Hidden while Local authors and before the first paid call: a permanent
+    // "0 tokens, 0.00" is a bill that says nothing and reads as a charge.
+    const bool show = external && spend.calls > 0;
+    const bool wasShown = spendLabel_.isVisible();
+    spendLabel_.setVisible(show);
+    if (! show)
+    {
+        if (wasShown)
+            resized();       // the row it occupied goes back to the detail strip
+        return;
+    }
+
+    // "so far this session" is literal: the counter lives in the backend
+    // process, so it restarts with it — including the automatic restart after a
+    // crash. It is a running check on what a session is costing, not an account
+    // statement, and saying so is cheaper than being believed too precisely.
+    //
+    // One sound is several calls (the author writes, and repairs what Csound
+    // rejects), so the call count is not the number of sounds made.
+    juce::String text;
+    text << "This session: " << spend.calls
+         << (spend.calls == 1 ? " call, " : " calls, ")
+         // "at least" whenever some call came back without a token count, which
+         // a local Ollama and older self-hosted servers routinely do: the sum is
+         // then a floor. Saying so costs four words; not saying so turns an
+         // unknown into an understatement the user has no way to spot.
+         << (spend.tokenCalls < spend.calls ? "at least " : "")
+         << juce::String(spend.inputTokens + spend.outputTokens) << " tokens ("
+         << juce::String(spend.inputTokens) << " in / "
+         << juce::String(spend.outputTokens) << " out)";
+
+    if (spend.costCalls == 0)
+        text << " - see your provider's usage page for the amount";
+    else if (spend.costCalls == spend.calls)
+        text << " - " << juce::String(spend.cost, 4) << " charged by the provider";
+    else
+        // Mixed session: one provider prices its calls, another does not (the
+        // page invites exactly that comparison). The figure is stated for the
+        // calls it actually covers rather than presented as the session total.
+        text << " - " << juce::String(spend.cost, 4) << " charged for "
+             << spend.costCalls << " of them; the rest are not priced here";
+    spendLabel_.setText(text, juce::dontSendNotification);
+    if (! wasShown)
+        resized();           // the line just appeared and needs its row
+}
+
+void LroAuthorSettingsPage::updateSectionVisibility()
+{
+    const bool external = engineCombo_.getSelectedId() == kEngineExternal;
+
+    if (coderRow_ != nullptr)
+        coderRow_->setVisible(!external);
+
+    providerLabel_.setVisible(external);
+    providerCombo_.setVisible(external);
+
+    // Anthropic's endpoint is fixed (api.anthropic.com/v1/messages), so a base
+    // URL would be a field that does nothing — see backend/author_api.py. For
+    // the other listed providers the address is shown but not editable: it is
+    // where the text actually goes, so hiding it would hide the one fact this
+    // page owes the user, and letting them retype it can only break it.
+    const auto& spec = providerSpec(providerCombo_.getSelectedId());
+    const bool showBase = external && ! spec.anthropicNative;
+    const bool ownBase  = juce::String(spec.base).isEmpty();
+    baseLabel_.setVisible(showBase);
+    baseEditor_.setVisible(showBase);
+    baseEditor_.setReadOnly(! ownBase);
+    baseEditor_.setColour(juce::TextEditor::textColourId, ownBase ? kTextPrimary : kTextMuted);
+    modelLabel_.setVisible(external);
+    modelCombo_.setVisible(external);
+    keyLabel_.setVisible(external);
+    keyEditor_.setVisible(external);
+
+    keyLabel_.setVisible(external && spec.needsKey);
+    keyEditor_.setVisible(external && spec.needsKey);
+
+    externalStatus_.setVisible(external);
+    if (external)
+    {
+        const auto config = getConfig();
+        const bool ready  = config.provider.isNotEmpty();
+        externalStatus_.setColour(juce::Label::textColourId, ready ? kSeqCol : kTextMuted);
+        externalStatus_.setText(ready ? ("In use - " + config.apiModel)
+                                      : (spec.needsKey ? "Not in use yet: model and key are still missing."
+                                                       : "Not in use yet: no model named."),
+                                juce::dontSendNotification);
+    }
+
+    setInstructionsText(detail_, external ? externalDetailText() : localDetailText());
+    refreshApiSpend();   // sets its own visibility; must run before resized() lays it out
+
+    resized();   // the two sections occupy different heights
+    // The section headers are PAINTED, not components: showing/hiding children
+    // invalidates only their own rectangles, so without this the previous
+    // choice's header text stays on screen ("LOCAL MODEL" above the provider
+    // fields). Only fires on an actual engine/provider change, not per frame.
+    repaint();
+}
+
+juce::String LroAuthorSettingsPage::localDetailText()
+{
+    return
+        "The language model runs on this computer. Nothing you type ever leaves the "
+        "machine, no internet connection is needed once it is installed, and no sound "
+        "you make costs anything.\n\n"
+        "Gemma 4 12B, Apache 2.0, fetched from HuggingFace without an account. It needs "
+        "about 7 GB of free disk space and works on a 16 GB machine. If your computer "
+        "cannot spare that, set Author engine to External API above and use a provider "
+        "instead.";
+}
+
+juce::String LroAuthorSettingsPage::externalDetailText()
+{
+    return
+        "Your prompt text and the model's replies travel over the internet to the "
+        "provider you pick. Only that text step leaves this computer: the sound itself "
+        "is always rendered here, and the Csound code is compiled here.\n\n"
+        "Starting without a bill: pick OpenRouter above, make an account at "
+        "openrouter.ai, create an API key there and paste it in. The model it suggests, "
+        + providerModels(kProviders[0])[0] + ", is served at no charge (it is "
+        "rate-limited); the same model without the \":free\" ending is the paid, faster "
+        "one. Choosing a provider fills its address in for you -- only \"Other\" asks you "
+        "for one, for a service that is not listed or your own remote llama.cpp "
+        "server.\n\n"
+        "Data protection is your call, and you make it at the provider, not here. "
+        "Whether a service keeps your prompts, trains on them, or -- on OpenRouter -- "
+        "which upstream company a model is actually routed to, are settings in your own "
+        "account there; this instrument imposes nothing and changes nothing about them. "
+        "Two entries in the list host in the EU and are GDPR-compliant: IONOS (Berlin) "
+        "and Mammouth. Read the privacy terms of whichever you pick.\n\n"
+        "What it costs: outside the free tiers the provider bills you per token, and one "
+        "sound is a few thousand tokens. Check their pricing page before you start.\n\n"
+        "Which model: it has to WRITE Csound code, so a model trained for code does the "
+        "job far better than a general chat one. Stronger paid choices on OpenRouter are "
+        "moonshotai/kimi-k2.7-code or xiaomi/mimo-v2.5-pro. " + productName() + "'s "
+        "prompts were tuned against the local Gemma 4 12B; bigger and code-trained "
+        "models usually author more reliably and cost more per sound, much smaller ones "
+        "fail more often.\n\n"
+        "The key is stored unencrypted in " + productName() + "'s settings file on this "
+        "computer, like every other machine-wide setting.";
+}
+
+void LroAuthorSettingsPage::paint(juce::Graphics& g)
+{
+    g.fillAll(getLookAndFeel().findColour(juce::ResizableWindow::backgroundColourId));
+
+    // Same thin Ableton-like group labels the model manager paints, so the two
+    // pages read as one instrument rather than two authors.
+    g.setFont(juce::FontOptions(10.0f).withStyle("Bold"));
+    for (auto& h : headers_)
+    {
+        g.setColour(kDimmer);
+        g.drawText(h.text, h.bounds.reduced(2, 0), juce::Justification::bottomLeft, false);
+        g.setColour(kBorder);
+        g.drawHorizontalLine(h.bounds.getBottom() - 1,
+                             (float) h.bounds.getX(),
+                             (float) h.bounds.getRight());
+    }
+}
+
+void LroAuthorSettingsPage::resized()
+{
+    layout();
+}
+
+void LroAuthorSettingsPage::layout()
+{
+    headers_.clear();
+    auto r = getLocalBounds().reduced(18, 14);
+
+    // The overlay is 300–500 px tall (MainPanel), and External needs five rows
+    // plus the detail strip. Tighten the rows rather than let the strip go to
+    // zero: the strip carries the cost and privacy disclosure, so it is the one
+    // element that must survive the smallest window.
+    const bool tight  = r.getHeight() < 300;
+    const int headerH = 13;
+    const int rowH    = tight ? 22 : 26;
+    const int gap     = tight ? 4  : 8;
+    // 118, not the Settings tab's 150: "API base URL" fits, and at the overlay's
+    // 400 px floor a 150 px label column leaves a URL field too narrow to read.
+    const int labelW  = 118;
+
+    auto addHeader = [&](const char* text)
+    {
+        headers_.push_back({ juce::String(text), r.removeFromTop(headerH) });
+        r.removeFromTop(6);
+    };
+
+    auto fieldRow = [&](juce::Label& label, juce::Component& control, int controlW)
+    {
+        auto row = r.removeFromTop(rowH);
+        label.setBounds(row.removeFromLeft(labelW));
+        row.removeFromLeft(8);
+        control.setBounds(controlW > 0 ? row.removeFromLeft(controlW) : row);
+        r.removeFromTop(gap);
+    };
+
+    addHeader("AUTHOR ENGINE");
+    fieldRow(engineLabel_, engineCombo_, juce::jmin(240, r.getWidth() - labelW - 8));
+    r.removeFromTop(gap);
+
+    if (engineCombo_.getSelectedId() == kEngineExternal)
+    {
+        addHeader("PROVIDER");
+        fieldRow(providerLabel_, providerCombo_, juce::jmin(250, r.getWidth() - labelW - 8));
+
+        if (baseEditor_.isVisible())
+            fieldRow(baseLabel_, baseEditor_, 0);
+        fieldRow(modelLabel_, modelCombo_, 0);
+        // Guarded like the base URL above: a provider that needs no key (a
+        // local Ollama) hides the field, and an unguarded row would leave a
+        // blank one behind — height the detail strip has to give up.
+        if (keyEditor_.isVisible())
+            fieldRow(keyLabel_, keyEditor_, 0);
+
+        auto statusRow = r.removeFromTop(rowH - 6);
+        statusRow.removeFromLeft(labelW + 8);
+        externalStatus_.setBounds(statusRow);
+
+        if (spendLabel_.isVisible())
+        {
+            auto spendRow = r.removeFromTop(rowH - 8);
+            spendRow.removeFromLeft(labelW + 8);
+            spendLabel_.setBounds(spendRow);
+        }
+    }
+    else
+    {
+        addHeader("LOCAL MODEL");
+        if (coderRow_ != nullptr)
+            coderRow_->setBounds(r.removeFromTop(tight ? 34 : 42));
+    }
+
+    r.removeFromTop(gap + 2);
+    detail_.setFont(juce::FontOptions(11.5f));
+    detail_.setBounds(r);            // leftover height (may scroll)
+    detail_.setCaretPosition(0);
 }

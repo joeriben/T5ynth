@@ -1244,6 +1244,139 @@ def run_instruct(text, model_dir, device, system_prompt, max_new_tokens=None,
     return tokenizer.decode(new_tokens, skip_special_tokens=True).strip()
 
 
+# The external-API author branches (an alternative to the local GGUF for a
+# machine that cannot run a 12B model). author_api.py only ever speaks HTTP
+# via `requests` (already a hard dependency, see requirements.txt) — no
+# heavier SDK, and no dependency on anything the CPU-budget/torch setup at
+# the top of this file cares about.
+from author_api import call_openai_compatible, call_anthropic  # noqa: E402
+import author_api  # noqa: E402  (last_usage() after each external call)
+
+
+# What the external author has cost since this backend process started.
+# Tokens are what the provider bills on, so they are counted for every provider;
+# `cost` only accumulates where the provider itself states one (OpenRouter
+# reports it in account credits) -- this never multiplies tokens by a price
+# table of its own, which would be stale the moment a provider changes its
+# rates. Carried over from the maintainer's platform, which threads the same
+# token counts through its whole pipeline; its USD column is declared and never
+# written, so there was nothing to take on that side.
+#
+# THREE counters, not one, because they can legitimately disagree and a reader
+# who cannot see the disagreement is being misinformed about their own money:
+#   calls        -- calls the provider actually SERVED (HTTP 2xx), so a
+#                   provider that reports no usage at all (Ollama, an older
+#                   self-hosted llama.cpp `server` ignoring stream_options)
+#                   still shows up. A call that never got there -- no
+#                   connection, a bad key, a 429 -- is not one: nothing was
+#                   billed for it, and counting it would both report spending
+#                   that did not happen and make every later reading claim
+#                   unpriced calls in a session where all of them are priced.
+#   token_calls  -- of those, how many came back with a FINAL token count.
+#                   Below `calls` means the token figure is a floor, not a
+#                   total: either the provider said nothing, or the stream
+#                   dropped before the closing count (author_api's `complete`).
+#   cost_calls   -- of those, how many came back with a PRICE. Below `calls`
+#                   means `cost` covers only part of the session -- printing it
+#                   as the total (which an earlier draft did, latching a single
+#                   boolean) turns one priced call among a hundred into a
+#                   sum-looking number that is wrong by two orders of magnitude.
+_API_SPEND = {"calls": 0, "token_calls": 0, "cost_calls": 0,
+              "input": 0, "output": 0, "cost": 0.0}
+
+
+def _account_api_call():
+    """Fold the just-finished external call into the session total.
+
+    Called from a `finally`, so it runs for a call that RAISED as well -- which
+    is the point: a stream the provider dropped halfway was generated and
+    billed, and it is the only failure mode that costs anything."""
+    usage = author_api.last_usage()
+    if not usage.get("served"):
+        return                       # never reached the provider: nothing billed
+    _API_SPEND["calls"] += 1
+    if "input" not in usage and "output" not in usage:
+        return                       # served, but the provider counted nothing
+    if usage.get("complete"):
+        _API_SPEND["token_calls"] += 1
+    _API_SPEND["input"] += int(usage.get("input", 0))
+    _API_SPEND["output"] += int(usage.get("output", 0))
+    if usage.get("cost") is not None:
+        _API_SPEND["cost"] += float(usage["cost"])
+        _API_SPEND["cost_calls"] += 1
+
+
+def api_spend_snapshot():
+    return dict(_API_SPEND)
+
+
+def _resolve_author_backend(request):
+    """Resolve which author backend a request wants, local or external API.
+
+    The external-API fields win OUTRIGHT whenever they are fully populated —
+    `coder_model_path` is then not consulted at all. The JUCE UI keeps
+    local/external as one mutually-exclusive choice, so a request never
+    carries both in practice; this precedence is still the documented,
+    unambiguous behaviour for a hand-crafted dev/test request. Does not
+    restructure _resolve_coder_model_dir's own precedence chain (explicit
+    path -> env vars -> installed slot -> scan) — wraps it, does not touch it.
+
+    Returns one of:
+      ("api_openai_compat", base_url, api_key, model)
+      ("api_anthropic", api_key, model)
+      ("local_gguf", gguf_path, model_dir)
+      ("local_transformers", model_dir)
+      ("unavailable",)
+    """
+    provider = (request.get("coder_provider") or "").strip()
+    api_key = (request.get("coder_api_key") or "").strip()
+    api_model = (request.get("coder_api_model") or "").strip()
+    if provider and api_model:
+        if provider == "openai_compatible":
+            base_url = (request.get("coder_api_base") or "").strip()
+            # No key requirement here. A key is a PROVIDER's requirement, not
+            # this wire's: an OpenAI-compatible endpoint on the user's own
+            # machine (Ollama, a local llama.cpp `server`) has no account and
+            # no key, and author_api sends the placeholder those shims expect.
+            # Demanding one made the keyless case fall through to the LOCAL
+            # model while the settings page reported the external author as in
+            # use — silently the wrong author, or "not installed" on a machine
+            # with no local model, which is exactly who this option is for.
+            if base_url:
+                return ("api_openai_compat", base_url, api_key, api_model)
+        elif provider == "anthropic" and api_key:
+            # Anthropic has no keyless form, so here the key IS required, and
+            # rejecting it now beats a 401 several seconds into an authoring.
+            return ("api_anthropic", api_key, api_model)
+
+    model_dir = _resolve_coder_model_dir(request)
+    if model_dir is None:
+        return ("unavailable",)
+    gguf = _coder_gguf_file(model_dir)
+    if gguf is not None:
+        return ("local_gguf", gguf, model_dir)
+    return ("local_transformers", model_dir)
+
+
+def _author_backend_label(backend):
+    """Human-readable name of the author that actually ran, for the csound
+    response's `author_model` provenance field — the UI otherwise shows a
+    hardcoded name and cannot tell which model wrote the orchestra (observed
+    2026-07-22: the intended slot was unloadable, the resolver walked past it
+    to another local model, and nothing on the wire showed it). Same purpose
+    now covers the external-API branches too."""
+    kind = backend[0]
+    if kind == "local_gguf":
+        return backend[2].name
+    if kind == "local_transformers":
+        return backend[1].name
+    if kind == "api_openai_compat":
+        return f"{backend[3]} (external, {backend[1]})"
+    if kind == "api_anthropic":
+        return f"{backend[2]} (external, Anthropic)"
+    return "unknown"
+
+
 def run_author_instruct(request, text, system_prompt, device, max_new_tokens=None,
                         **transformers_only):
     """One instruct call on the AUTHOR model — the single LLM in the product.
@@ -1255,6 +1388,10 @@ def run_author_instruct(request, text, system_prompt, device, max_new_tokens=Non
     instead), and keeping a weak model alive for two features while a strong one
     is already resident bought nothing but a download and a second failure mode.
 
+    Local or external API, resolved once via _resolve_author_backend — the
+    external branches never see `transformers_only`, mirroring the existing
+    GGUF branch below (both are crutch kwargs for the pre-GGUF 1.5B path).
+
     `transformers_only` carries generate() kwargs that exist only on the
     transformers path (repetition_penalty, no_repeat_ngram_size). They are DROPPED
     for the GGUF author, deliberately: both were crutches for the 1.5B's greedy
@@ -1265,12 +1402,28 @@ def run_author_instruct(request, text, system_prompt, device, max_new_tokens=Non
     author model with BOTH off, on the exact palette that provoked the cycle: six
     words, clean stop, zero repeated 3-grams, identical across five runs.
     """
-    model_dir = _resolve_coder_model_dir(request)
-    if model_dir is None:
+    backend = _resolve_author_backend(request)
+    kind = backend[0]
+    if kind == "unavailable":
         raise ValueError("Language model is not installed (load it in Settings).")
-    gguf = _coder_gguf_file(model_dir)
-    if gguf is not None:
+    if kind == "api_openai_compat":
+        _, base_url, api_key, model = backend
+        try:
+            return call_openai_compatible(base_url, api_key, model, text, system_prompt,
+                                          max_new_tokens=max_new_tokens)
+        finally:
+            _account_api_call()
+    if kind == "api_anthropic":
+        _, api_key, model = backend
+        try:
+            return call_anthropic(api_key, model, text, system_prompt,
+                                  max_new_tokens=max_new_tokens)
+        finally:
+            _account_api_call()
+    if kind == "local_gguf":
+        _, gguf, _model_dir = backend
         return run_gguf_instruct(text, gguf, system_prompt, max_new_tokens=max_new_tokens)
+    _, model_dir = backend  # local_transformers
     return run_instruct(text, model_dir, _translator_device(device), system_prompt,
                         max_new_tokens=max_new_tokens, **transformers_only)
 
@@ -3670,29 +3823,58 @@ def main():
                 t_device = request.get("device", default_device)
                 if t_device == "auto" or t_device not in devices:
                     t_device = default_device
-                coder_dir = _resolve_coder_model_dir(request)
-                if coder_dir is None:
+                author_backend = _resolve_author_backend(request)
+                if author_backend[0] == "unavailable":
                     raise RuntimeError("Csound author model not installed (load it in Settings)")
-                coder_device = _translator_device(t_device)
-
-                coder_gguf = _coder_gguf_file(coder_dir)
+                # Only the local_transformers branch needs a device at all —
+                # computed lazily so this stays a no-op for the GGUF and both
+                # external-API branches instead of implying they run "on" a
+                # torch device.
+                coder_device = (_translator_device(t_device)
+                                if author_backend[0] == "local_transformers" else None)
 
                 def csound_llm(text, system_prompt, max_new_tokens, on_delta=None,
-                               _dir=coder_dir, _dev=coder_device, _gguf=coder_gguf):
+                               _backend=author_backend, _dev=coder_device):
                     """The single model surface build_csound_response needs: one
-                    greedy instruct call on the author model. Two shapes reach
-                    here — the shipped 4-bit GGUF through llama.cpp, and a
-                    transformers directory (dev drop, or a pre-GGUF install).
+                    greedy instruct call on the author model. Four shapes reach
+                    here — the shipped 4-bit GGUF through llama.cpp, a
+                    transformers directory (dev drop, or a pre-GGUF install), or
+                    an external OpenAI-compatible / Anthropic API.
 
-                    Only llama.cpp streams. On the transformers path `on_delta`
-                    is dropped and the reasoning arrives with the final frame, as
-                    it did before — the shipped author is the GGUF, and a
-                    HuggingFace streamer needs its own thread to do the same."""
-                    if _gguf is not None:
-                        return run_gguf_instruct(text, _gguf, system_prompt,
+                    llama.cpp and both API branches stream. On the transformers
+                    path `on_delta` is dropped and the reasoning arrives with the
+                    final frame, as it did before — the shipped local author is
+                    the GGUF, and a HuggingFace streamer needs its own thread to
+                    do the same."""
+                    kind = _backend[0]
+                    # try/finally, not a plain call: one authoring is a WHOLE
+                    # repair loop, and a round that ends in an exception was
+                    # still billed. Accounting only what succeeded would
+                    # under-report exactly the expensive case.
+                    if kind == "api_openai_compat":
+                        _, base_url, api_key, model = _backend
+                        try:
+                            return call_openai_compatible(base_url, api_key, model, text,
+                                                          system_prompt,
+                                                          max_new_tokens=max_new_tokens,
+                                                          on_delta=on_delta)
+                        finally:
+                            _account_api_call()
+                    if kind == "api_anthropic":
+                        _, api_key, model = _backend
+                        try:
+                            return call_anthropic(api_key, model, text, system_prompt,
+                                                  max_new_tokens=max_new_tokens,
+                                                  on_delta=on_delta)
+                        finally:
+                            _account_api_call()
+                    if kind == "local_gguf":
+                        _, gguf, _model_dir = _backend
+                        return run_gguf_instruct(text, gguf, system_prompt,
                                                  max_new_tokens=max_new_tokens,
                                                  on_delta=on_delta)
-                    return run_instruct(text, _dir, _dev, system_prompt,
+                    _, model_dir = _backend  # local_transformers
+                    return run_instruct(text, model_dir, _dev, system_prompt,
                                         max_new_tokens=max_new_tokens)
 
                 # Both shapes take a conversation, so a repair may CONTINUE the
@@ -3742,12 +3924,34 @@ def main():
                 # the self-listen / compare / correct loop (PromptPanel.cpp
                 # T5YNTH_LCO_SELFCHECK = 0). These .get()s stay for wire compatibility
                 # but now resolve to "".
-                response = build_csound_response(request.get("text") or "", csound_llm,
-                                                 request.get("correction") or "",
-                                                 request.get("previous") or "",
-                                                 on_thinking=on_thinking,
-                                                 on_body=on_body,
-                                                 on_attempt=on_attempt)
+                # An author that RAISES (a 401 on a stale key, a 429 mid repair
+                # loop, a stream the provider dropped) is turned into the same
+                # {"ok": false, "error": ...} shape the write-path returns for a
+                # body it could not fix, instead of propagating to the outer
+                # handler's \x00 error frame. Two reasons, one of them the whole
+                # point of this block: the \x00 frame is a bare string and cannot
+                # carry the api_spend below, so an authoring that billed four
+                # repair rounds before dying would report nothing spent —
+                # precisely the run the user most wants accounted. And the
+                # client sees no difference: PipeInference::authorCsoundOrchestra
+                # sets the same errorMessage from either frame, as does
+                # tools/lco_trace_wire_check.py.
+                try:
+                    response = build_csound_response(request.get("text") or "", csound_llm,
+                                                     request.get("correction") or "",
+                                                     request.get("previous") or "",
+                                                     on_thinking=on_thinking,
+                                                     on_body=on_body,
+                                                     on_attempt=on_attempt)
+                except Exception as exc:
+                    log.error(f"csound authoring failed: {exc}")
+                    # The traceback the outer handler would have written. Kept:
+                    # backend_stderr.log is what a user pastes into a support
+                    # request, and intercepting the exception here must not make
+                    # this one failure class quieter than every other.
+                    import traceback
+                    traceback.print_exc(file=sys.stderr)
+                    response = {"ok": False, "error": str(exc)}
                 # Report WHICH model actually authored. The UI otherwise shows a
                 # hardcoded name and cannot tell that the resolver walked past the
                 # intended slot: an install missing its shard map fails
@@ -3756,7 +3960,17 @@ def main():
                 # Observed exactly so (2026-07-22): the 7B slot was unloadable and
                 # the 3B authored, with nothing on the wire to show it.
                 if isinstance(response, dict):
-                    response["author_model"] = coder_dir.name
+                    response["author_model"] = _author_backend_label(author_backend)
+                    # What the external author has cost so far, this session.
+                    # Ridden along on THIS response and no other because it is
+                    # the only one with a JSON envelope — translate/interpret
+                    # answer with bare text, and giving them a wrapper to carry a
+                    # counter would change the wire for every existing client.
+                    # No loss: the counter is cumulative and process-wide, so
+                    # their tokens appear here too, at the next authoring.
+                    # Attached on failure too — see the try/except above.
+                    if _API_SPEND["calls"] > 0:
+                        response["api_spend"] = api_spend_snapshot()
                 send_text(json.dumps(response))
                 continue
 

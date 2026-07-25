@@ -240,6 +240,11 @@ T5ynthProcessor::T5ynthProcessor()
         // LRO (Csound) oversampling — its own setting, its own default (index 2 = 4×).
         const int lroIdx = appProperties_.getUserSettings()->getIntValue("lroOsQuality", 2);
         lroOsFactor_.store(osFactorFromQualityIndex(lroIdx), std::memory_order_relaxed);
+
+        // LRO AUTHOR provider (external API alternative to the local GGUF) —
+        // load once here so the very first translate/interpret/csound call
+        // already knows about it, not just calls after the Settings UI is opened.
+        pipeInference->setAuthorProviderConfig(getLroAuthorProviderConfig());
     }
 
     // Event Log (.t5evt): build the paramID<->index tables once (index is what
@@ -344,6 +349,35 @@ void T5ynthProcessor::setLroOsQuality(int qualityIndex)
 int T5ynthProcessor::getLroOsQuality() const
 {
     return osQualityIndexFromFactor(lroOsFactor_.load(std::memory_order_relaxed));
+}
+
+void T5ynthProcessor::setLroAuthorProviderConfig(const PipeInference::AuthorProviderConfig& config)
+{
+    if (auto* s = appProperties_.getUserSettings())
+    {
+        s->setValue("lroAuthorProvider", config.provider);
+        s->setValue("lroAuthorApiBase", config.apiBase);
+        s->setValue("lroAuthorApiModel", config.apiModel);
+        s->setValue("lroAuthorApiKey", config.apiKey);
+        s->saveIfNeeded();
+    }
+    // Forward immediately: PromptPanel's background thread reads whatever
+    // PipeInference last got told, not this settings file, so a live edit in
+    // Settings would otherwise not take effect until the next launch.
+    pipeInference->setAuthorProviderConfig(config);
+}
+
+PipeInference::AuthorProviderConfig T5ynthProcessor::getLroAuthorProviderConfig()
+{
+    PipeInference::AuthorProviderConfig config;
+    if (auto* s = appProperties_.getUserSettings())
+    {
+        config.provider = s->getValue("lroAuthorProvider", "");
+        config.apiBase  = s->getValue("lroAuthorApiBase", "");
+        config.apiModel = s->getValue("lroAuthorApiModel", "");
+        config.apiKey   = s->getValue("lroAuthorApiKey", "");
+    }
+    return config;
 }
 
 void T5ynthProcessor::startUpdateCheckIfDue()
