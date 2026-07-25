@@ -2661,7 +2661,7 @@
     "shruti box"
    ],
    "priority": 5,
-   "why": "accordion / harmonium / bandoneon / melodica -- a FREE reed: a tongue of metal beating in a slot, driven by bellows. Three `gbuzz` stacks, one at pitch and two spread +21 and -16 cents, so the reeds BEAT against each other -- that beat is what a musette is, and it is measured, not decorative: depth 0.04 with one reed and 0.28 with three, at 2.3 Hz. The bellows are the instrument's gesture and never hold still, so a slow lean at 0.19 Hz opens the harmonic series and pulls the reed slightly sharp together; that lean, not the beat, is what keeps a single-reed setting moving. `gbuzz` normalises to PEAK, so the closed-form `knrm` holds one loudness while the harmonic count travels: measured 0.07 dB across the whole parameter cube and 0.4 dB from 55 to 1760 Hz. Reedier and buzzier than `clarinet`, which is a cylindrical BEATING reed with only odd harmonics; this one keeps the full series (odd/even balance +3.6 dB).",
+   "why": "accordion / harmonium / bandoneon / melodica -- a FREE reed: a tongue of metal beating in a slot, driven by bellows. Three `gbuzz` stacks, one at pitch and two spread +21 and -16 cents, so the reeds BEAT against each other -- that beat is what a musette is, and it is measured, not decorative: depth 0.04 with one reed and 0.28 with three, at 2.3 Hz. The bellows are the instrument's gesture and never hold still, so a slow lean at 0.19 Hz opens the harmonic series and pulls the reed slightly sharp together; that lean, not the beat, is what keeps a single-reed setting moving. `gbuzz` normalises to PEAK, so the closed-form `knrm` holds one loudness while the harmonic count travels: measured 0.07 dB across the whole parameter cube and 0.4 dB from 55 to 1760 Hz. Reedier and buzzier than `clarinet`, which is a cylindrical BEATING reed with only odd harmonics; this one keeps the full series (odd/even balance +5.1 dB).",
    "params": {
     "musette": {
      "range": [
@@ -3157,7 +3157,7 @@
       1.0
      ],
      "default": 0.5,
-     "note": "how hard the two blades are driven, and the widest axis here: centroid 472 -> 1218 Hz with the colour movement in the note rising from 68 to 347 Hz alongside it. Loudness constant to 0.00 dB through the closed-form `gbuzz` normalisation.",
+     "note": "how hard the two blades are driven, and the widest axis here: centroid 472 -> 1218 Hz with the colour movement in the note rising from 37 to 172 Hz alongside it. Loudness constant to 0.00 dB through the closed-form `gbuzz` normalisation.",
      "anchors": {
       "soft": {
        "value": 0.15,
