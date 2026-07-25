@@ -87,6 +87,7 @@ def census():
     import json
     lex = json.loads((REPO / "backend" / "dco_lexicon.json").read_text())
     still, exempt = {}, set()
+    declared = [e["key"] for e in lex["techniques"] if declares_texture(e["code"])]
     for e in lex["techniques"]:
         bad = []
         for f in _MOVE_REGISTERS:
@@ -109,6 +110,15 @@ def census():
     for k, bad in still.items():
         mark = "  [TEXTURE]" if k in exempt else ""
         print(f"  {k:16s}{mark} " + "  ".join(f"{f:.0f}:{d}" for f, d in bad))
+    # The third census number counts declarations that are USED — declared AND standing
+    # still. It is not the number of bodies carrying the declaration, and reading it that
+    # way loses the ones that declare and move anyway (`bubbles` does). Both are printed
+    # because only the difference tells you a declaration is currently doing nothing.
+    print(f"\n  {len(declared)} bodies carry `; MOVEMENT: TEXTURE`: "
+          + ", ".join(declared)
+          + f"\n  {len(exempt)} of them need it here; "
+          + (", ".join(sorted(set(declared) - exempt)) or "none")
+          + " move at every register and would pass without it")
     want = (n - len(still), len(still), len(exempt))
     if want != _MOVE_CENSUS[:3]:
         print(f"\n  STALE  _MOVE_CENSUS says {_MOVE_CENSUS[0]}/{_MOVE_CENSUS[1]}/"
@@ -127,48 +137,114 @@ def census():
 # And an end-of-line form (`asig = anz   ; MOVEMENT: TEXTURE`) is the library's own house
 # style for axis comments, so a declaration written that way was silently IGNORED with no
 # diagnostic — `_mentions_texture` below now makes that an error instead.
-# k-rate generators. A body driving its colour from one of these has a shape over the
-# note that depends on the PLUGIN'S UPTIME, because the host's sixteen instances have
+# Uptime-dependent state. A body whose colour comes from one of these has a shape over
+# the note that depends on the PLUGIN'S UPTIME, because the host's sixteen instances have
 # been running since load and only `knote` is reset at note-on. `tanpura` shipped its
 # entire reason for existing that way: a 3.70 s `poscil` that climbed after the attack
 # offline (where the instance begins at the note) and darkened at a quarter turn.
-_KGEN = re.compile(r"^\s*k\w+\s+(poscil|poscil3|oscili|oscil|oscil3|lfo|randi|randh"
-                   r"|rand|phasor|jspline|bspline|dust|dust2|randomi|randomh)\b")
+#
+# Three syntactic shapes and three behavioural classes, because the first version of this
+# detector matched ONE shape of ONE class and missed the rest — including, measured, the
+# `poscil:k()` form used by this project's own LFO fixture and the `balance` that the
+# commit introducing the detector named as one of its two motivating opcodes:
+#
+#   1. free-running generators — phase at note-on is the uptime
+#   2. one-shot ramps and clocks (`linseg`, `metro`, …) — they run ONCE from the
+#      INSTANCE, so after a second of uptime they sit at their end value for ever. This
+#      is the worst class, not a borderline one: `kdark linseg 0, 1, 1` measures a colour
+#      that climbs from 330 Hz on a fresh instance and is pinned at 660 Hz on every note
+#      after. Also the shape an author reaches for first, and no shipped body has it yet.
+#   3. settling a-rate state (`balance`, `follow`, `rms`) — the value at note-on depends
+#      on how long the averager has been running. Eight shipped bodies, and the spread it
+#      causes is larger than the k-rate case that prompted the detector (`struck_bar` 389,
+#      `glass` 303, against `string`'s 163 Hz).
+#
+# Deliberately NOT flagged, both decisions rather than oversights:
+#   * a-rate NOISE (`aexq rand 0.07`) — statistically stationary, so uptime changes the
+#     draw and not the note's shape. That difference IS the null `phase_spread` prints.
+#   * the phase of an a-rate oscillator — inaudible on its own. It becomes audible only
+#     where two of them beat, and then the beat rate is a k-rate reading this does catch.
+_KGENS = (r"poscil|poscil3|oscili|oscil|oscil3|lfo|randi|randh|rand|phasor|jspline"
+          r"|bspline|dust|dust2|randomi|randomh|gauss|betarand|trirand|pinkish")
+_KONESHOT = (r"linseg|linsegr|line|expon|expseg|expsegr|transeg|transegr|cosseg|lpshold"
+             r"|loopseg|loopxseg|looptseg|metro|metro2|trigger|timeinstk|timek")
+_SETTLERS = r"balance|balance2|follow|follow2|rms"
+# `kx  poscil …`, `kx, ky  jspline …`, and a-rate one-shots/settlers by their own output.
+_KGEN = re.compile(rf"^\s*k\w+(?:\s*,\s*[ka]\w+)*\s+({_KGENS}|{_KONESHOT})\b")
+_AGEN = re.compile(rf"^\s*a\w+(?:\s*,\s*a\w+)*\s+({_KONESHOT}|{_SETTLERS})\b")
+# `poscil:k(...)` anywhere in an expression — including inside an `=`, which is how the
+# functional syntax always arrives.
+_KFUNC = re.compile(rf"\b({_KGENS}|{_KONESHOT}|{_SETTLERS}):[ka]\s*\(")
 _KNOTE = re.compile(r"\bknote\b")
 
 TEXTURE = re.compile(r"^;\s*MOVEMENT:\s*TEXTURE\s*$")
 _MENTIONS = re.compile(r"movement\s*:\s*texture", re.I)
 _BLOCK = re.compile(r"/\*.*?\*/", re.S)
+_STRING = re.compile(r'"[^"]*"')
 
 
 def free_running(body):
-    """The k-rate generator lines whose phase at note-on the plugin does not control."""
+    """The lines whose state at note-on the plugin does not control.
+
+    Block comments come off first for the same reason `declares_texture` strips them: a
+    disabled line is not a behaviour, and Csound's `/* … */` spans lines so no per-line
+    test can see it.
+    """
     out = []
-    for l in (body or "").splitlines():
+    for l in _BLOCK.sub("", body or "").splitlines():
         if l.lstrip().startswith(";"):
             continue
-        if _KGEN.match(l):
+        bare = _STRING.sub('""', l.split(";")[0])
+        if _KGEN.match(bare) or _AGEN.match(bare) or _KFUNC.search(bare):
             out.append(l.strip())
     return out
 
 
-def phase_spread(body, freq, phases=(0.0, 0.925, 1.85, 2.775)):
-    """How much the note's own shape depends on the instance's phase at note-on.
+# Four instance ages, all of them SETTLED, and mutually incommensurate.
+#
+# Both properties were wrong in the first version and each cost the reading its meaning.
+# It started at `MIN_PREROLL`, i.e. a fresh instance, so half of what it reported was the
+# start-up transient `worst_onset` prints two lines above it (`string` 290 -> 163 Hz once
+# the first render is settled too, `free_reed` 135 -> 21, `surf` 4545 -> 1435). And the
+# four ages were equal steps of 0.925 s, so any body whose period divides that step reads
+# the SAME phase four times: a 1.081 Hz generator measured 0 Hz on the equal grid and
+# 171 Hz on an offset one. Golden-ratio spacing has no such null.
+_SETTLE_S = 0.25
+_PHASES = (_SETTLE_S, _SETTLE_S + 0.618034, _SETTLE_S + 1.414214, _SETTLE_S + 2.718282)
 
-    Returns (worst_first_window_spread_hz, per_phase_centroid_tracks) or None. This is
-    REPORTED and not gated: whether a body may sound different depending on how long
-    the plugin has been open is a judgement about that body's character, not a rule in
-    §4. What the gate owes is that the fact is visible — it was not, and `tanpura`
-    shipped a documented behaviour that only happened at phase zero.
+
+def phase_spread(body, freq, phases=_PHASES):
+    """How much the note's own shape depends on the instance's age at note-on.
+
+    Returns (spread_hz, null_hz, per_phase_centroid_tracks) or None. This is REPORTED and
+    not gated: whether a body may sound different depending on how long the plugin has
+    been open is a judgement about that body's character, not a rule in §4. What the gate
+    owes is that the fact is visible — it was not, and `tanpura` shipped a documented
+    behaviour that only happened at phase zero.
+
+    `null_hz` is the same statistic over four renders at ONE age, and it is not optional
+    decoration: a body with a stochastic exciter spreads without any phase dependence at
+    all (`pink_noise` measures a null of 266 Hz against a reading of 194). A number whose
+    noise floor is larger than itself means nothing, and the register sweep in this file
+    already prints its null for exactly that reason.
     """
     tracks = []
     for p in phases:
-        y, err = M.render(body, dur=4.0, freq=freq, preroll=(p or M.MIN_PREROLL))
+        y, err = M.render(body, dur=4.0, freq=freq, preroll=p)
         if y is None:
             return None
         tracks.append(M.measure(y, freq)["centroid_over_note"])
+    nulls = []
+    for _ in range(3):
+        y, err = M.render(body, dur=4.0, freq=freq, preroll=phases[0])
+        if y is None:
+            return None
+        nulls.append(M.measure(y, freq)["centroid_over_note"])
     firsts = [t[0] for t in tracks if t]
-    return (max(firsts) - min(firsts) if firsts else 0.0), tracks
+    nfirsts = [t[0] for t in [tracks[0]] + nulls if t]
+    if len(firsts) < 2 or len(nfirsts) < 2:
+        return None      # not "0 Hz", which reads as "no dependence"
+    return (max(firsts) - min(firsts)), (max(nfirsts) - min(nfirsts)), tracks
 
 
 def declares_texture(body):
@@ -517,14 +593,15 @@ def gate(body, freq=220.0, steps=3, registers=(55, 110, 220, 440, 880, 1760)):
     # only inside a headroom FAILURE string — the one case that needed no help.)
     onset = max(peaks, key=lambda t: t[1] - t[0])
     stats["worst_onset"] = (onset[1], onset[0], onset[2])
-    # And what the plugin's uptime does to this body's note. Only for bodies that have a
-    # free-running k-rate generator, since for anything else there is nothing to sweep.
+    # And what the plugin's uptime does to this body's note. Only for bodies that carry
+    # state the note-on does not reset, since for anything else there is nothing to sweep.
     stats["free_running"] = free_running(body)
     stats["phase_spread"] = None
+    stats["phase_null"] = None
     if stats["free_running"]:
         got = phase_spread(body, float(freq))
         if got is not None:
-            stats["phase_spread"] = got[0]
+            stats["phase_spread"], stats["phase_null"] = got[0], got[1]
     if over:
         worst = over[0]
         limited = (" — past the absolute ceiling, so the host lets NONE of it out"
@@ -649,14 +726,22 @@ def main():
                       f"and a fresh instance's `balance` accounts for most of this — but "
                       f"it is what the note STARTS with, so it is audible")
         if st.get("free_running"):
-            _sp = st.get("phase_spread")
-            print(f"  note  {len(st['free_running'])} free-running k-rate generator(s), so "
-                  f"this body's note depends on how long the plugin has been open: the "
-                  f"first window's colour moves "
-                  + (f"{_sp:.0f} Hz" if _sp is not None else "an unmeasured amount")
-                  + " across four instance phases. Key anything that must happen AFTER "
-                    "the attack to `knote`, which the host resets; a generator's phase it "
-                    "does not. First: " + st["free_running"][0])
+            _sp, _nl = st.get("phase_spread"), st.get("phase_null")
+            if _sp is None:
+                _reading = "an unmeasured amount"
+            elif _nl is not None and _sp <= _nl:
+                _reading = (f"{_sp:.0f} Hz — but the SAME instance age measured four times "
+                            f"spreads {_nl:.0f} Hz, so this reading is inside its own noise "
+                            f"floor and says nothing")
+            else:
+                _reading = (f"{_sp:.0f} Hz, against a {_nl:.0f} Hz noise floor at one age"
+                            if _nl is not None else f"{_sp:.0f} Hz")
+            print(f"  note  {len(st['free_running'])} line(s) hold state the note-on does "
+                  f"not reset, so this body's note depends on how long the plugin has been "
+                  f"open: the first window's colour moves " + _reading
+                  + ". Key anything that must happen AFTER the attack to `knote`, which the "
+                    "host resets; a generator's phase and an averager's history it does "
+                    "not. First: " + st["free_running"][0])
         if st.get("worst_travel"):
             # Reported with its verdict, because the span alone was meaningless: a narrow
             # filter fed noise has a fluctuating envelope with nothing modulating it, and
