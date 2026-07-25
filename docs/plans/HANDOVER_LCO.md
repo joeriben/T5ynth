@@ -61,6 +61,21 @@ The path, end to end:
 
 Every axis in the library is a **measured** range with named anchors, gated by `tools/lco_param_audit.py` (§4): the audit's own counts move with every batch, so run it rather than quoting it here; it exits 2 on a key it does not have instead of printing an empty clean pass and explained in the tool itself rather than in a commit message.
 
+**Where the library actually stands on the loudness bound, re-measured 2026-07-25 with the meter that matches each body** (`tools/lco_meter_sweep.py`, 61 entries, 129 axes, ~8 min). **119 of 129 axes are inside bound; ten are not:**
+
+| axis | worst | at | bound | `rms_db` read |
+|---|---|---|---|---|
+| `voice.press`, `voice_ee.press`, `voice_oo.press` | 8.66–8.68 dB | 1760 Hz | 1.0 | the same |
+| `strings.desk` | 2.90 dB | 880 Hz | 1.0 | 3.62 |
+| `additive.bright` | 2.46 dB | 55 Hz | 1.0 | 3.37 |
+| `sync.sweep` | 1.19 dB | 220 Hz | 0.5 | 1.38 |
+| `sub_sine.weight` | 1.20 dB | 880 Hz | 1.0 | 1.23 |
+| `surf.water` | 0.82 dB | 220 Hz | 0.5 | 0.82 |
+| `rhodes.bark` | 0.76 dB | 220 Hz | 0.5 | 1.57 |
+| `supersaw.spread` | 0.72 dB | 220 Hz | 0.5 | 0.59 |
+
+Two things this settles. **The wrong-meter problem was not systemic**: only three cells in the whole library are over bound on the audible meter while `rms_db` says they are fine (`strings.desk` at 110 and 1760 Hz, `supersaw.spread` at 55 Hz, all 1.03–1.09 dB against 1.0), and the two entries where it mattered — `vibraphone` and `rhodes` — are fixed. **And only three bodies in the library are struck at all**: `rhodes` and `wurlitzer` fall 230 dB from the first 200 ms to 4.0–5.5 s, `vibraphone` 83 dB, and every other body holds level to within 6 dB because the host owns the note-off and the bodies were written knowing it. So the attack meter applies to three entries; everything else is judged on the note.
+
 ### What the author gets to see — the consultation, BUILT 2026-07-24
 
 **The rule (BJ, 2026-07-24, standing): it is strictly forbidden to constrain the LLM deterministically, in any form.**
