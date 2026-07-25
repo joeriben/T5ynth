@@ -419,6 +419,40 @@ def coherence(y, n=128):
     return float((a[:-1] * a[1:]).sum() / den)
 
 
+def beat(y, lo_hz=0.5, hi_hz=25.0, t0=0.5, t1=3.5):
+    """The slow amplitude beat: how deep it is, and how fast.
+
+    Two sources a few cents apart beat, and that beat is the whole substance of a
+    musette accordion, a bagpipe drone and a detuned analogue pad. No spectral
+    meter can see it — the spectrum is the same whether the partials beat or not,
+    so `centroid`, `comb_contrast` and `travel` all read a musette axis as doing
+    almost nothing (measured: `bagpipe`'s detune moved the centroid by 1 Hz over
+    its whole range while the beat rate went from 1.0 to 4.0 Hz). Judging such an
+    axis by colour alone concludes it is inert and invites deleting it.
+
+    Read off the amplitude envelope, decimated to 200 Hz, as the largest spectral
+    component in the beat band relative to the mean level, so `depth` comes out on
+    the same scale as an asked-for AM depth. Calibrated against exactly that:
+    asked 0.00 / 0.10 / 0.30 / 0.60 read 0.000 / 0.100 / 0.299 / 0.599.
+    """
+    s = y[int(t0 * SR):int(t1 * SR)]
+    if len(s) < SR // 4:
+        return 0.0, 0.0
+    env = np.abs(s)
+    k = max(1, int(SR / 200))
+    env = env[:len(env) // k * k].reshape(-1, k).mean(1)
+    sr2 = SR / k
+    mean = float(np.abs(s).mean())
+    env = env - env.mean()
+    F = np.abs(np.fft.rfft(env * np.hanning(len(env))))
+    fq = np.fft.rfftfreq(len(env), 1 / sr2)
+    band = (fq >= lo_hz) & (fq <= hi_hz)
+    if not band.any() or mean <= 0:
+        return 0.0, 0.0
+    amp = 2 * float(F[band].max()) / (len(env) / 2)
+    return amp / mean, float(fq[band][np.argmax(F[band])])
+
+
 def moves(y, n=128, span_hz=8.0, min_coherence=0.35):
     """Does the colour actually travel over the note? Span AND shape must agree."""
     _, span = travel(y, n)
@@ -583,6 +617,27 @@ asig    vco2 0.5, kfreq * koct1 * (1 + kvib), 0"""
         s = tracks(ylo, yhi, 110.0, 880.0)
         check(name, (s["verdict"] == "tracks") == want_tracking,
               f"{s['verdict']} (r_note {s['r_note']} vs r_fixed {s['r_fixed']})")
+
+    print("the beat meter reads back the depth it was given")
+    for asked in (0.0, 0.1, 0.3, 0.6):
+        yb, eb = render(f"""kam     poscil {asked / 2:.4f}, 4.0
+asig    poscil 0.4 * (1 + 2 * kam), kfreq * koct1, giSine""")
+        if eb:
+            check(f"AM depth {asked}", False, eb)
+            continue
+        d, r = beat(yb)
+        check(f"AM depth {asked}", abs(d - asked) < 0.02 and (asked == 0 or abs(r - 4) < 0.4),
+              f"read {d:.3f} at {r:.2f} Hz")
+    ybt, ebt = render("""a1      poscil 0.3, kfreq * koct1, giSine
+a2      poscil 0.3, kfreq * koct1 * 1.0136, giSine
+asig    = a1 + a2""")
+    if ebt:
+        check("two detuned sines beat", False, ebt)
+    else:
+        d, r = beat(ybt)
+        # 1.36 % of 220 Hz is 2.99 Hz; the beat is at the difference frequency.
+        check("two detuned sines beat at their difference", abs(r - 2.99) < 0.3 and d > 0.5,
+              f"depth {d:.2f} at {r:.2f} Hz (asked 2.99)")
 
     print("comb contrast tracks the resonator, not the exciter")
     (yn, en), (yh, eh), (yl, el) = (render(_NOISE), render(_comb(0.995)),
