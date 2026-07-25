@@ -7,8 +7,12 @@ Two halves, with different outcomes:
   meter's own variance fell the right side of a threshold. BJ ruled that the gate was asking
   the wrong question of this class. Part one below is kept as it was written, because the
   measurements in it are the evidence for that ruling and for the class that now exists.
-- **`waterphone` — still parked, needs BJ.** It can pass the movement gate or sound at the
-  played note, but not both, and which one to give up is not my decision.
+- **`waterphone` — the conflict was a measurement artefact; it ships as written.** It does
+  sound at the played note — the fundamental is the loudest component of the spectrum — and it
+  passes the gate. What said otherwise was `f0`, a period estimator, on a 1 : 6.267 : 17.55
+  set: the artefact `tools/lco_param_audit.py` already documents for `fm_bell`. Part two is
+  kept because a false conflict between two platform fundamentals, built on a plausible number
+  from the wrong instrument, is worth being able to recognise again.
 
 No Csound was taken from anywhere. All three are written from published acoustics: the
 Minnaert resonance of a gas bubble in water, flexural-wave dispersion in a thin plate, and
@@ -143,9 +147,26 @@ Three ways forward, none of them mine to pick:
 
 ## The bodies
 
-Reproduced as they were when this was written. **The shipped versions are in
-`backend/dco_lexicon.json` and differ by the three declaration comment lines and nothing
-else** — each was asserted to render sample-identically before and after.
+Reproduced as they stood when this was written, which is **no longer what ships**. Do not
+copy them forward: take the bodies from `backend/dco_lexicon.json`. The sentence that used to
+stand here — that the shipped versions differ by the declaration comments and nothing else —
+was true at `4b9d6103` and false from `c027b8d1` on. What diverged, and why it matters:
+
+| | here | shipped | why |
+|---|---|---|---|
+| `bubbles` | `randi 0.14, 0.19, 2` | `randi 0.14, 0.19, 0.5, 1` | `2` is outside `randi`'s 0..1 seed range, so Csound seeded from the CLOCK: the body below renders differently every time |
+| `ice` | `randi 0.30, 0.7, 2` | `randi 0.30, 0.7, 0.5, 1` | the same clock seed |
+| `ice` | `kev = exp(-9 * kph)` | `… * (1 - exp(-45 * kph))` | without the second factor the envelope is non-zero at the phasor wrap: a click, and it clips |
+| `ice` | `kev2 = exp(-13 * kph2)` | `… * (1 - exp(-45 * kph2))` | the same |
+
+Two consequences for reading the tables above. The loudness figures for both bodies are one
+draw of a clock-seeded render and are by construction not re-derivable; measured on the
+shipped bodies, `bubbles` reads 0.04 / 0.02 / 0.07 / 1.01 and `ice` 0.09 / 0.07 / 0.16 / 1.55
+where this page recorded 0.10 / 0.04 / 0.12 / 1.08 and 0.15 / 0.08 / 0.48 / 2.05. And the
+`ice` below, described here as holding loudness to a standard the library rarely reaches,
+**fails the gate on headroom**: true peak 4.51 against the host's ceiling, at 17 of 60
+renders. Its p99.9 of 2.05 is exactly the percentile `c027b8d1` was committed to stop
+trusting for that judgement.
 
 ### bubbles
 
@@ -218,12 +239,44 @@ upper modes are much more mass-sensitive than the bowl's fundamental, so the hig
 inharmonic partials GLIDE while the note stays put. Two axes: `water` (how much is in the
 bowl) and `bow` (how hard the rod is bowed).
 
-## The conflict, measured
+## There was no conflict. The meter was wrong.
 
-The perceived pitch is whichever mode dominates, and on a real cantilever that is not the
-first one — the second mode at 6.267× radiates far more readily. Pushing the fundamental up
-until the played note is findable is a single monotone trade, measured over all 36
-corner-registers and the nine-corner cube at 220 Hz:
+**Resolved 2026-07-25, by measurement, against everything below this heading.** The body at
+×1 — the physical weighting, unchanged — sounds at the played note and always did:
+
+```
+partial levels at a 220 Hz note, band peaks, the body below as written
+  played note              67.4 dB   <- the loudest bin in the whole spectrum
+  cantilever 6.267x        54.1
+  17.55x                   50.8
+  34.39x                   38.2
+```
+
+The fundamental is 13.3 dB above the mode the paragraph below claims dominates it, and it is
+the strongest component of the sound. `tools/lco_param_audit.py`'s `tracking()` — which
+renders 110→880 Hz and correlates, and is the check that tool documents as the valid one for
+an inharmonic set — returns `r_note 0.675, r_fixed −0.042, verdict 'tracks'`. And
+`lco_axis_probe.py --gate` on it: **PASS**.
+
+What produced the table below is `f0`, a period estimator, reading 1224 Hz (+2972 cents) on a
+set whose partials are 1 : 6.267 : 17.55 : 34.39. That is not a property of the waterphone; it
+is the artefact `tools/lco_param_audit.py:38-41` already records for `fm_bell` (−2773 cents,
+"not mistuned; it is a bell"). I built a monotone trade-off table, a conflict between two
+platform fundamentals, and three options for BJ, on top of a reading my own tools document as
+invalid for exactly this class of sound — and never ran the valid check.
+
+So: the waterphone ships at ×1 as written. Nothing needs raising the fundamental, nothing
+needs a §4 exception, and there is no decision to make. The rest of this part is kept for the
+lesson, not the verdict — that a plausible number from the wrong instrument reads exactly like
+a finding ([[feedback_calibrate_the_meter_not_only_the_thing]]).
+
+## The reading that produced the false conflict
+
+The claim was that perceived pitch is whichever mode dominates and that on a real cantilever
+that is not the first one — the second mode at 6.267× radiating far more readily. True of a
+bowed rod in isolation; not true of this body, as the levels above show. On that premise,
+pushing the fundamental up until `f0` finds the played note is a single monotone trade,
+measured over all 36 corner-registers and the nine-corner cube at 220 Hz:
 
 | fundamental gain | reads at the played note | no pitch found | median f0 | movement failures |
 |---|---|---|---|---|
@@ -242,27 +295,24 @@ Nothing in between works either: at every intermediate weighting the movement fa
 already there before the pitch arrives. The two requirements move in opposite directions
 across the whole range, monotonically, so there is no setting to find.
 
-## Why it is a real conflict and not a defect
+## Why it read as a conflict and not as a defect
 
-§4 of `docs/LCO_CONCEPT.md` gives pitch to the synth: the oscillator sounds at the played
-note. Movement-by-default is a platform fundamental. This instrument's defining physics —
-a mode series whose second member is 6.267× the first and louder than it — is incompatible
-with the first of those unless the physics is overridden, and overriding it costs the
-second.
+The argument was: §4 gives pitch to the synth, movement-by-default is a platform fundamental,
+and this instrument's defining physics — a mode series whose second member is 6.267× the first
+**and louder than it** — is incompatible with the first unless the physics is overridden,
+which costs the second. Every step of that follows, and the emphasised clause is the one that
+is measurably false of the body: the fundamental is 13.3 dB *above* the 6.267× mode. A
+conflict between two fundamentals is the most interesting thing a measurement can report,
+which is precisely why it should have been the most suspected. The single check that would have
+killed it — the strongest partial in the spectrum — costs one FFT.
 
-Three ways forward, none of them mine to pick:
-
-- **Ship it at ×1 and accept that this entry sounds an inharmonic shoal rather than the
-  played note.** Defensible for a body whose whole character is unpitched metal, but it is a
-  §4 exception and would need to be stated as one.
-- **Ship it at ×8, where the note is findable at 12 of 36 corner-registers and 4 of 9
-  corners fail movement.** The worst of both, but it is the honest middle if both
-  requirements have to be partly met.
-- **Do not ship it.** The library then has no waterphone, and the reason is written here.
+The two requirements do genuinely move in opposite directions once the fundamental is raised;
+the tables above are accurate about that. They are answers to a question that did not need
+asking.
 
 ## The body
 
-Complete and gate-clean on everything except the played note, reproduced in full.
+Complete and gate-clean, reproduced in full. This is what ships.
 
 ```
 kwater  = 0.45                              ; water [0..1]: how much water is in the bowl
