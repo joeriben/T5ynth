@@ -245,10 +245,79 @@ namespace
     }
 }
 
+namespace
+{
+    // ── Decimation filter for source-side oversampling ──────────────────────
+    //
+    // Linear-phase halfband FIR, 63 taps, Kaiser(beta=8). At a 96 kHz input rate
+    // it is flat to ~21 kHz and >=80 dB down from ~28 kHz; every even tap except
+    // the centre is exactly zero (halfband), which is what makes 63 taps this
+    // cheap. Measured against a 768 kHz reference render it lands within 2 dB of
+    // an ideal brickwall on every library patch, so the residual is the
+    // oversampling factor's, not the filter's. Group delay is 31 input samples
+    // (0.32 ms at 96 kHz) — constant, and the LRO is never layered against
+    // another engine (the mode toggle owns engineMode), so it cannot comb.
+    constexpr int kDecimTaps = 63;
+    constexpr float kHalfbandFir[kDecimTaps] = {
+        -2.401525244e-05f,  0.000000000e+00f,  1.090362306e-04f,  0.000000000e+00f, -2.935600810e-04f,  0.000000000e+00f,
+         6.381063754e-04f,  0.000000000e+00f, -1.222076003e-03f,  0.000000000e+00f,  2.145908571e-03f,  0.000000000e+00f,
+        -3.534414302e-03f,  0.000000000e+00f,  5.543647017e-03f,  0.000000000e+00f, -8.376210429e-03f,  0.000000000e+00f,
+         1.231558303e-02f,  0.000000000e+00f, -1.780470021e-02f,  0.000000000e+00f,  2.563768528e-02f,  0.000000000e+00f,
+        -3.748938157e-02f,  0.000000000e+00f,  5.772404439e-02f,  0.000000000e+00f, -1.024425088e-01f,  0.000000000e+00f,
+         3.170728721e-01f,  4.999999672e-01f,  3.170728721e-01f,  0.000000000e+00f, -1.024425088e-01f,  0.000000000e+00f,
+         5.772404439e-02f,  0.000000000e+00f, -3.748938157e-02f,  0.000000000e+00f,  2.563768528e-02f,  0.000000000e+00f,
+        -1.780470021e-02f,  0.000000000e+00f,  1.231558303e-02f,  0.000000000e+00f, -8.376210429e-03f,  0.000000000e+00f,
+         5.543647017e-03f,  0.000000000e+00f, -3.534414302e-03f,  0.000000000e+00f,  2.145908571e-03f,  0.000000000e+00f,
+        -1.222076003e-03f,  0.000000000e+00f,  6.381063754e-04f,  0.000000000e+00f, -2.935600810e-04f,  0.000000000e+00f,
+         1.090362306e-04f,  0.000000000e+00f, -2.401525244e-05f,
+    };
+
+    // 2:1 decimator — one per voice per stage (4x cascades two of them).
+    // RT-safe by construction: fixed storage, no allocation, no branch on the
+    // sample path. State is cleared in prepare() before the engine goes ready,
+    // so a recompile can never leak the previous orchestra's tail into the new
+    // one's first block.
+    struct Decimator2x
+    {
+        static constexpr unsigned kMask = 63u;   // history is 64 == kDecimTaps+1
+        float hist[kMask + 1] = {};
+        unsigned pos = 0;
+
+        void reset() noexcept
+        {
+            for (auto& s : hist) s = 0.0f;
+            pos = 0;
+        }
+
+        // Consumes TWO input samples, returns ONE band-limited output sample.
+        inline float process (float a, float b) noexcept
+        {
+            hist[pos & kMask] = a; ++pos;
+            hist[pos & kMask] = b; ++pos;
+            float acc = 0.0f;
+            for (int k = 0; k < kDecimTaps; ++k)
+                acc += kHalfbandFir[k] * hist[(pos - 1u - (unsigned) k) & kMask];
+            return acc;
+        }
+    };
+}
+
 struct CsoundEngine::Impl
 {
     CSOUND* csound = nullptr;
-    double preparedSampleRate = 0.0;
+    double preparedSampleRate = 0.0;   // HOST rate — what the caller asked for
+    double engineSampleRate   = 0.0;   // preparedSampleRate * osFactor — what Csound runs at
+    int    osFactor           = 1;     // 1, 2 or 4
+
+    // Decimation chain, per voice. decim1 always runs when osFactor > 1;
+    // decim2 only at 4x. Sized for kMaxVoices, never resized.
+    Decimator2x decim1[CsoundEngine::kMaxVoices];
+    Decimator2x decim2[CsoundEngine::kMaxVoices];
+    // One ksmps' worth of HOST-rate samples per voice, produced by renderUpTo()
+    // before the existing block/carry bookkeeping copies them out. At osFactor 1
+    // that is kKsmps samples; higher factors use only the first kKsmps/osFactor.
+    float decimScratch[CsoundEngine::kMaxVoices][CsoundEngine::kKsmps] {};
+
     int capacity  = 0;   // allocated voice-buffer length (>= every startBlock's numSamples)
     int blockSize = 0;   // current host block length
     int writePos  = 0;   // samples already rendered into the current block
@@ -307,13 +376,46 @@ struct CsoundEngine::Impl
 CsoundEngine::CsoundEngine() : impl (std::make_unique<Impl>()) {}
 CsoundEngine::~CsoundEngine() = default;
 
-bool CsoundEngine::prepare (double sampleRate, int maxBlockSize, const char* orchestraText)
+int CsoundEngine::effectiveOversampleFactor (double sampleRate, int requested)
+{
+    // Only 1/2/4 are meaningful, and kKsmps must divide by the factor so a single
+    // csoundPerformKsmps always yields a whole number of host samples. Anything
+    // else falls back to 1 rather than producing a fractional-length block.
+    if (requested != 1 && requested != 2 && requested != 4)
+        requested = 1;
+    if (kKsmps % requested != 0)
+        requested = 1;
+
+    // Cap the ABSOLUTE engine rate, not just the factor. At a 96 kHz host rate
+    // 4x would mean 384 kHz — double the CPU again, to push away a Nyquist that
+    // is already twice as far off as the 48 kHz case this was measured for. The
+    // benefit saturates around 192 kHz, so a high-rate host gets the same
+    // cleanliness at the factor that actually reaches it.
+    while (requested > 1 && sampleRate * (double) requested > 200000.0)
+        requested /= 2;
+
+    return requested;
+}
+
+int CsoundEngine::oversampleFactor() const
+{
+    return impl->osFactor;
+}
+
+bool CsoundEngine::prepare (double sampleRate, int maxBlockSize, const char* orchestraText,
+                            int oversampleFactor)
 {
     // Phase-0 verified: MYFLT is double on this Homebrew build. A mismatch
     // here means spout would be read at the wrong width further down.
     assert(sizeof(MYFLT) == 8 &&
            "CsoundEngine assumes MYFLT==double (8 bytes), matching this machine's "
            "Homebrew Csound build (Phase-0 verified).");
+
+    oversampleFactor = effectiveOversampleFactor (sampleRate, oversampleFactor);
+
+    // What Csound itself is compiled and run at. Everything the CALLER sees —
+    // startBlock/renderUpTo/voiceBuffer — stays in host samples at `sampleRate`.
+    const double engineRate = sampleRate * (double) oversampleFactor;
 
     const int wantedCapacity = maxBlockSize > 0 ? maxBlockSize : 1;
 
@@ -331,7 +433,11 @@ bool CsoundEngine::prepare (double sampleRate, int maxBlockSize, const char* orc
     // FIRST call (or an actual sample-rate/orchestra change) may (re)compile/
     // rewarm the Csound instance. A host block-size-only change just grows the
     // (message-thread-owned) buffers -- no recompile needed.
+    // The oversampling factor is part of what got COMPILED (it sets Csound's own
+    // sr, and an authored orchestra may read `sr` to bound its own bandwidth), so
+    // a factor change must take the full recompile path, never this early-out.
     if (impl->ready.load(std::memory_order_acquire) && impl->preparedSampleRate == sampleRate
+        && impl->osFactor == oversampleFactor
         && sameOrchestraAlreadyCompiled)
     {
         if (wantedCapacity > impl->capacity)
@@ -376,8 +482,13 @@ bool CsoundEngine::prepare (double sampleRate, int maxBlockSize, const char* orc
     csoundSetOption(cs, "-n");
     csoundSetOption(cs, "-d");
 
-    const std::string rawText = requestedIsBuiltIn ? buildOrchestra(sampleRate) : std::string(orchestraText);
-    const std::string csdText = substituteSr(rawText, sampleRate);
+    // Both the built-in orchestra's baked-in header and an authored orchestra's
+    // %SR% marker get the OVERSAMPLED rate: that is the rate Csound computes at,
+    // and it is also the rate an authored patch must see when it derives its own
+    // partial count or FM index from `sr` — telling it 48000 while running it at
+    // 192000 would keep it bandwidth-limited to a Nyquist that no longer applies.
+    const std::string rawText = requestedIsBuiltIn ? buildOrchestra(engineRate) : std::string(orchestraText);
+    const std::string csdText = substituteSr(rawText, engineRate);
     if (csoundCompileCsdText(cs, csdText.c_str()) != 0)
     {
         std::fprintf(stderr, "CsoundEngine: compile failed:\n%s\n", drainMessages(cs).c_str());
@@ -438,10 +549,17 @@ bool CsoundEngine::prepare (double sampleRate, int maxBlockSize, const char* orc
     {
         impl->voiceBuf[v].assign((size_t) impl->capacity, 0.0f);
         impl->carryBuf[v].fill(0.0f);
+        // Cleared here, not just on construction: this same Impl is reused across
+        // recompiles, and a decimator still holding the previous orchestra's tail
+        // would bleed it into the new one's first 31 output samples.
+        impl->decim1[v].reset();
+        impl->decim2[v].reset();
+        for (auto& s : impl->decimScratch[v]) s = 0.0f;
     }
     impl->carryCount = 0;
     impl->writePos   = 0;
     impl->blockSize  = 0;
+    impl->osFactor   = oversampleFactor;
 
     // ---- D4 warm-up: absorb the one-time lazy-init allocation residue
     // inside the first gated performKsmps passes, BEFORE the instance is
@@ -458,13 +576,16 @@ bool CsoundEngine::prepare (double sampleRate, int maxBlockSize, const char* orc
         impl->setNamedChannel("timb", v, 0.5);
         impl->setNamedChannel("trig", v, 1.0);
     }
-    const long warmupOnBlocks = (long) std::llround(1.0 * sampleRate / (double) kKsmps);
+    // Warm-up durations are in SECONDS, so the block counts follow the rate
+    // Csound actually runs at — at 4x, `sampleRate` here would warm up for a
+    // quarter of the intended second.
+    const long warmupOnBlocks = (long) std::llround(1.0 * engineRate / (double) kKsmps);
     for (long i = 0; i < warmupOnBlocks; ++i)
         csoundPerformKsmps(cs);
 
     for (int v = 1; v <= kMaxVoices; ++v)
         impl->setNamedChannel("gate", v, 0.0);
-    const long warmupOffBlocks = (long) std::llround(0.2 * sampleRate / (double) kKsmps);
+    const long warmupOffBlocks = (long) std::llround(0.2 * engineRate / (double) kKsmps);
     for (long i = 0; i < warmupOffBlocks; ++i)
         csoundPerformKsmps(cs);
 
@@ -506,6 +627,7 @@ bool CsoundEngine::prepare (double sampleRate, int maxBlockSize, const char* orc
     }
 
     impl->preparedSampleRate = sampleRate;
+    impl->engineSampleRate   = engineRate;
     // Phase-2 (spec S2): record what got compiled — empty for the built-in
     // orchestra — so the NEXT prepare() call's early-out (above) and
     // orchestraText() (Phase 5 preset save) both see the truth.
@@ -541,7 +663,9 @@ void CsoundEngine::primeForTakeover (const float* epochs, const float* freqs)
         // at 0, and priming must never open the gate (that would be audible).
     }
 
-    const long primeBlocks = (long) std::llround(0.25 * impl->preparedSampleRate / (double) kKsmps);
+    // 0.25 s at the rate Csound runs at, not the host rate — same reason as the
+    // warm-up loops in prepare().
+    const long primeBlocks = (long) std::llround(0.25 * impl->engineSampleRate / (double) kKsmps);
     for (long i = 0; i < primeBlocks; ++i)
         csoundPerformKsmps(cs);
 }
@@ -600,6 +724,11 @@ void CsoundEngine::renderUpTo (int upToSample)
 
     const int target = upToSample + 1;
     CSOUND* cs = impl->csound;
+    const int osF = impl->osFactor;
+    // Host-rate samples one csoundPerformKsmps yields: kKsmps at 1x, half that
+    // at 2x, a quarter at 4x. prepare() guarantees kKsmps divides by osFactor,
+    // so this is exact and the carry store (sized kKsmps) always has room.
+    const int perPerform = kKsmps / osF;
 
     // Idempotent/monotonic: if writePos already covers `target` (this
     // sub-range was already rendered by an earlier call within the same
@@ -609,15 +738,48 @@ void CsoundEngine::renderUpTo (int upToSample)
         csoundPerformKsmps(cs);
         MYFLT* spout = csoundGetSpout(cs);
 
-        const int samplesToBlock = std::min(kKsmps, impl->blockSize - impl->writePos);
+        // De-interleave spout and, when oversampling, band-limit + decimate it
+        // to the host rate. Everything downstream of here counts HOST samples.
+        for (int v = 0; v < kMaxVoices; ++v)
+        {
+            float* out = impl->decimScratch[v];
+            if (osF == 1)
+            {
+                for (int s = 0; s < kKsmps; ++s)
+                    out[s] = (float) spout[(size_t) s * (size_t) kMaxVoices + (size_t) v];
+            }
+            else if (osF == 2)
+            {
+                for (int s = 0; s < perPerform; ++s)
+                    out[s] = impl->decim1[v].process(
+                        (float) spout[(size_t) (2 * s)     * (size_t) kMaxVoices + (size_t) v],
+                        (float) spout[(size_t) (2 * s + 1) * (size_t) kMaxVoices + (size_t) v]);
+            }
+            else // osF == 4: two cascaded halfband stages, 192k -> 96k -> 48k
+            {
+                for (int s = 0; s < perPerform; ++s)
+                {
+                    const float a = impl->decim1[v].process(
+                        (float) spout[(size_t) (4 * s)     * (size_t) kMaxVoices + (size_t) v],
+                        (float) spout[(size_t) (4 * s + 1) * (size_t) kMaxVoices + (size_t) v]);
+                    const float b = impl->decim1[v].process(
+                        (float) spout[(size_t) (4 * s + 2) * (size_t) kMaxVoices + (size_t) v],
+                        (float) spout[(size_t) (4 * s + 3) * (size_t) kMaxVoices + (size_t) v]);
+                    out[s] = impl->decim2[v].process(a, b);
+                }
+            }
+        }
+
+        const int samplesToBlock = std::min(perPerform, impl->blockSize - impl->writePos);
         for (int v = 0; v < kMaxVoices; ++v)
         {
             float* dst = impl->voiceBuf[v].data() + impl->writePos;
+            const float* src = impl->decimScratch[v];
             for (int s = 0; s < samplesToBlock; ++s)
-                dst[s] = (float) spout[(size_t) s * (size_t) kMaxVoices + (size_t) v];
+                dst[s] = src[s];
         }
 
-        const int leftover = kKsmps - samplesToBlock;
+        const int leftover = perPerform - samplesToBlock;
         if (leftover > 0)
         {
             // Surplus beyond this block's end goes to the carry store,
@@ -625,8 +787,9 @@ void CsoundEngine::renderUpTo (int upToSample)
             for (int v = 0; v < kMaxVoices; ++v)
             {
                 float* dst = impl->carryBuf[v].data();
+                const float* src = impl->decimScratch[v] + samplesToBlock;
                 for (int s = 0; s < leftover; ++s)
-                    dst[s] = (float) spout[(size_t) (samplesToBlock + s) * (size_t) kMaxVoices + (size_t) v];
+                    dst[s] = src[s];
             }
             impl->carryCount = leftover;
         }

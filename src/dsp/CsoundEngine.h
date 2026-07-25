@@ -53,7 +53,35 @@ public:
     // Returns false on any failure (missing framework at runtime cannot happen —
     // link-time — but compile errors must be loud in DBG and leave the engine inert,
     // never half-armed, and must never disturb whatever was compiled before).
-    bool prepare (double sampleRate, int maxBlockSize, const char* orchestraText = nullptr);
+    //
+    // oversampleFactor (1, 2 or 4) runs Csound ITSELF at sampleRate × factor and
+    // decimates each voice back to sampleRate before voiceBuffer() hands it out —
+    // the caller's whole view (startBlock/renderUpTo/voiceBuffer, all in HOST
+    // samples) is unchanged. This is the only place aliasing can be prevented:
+    // none of Csound's generators except vco2 is band-limited, so gbuzz stacks,
+    // foscili sidebands, tanh() shaping and syncphasor edges fold at the rate
+    // they are COMPUTED at, and folded energy is indistinguishable from real
+    // partials afterwards — the downstream filter oversampling in SynthVoice
+    // cannot undo it, only avoid adding more. Measured at f0 = 523 Hz (octave 5),
+    // aliasing relative to signal: cymbal −7.7 dB at 1×, −13.9 at 2×, −181 at 4×;
+    // `saw`+`warm` −27.6 / −47.5 / −48.4. Cost is linear in the factor; the
+    // heaviest library patch (9 mode resonators × 16 voices) still renders 6×
+    // faster than realtime at 4×. Any other value is clamped to 1; kKsmps must
+    // stay divisible by it (64 is, for 1/2/4).
+    bool prepare (double sampleRate, int maxBlockSize, const char* orchestraText = nullptr,
+                  int oversampleFactor = 1);
+
+    /** What `prepare` would ACTUALLY use for this rate and request — the requested
+     *  factor after validity clamping and the absolute-engine-rate cap. Callers
+     *  that compare "what is compiled" against "what the user asked for" must
+     *  compare against THIS, not against the raw request: at a 96 kHz host rate a
+     *  request of 4 compiles as 2, and a naive comparison would see a permanent
+     *  mismatch and recompile forever. Static — no instance, no state. */
+    static int effectiveOversampleFactor (double sampleRate, int requested);
+
+    /** The factor the currently compiled orchestra was prepared with (1 when
+     *  nothing is compiled). Message/compile-thread only, like orchestraText(). */
+    int oversampleFactor() const;
 
     // Currently compiled orchestra text (Phase-2 spec S2): empty when the built-in
     // orchestra is active. Message/compile-thread only (Phase 5 preset save reads
@@ -157,7 +185,9 @@ struct CsoundEngine::Impl {};
 inline CsoundEngine::CsoundEngine() = default;
 inline CsoundEngine::~CsoundEngine() = default;
 
-inline bool CsoundEngine::prepare (double, int, const char*) { return false; }
+inline bool CsoundEngine::prepare (double, int, const char*, int) { return false; }
+inline int  CsoundEngine::effectiveOversampleFactor (double, int) { return 1; }
+inline int  CsoundEngine::oversampleFactor() const { return 1; }
 inline const std::string& CsoundEngine::orchestraText() const
 {
     static const std::string kEmpty;
