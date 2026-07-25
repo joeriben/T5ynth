@@ -146,7 +146,7 @@
       8.0
      ],
      "default": 0.5,
-     "note": "how fast the duty sweeps, in Hz. Restored: the parked emitter carried this axis and the harvest dropped it, so `pwm` shipped as a fixed 0.5 Hz sweep. Its signature is the BEAT and not the colour, and the beat comes back at exactly TWICE the rate -- 0.5 Hz reads 1.00, 1.0 reads 2.00, 8.0 reads 16.01 -- because the sweep is symmetric about the square, so the brightness peaks on both sides of every cycle. Depth is constant at 0.22 from 0.5 Hz up. Loudness 0.41 dB across the axis and 0.60 dB crossed with the register; the 0.1 Hz end reads 0.4 dB quieter only because less than half a cycle fits in a four-second render.",
+     "note": "how fast the duty sweeps, in Hz. Restored: the parked emitter carried this axis and the harvest dropped it, so `pwm` shipped as a fixed 0.5 Hz sweep. Its signature is the BEAT and not the colour, and the beat comes back at exactly TWICE the rate -- 0.5 Hz reads 1.00, 1.0 reads 2.00, 8.0 reads 16.00 -- because the sweep is symmetric about the square, so the brightness peaks on both sides of every cycle. Depth is constant at 0.22 from 0.5 Hz up. Loudness 0.41 dB across the axis and 0.60 dB crossed with the register; the 0.1 Hz end reads 0.4 dB quieter only because less than half a cycle fits in a four-second render.",
      "anchors": {
       "slow": {
        "value": 0.15,
@@ -1232,7 +1232,7 @@
       1.0
      ],
      "default": 0.55,
-     "note": "one reed or three. Above 0 two more reeds sound +21 and -16 cents away and the three BEAT: measured depth 0.04 -> 0.28 at 2.3 Hz. This is an amplitude beat, so it is deliberately almost invisible to the colour meters (centroid moves 1796 -> 1434 Hz as the beat fills in); `lco_measure.beat` is what reads it.",
+     "note": "one reed or three. Above 0 two more reeds sound +21 and -16 cents away and the three BEAT: measured depth 0.01 -> 0.29 at 2.3 Hz. This is an amplitude beat, so it is deliberately almost invisible to the colour meters (centroid moves 1796 -> 1434 Hz as the beat fills in); `lco_measure.beat` is what reads it.",
      "anchors": {
       "single": {
        "value": 0.0,
@@ -1435,7 +1435,7 @@
       1.0
      ],
      "default": 0.6,
-     "note": "the parallel pipes beside the chanter, an octave and two octaves down. Beat depth 0.04 -> 0.21. Centroid 876 -> 500 Hz as the low pipes fill in, comb 102.5 -> 10.7 dB. Power-summed (`knmix`), because detuned pipes are incoherent -- adding them as amplitudes would make this a volume control. Loudness constant to 0.10 dB.",
+     "note": "the parallel pipes beside the chanter, an octave and two octaves down. Beat depth 0.00 -> 0.21. Centroid 876 -> 500 Hz as the low pipes fill in, comb 102.5 -> 10.7 dB. Power-summed (`knmix`), because detuned pipes are incoherent -- adding them as amplitudes would make this a volume control. Loudness constant to 0.10 dB.",
      "anchors": {
       "chanter": {
        "value": 0.0,
@@ -2258,7 +2258,7 @@
       1.0
      ],
      "default": 0.5,
-     "note": "wing closures a second, 12 to 50 -- a RATE, and no spectral meter can see one. Measured on the colour meters this axis moves 2 Hz of centroid and 0.5 dB of comb, which reads as inert and is not: on the beat meter it reads back 12.0, 21.3, 31.0, 40.4 and 50.0 Hz against the 12, 22, 31, 40 and 50 asked, at a pulse depth of 0.33 to 0.41. Dolbear's law is the reason it is a control at all -- an insect's rate tracks temperature -- though Dolbear counted chirp GROUPS per minute, where this is the pulse rate inside them. Loudness 0.01 dB.",
+     "note": "wing closures a second, 12 to 50 -- a RATE, and no spectral meter can see one. Measured on the colour meters this axis moves 2 Hz of centroid and 0.5 dB of comb, which reads as inert and is not: on the beat meter it reads back 12.0, 21.7, 31.0, 40.3 and 50.0 Hz against the 12, 22, 31, 40 and 50 asked, at a pulse depth of 0.34 to 0.41. Dolbear's law is the reason it is a control at all -- an insect's rate tracks temperature -- though Dolbear counted chirp GROUPS per minute, where this is the pulse rate inside them. Loudness 0.01 dB.",
      "anchors": {
       "cold": {
        "value": 0.0,
@@ -2326,7 +2326,7 @@
       1.0
      ],
      "default": 0.5,
-     "note": "pulses a second, 15 to 100 -- the species marker. On the beat meter it reads back 15.0, 57.4 and 100.1 Hz against the 15, 58 and 100 asked. On the colour meters it moves 5 Hz of centroid and 50.8 dB of comb, because chopping a series at an audio rate puts sidebands around every harmonic and fills the gaps between them -- that comb collapse IS the measurement of the pulsing, not a side effect of it. Loudness 0.01 dB.",
+     "note": "pulses a second, 15 to 100 -- the species marker. On the beat meter it reads back 15.0, 57.7 and 100.0 Hz against the 15, 58 and 100 asked. On the colour meters it moves 5 Hz of centroid and 50.8 dB of comb, because chopping a series at an audio rate puts sidebands around every harmonic and fills the gaps between them -- that comb collapse IS the measurement of the pulsing, not a side effect of it. Loudness 0.01 dB.",
      "anchors": {
       "slow": {
        "value": 0.0,

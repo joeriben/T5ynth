@@ -512,7 +512,7 @@ def beat(y, lo_hz=0.5, hi_hz=25.0, t0=0.5, t1=3.5, at_hz=None, f0_hz=None):
     Read off the rectified signal at the FULL sample rate, as the largest spectral
     component in the beat band relative to the mean level, so `depth` comes out on
     the same scale as an asked-for AM depth. Calibrated against exactly that:
-    asked 0.00 / 0.10 / 0.30 / 0.60 read 0.000 / 0.100 / 0.299 / 0.599.
+    asked 0.00 / 0.10 / 0.30 / 0.60 read 0.000 / 0.100 / 0.300 / 0.600.
 
     The full rate is not an optimisation, it is the correctness of the whole meter.
     Rectifying a tone at f0 puts a ripple at 2*f0 (at f0 itself, for an asymmetric
@@ -522,15 +522,35 @@ def beat(y, lo_hz=0.5, hi_hz=25.0, t0=0.5, t1=3.5, at_hz=None, f0_hz=None):
     Measured on plain unmodulated sines, with nothing whatever modulating them:
     55 Hz read a beat of depth 0.372 at 90.39 Hz (the 110 Hz ripple folded about
     200.455) and 110 Hz read 0.052 at 19.68 Hz (220 folded to 19.55). The second one
-    landed inside the NARROW 25 Hz band too and above the 0.05 that the audit's M6
-    treats as a real rate control, so no choice of band was ever going to fix it.
+    landed inside the NARROW 25 Hz band too, and at 0.052 it was within reach of the
+    0.05 spread the audit's M6 treats as a real rate control, so no choice of band was
+    ever going to fix it. (M6 thresholds the spread ACROSS an axis's anchors, not one
+    absolute depth, so a constant fabrication like this one does not pass M6 on its
+    own — it fabricates the baseline every anchor is then read against.)
     At the full rate nothing folds: the ripple stays at 2*f0 where it belongs.
 
     `f0_hz` closes the other half. A component at or above the fundamental is not a
     beat — it is a sideband, and the spectral meters already see it — so the band is
-    capped at half the fundamental when the caller knows it. Unmodulated sines then
+    capped just below the fundamental when the caller knows it. Unmodulated sines then
     read 0.000 at every register instead of 0.372, and an asked 0.30 at 90 Hz reads
-    0.299 rather than the 0.200 the boxcar's roll-off left of it.
+    0.300 rather than the 0.200 the boxcar's roll-off left of it.
+
+    `f0_hz` is the fundamental this signal ACTUALLY has, not the pitch that was asked
+    for, and the difference is the whole point: an entry that plays an octave below the
+    asked note has its own ripple at the asked pitch, so a cap derived from the ask
+    excludes nothing. Measured at an asked 220 Hz — `bass_saw` sounds 109.9 and read a
+    beat of 0.434 at 110.0 Hz, `sub_sine` 0.372, `organ` 0.142, and `bagpipe`, which
+    sounds two octaves down, 0.213 at 109 Hz. None of those bodies modulates anything
+    near those rates; `bass_saw`'s only LFO is at 0.043 Hz. Off the measured
+    fundamental they read 0.019 / 0.020 / 0.084 / 0.212 — and bagpipe's is its real
+    drone beat, at 2.33 Hz, which is what this meter was written for.
+
+    The cap is 2 Hz below the fundamental and not half of it, because half throws away
+    a whole octave of genuine beat: an asked 0.30 at 115 Hz on a 220 Hz carrier read
+    0.003 at the half-cap and reads 0.300 now, `didgeridoo`'s 97 Hz vocal hum went from
+    0.155 to 0.541 at a 110 Hz note, and `sax`'s 74 Hz growl from nothing to its own
+    line. 2 Hz is six bins of the 3 s window against a Hann main lobe two bins wide,
+    which is what it takes to keep the fundamental's own line out.
 
     `at_hz` asks about ONE rate instead of the strongest, because the strongest hides
     the others. A rubbed wineglass has two independent amplitude motions at once —
@@ -572,7 +592,7 @@ def beat(y, lo_hz=0.5, hi_hz=25.0, t0=0.5, t1=3.5, at_hz=None, f0_hz=None):
         amp = 2 * float(F[band].max()) / (len(env) / 2)
         return amp / mean, float(at_hz)
     if f0_hz:
-        hi_hz = min(hi_hz, 0.5 * f0_hz)
+        hi_hz = min(hi_hz, max(f0_hz - 2.0, lo_hz + 0.1))
     band = (fq >= lo_hz) & (fq <= hi_hz)
     if not band.any() or mean <= 0:
         return 0.0, 0.0
@@ -636,10 +656,17 @@ def measure(y, asked_freq):
     # rate all move the centroid by single hertz while changing the sound completely.
     # An audit that reads only colour calls such an axis inert and invites deleting it.
     # The band reaches 120 Hz because these rates go far above a musette's few hertz,
-    # and is capped at half the fundamental so the carrier's own rectification ripple
+    # and is capped just below the fundamental so the carrier's own rectification ripple
     # cannot be read back as a beat — see `beat`, which read 0.372 on a plain sine
     # before the cap and the full-rate envelope went in.
-    bd, br = beat(y, lo_hz=0.5, hi_hz=120.0, f0_hz=asked_freq)
+    #
+    # The cap comes off `f`, the fundamental this signal ACTUALLY has, and not off the
+    # pitch that was asked for. Passing the ask left the bug live for every entry that
+    # sounds below the note: `bass_saw` read a beat of 0.434 at 110.0 Hz at an asked
+    # 220, with nothing in it modulating faster than 0.043 Hz. When there is no
+    # fundamental to find there is no ripple to exclude either, so an unpitched bed
+    # is read uncapped.
+    bd, br = beat(y, lo_hz=0.5, hi_hz=120.0, f0_hz=f)
     return {"f0": None if f is None else round(f, 2),
             "cents": None if f is None else round(cents(f, asked_freq), 1),
             "centroid": round(centroid(y), 1),
@@ -695,7 +722,7 @@ asig    streson aex, kfreq * koct1, {fb}"""
 # How many calibration cases there are. Asserted at the end so a group that stops
 # running — an early `return`, a render failure that `continue`s past its check, a
 # refactor that drops a block — is a FAILURE and not a quietly shorter green run.
-_CASES = 45
+_CASES = 47
 
 
 def selftest():
@@ -941,6 +968,33 @@ asig    poscil 0.4 * (1 + 2 * ka), kfreq * koct1, giSine""")
           "worst %.3f at %.1f Hz (%s)"
           % (worst[0], worst[1],
              " ".join("%.0f:%.3f" % (f, v) for f, v in flat if v is not None)))
+    # The case the cap got wrong, and the reason both of these are asserted through
+    # `measure`: an entry that SOUNDS an octave below the asked note has its ripple at
+    # the asked pitch, so a cap taken off the ask excludes nothing. Every calibration
+    # signal above has f0 == asked, which is exactly why they could not see it —
+    # `bass_saw` read 0.434 at 110.0 Hz at an asked 220 with nothing in it faster than
+    # 0.043 Hz. Two octaves down, because `bagpipe` is two octaves down.
+    down = []
+    for f in (110.0, 220.0, 880.0):
+        yd, ed = render("asig    poscil 0.3, kfreq * koct1 / 4", freq=f)
+        down.append((f, None if ed else measure(yd, f)["beat_depth"]))
+    wd = max((v, f) for f, v in down if v is not None)
+    check("a tone two octaves below the asked note still has no beat", wd[0] < 0.02,
+          "worst %.3f at an asked %.0f Hz (%s)"
+          % (wd[0], wd[1],
+             " ".join("%.0f:%.3f" % (f, v) for f, v in down if v is not None)))
+    # …and the other side of the same cap: the octave BELOW the fundamental is where
+    # a vocal hum or a growl actually lives, and a cap at half the fundamental read
+    # those as nothing (asked 0.30 at 115 Hz on a 220 Hz carrier came back 0.003).
+    ysub, esub = render("""kam     poscil 0.15, 115.0
+asig    poscil 0.4 * (1 + 2 * kam), kfreq * koct1, giSine""", freq=220.0)
+    if esub:
+        check("a beat just under the fundamental reads back its depth", False, esub)
+    else:
+        ds, rs = measure(ysub, 220.0)["beat_depth"], measure(ysub, 220.0)["beat_rate_hz"]
+        check("a beat just under the fundamental reads back its depth",
+              abs(ds - 0.30) < 0.03 and abs(rs - 115.0) < 0.5,
+              f"read {ds:.3f} at {rs:.2f} Hz (asked 0.30 at 115 Hz, f0 220)")
     # …and a genuine fast beat is still read at its true depth up there, which the
     # boxcar's roll-off used to cost: an asked 0.30 at 90 Hz came back as 0.200.
     yfast, efast = render("""kam     poscil 0.15, 90.0
