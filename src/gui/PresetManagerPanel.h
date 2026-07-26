@@ -2260,15 +2260,24 @@ private:
                             juce::sendNotificationSync);
         }
 
-        /** Programmatic name override — used when the preset-list selection
-         *  changes during Save mode so clicking a row targets that file
-         *  for overwrite instead of silently overwriting whatever name the
-         *  user originally typed. sendNotificationSync triggers
-         *  nameEdit.onTextChange → refreshConflictUi() so the warning row
-         *  picks up the new (name, bank) tuple immediately. */
-        void setName(const juce::String& name)
+        /** Point the drawer at an existing preset in ONE step — the save-mode
+         *  list-row retarget. Both fields move together on purpose:
+         *  setBank() + a separate name write would run refreshConflictUi()
+         *  once on the mismatched (new bank, old name) tuple, and
+         *  TextEditor::textChanged() only POSTS its change message, so the
+         *  warning row and the Replace button would lag a message-loop turn
+         *  behind the click. Silent setters + one explicit refresh instead:
+         *  nameEdit.onTextChange and bankBox.onChange both do nothing but
+         *  call refreshConflictUi(), so nothing is lost by suppressing them. */
+        void retarget(const juce::String& name, const juce::String& bank)
         {
-            nameEdit.setText(name, juce::sendNotificationSync);
+            const auto bankText = bank.isEmpty() ? kRootBankLabel() : bank;
+            if (nameEdit.getText() == name && bankBox.getText() == bankText)
+                return;
+
+            bankBox.setText(bankText, juce::dontSendNotification);
+            nameEdit.setText(name, juce::dontSendNotification);
+            refreshConflictUi();
         }
 
         /** Owner-side auto-fill of the chip set from the would-be-
@@ -2715,6 +2724,24 @@ private:
                    bounds.removeFromTop(14), juce::Justification::centredLeft, true);
     }
 
+    /** Point the Save-Drawer at an existing preset: the user is saying
+     *  "save under THIS name (overwriting that file)". The cross-bank gate
+     *  and the Replace-confirm dialog still apply at commit time.
+     *
+     *  SaveDrawer::retarget() writes an unchanged (name, bank) tuple without
+     *  a notification, so calling this twice for one gesture (see
+     *  listBoxItemClicked) is a no-op the second time. */
+    void retargetSaveTo(int entryIndex)
+    {
+        if (currentMode != Mode::Save) return;
+        if (! juce::isPositiveAndBelow(entryIndex, (int) allEntries.size())) return;
+
+        const auto& entry = allEntries[(size_t) entryIndex];
+        saveDrawer.retarget(entry.name,
+                            entry.bank == kRootUserBank() ? juce::String()
+                                                          : entry.bank);
+    }
+
     void selectedRowsChanged(int lastRowSelected) override
     {
         if (! juce::isPositiveAndBelow(lastRowSelected, (int) filteredIndices.size()))
@@ -2724,28 +2751,19 @@ private:
             return;
         }
         selectedEntryIndex = filteredIndices[(size_t) lastRowSelected];
-        const auto& entry = allEntries[(size_t) selectedEntryIndex];
-        detail.setEntry(entry);
+        detail.setEntry(allEntries[(size_t) selectedEntryIndex]);
 
-        // Save-mode retarget: when the user picks a different row -- via
-        // mouse click OR keyboard arrows -- they're saying "save under
-        // THIS name (overwriting that file)". Push the entry's name and
-        // bank into the SaveDrawer so a subsequent Save commits to the
-        // visible target. The cross-bank gate and the Replace-confirm
-        // dialog still apply at commit time.
+        // Save-mode retarget on the keyboard-arrow path (mouse clicks are
+        // handled in listBoxItemClicked, which also covers clicks on the
+        // already-selected row -- those never reach this callback).
         //
         // Skipped when the selection change was triggered programmatically
         // (search-box typing, sidebar filter clicks, bank creation,
         // currentPreset restoration -- see the `programmaticSelection`
         // guard at each presetList.selectRow callsite). Without that
         // guard, those auto-selects would clobber the typed Save name.
-        if (currentMode == Mode::Save && ! programmaticSelection)
-        {
-            const auto bank = (entry.bank == kRootUserBank()) ? juce::String()
-                                                              : entry.bank;
-            saveDrawer.setBank(bank);
-            saveDrawer.setName(entry.name);
-        }
+        if (! programmaticSelection)
+            retargetSaveTo(selectedEntryIndex);
     }
 
     void listBoxItemDoubleClicked(int row, const juce::MouseEvent&) override
@@ -2759,11 +2777,30 @@ private:
 
     void listBoxItemClicked(int row, const juce::MouseEvent& e) override
     {
-        if (! e.mods.isPopupMenu()) return;     // right-click only
-        if (currentMode == Mode::Save) return;  // rename/delete suppressed in Save mode
         if (! juce::isPositiveAndBelow(row, (int) filteredIndices.size())) return;
-        presetList.selectRow(row, false, true);
-        showRowContextMenu(filteredIndices[(size_t) row], e.getScreenPosition());
+        const int entryIndex = filteredIndices[(size_t) row];
+
+        if (e.mods.isPopupMenu())
+        {
+            if (currentMode == Mode::Save) return;  // rename/delete suppressed in Save mode
+            presetList.selectRow(row, false, true);
+            showRowContextMenu(entryIndex, e.getScreenPosition());
+            return;
+        }
+
+        // Left-click in Save mode retargets HERE, not via selectedRowsChanged.
+        // ListBox::selectRowInternal early-outs on a row that is already
+        // selected, so clicking the row the panel auto-selected (the row-0
+        // fallback after a search, or the currently-loaded preset) produces
+        // NO selection change and the save target silently stayed on the
+        // previous name. That is the most common path through this dialog:
+        // type part of a name, click the one row that survives the filter.
+        //
+        // ListBox resolves the selection (selectRowsBasedOnModifierKeys)
+        // before calling this, so on a genuinely new row selectedRowsChanged
+        // has already retargeted and this repeats it harmlessly.
+        if (currentMode == Mode::Save)
+            retargetSaveTo(entryIndex);
     }
 
     void backgroundClicked(const juce::MouseEvent&) override
