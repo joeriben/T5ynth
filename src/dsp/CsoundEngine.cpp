@@ -51,12 +51,12 @@ namespace
     // on this machine `strings CsoundLib64` shows
     // /opt/homebrew/Cellar/csound/<version>/…/Resources/Opcodes64. A copy of the
     // library inside our bundle therefore keeps reaching into a Homebrew tree
-    // that exists here and nowhere else — measured 2026-07-26: with that tree
-    // present 2482 opcode entries register, without it 1917, and the 565 missing
-    // ones include scanu/scanu2/scans, fractalnoise, tvconv, MixerSend,
+    // that exists here and nowhere else — measured 2026-07-26: without any
+    // plugin modules only the 1917 built-in opcode entries register, and the
+    // absent ones include scanu/scanu2/scans, fractalnoise, tvconv, MixerSend,
     // ftgenonce, limit1 and GEN padsynth. The author WRITES Csound and may reach
-    // for any of them, so they are copied next to the library
-    // (tools/bundle_csound_macos.sh) and pointed at here.
+    // for any of them, so the modules are copied next to the library
+    // (tools/bundle_csound_macos.sh — 2267 entries with them) and pointed at here.
     //
     // The rule is deliberately self-validating: use the Opcodes64 that sits NEXT
     // TO the library actually loaded, and only if it is really there. A plain

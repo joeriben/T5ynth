@@ -1401,9 +1401,10 @@ def _opcodedir_beside(lib_path):
 
     Csound finds its plugin opcodes through a path baked in when the library was
     built, so a copy inside an app bundle keeps reaching for the build machine's
-    tree — measured 2026-07-26: present, 2482 opcode entries register; absent,
-    1917, and the missing ones include scanu/scans, fractalnoise, tvconv,
-    ftgenonce, limit1 and GEN padsynth. tools/bundle_csound_macos.sh therefore
+    tree — measured 2026-07-26: with the bundled modules 2267 opcode entries
+    register, with none of them 1917, and the missing ones include scanu/scans,
+    fractalnoise, tvconv, ftgenonce, limit1 and GEN padsynth.
+    tools/bundle_csound_macos.sh therefore
     ships Opcodes64 beside the library, and both the engine (CsoundEngine.cpp) and
     this gate point Csound at it — the same directory for both, or the gate would
     judge an orchestra by a different vocabulary than the one that plays it."""
