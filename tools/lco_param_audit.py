@@ -193,6 +193,22 @@ def texture_declared(code):
     return _P.declares_texture(code or "")
 
 
+def decay_declared(code):
+    return _P.declares_decay(code or "")
+
+
+# M3 is the only finding a decay declaration EXCUSES. M5 and M7 are not excused, they
+# are re-measured: `render_report` reads a declared body's level at the note's peak, so
+# an axis that shortens the ring no longer reads as a fader and the keyboard tilt is the
+# strike's, not the decay's. That distinction is the whole point — a blanket exemption
+# would hide a real fader, and one has already been found this way (`plucked_wire`'s
+# pickup control moved the strike 2.72 dB and is not shipped as an axis because of it).
+DECAY_REASON = ("the self-decaying class: this body declares `; DECAY: SELF` and dying "
+                "is what it does. A self-decay stopped being a violation on 2026-07-20 "
+                "(§4, \"a self-decay is now a CHOICE THE PROMPT MAKES\"); the `why` "
+                "names the standing-tone counterpart for the other reading.")
+
+
 TEXTURE_REASON = ("the event-texture class: this body declares `; MOVEMENT: TEXTURE` and "
                   "§4 reports its movement reading instead of failing on it "
                   "(BJ 2026-07-25). Its liveness is where and when its events fall, "
@@ -208,6 +224,8 @@ def declared_reason(key, level, code=None):
     reason = (DECLARED.get(key) or {}).get(level)
     if reason is None and level == "M4" and texture_declared(code):
         return TEXTURE_REASON
+    if reason is None and level == "M3" and decay_declared(code):
+        return DECAY_REASON
     return reason
 
 
@@ -267,7 +285,15 @@ def render_report(body, freq):
     y, err = M.render(body, dur=4.0, freq=freq, preroll=PREROLL)
     if y is None:
         return {"error": err}
-    r = M.measure(y, freq)
+    r = _P.with_exact_peak(M.measure(y, freq), y)
+    # `level_db` and not `rms_db` is what the loudness findings (M5, M7) read, and on a
+    # body that declares `; DECAY: SELF` it is the note's PEAK. Read from the body for
+    # the reason stated at `texture_declared`: two tools must not give two answers about
+    # one invariant. They did — `lco_axis_probe.gate()` passed `plucked_wire` on the
+    # attack while this file called its ring-length axis a volume control (19.30 dB) and
+    # reported a 226.3 dB keyboard tilt, both of them measurements of the decay.
+    r["decaying"] = decay_declared(body)
+    r["level_db"] = _P.peak_db(r) if r["decaying"] else r["rms_db"]
     if err and err.startswith("HOT"):
         # The peak of a random-impulse process is random. Judge the level on the
         # p99.9 of three renders; keep the peaks so the reading is checkable.
@@ -321,7 +347,7 @@ def audit_one(inst, registers=REGISTERS, quick=False):
     # M7 — the register tilt. Reported in dB per octave as well as total, because
     # the shape says what it is: a clean -3 dB/octave is a noise-driven
     # resonator's Q/f power law uncompensated, not a random imbalance.
-    lv = [(f, rep["registers"][str(f)].get("rms_db"))
+    lv = [(f, rep["registers"][str(f)].get("level_db"))
           for f in TILT_REGISTERS if str(f) in rep["registers"]]
     lv = [(f, v) for f, v in lv if v is not None]
     if len(lv) >= 2:
@@ -341,8 +367,8 @@ def audit_one(inst, registers=REGISTERS, quick=False):
         again = []
         for _ in range(3):
             r2 = render_report(inst["code"], lv[0][0])
-            if r2.get("rms_db") is not None:
-                again.append(r2["rms_db"])
+            if r2.get("level_db") is not None:
+                again.append(r2["level_db"])
         rep["tilt"] = {"rms_db": {str(f): v for f, v in lv},
                        "spread_db": round(max(v for _, v in lv)
                                           - min(v for _, v in lv), 2),
@@ -369,7 +395,7 @@ def audit_one(inst, registers=REGISTERS, quick=False):
             def spread(k):
                 vs = [r[k] for r in good if r.get(k) is not None]
                 return (round(max(vs) - min(vs), 2) if len(vs) >= 2 else None)
-            a["rms_spread_db"] = spread("rms_db")
+            a["rms_spread_db"] = spread("level_db")
             a["centroid_spread_hz"] = spread("centroid")
             a["comb_spread_db"] = spread("comb_db")
             a["motion_spread_hz"] = spread("centroid_motion_hz")

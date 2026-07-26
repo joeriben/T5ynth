@@ -26,9 +26,12 @@ single place to set.
 """
 import argparse
 import itertools
+import math
 import re
 import sys
 from pathlib import Path
+
+import numpy as np
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "tools"))
@@ -222,6 +225,12 @@ _OUTVARS = re.compile(r"^\s*((?:g?[ikaS]\w+)(?:\s*,\s*g?[ikaS]\w+)*)\s+[a-zA-Z]"
 
 TEXTURE = re.compile(r"^;\s*MOVEMENT:\s*TEXTURE\s*$")
 _MENTIONS = re.compile(r"movement\s*:\s*texture", re.I)
+# The same shape for the second class this gate was not written for — a body that is
+# struck or plucked and then left to ring down. Same rules as the texture declaration
+# above, for the same reason: one standalone line, in caps, so it cannot be granted by
+# accident or by a negation. See `declares_decay`.
+DECAY = re.compile(r"^;\s*DECAY:\s*SELF\s*$")
+_MENTIONS_DECAY = re.compile(r"decay\s*:\s*self", re.I)
 _BLOCK = re.compile(r"/\*.*?\*/", re.S)
 _STRING = re.compile(r'"[^"]*"')
 
@@ -389,6 +398,74 @@ def declares_texture(body):
     return False
 
 
+def peak_db(r):
+    """A measure dict's peak in dB, from the UNROUNDED value.
+
+    `lco_measure.measure` rounds `peak` to three decimals for printing, which is a cliff
+    at the bottom of the range this tool now judges on: a render whose true peak is
+    0.0004 reads 0.000 and turns into -240 dB. `peak_exact` is stashed beside it by
+    whoever made the render; the rounded value is the fallback for a dict that predates
+    it, and `1e-12` the floor for a render that really is silent."""
+    return 20.0 * math.log10(max(r.get("peak_exact") or r["peak"], 1e-12))
+
+
+def with_exact_peak(r, y):
+    """The measure dict, plus the unrounded peak of the audio it came from."""
+    r["peak_exact"] = float(np.abs(y).max())
+    return r
+
+
+def declares_decay(body):
+    """Does this body declare itself struck-and-left-to-ring rather than a standing tone?
+
+    §4 of `LCO_CONCEPT.md` stopped requiring a standing tone on 2026-07-20 (BJ: a
+    self-decay is "a choice the prompt makes", replacing the older "only where there is
+    no other way"). This gate never followed, and it cannot: every loudness statistic it
+    owns is read off a four-second window, which on a body that rings down measures HOW
+    LONG IT RANG and calls it a level difference. Measured on `plucked_wire`, the first
+    entry in the library that fades by itself: 23.12 dB across its own cube and 223.45 dB
+    across cube and keyboard together, where the strike itself is identical to a
+    hundredth of a dB at every corner and every register.
+
+    So for a declared decaying body the loudness question is asked at the ATTACK — the
+    note's peak — and the ring-down is REPORTED instead of failed. Three things this
+    deliberately does NOT do:
+
+      * It does not excuse a SWELL. The drift check exists for §4's named violation, and
+        only a falling drift is the declared decay; a body that grows inside a held note
+        still fails whatever it declares.
+      * It does not touch the movement rule, the headroom check or the pitch. A decaying
+        body still has to move, still may not clip, still tracks `kfreq`.
+      * It does not silence the four-second numbers. They are printed beside the ones the
+        verdict used, because "the level spreads 23 dB and that is the ring" is a fact
+        about the entry that its author has to see. Hiding it was the alternative and it
+        is how a real finding gets lost: `plucked_wire`'s `pick` axis had a genuine 4 dB
+        fader in it, which is why that axis ships as 0.25..0.45 and not 0.20..0.50.
+
+    Same declaration discipline as `declares_texture` — one exact standalone line, in
+    caps — and for the same reason: a body written in the library's end-of-line comment
+    style would otherwise be judged as a standing tone with no way to tell why.
+
+        .venv/bin/python -c "import json, sys; sys.path.insert(0, 'tools'); \\
+        import lco_axis_probe as P; \\
+        print([e['key'] for e in json.load(open('backend/dco_lexicon.json'))['techniques'] \\
+               if P.declares_decay(e['code'])])"
+    """
+    src = _BLOCK.sub("", body or "")
+    lines = [l.strip() for l in src.splitlines()]
+    if any(DECAY.match(l) for l in lines):
+        return True
+    bad = [l for l in lines if _MENTIONS_DECAY.search(l)]
+    if bad:
+        raise SystemExit(
+            "this body mentions a decay declaration but does not make one:\n"
+            + "\n".join(f"    {l}" for l in bad)
+            + "\nThe declaration is one standalone comment line, exactly:\n"
+              "    ; DECAY: SELF\n"
+              "with any explanation on the lines after it.")
+    return False
+
+
 def axes(body):
     """{axis name: (variable, default, line index, (lo, hi))} for every declaration."""
     out = {}
@@ -425,13 +502,21 @@ def with_axis(body, name, value):
 
 def sweep(body, name, values, freq=220.0, dur=4.0):
     rows = []
+    # Whether the body declares itself struck-and-ringing is read HERE, from the body
+    # itself, so that the per-axis report and `gate` cannot give two answers about the
+    # same axis. They did: the gate read the attack and printed PASS while this report,
+    # still on the four-second rms, called the ring-length control "A FADER — it moves
+    # loudness" — and this is the tool an author runs FIRST, before the entry is written.
+    decaying = declares_decay(body)
     for v in values:
         y, err = M.render(with_axis(body, name, v), dur=dur, freq=freq,
                           preroll=PREROLL)
         if y is None:
             rows.append({"value": v, "error": err})
             continue
-        r = M.measure(y, freq)
+        r = with_exact_peak(M.measure(y, freq), y)
+        r["decaying"] = decaying
+        r["level_db"] = peak_db(r) if decaying else r["rms_db"]
         r["value"] = v
         if err:
             r["error"] = err
@@ -441,16 +526,20 @@ def sweep(body, name, values, freq=220.0, dur=4.0):
 
 def report(name, rows, quiet=False):
     good = [r for r in rows if "rms_db" in r]
+    decaying = any(r.get("decaying") for r in good)
+    head = "peak dB" if decaying else "rms dB"
     if not quiet:
-        print(f"\naxis {name!r}")
-        print(f"  {'value':>7} {'rms dB':>8} {'centroid':>9} {'comb dB':>8} "
+        print(f"\naxis {name!r}" + ("   [DECAY: SELF — read at the note's peak, because "
+                                    "a four-second rms on a ringing body measures the "
+                                    "ring]" if decaying else ""))
+        print(f"  {'value':>7} {head:>8} {'centroid':>9} {'comb dB':>8} "
               f"{'motion':>8} {'sustain':>8}  note")
         for r in rows:
             if "rms_db" not in r:
                 print(f"  {r['value']:7g} {'':>8} {'':>9} {'':>8} {'':>8} {'':>8}"
                       f"  {r['error']}")
                 continue
-            print(f"  {r['value']:7g} {r['rms_db']:8.2f} {r['centroid']:9.1f} "
+            print(f"  {r['value']:7g} {r['level_db']:8.2f} {r['centroid']:9.1f} "
                   f"{r['comb_db']:8.1f} {r['centroid_motion_hz']:8.1f} "
                   f"{r['sustain']:8.3f}  {r.get('error', '')}")
     if len(good) < 2:
@@ -458,7 +547,7 @@ def report(name, rows, quiet=False):
     def sp(k):
         vs = [r[k] for r in good]
         return max(vs) - min(vs)
-    verdict = {"rms_spread_db": round(sp("rms_db"), 2),
+    verdict = {"rms_spread_db": round(sp("level_db"), 2),
                "centroid_spread_hz": round(sp("centroid"), 1),
                "comb_spread_db": round(sp("comb_db"), 1),
                "motion_spread_hz": round(sp("centroid_motion_hz"), 1),
@@ -519,7 +608,24 @@ def gate(body, freq=220.0, steps=3, registers=(55, 110, 220, 440, 880, 1760)):
     """
     declared = axes(body)
     texture = declares_texture(body)
+    decaying = declares_decay(body)
     names = sorted(declared)
+
+    def level(r):
+        """The number the loudness verdicts are read from.
+
+        A four-second RMS on a body that rings down is a measurement of the ring, not of
+        the level — see `declares_decay`. A declared decaying body is judged on its
+        note's PEAK instead (on a struck body, the strike); everything else keeps the
+        meter it always had.
+
+        `peak_db` and not `measure`'s `peak`, which is rounded to three decimals: every
+        render below a true peak of 0.0005 rounds to exactly zero and read -240 dB, so a
+        quiet body's 0.63 dB axis was reported as a 180 dB fader. The rounding still
+        costs 0.43 dB at a peak of 0.01, against a 1.00 dB rule.
+        """
+        return peak_db(r) if decaying else r["rms_db"]
+    meter = "at the note's peak" if decaying else "over the note"
     # each axis stepped across ITS OWN declared range, not 0..1
     def steps_for(n):
         lo, hi = declared[n][3]
@@ -558,7 +664,7 @@ def gate(body, freq=220.0, steps=3, registers=(55, 110, 220, 440, 880, 1760)):
             # visible: the same body used to pass or fail purely on which registers
             # were in the list, and at a `--freq` outside the list nothing was checked
             # at all.
-            r = M.measure(y, f)
+            r = with_exact_peak(M.measure(y, f), y)
             # A declared event texture is reported, never failed — see
             # `declares_texture` for whose decision that is and why no second
             # measurement replaces it. Its reference-register corners go into neither
@@ -574,7 +680,7 @@ def gate(body, freq=220.0, steps=3, registers=(55, 110, 220, 440, 880, 1760)):
     if not rows:
         return False, fails, {}
     at_freq = [(c, r) for c, r in rows if c["Hz"] == freq]
-    lv = [r["rms_db"] for _, r in at_freq]
+    lv = [level(r) for _, r in at_freq]
     pk = max(((r["peak_p999"], c) for c, r in rows), key=lambda t: t[0])
     # Loudness travelling INSIDE a note, reported and not gated — the span alone cannot
     # tell a defect from a deliberate beat, and 15 shipped entries read above 6 dB
@@ -628,30 +734,66 @@ def gate(body, freq=220.0, steps=3, registers=(55, 110, 220, 440, 880, 1760)):
     if sustained:
         wd = max(sustained, key=lambda t: t[0])
         stats["worst_sustained_drift"] = wd
-        if wd[0] > 6.0:
-            # A candidate failure is CONFIRMED on a note four times as long before it
-            # counts, because one slow cycle caught inside a short window is a straight
-            # line: `crackle` reads -6.33 dB over six seconds and +0.12 over twelve, and
-            # `supersaw`'s slow detune beat reads +6.26 and then +2.49. A real trend goes
-            # the other way and grows — an asked swell read +1.71 dB at six seconds and
-            # +16.39 at forty-eight. Without this the gate condemned two shipped entries
-            # for the length of its own window.
-            corner = {k: v for k, v in wd[2].items() if k != "Hz"}
+
+        def confirm(cand):
+            """The same corner on a note four times as long.
+
+            A candidate failure is CONFIRMED there before it counts, because one slow
+            cycle caught inside a short window is a straight line: `crackle` reads
+            -6.33 dB over six seconds and +0.12 over twelve, and `supersaw`'s slow detune
+            beat reads +6.26 and then +2.49. A real trend goes the other way and grows —
+            an asked swell read +1.71 dB at six seconds and +16.39 at forty-eight.
+            Without this the gate condemned two shipped entries for the length of its own
+            window."""
             b = body
-            for k, v in corner.items():
-                b = with_axis(b, k, v)
-            y, err = M.render(b, dur=16.0, freq=wd[2]["Hz"], preroll=PREROLL)
-            long = None if y is None else M.loudness_drift_db(y)
+            for k, v in cand[2].items():
+                if k != "Hz":
+                    b = with_axis(b, k, v)
+            y, err = M.render(b, dur=16.0, freq=cand[2]["Hz"], preroll=PREROLL)
+            return None if y is None else M.loudness_drift_db(y)
+
+        def is_trend(cand, long):
+            return long is not None and abs(long) > 6.0 and (long > 0) == (cand[1] > 0)
+
+        def drift_fail(cand, long):
+            # The tail names WHY the trend is a fault, and on a declared body that is a
+            # different sentence: it is not that the body fails to decay, it is that it
+            # grows, which no declaration covers.
+            why = ("and a `; DECAY: SELF` declaration excuses a fall, never a swell"
+                   if decaying else "and the body is not a decaying one")
+            return ("one loudness inside the note", cand[2],
+                    f"the level drifts {cand[1]:+.2f} dB from one end of a held note to "
+                    f"the other and {long:+.2f} dB over a note four times as long, so it "
+                    f"is a trend and not a slow cycle, {why}")
+
+        if decaying:
+            # The declaration excuses a FALL and nothing else — a body that SWELLS inside
+            # a held note is §4's named violation whatever it says about itself. So the
+            # fall and the swell get SEPARATE candidates, and this is not a nicety: with
+            # one global argmax the rule was spent on whichever move was larger, and a
+            # body that fell 9.87 dB at one corner while rising 8.11 dB (+41.51 dB over
+            # sixteen seconds) at another passed clean, the swell never confirmed, never
+            # failed, never printed.
+            fall = max((t for t in sustained if t[1] < 0), key=lambda t: t[0], default=None)
+            rise = max((t for t in sustained if t[1] > 0), key=lambda t: t[0], default=None)
+            if fall is not None and fall[0] > 6.0:
+                stats["declared_decay_drift"] = (fall[2], fall[1], confirm(fall))
+            if rise is not None and rise[0] > 6.0:
+                long = confirm(rise)
+                stats["worst_drift_confirmed"] = long
+                stats["drift_candidate"] = rise
+                if is_trend(rise, long):
+                    fails.append(drift_fail(rise, long))
+        elif wd[0] > 6.0:
+            long = confirm(wd)
             stats["worst_drift_confirmed"] = long
-            if long is not None and abs(long) > 6.0 and (long > 0) == (wd[1] > 0):
-                fails.append(("one loudness inside the note", wd[2],
-                              f"the level drifts {wd[1]:+.2f} dB from one end of a held "
-                              f"note to the other and {long:+.2f} dB over a note four "
-                              f"times as long, so it is a trend and not a slow cycle, "
-                              f"and the body is not a decaying one"))
+            stats["drift_candidate"] = wd
+            if is_trend(wd, long):
+                fails.append(drift_fail(wd, long))
     if stats["loudness_spread_db"] is not None and stats["loudness_spread_db"] > 1.0:
         fails.append(("one loudness", pk[1],
-                      f"{stats['loudness_spread_db']:.2f} dB across the corners"))
+                      f"{stats['loudness_spread_db']:.2f} dB across the corners "
+                      f"({meter})"))
     # The body AS WRITTEN, at its own defaults, at every register. Its own configuration
     # is the one that matters most and it need not sit on the cube grid at all, so these
     # renders are their own rows — see the tilt note below for the ten-fold error that
@@ -662,7 +804,12 @@ def gate(body, freq=220.0, steps=3, registers=(55, 110, 220, 440, 880, 1760)):
     for f in regs:
         y, err = M.render(body, dur=4.0, freq=f, preroll=PREROLL)
         if y is not None:
-            base.append((f, M.rms_db(y), M.measure(y, f)))
+            r = with_exact_peak(M.measure(y, f), y)
+            # `M.rms_db(y)` and not `level(r)` in the undeclared case: `measure` rounds
+            # its rms to 2 dp and the tilt has always been computed on the unrounded
+            # number. Changing the meter for one class must not quietly change the
+            # arithmetic for every other.
+            base.append((f, level(r) if decaying else M.rms_db(y), r))
     # Headroom is judged on `peak_late` — the peak AFTER the first 50 ms — counted over
     # the whole sweep rather than read off one render, because a stochastic body's peak
     # is a random variable and the sweep is many draws of it.
@@ -719,7 +866,19 @@ def gate(body, freq=220.0, steps=3, registers=(55, 110, 220, 440, 880, 1760)):
         v = [x for _f, x, _r in base]
         stats["register_tilt_db"] = round(max(v) - min(v), 2)
         stats["register"] = [(f, round(x, 2)) for f, x, _r in sorted(base)]
-    allv = [(r["rms_db"], c) for c, r in rows]
+    allv = [(level(r), c) for c, r in rows]
+    if decaying:
+        # What the four-second meter reads, kept in plain sight next to the verdict. On a
+        # ringing body this IS the ring length and not a level fault — but it is also
+        # where a real fader hides, so it is printed rather than dropped.
+        rmsv = [r["rms_db"] for _, r in rows]
+        stats["decay"] = {
+            "meter": "peak (the attack)",
+            "rms_cross_spread_db": round(max(rmsv) - min(rmsv), 2) if rmsv else None,
+            "rms_corner_spread_db": (round(max(x) - min(x), 2)
+                                     if (x := [r["rms_db"] for _, r in at_freq]) else None),
+            "sustain": (round(min(s), 3), round(max(s), 3)) if (
+                s := [r["sustain"] for _, r in rows if r.get("sustain") is not None]) else None}
     if len(allv) >= 2:
         lo, hi = min(allv, key=lambda t: t[0]), max(allv, key=lambda t: t[0])
         stats["cross_spread_db"] = round(hi[0] - lo[0], 2)
@@ -771,16 +930,26 @@ def main():
           + (f"   [{err}]" if err else ""))
 
     if args.registers:
+        # Same meter question as in `gate`: a four-second rms on a body that rings down
+        # reports how long it rang. Left unfixed here it printed a 226 dB "tilt" for a
+        # wire whose strike is identical at every register — a number that reads as a
+        # catastrophic defect and is a measurement of the decay.
+        reg_decay = declares_decay(body)
+        reg_meter = "at the attack" if reg_decay else "over the note"
         regs = [float(x) for x in args.registers.split(",")]
         lv = []
         for f in regs:
             yr, er = M.render(body, dur=4.0, freq=f, preroll=PREROLL)
-            lv.append((f, None if yr is None else M.rms_db(yr), er))
-        print("register: " + "  ".join(
+            if yr is None:
+                lv.append((f, None, er))
+            elif reg_decay:
+                lv.append((f, peak_db(with_exact_peak(M.measure(yr, f), yr)), er))
+            else:
+                lv.append((f, M.rms_db(yr), er))
+        print(f"register ({reg_meter}): " + "  ".join(
             f"{f:.0f}:{'ERR' if v is None else f'{v:+.2f}'}" for f, v, _ in lv))
         vals = [v for _, v, _ in lv if v is not None]
         if len(vals) >= 2:
-            import math
             octs = math.log2(regs[-1] / regs[0])
             print(f"  -> tilt {max(vals) - min(vals):.2f} dB total, "
                   f"{(vals[-1] - vals[0]) / octs:+.2f} dB/octave")
@@ -847,14 +1016,24 @@ def main():
         if st.get("worst_sustained_drift"):
             wd = st["worst_sustained_drift"]
             cf = st.get("worst_drift_confirmed")
-            if wd[0] > 6.0 and cf is not None and not (
-                    abs(cf) > 6.0 and (cf > 0) == (wd[1] > 0)):
-                print(f"  note  the level drifts {wd[1]:+.2f} dB end to end at {wd[2]}, "
-                      f"but only {cf:+.2f} dB over a note four times as long — one slow "
-                      f"cycle, not a trend")
+            # The candidate that was CONFIRMED, which on a declared decaying body is not
+            # the global argmax: the fall and the swell are judged separately, so quoting
+            # `worst_sustained_drift` here printed one corner's four-second number beside
+            # another corner's sixteen-second one.
+            cand = st.get("drift_candidate") or wd
+            if cand[0] > 6.0 and cf is not None and not (
+                    abs(cf) > 6.0 and (cf > 0) == (cand[1] > 0)):
+                print(f"  note  the level drifts {cand[1]:+.2f} dB end to end at "
+                      f"{cand[2]}, but only {cf:+.2f} dB over a note four times as "
+                      f"long — one slow cycle, not a trend")
             elif wd[0] <= 6.0:
+                # "not decaying" is about the CORNER, not the entry: only corners whose
+                # `sustain` says they still stand are in this list, and a declared
+                # decaying body has those too (a wire at 110 Hz barely drops in four
+                # seconds). Saying it the other way told a decaying entry it was not one.
                 print(f"  note  worst level drift end to end {wd[1]:+.2f} dB at {wd[2]}, "
-                      f"on a body that is not decaying")
+                      + ("among the corners that still stand inside the note"
+                         if st.get("decay") else "on a body that is not decaying"))
         if st.get("texture"):
             t = st["texture"]
             print(f"  TEXTURE  this body declares itself an event texture, so `moves` is "
@@ -869,6 +1048,22 @@ def main():
                   f"against {t['crest_null_db']:.2f} — these are CONTEXT, not a pass: a "
                   f"bed that does nothing reads the same, and a real sweep reads less. "
                   f"Liveness in this class is BJ's ear (see `declares_texture`).")
+        if st.get("decay"):
+            d = st["decay"]
+            print(f"  DECAY  this body declares itself struck and left to ring, so every "
+                  f"loudness verdict above was read at the ATTACK, not over the note.")
+            print(f"           over a four-second note the level spreads "
+                  f"{d['rms_corner_spread_db']} dB across the corners and "
+                  f"{d['rms_cross_spread_db']} dB across corners and registers together — "
+                  f"that is the RING LENGTH, not a fault, but it is also where a fader "
+                  f"would hide, so check it against what the axes claim to do."
+                  + (f" Sustain reads {d['sustain'][0]:.3f}..{d['sustain'][1]:.3f}."
+                     if d.get("sustain") else ""))
+            if st.get("declared_decay_drift"):
+                c, short, long = st["declared_decay_drift"]
+                print(f"           the level falls {short:+.2f} dB inside a held note at "
+                      f"{c} and {long:+.2f} dB over one four times as long. Excused "
+                      f"because it FALLS; a swell of the same size would still fail.")
         for rule, corner, detail in fails:
             print(f"  FAIL  {rule}: {corner}  {detail}")
         # Reported, not gated — see `gate`. Grouped by register, because the shape of
@@ -889,11 +1084,16 @@ def main():
                     f"too but DECLARE the event-texture class, so they are not in the same "
                     f"position and are not counted here. Measured {_MOVE_CENSUS[3]}; "
                     f"re-derive with --census)")
-        print(("  PASS  every corner renders and holds one loudness; movement is this "
-               "class's declared exemption and stands on BJ's ear, not on this run"
-               if st.get("texture") else
-               "  PASS  every corner renders, moves, and holds one loudness")
-              if ok else f"  -> {len(fails)} failure(s)")
+        if not ok:
+            print(f"  -> {len(fails)} failure(s)")
+        elif st.get("texture"):
+            print("  PASS  every corner renders and holds one loudness; movement is this "
+                  "class's declared exemption and stands on BJ's ear, not on this run")
+        elif st.get("decay"):
+            print("  PASS  every corner renders, moves, and is struck equally hard; the "
+                  "ring-down is this class's declared exemption, the attack is not")
+        else:
+            print("  PASS  every corner renders, moves, and holds one loudness")
         return 0 if ok else 1
 
     names = sorted(declared) if args.all else (args.axis or [])
