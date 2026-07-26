@@ -352,6 +352,20 @@ it every time before pushing a release tag — no exceptions.
 3. **Default preset loads, generation runs, audio comes out.** Hit
    Generate once with a default prompt and confirm audio.
 
+3b. **The LRO sounds out of the shipped files, on a machine with no
+   Csound.** The LRO *is* Csound, so a build whose bundled Csound is
+   broken is a silent oscillator for every user who has none installed —
+   and on the build machine, which has one, nothing notices.
+
+   ```bash
+   python3 tools/verify_csound_bundle.py build_clean/T5ynth_artefacts/Release/Standalone/akroasys.app
+   ```
+
+   Run it for the VST3 and AU bundles too (Windows: the Standalone
+   directory and the VST3's `Contents/x86_64-win`). CI runs the same
+   command on every build; this is the local half. `docs/CSOUND_INTEGRATION.md`
+   says what it proves.
+
 3a. **Per-model smoke-test (MANDATORY when a model was added or its
    loading path changed since the previous tag).** Build the PyInstaller
    bundle and run the FROZEN binary

@@ -74,6 +74,17 @@ jobs:
       - name: Build
         run: cmake --build build --config Release -j$(sysctl -n hw.ncpu)
 
+      # The LRO IS Csound, so a bundle without a working Csound of its own is a
+      # silent oscillator on every machine that has none installed — and on a
+      # machine that HAS one, nothing else notices. Runs before the backend is
+      # copied in, while the bundles still carry the signatures the build gave
+      # them. See third_party/csound/README.md.
+      - name: Verify Csound travels with the bundles
+        run: |
+          for B in Standalone/akroasys.app VST3/akroasys.vst3 AU/akroasys.component; do
+            python3 tools/verify_csound_bundle.py "build/T5ynth_artefacts/Release/$B"
+          done
+
       - name: Verify Standalone version matches tag
         if: startsWith(github.ref, 'refs/tags/v')
         run: |
@@ -271,6 +282,16 @@ jobs:
 
       - name: Build
         run: cmake --build build --config Release -j $env:NUMBER_OF_PROCESSORS
+
+      # Same reason as on macOS, plus the failure only Windows has: a module that
+      # imports csound64.dll normally instead of delay-loading it resolves against
+      # the HOST process's directory, so the standalone works and the VST3 does
+      # not load in most DAWs. The check reads that out of the PE itself.
+      - name: Verify Csound travels with the build
+        shell: bash
+        run: |
+          python tools/verify_csound_bundle.py "build/T5ynth_artefacts/Release/Standalone"
+          python tools/verify_csound_bundle.py "build/T5ynth_artefacts/Release/VST3/akroasys.vst3/Contents/x86_64-win"
 
       - name: Verify VST3 version matches tag
         if: startsWith(github.ref, 'refs/tags/v')

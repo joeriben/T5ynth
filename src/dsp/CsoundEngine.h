@@ -50,9 +50,11 @@ public:
     // prepared, just grow the buffers" fast path only ever applies when the text is
     // the SAME as whatever is currently compiled (see orchestraText() below), so an
     // orchestra-swap request can never be silently swallowed by that fast path.
-    // Returns false on any failure (missing framework at runtime cannot happen —
-    // link-time — but compile errors must be loud in DBG and leave the engine inert,
-    // never half-armed, and must never disturb whatever was compiled before).
+    // Returns false on any failure. Two kinds: the Csound library is not there at
+    // all (Windows delay-loads it from beside the module, so this IS reachable — a
+    // broken installation gives a silent LRO instead of a crash), or the orchestra
+    // did not compile (loud in DBG; leaves the engine inert, never half-armed, and
+    // never disturbs whatever was compiled before).
     //
     // oversampleFactor (1, 2 or 4) runs Csound ITSELF at sampleRate × factor and
     // decimates each voice back to sampleRate before voiceBuffer() hands it out —

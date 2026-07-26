@@ -414,9 +414,9 @@ Also superseded by the same change: the plan file `/Users/joerissen/.claude/plan
 
 ## 8. Release blockers
 
-Both still make the LCO non-functional for anyone who is not on this machine.
+These still make the LCO non-functional for anyone who is not on this machine.
 
-1. **CI ships no Csound.** A local macOS build bundles it (`tools/bundle_csound_macos.sh`, POST_BUILD, all three bundle types; verified by `tools/verify_csound_bundle.py` and by an LRO note out of the built Standalone, `tools/verify_lro_in_standalone.py`). CI has no Csound to bundle, so the installer's LRO is silent. Two decisions are BJ's and neither is made: where the runner's Csound comes from (`brew install` / vendored / pinned upstream DMG), and whether the hardened runtime gets `com.apple.security.cs.disable-library-validation` — without it a user's own `CsoundLib64` will not load into the signed app, so the LGPL's relinking freedom is theoretical.
+1. ~~**CI ships no Csound.**~~ Settled: BJ chose vendoring (`brew install` is opaque and a rights problem; a Mac DMG serves one of three platforms). `third_party/csound/` carries the payload for macOS and Windows, no build machine needs Csound, and every CI build runs `tools/verify_csound_bundle.py` over every bundle. No entitlement is involved — measured: replacing a bundled library invalidates the bundle seal anyway, so the re-sign the NOTICE asks for is what settles library validation. See `docs/CSOUND_INTEGRATION.md`.
 2. **There is no acquisition path for the author model.** The 12B GGUF is on the maintainer's disk; nothing in the SetupWizard fetches it. Without it there is no oscillator, by design — no model, no fallback, no tone.
 3. **The bundle carried no library at all until `df3b3cf5`, and that fix is unverified against a real PyInstaller run.** `lco_write.py` opens `lco_library.json` and `dco_lexicon.json` with a plain `open()` relative to its own `__file__`, which inside a frozen bundle is `_MEIPASS`; `pipe_inference.spec` did not list them, so the first LRO prompt in any installer raised `FileNotFoundError` while working perfectly from source. The spec now adds both and **raises at build time** if either is missing. Nobody has run PyInstaller since. Do that before the next tag.
 

@@ -139,34 +139,44 @@ VST3 SDK, LV2, and others).
 **Version:** 6.18.1
 **License:** LGPL-2.1-or-later
 **URL:** https://csound.com — source: https://github.com/csound/csound
-**Full license:** `resources/licenses/csound/LGPL-2.1.txt`, and inside every
-macOS bundle at `Contents/Resources/licenses/csound/`
+**Full license:** `resources/licenses/csound/LGPL-2.1.txt`, and next to the
+shipped library in every build — macOS `Contents/Resources/licenses/csound/`,
+Windows `licenses/csound/`
 
 The language-resonant oscillator IS Csound: the orchestra code an LRO sound
 consists of is compiled and performed by the Csound library at runtime
 (`src/dsp/CsoundEngine.cpp` uses the Csound 6 C API; `backend/lco_write.py`
 compiles the same text as its acceptance gate).
 
-Csound is **not** statically linked and **not** modified. On macOS,
-`tools/bundle_csound_macos.sh` copies the shared library, its plugin opcode
-modules and its dependency tree into `Contents/libs`, rewriting only the recorded
-load paths so they resolve inside the bundle — the LGPL's relinking freedom is
-preserved, and `Contents/Resources/licenses/csound/NOTICE.txt` documents how to
-substitute your own build of the library. Nothing is bundled on Windows or Linux
-yet, where the LRO stays silent unless Csound is installed system-wide.
+Csound is **not** statically linked into akróasys and **not** modified. The
+binaries that ship are kept in `third_party/csound/<platform>` and are described
+per file in `third_party/csound/README.md`:
 
-Bundled with it, because Csound links them:
+- **macOS** — the shared library, its plugin opcode modules and its dependency
+  tree go into `Contents/libs`; only the recorded load paths were rewritten, so
+  they resolve inside the bundle.
+- **Windows** — `csound64.dll` and `plugins64/` are the Csound project's own
+  release binaries, byte for byte, placed next to the module that loads them.
+- **Linux** — nothing is bundled yet; the LRO stays silent there unless Csound
+  is installed system-wide.
 
-| library | version | licence |
-|---|---|---|
-| libsndfile | 1.2.2 | LGPL-2.1-or-later |
-| libFLAC | 1.5.0 | BSD-3-Clause (FLAC's GPL tools are not bundled) |
-| libogg | 1.3.6 | BSD-3-Clause |
-| libvorbis, libvorbisenc | 1.3.7 | BSD-3-Clause |
-| libopus | 1.6.1 | BSD-3-Clause |
-| libmpg123 | 1.33.6 | LGPL-2.1-only |
-| libmp3lame | 4.0 | LGPL-2.0-or-later |
-| libintl (GNU gettext runtime) | 1.0 | LGPL-2.1-or-later (gettext's GPL tools are not bundled) |
+Either way the LGPL's relinking freedom is preserved, and the bundled
+`NOTICE.txt` documents how to substitute your own build of the library.
+
+Bundled with it, because Csound links them. On macOS they are separate shared
+libraries; on Windows the Csound project links them into `csound64.dll` itself,
+at the versions that release used:
+
+| library | macOS | Windows | licence |
+|---|---|---|---|
+| libsndfile | 1.2.2 | 1.1.0 | LGPL-2.1-or-later |
+| libFLAC | 1.5.0 | 1.3.4 | BSD-3-Clause (FLAC's GPL tools are not bundled) |
+| libogg | 1.3.6 | in DLL | BSD-3-Clause |
+| libvorbis, libvorbisenc | 1.3.7 | 1.3.7 | BSD-3-Clause |
+| libopus | 1.6.1 | in DLL | BSD-3-Clause |
+| libmpg123 | 1.33.6 | in DLL | LGPL-2.1-only |
+| libmp3lame | 3.100 | 3.100 | LGPL-2.0-or-later |
+| libintl (GNU gettext runtime) | 1.0 | — | LGPL-2.1-or-later (gettext's GPL tools are not bundled) |
 
 The BSD-3-Clause texts with each project's own copyright notice are in
 `resources/licenses/csound/BSD-3-Clause-Xiph.txt`.

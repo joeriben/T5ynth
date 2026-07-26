@@ -77,6 +77,7 @@ add_subdirectory(JUCE)
 # prefix.
 set(T5YNTH_CSOUND_FOUND FALSE)
 set(T5YNTH_CSOUND_VENDORED "")
+set(T5YNTH_CSOUND_INCLUDE "")
 if(APPLE AND CMAKE_SYSTEM_PROCESSOR MATCHES "arm64|aarch64")
     set(_csound_vendor "${CMAKE_SOURCE_DIR}/third_party/csound/macos-arm64")
 elseif(WIN32)
@@ -85,17 +86,26 @@ else()
     set(_csound_vendor "")
 endif()
 
+# One header set for every platform. Measured 2026-07-26: the 6.18.1 Windows
+# release's headers are byte-identical to the macOS ones apart from line endings
+# (the only real difference is a typo fix in plugin.h, which is for WRITING
+# plugin opcodes and which nothing here includes). Two copies would only be two
+# things to keep in step.
+set(_csound_include "${CMAKE_SOURCE_DIR}/third_party/csound/include")
+
 if(NOT T5YNTH_CSOUND_PREFIX AND DEFINED ENV{T5YNTH_CSOUND_PREFIX})
     set(T5YNTH_CSOUND_PREFIX "$ENV{T5YNTH_CSOUND_PREFIX}")
 endif()
 
 if(_csound_vendor AND NOT T5YNTH_CSOUND_PREFIX
-   AND EXISTS "${_csound_vendor}/include/csound/csound.h")
+   AND EXISTS "${_csound_include}/csound/csound.h")
     if(APPLE AND EXISTS "${_csound_vendor}/lib/CsoundLib64")
         set(T5YNTH_CSOUND_VENDORED "${_csound_vendor}")
+        set(T5YNTH_CSOUND_INCLUDE "${_csound_include}")
         set(T5YNTH_CSOUND_FOUND TRUE)
     elseif(WIN32 AND EXISTS "${_csound_vendor}/lib/csound64.lib")
         set(T5YNTH_CSOUND_VENDORED "${_csound_vendor}")
+        set(T5YNTH_CSOUND_INCLUDE "${_csound_include}")
         set(T5YNTH_CSOUND_FOUND TRUE)
     endif()
 endif()
@@ -115,6 +125,13 @@ if(WIN32 AND NOT T5YNTH_CSOUND_FOUND AND T5YNTH_CSOUND_PREFIX)
     if(EXISTS "${T5YNTH_CSOUND_PREFIX}/lib/csound64.lib")
         set(T5YNTH_CSOUND_VENDORED "${T5YNTH_CSOUND_PREFIX}")
         set(T5YNTH_CSOUND_FOUND TRUE)
+        # An installation of one's own brings its own headers if it has them;
+        # otherwise the vendored set, which is the same 6.18.1 API.
+        if(EXISTS "${T5YNTH_CSOUND_PREFIX}/include/csound/csound.h")
+            set(T5YNTH_CSOUND_INCLUDE "${T5YNTH_CSOUND_PREFIX}/include")
+        else()
+            set(T5YNTH_CSOUND_INCLUDE "${_csound_include}")
+        endif()
     endif()
 endif()
 
@@ -247,7 +264,7 @@ endif()
 # linking the system framework directly. The bundling is what an INSTALLER needs;
 # a dev build that only ever runs on this machine works without it.
 option(T5YNTH_BUNDLE_CSOUND
-    "Copy Csound into the macOS bundles so they need no system Csound"
+    "Ship Csound with the built artefacts so they need no system Csound"
     ON)
 if(APPLE AND T5YNTH_CSOUND_VENDORED AND T5YNTH_BUNDLE_CSOUND)
     # Vendored: the payload is already linked for this layout, so bundling is a
@@ -287,9 +304,11 @@ elseif(APPLE AND T5YNTH_CSOUND_FOUND AND T5YNTH_BUNDLE_CSOUND)
     endif()
 endif()
 
-# Windows: the DLL and its plugin opcodes go next to the executable and into the
-# VST3 bundle, where the loader looks for them (src/dsp/CsoundEngine.cpp points
-# Csound at the plugins64 dir beside the module it was loaded from).
+# Windows: the DLL and its plugin opcodes go next to the module that loads them —
+# beside the .exe for the standalone, inside Contents/x86_64-win for the VST3.
+# src/dsp/CsoundEngine.cpp loads csound64.dll from exactly there, by absolute
+# path, and then points Csound at the plugins64 dir beside it. The LGPL notice
+# travels with them, as it does inside the macOS bundles.
 if(WIN32 AND T5YNTH_CSOUND_VENDORED AND T5YNTH_BUNDLE_CSOUND)
     foreach(_fmt Standalone VST3)
         if(TARGET T5ynth_${_fmt})
@@ -297,6 +316,9 @@ if(WIN32 AND T5YNTH_CSOUND_VENDORED AND T5YNTH_BUNDLE_CSOUND)
                 COMMAND ${CMAKE_COMMAND} -E copy_directory
                     "${T5YNTH_CSOUND_VENDORED}/bin"
                     "$<TARGET_FILE_DIR:T5ynth_${_fmt}>"
+                COMMAND ${CMAKE_COMMAND} -E copy_directory
+                    "${CMAKE_SOURCE_DIR}/resources/licenses/csound"
+                    "$<TARGET_FILE_DIR:T5ynth_${_fmt}>/licenses/csound"
                 VERBATIM)
         endif()
     endforeach()
@@ -386,7 +408,7 @@ target_sources(T5ynth PRIVATE
 # the framework's headers on the include path.
 if(T5YNTH_CSOUND_VENDORED)
     target_sources(T5ynth PRIVATE src/dsp/CsoundEngine.cpp)
-    target_include_directories(T5ynth PRIVATE "${T5YNTH_CSOUND_VENDORED}/include")
+    target_include_directories(T5ynth PRIVATE "${T5YNTH_CSOUND_INCLUDE}")
     if(APPLE)
         # The vendored library's own install name is @loader_path/../libs/CsoundLib64,
         # so linking it records exactly the load command the bundled layout needs —
@@ -394,6 +416,20 @@ if(T5YNTH_CSOUND_VENDORED)
         target_link_libraries(T5ynth PRIVATE "${T5YNTH_CSOUND_VENDORED}/lib/CsoundLib64")
     else()
         target_link_libraries(T5ynth PRIVATE "${T5YNTH_CSOUND_VENDORED}/lib/csound64.lib")
+        # Windows resolves imports relative to the HOST process, not to the module
+        # that declares them, so a VST3 with a normal import of csound64.dll would
+        # be looked for beside the DAW's exe and fail to load in most hosts.
+        # Delay-loading postpones that to the first Csound call, by which time
+        # CsoundEngine.cpp has loaded the DLL from its own directory by absolute
+        # path. It is also what makes a MISSING DLL survivable: without it the
+        # loader kills the process at startup; with it, the first call is where we
+        # notice, and the LRO simply stays silent.
+        # INTERFACE, not PRIVATE: T5ynth is the shared-code static library, and
+        # these have to reach the real link of every format target.
+        if(MSVC)
+            target_link_options(T5ynth INTERFACE "/DELAYLOAD:csound64.dll")
+            target_link_libraries(T5ynth INTERFACE delayimp)
+        endif()
     endif()
 elseif(T5YNTH_CSOUND_FOUND)
     target_sources(T5ynth PRIVATE src/dsp/CsoundEngine.cpp)

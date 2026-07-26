@@ -37,11 +37,15 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
-#include <dlfcn.h>
 #include <mutex>
 #include <string>
 #include <sys/stat.h>
 #include <vector>
+#if defined(_WIN32)
+ #include <windows.h>
+#else
+ #include <dlfcn.h>
+#endif
 
 namespace
 {
@@ -58,39 +62,189 @@ namespace
     // for any of them, so the modules are copied next to the library
     // (tools/bundle_csound_macos.sh — 2267 entries with them) and pointed at here.
     //
-    // The rule is deliberately self-validating: use the Opcodes64 that sits NEXT
-    // TO the library actually loaded, and only if it is really there. A plain
-    // system install has no such sibling directory, so nothing is overridden and
-    // Csound's own resolution — which is correct there — is left alone.
+    // The rule is deliberately self-validating: use the plugin directory that we
+    // SHIPPED, and only if it is really there. A plain system install has no such
+    // directory, so nothing is overridden and Csound's own resolution — which is
+    // correct there — is left alone.
     //
-    // csoundSetOpcodedir is global to this loaded image and takes effect at the
-    // next csoundCreate, hence once, before the first one. It cannot disturb
-    // another plugin's Csound in the same host process: that one is a different
-    // image with its own copy of this state.
-    void useBundledOpcodeDirIfPresent()
+    // macOS anchors that on the library actually loaded (dladdr), because dyld keys
+    // images by resolved path: each bundle's copy is its own image with its own copy
+    // of this global, and one plugin cannot disturb another's.
+    //
+    // WINDOWS DOES NOT WORK THAT WAY, and this is the one place it matters. The
+    // Windows loader keys modules by BASE NAME, so if another Csound-based plugin
+    // (Cabbage, CsoundVST) is already loaded in the same DAW, a LoadLibrary of our
+    // own csound64.dll hands back THEIR image — there is no second image to be had.
+    // Anchoring the opcode directory on the loaded library would then point at their
+    // installation, and ours would never be used: the 350-entry loss this whole
+    // arrangement exists to prevent, in the case hardest to notice. So on Windows the
+    // anchor is OUR OWN MODULE's directory instead, which is where we put plugins64.
+    // Sharing one image also means sharing this global — whoever sets it last wins —
+    // and we deliberately set it to our own stock 6.18.1 modules rather than lose them.
+   #if ! defined(_WIN32)
+    bool isDirectory (const std::string& path)
     {
-        static std::once_flag once;
-        std::call_once (once, []
+        struct stat st {};
+        return stat (path.c_str(), &st) == 0 && S_ISDIR (st.st_mode);
+    }
+   #else
+    bool isDirectory (const std::wstring& path)
+    {
+        // MSVC's <sys/stat.h> has no S_ISDIR, so ask the API directly.
+        const auto attr = GetFileAttributesW (path.c_str());
+        return attr != INVALID_FILE_ATTRIBUTES && (attr & FILE_ATTRIBUTE_DIRECTORY) != 0;
+    }
+
+    // Everything else here is wide, deliberately. The Standalone is unzipped wherever the
+    // user likes, and GetModuleFileNameA on a path holding a character outside the
+    // machine's ANSI code page — any Cyrillic, Greek or CJK user or folder name —
+    // returns it with '?' substituted, which LoadLibraryA then cannot open. With no
+    // bare-name fall-back left (and there must not be one, see below) that is a
+    // permanently silent LRO for those users, with nothing said about it.
+    std::wstring modulePath (HMODULE module)
+    {
+        // NOT optional: GetModuleFileNameW(NULL, …) is documented to return the path
+        // of the running EXECUTABLE, not an error — a failed lookup passed through
+        // here would silently become the host DAW's own directory.
+        if (module == nullptr)
+            return {};
+
+        // MAX_PATH is not a limit on Windows paths, only on this API's default
+        // buffer; it truncates and reports the buffer size rather than the need.
+        for (DWORD size = MAX_PATH; size <= 32768u; size *= 2)
         {
+            std::wstring buf (size, L'\0');
+            const auto len = GetModuleFileNameW (module, buf.data(), size);
+            if (len == 0)
+                return {};
+            if (len < size)
+            {
+                buf.resize (len);
+                return buf;
+            }
+        }
+        return {};
+    }
+
+    std::wstring directoryOf (HMODULE module)
+    {
+        const auto file = modulePath (module);
+        const auto slash = file.find_last_of (L"\\/");
+        return slash == std::wstring::npos ? std::wstring {} : file.substr (0, slash);
+    }
+
+    HMODULE thisModule()
+    {
+        HMODULE self {};
+        return GetModuleHandleExW (GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS
+                                       | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                                   reinterpret_cast<LPCWSTR> (&thisModule), &self)
+             ? self : nullptr;
+    }
+
+    // csoundSetOpcodedir takes const char*, so a path Csound must open has to survive
+    // the ANSI code page. Where it does not, the 8.3 short name does — that is what
+    // it is for. Where even that is unavailable the plugin opcodes are out of reach
+    // and we say so rather than silently shipping 1917 opcodes instead of 2267.
+    std::string ansiPathForCsound (const std::wstring& wide)
+    {
+        auto narrow = [] (const std::wstring& w) -> std::string
+        {
+            if (w.empty())
+                return {};
+            BOOL lossy = FALSE;
+            const int n = WideCharToMultiByte (CP_ACP, WC_NO_BEST_FIT_CHARS,
+                                               w.c_str(), (int) w.size(),
+                                               nullptr, 0, nullptr, &lossy);
+            if (n <= 0)
+                return {};
+            std::string out ((size_t) n, '\0');
+            if (WideCharToMultiByte (CP_ACP, WC_NO_BEST_FIT_CHARS,
+                                     w.c_str(), (int) w.size(),
+                                     out.data(), n, nullptr, &lossy) != n || lossy)
+                return {};
+            return out;
+        };
+
+        if (auto direct = narrow (wide); ! direct.empty())
+            return direct;
+
+        const auto needed = GetShortPathNameW (wide.c_str(), nullptr, 0);
+        if (needed == 0)
+            return {};
+        std::wstring shortName (needed, L'\0');
+        const auto got = GetShortPathNameW (wide.c_str(), shortName.data(), needed);
+        if (got == 0 || got >= needed)
+            return {};
+        shortName.resize (got);
+        return narrow (shortName);
+    }
+
+    // csound64.dll is DELAY-LOADED (see CMakeLists), for one reason: a VST3 is a
+    // DLL the host loads by full path, and Windows does not add that path to the
+    // import search. A statically imported csound64.dll would therefore be looked
+    // for beside the HOST's executable, not beside ours, and the plugin would fail
+    // to load in some hosts and not others. Delay-loading moves the decision to
+    // first use, where we can load it by absolute path ourselves; the delay-load
+    // helper then finds a module of that base name already loaded and uses it.
+    bool loadCsoundDll (const std::wstring& ourDirectory)
+    {
+        if (GetModuleHandleW (L"csound64.dll") != nullptr)
+            return true;    // already in the process — possibly not ours, see above
+
+        // OUR directory, by absolute path, and nowhere else. There is deliberately
+        // no fall-back to a bare LoadLibrary("csound64.dll"): the default search
+        // order includes the CURRENT DIRECTORY, so a file of that name in whatever
+        // folder the host happens to be pointed at would be loaded into the
+        // process — a DLL-planting vector for a library we always ship ourselves.
+        // If it is not beside us the installation is broken, and a silent LRO is
+        // the right answer to that.
+        return LoadLibraryW ((ourDirectory + L"\\csound64.dll").c_str()) != nullptr;
+    }
+   #endif
+
+    // False means: there is no usable Csound in this process. Every caller then
+    // does nothing and the LRO is silent — the same outcome as a build without
+    // Csound, and never a crash on a machine where the library is missing.
+    bool csoundLibraryReady()
+    {
+        static const bool ready = []
+        {
+           #if defined(_WIN32)
+            const auto ourDir = directoryOf (thisModule());
+            if (ourDir.empty() || ! loadCsoundDll (ourDir))
+                return false;
+
+            const auto plugins = ourDir + L"\\plugins64";
+            if (isDirectory (plugins))
+            {
+                const auto usable = ansiPathForCsound (plugins);
+                if (usable.empty())
+                    std::fprintf (stderr, "CsoundEngine: the plugin opcode directory "
+                                          "cannot be expressed in this machine's ANSI "
+                                          "code page — the LRO runs on core opcodes "
+                                          "only\n");
+                else
+                    csoundSetOpcodedir (usable.c_str());
+            }
+           #else
             Dl_info info {};
-            if (dladdr (reinterpret_cast<const void*> (&csoundCreate), &info) == 0
-                || info.dli_fname == nullptr)
-                return;
-
-            std::string dir { info.dli_fname };
-            const auto slash = dir.rfind ('/');
-            if (slash == std::string::npos)
-                return;
-
-            dir.resize (slash);
-            dir += "/Opcodes64";
-
-            struct stat st {};
-            if (stat (dir.c_str(), &st) != 0 || ! S_ISDIR (st.st_mode))
-                return;
-
-            csoundSetOpcodedir (dir.c_str());
-        });
+            if (dladdr (reinterpret_cast<const void*> (&csoundCreate), &info) != 0
+                && info.dli_fname != nullptr)
+            {
+                std::string dir { info.dli_fname };
+                const auto slash = dir.rfind ('/');
+                if (slash != std::string::npos)
+                {
+                    dir = dir.substr (0, slash) + "/Opcodes64";
+                    if (isDirectory (dir))
+                        csoundSetOpcodedir (dir.c_str());
+                }
+            }
+           #endif
+            return true;
+        }();
+        return ready;
     }
 
     // Hard-wired 12-partial bell/pad SPECTRUM (amp, ratio), adapted from the
@@ -458,6 +612,12 @@ int CsoundEngine::oversampleFactor() const
 bool CsoundEngine::prepare (double sampleRate, int maxBlockSize, const char* orchestraText,
                             int oversampleFactor)
 {
+    // The first thing that happens, before any Csound symbol is touched: if the
+    // library is not there, prepare() fails and the engine stays inert. Callers
+    // already treat that as "no LRO" and go silent.
+    if (! csoundLibraryReady())
+        return false;
+
     // Phase-0 verified: MYFLT is double on this Homebrew build. A mismatch
     // here means spout would be read at the wrong width further down.
     assert(sizeof(MYFLT) == 8 &&
@@ -522,7 +682,6 @@ bool CsoundEngine::prepare (double sampleRate, int maxBlockSize, const char* orc
         impl->csound = nullptr;
     }
 
-    useBundledOpcodeDirIfPresent();
     impl->csound = csoundCreate(nullptr); // NEVER in the constructor (host plugin-scan
                                            // constructs processors without prepareToPlay)
     if (impl->csound == nullptr)
@@ -873,6 +1032,12 @@ std::vector<float> CsoundEngine::renderBareOscillator (const std::string& orches
                                                        double seconds,
                                                        double gateOffSeconds)
 {
+    // No library, no render — an empty buffer, which is what every caller here
+    // already handles. Checked before the arguments, since nothing below can
+    // matter without Csound.
+    if (! csoundLibraryReady())
+        return {};
+
     // `! (x > 0.0)` rather than `x <= 0.0`: it rejects NaN too, which every
     // comparison below would silently pass through into the render.
     if (orchestraText.empty() || ! (sampleRate > 0.0) || ! (seconds > 0.0)
@@ -909,7 +1074,6 @@ std::vector<float> CsoundEngine::renderBareOscillator (const std::string& orches
     // same mutex) for the whole render, delaying the sound the user is waiting for.
     std::unique_lock<std::mutex> lifecycleLock (csoundLifecycleGlobal());
 
-    useBundledOpcodeDirIfPresent();
     CSOUND* cs = csoundCreate(nullptr);
     if (cs == nullptr)
         return {};

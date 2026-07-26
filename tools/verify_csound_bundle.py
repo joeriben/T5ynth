@@ -3,27 +3,40 @@
 
 The whole point of bundling Csound is the machine that does NOT have Csound
 installed, and on the machine that does, a broken bundle is indistinguishable
-from a good one: dyld silently falls through to /opt/homebrew, the library loads,
-the orchestra compiles, the sound plays. A green run here would then certify
-nothing — which is exactly the trap this file exists to avoid.
+from a good one: the loader silently falls through to the system copy, the
+library loads, the orchestra compiles, the sound plays. A green run here would
+then certify nothing — which is exactly the trap this file exists to avoid.
 
-So the runtime half runs under `sandbox-exec` with every Homebrew Csound path
-denied, and it FIRST proves that the denial actually bites. Only then does it
-load the bundle's own CsoundLib64, and only then does it compile and PLAY a real
-LRO orchestra in the host's own scaffold (backend/lco_write.wrap) and require
-non-silent samples.
+    macOS    tools/verify_csound_bundle.py build_clean/T5ynth_artefacts/Release/Standalone/akroasys.app
+    Windows  tools/verify_csound_bundle.py build\\T5ynth_artefacts\\Release\\Standalone
 
-    tools/verify_csound_bundle.py build_clean/T5ynth_artefacts/Release/Standalone/akroasys.app
+Both platforms end in the same place: load the SHIPPED library, prove the plugin
+opcode modules came with it, then compile and PLAY a real LRO orchestra in the
+host's own scaffold (backend/lco_write.wrap) and require non-silent samples.
+They differ in how the fall-through is ruled out, because the two loaders differ:
+
+  macOS    the runtime half runs under `sandbox-exec` with every Homebrew Csound
+           path denied, and FIRST proves the denial actually bites.
+  Windows  there is no sandbox, and none is needed for the question at hand: the
+           DLL is loaded by absolute path, `GetModuleFileNameW` is read back to
+           prove the loaded module IS the shipped file, and the opcode directory is
+           set explicitly. The payload's own dependencies are the OS plus the MSVC
+           runtime (`VCRUNTIME140`, `MSVCP140`, the UCRT) — measured from the PE
+           headers, and the same runtime our own MSVC build already requires, so
+           this run does not certify anything about a machine without it.
 
 What it does not do: launch the Standalone. That test is BJ's fourth requirement
 and needs a person or a driven GUI; this file is the part that can run on every
-build, and it covers everything between the bundle's bytes and audible samples.
+build, and it covers everything between the shipped bytes and audible samples.
 """
 import ctypes
 import os
+import struct
 import subprocess
 import sys
 from pathlib import Path
+
+WINDOWS = sys.platform == "win32"
 
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "backend"))
@@ -204,6 +217,121 @@ def check_bundle_contents(bundle):
     return lib, opcodes
 
 
+# ── static half, Windows ────────────────────────────────────────────────────
+
+def _pe_imports(path):
+    """(normal imports, delay-loaded imports) of a PE file, as lower-case DLL
+    names. Written out rather than shelled to dumpbin: dumpbin needs a Visual
+    Studio environment that a plain CI step does not have, and this is the one
+    property that decides whether the VST3 loads in a host at all."""
+    data = path.read_bytes()
+    pe = struct.unpack_from("<I", data, 0x3C)[0]
+    if data[pe:pe + 4] != b"PE\0\0":
+        fail(f"{path.name} is not a PE file")
+    opt = pe + 24
+    magic = struct.unpack_from("<H", data, opt)[0]
+    is_pe32_plus = magic == 0x20B
+    dirs = opt + (112 if is_pe32_plus else 96)
+    n_dirs = struct.unpack_from("<I", data, opt + (108 if is_pe32_plus else 92))[0]
+    n_sections, size_opt = (struct.unpack_from("<H", data, pe + 6)[0],
+                            struct.unpack_from("<H", data, pe + 20)[0])
+    sections = []
+    for i in range(n_sections):
+        s = pe + 24 + size_opt + i * 40
+        vsize, vaddr, rawsize, rawptr = struct.unpack_from("<IIII", data, s + 8)
+        # rawsize, NOT max(vsize, rawsize): a section whose VirtualSize exceeds its
+        # raw data has an uninitialised tail with no bytes in the file, and mapping
+        # an RVA there would silently read the NEXT section's raw bytes instead.
+        sections.append((vaddr, min(vsize, rawsize) or rawsize, rawptr))
+
+    def at(rva):
+        for vaddr, size, rawptr in sections:
+            if vaddr <= rva < vaddr + size:
+                return rawptr + (rva - vaddr)
+        return None
+
+    def name_at(rva):
+        off = at(rva)
+        if off is None:
+            return ""
+        end = data.find(b"\0", off)
+        if end < 0:                     # unterminated: a malformed file, not a name
+            return ""
+        return data[off:end].decode("ascii", "replace").lower()
+
+    def walk(dir_index, entry_size, name_field):
+        # A PE may declare fewer than 16 data directories; indexing past the count
+        # would read the section table and call it an import table.
+        if dir_index >= n_dirs:
+            return []
+        rva, size = struct.unpack_from("<II", data, dirs + dir_index * 8)
+        if not rva or not size:
+            return []
+        off, out = at(rva), []
+        if off is None:
+            return []
+        while True:
+            entry = data[off:off + entry_size]
+            if len(entry) < entry_size or not any(entry):
+                return out
+            field = struct.unpack_from("<I", entry, name_field)[0]
+            if field:
+                out.append(name_at(field))
+            off += entry_size
+
+    return walk(1, 20, 12), walk(13, 32, 4)   # IMAGE_IMPORT_DESCRIPTOR / ImgDelayDescr
+
+
+def check_windows_payload(root):
+    """`root` is the directory the module lives in — beside akroasys.exe for the
+    standalone, Contents/x86_64-win inside the VST3."""
+    dll = root / "csound64.dll"
+    plugins = root / "plugins64"
+    licences = root / "licenses" / "csound"
+
+    if not dll.is_file():
+        fail(f"no shipped Csound library at {dll}")
+    if not plugins.is_dir() or not any(plugins.glob("*.dll")):
+        fail(f"no shipped plugin opcodes at {plugins}")
+    if not (plugins / "scansyn.dll").is_file():
+        fail("scansyn.dll missing — scanu/scanu2/scans would be gone")
+    for name in ("NOTICE.txt", "LGPL-2.1.txt"):
+        if not (licences / name).is_file():
+            fail(f"LGPL 2.1 requires {name} beside the library ({licences})")
+    ok(f"{dll.name} + {len(list(plugins.glob('*.dll')))} plugin opcode modules "
+       f"+ licence texts present")
+
+    # THE Windows-specific defect, and it is invisible at build time: Windows
+    # resolves a module's imports against the HOST process's search path, not
+    # against the directory the module itself sits in. A VST3 with a normal
+    # import of csound64.dll is therefore looked for beside the DAW's .exe and
+    # fails to load in most hosts — while the standalone, whose .exe IS beside
+    # the DLL, works perfectly and hides it.
+    modules = sorted(root.glob("*.exe")) + sorted(root.glob("*.vst3"))
+    if not modules:
+        # Measured against a fabricated layout: without this the whole check
+        # reported PASS on a directory containing no module at all, because an
+        # empty loop finds no problems. A gate that is green when there is nothing
+        # to test is worse than no gate.
+        fail(f"no akróasys module (.exe/.vst3) in {root} — nothing to check, and a "
+             "green result here would be meaningless")
+    problems = []
+    for module in modules:
+        imports, delayed = _pe_imports(module)
+        if "csound64.dll" in imports:
+            problems.append(f"{module.name} imports csound64.dll normally — it must "
+                            "be delay-loaded (/DELAYLOAD:csound64.dll), or it will be "
+                            "searched for beside the HOST's executable")
+        elif "csound64.dll" not in delayed:
+            problems.append(f"{module.name} does not reference csound64.dll at all — "
+                            "was it built without Csound?")
+    if problems:
+        fail("\n      ".join(problems))
+    ok(f"{len(modules)} module(s) delay-load csound64.dll, so it resolves from "
+       "their own directory")
+    return dll, plugins
+
+
 # ── runtime half, inside the sandbox ────────────────────────────────────────
 
 def prove_homebrew_is_unreachable():
@@ -230,11 +358,28 @@ def _readable(path):
         return False
 
 
+def prove_this_is_the_shipped_dll(lib, lib_path):
+    """Windows has no sandbox to deny a system Csound with, so prove the point
+    directly: ask the loader which file the handle we are holding came from. If a
+    Csound was already in the process under the same base name, this is where it
+    shows."""
+    buf = ctypes.create_unicode_buffer(32768)
+    ctypes.windll.kernel32.GetModuleFileNameW(
+        ctypes.c_void_p(lib._handle), buf, len(buf))
+    loaded = Path(buf.value).resolve()
+    if loaded != lib_path.resolve():
+        fail(f"the loaded csound64.dll is {loaded}, not the shipped "
+             f"{lib_path.resolve()} — this run would prove nothing")
+    ok(f"the loaded library is the shipped one ({loaded})")
+
+
 def load_bundled(lib_path, opcodes):
     try:
-        lib = ctypes.CDLL(str(lib_path))
+        lib = ctypes.WinDLL(str(lib_path)) if WINDOWS else ctypes.CDLL(str(lib_path))
     except OSError as exc:
         fail(f"the bundled library will not load: {exc}")
+    if WINDOWS:
+        prove_this_is_the_shipped_dll(lib, lib_path)
     for name, restype, argtypes in (
         ("csoundCreate", ctypes.c_void_p, [ctypes.c_void_p]),
         ("csoundSetOpcodedir", None, [ctypes.c_char_p]),
@@ -255,7 +400,7 @@ def load_bundled(lib_path, opcodes):
         fn.restype = restype
         fn.argtypes = argtypes
     lib.csoundSetOpcodedir(str(opcodes).encode())
-    ok(f"loaded {lib_path.name} with its own Opcodes64")
+    ok(f"loaded {lib_path.name} with its own {opcodes.name}")
     return lib
 
 
@@ -266,26 +411,40 @@ def load_bundled(lib_path, opcodes):
 # proves nothing: with a different Mach-O under that name the file check passed
 # while `scanu` was gone.
 MODULE_PROBES = (
-    ("libfractalnoise", "asig fractalnoise 0.2, 2\nout asig"),
-    ("libscansyn",      "asig scans 0.5, 220, 1, 1\nout asig"),
-    ("libmixer",        "asig oscili 0.2, 220\nMixerSend asig, 1, 1, 0.5\nout asig"),
-    ("libdoppler",      "asig oscili 0.2, 220\nadop doppler asig, 1, 2\nout adop"),
-    ("liburandom",      "ax urandom\nout ax * 0.1"),
-    ("libpadsynth",     'gitab ftgen 0, 0, 262144, "padsynth", 261.6, 10, 1, 1, 1\n'
-                        "asig oscili 0.2, 220, gitab\nout asig"),
-    ("libpvsops",       "asig oscili 0.2, 220\nfsig pvsanal asig, 1024, 256, 1024, 1\n"
-                        "ftr pvstrace fsig, 20\naout pvsynth ftr\nout aout"),
-    ("libtrigenvsegs",  "ktrig metro 2\n"
-                        "kenv trigexpseg ktrig, 0.001, 0.1, 1, 0.2, 0.001\n"
-                        "asig oscili 0.2 * kenv, 220\nout asig"),
+    ("fractalnoise", "asig fractalnoise 0.2, 2\nout asig"),
+    ("scansyn",      "asig scans 0.5, 220, 1, 1\nout asig"),
+    ("mixer",        "asig oscili 0.2, 220\nMixerSend asig, 1, 1, 0.5\nout asig"),
+    ("doppler",      "asig oscili 0.2, 220\nadop doppler asig, 1, 2\nout adop"),
+    ("padsynth",     'gitab ftgen 0, 0, 262144, "padsynth", 261.6, 10, 1, 1, 1\n'
+                     "asig oscili 0.2, 220, gitab\nout asig"),
+    ("pvsops",       "asig oscili 0.2, 220\nfsig pvsanal asig, 1024, 256, 1024, 1\n"
+                     "ftr pvstrace fsig, 20\naout pvsynth ftr\nout aout"),
+    ("trigenvsegs",  "ktrig metro 2\n"
+                     "kenv trigexpseg ktrig, 0.001, 0.1, 1, 0.2, 0.001\n"
+                     "asig oscili 0.2 * kenv, 220\nout asig"),
 )
 
-# 1917 entries register with no plugin modules at all, 2267 with the 24 this
-# bundle carries. A floor rather than the exact figure, so a Csound update does
+# urandom is /dev/urandom and exists only in the macOS payload — upstream ships no
+# such module for Windows. It is probed where it is there, and its absence is a
+# recorded platform difference (third_party/csound/README.md), not a hole here.
+MACOS_ONLY_PROBES = (
+    ("urandom", "ax urandom\nout ax * 0.1"),
+)
+
+# 1917 entries register with no plugin modules at all, 2267 with the 24 the macOS
+# payload carries. A floor rather than the exact figure, so a Csound update does
 # not fail a build over a few new entries — but far enough above 1917 that a
 # bundle which lost its modules cannot pass. Measured: with 22 of the 24 modules
 # deleted, the old check still said PASS at 1929 entries.
-MIN_OPCODE_ENTRIES = 2200
+#
+# Windows ships 16 modules. The figure cannot be measured on a Mac, but the macOS
+# counterparts of exactly those modules can: they register 2062 entries against the
+# same 6.18.1 core (0 modules → 1917, 1 → 1928, all 24 → 2267). 2000 is that minus a
+# margin for the few modules whose Windows build differs — loose enough not to turn
+# a good build red, tight enough that a payload down to two or three modules cannot
+# pass. The exact count is printed on every run; the first green Windows CI run is
+# what replaces this with the measured Windows figure.
+MIN_OPCODE_ENTRIES = 2000 if WINDOWS else 2200
 
 
 def check_plugin_opcodes(lib):
@@ -305,8 +464,9 @@ def check_plugin_opcodes(lib):
              "modules, 1917 with none of them, so modules are missing or did not "
              "load")
 
+    probes = MODULE_PROBES if WINDOWS else MODULE_PROBES + MACOS_ONLY_PROBES
     missing = []
-    for module, body in MODULE_PROBES:
+    for module, body in probes:
         cs = lib.csoundCreate(None)
         try:
             for opt in (b"-n", b"-d", b"-m0"):
@@ -324,7 +484,7 @@ def check_plugin_opcodes(lib):
              + "\n      (the author WRITES Csound — an opcode that is not there "
                "is a capability it cannot reach)")
     ok(f"{count} opcode entries, and an opcode out of each of "
-       f"{len(MODULE_PROBES)} bundled modules compiles")
+       f"{len(probes)} bundled modules compiles")
 
 
 def play_real_orchestra(lib):
@@ -427,6 +587,18 @@ def main():
     bundle = Path(args[0]).resolve()
     if not bundle.is_dir():
         fail(f"not a bundle: {bundle}")
+
+    if WINDOWS:
+        # No sandbox and no second process: the DLL is loaded by absolute path and
+        # the loader is asked to confirm it, which is a stronger statement than
+        # "nothing else was reachable" and needs no privilege.
+        print(f"verifying {bundle}")
+        dll, plugins = check_windows_payload(bundle)
+        lib = load_bundled(dll, plugins)
+        check_plugin_opcodes(lib)
+        play_real_orchestra(lib)
+        print("PASS  the shipped files play the LRO with no Csound on the system")
+        return 0
 
     child = "--child" in sys.argv
     if not child:

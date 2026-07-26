@@ -139,6 +139,7 @@ Diagnostic discipline when a release crashes in user hands:
 - `docs/RELEASE_PROCESS.md` — release checklist and CI workflow
 - `docs/PERFORMANCE_GUIDE.md` — anti-pattern catalogue, audioIdle gate, profiling methodology, pre-commit checklist
 - `docs/LCO_CONCEPT.md` — the language-resonant oscillator: goal, architecture, and §4's invariants (spectrum source, one loudness, movement by default, the two exemptions)
+- `docs/CSOUND_INTEGRATION.md` — how Csound ships inside the app on macOS and Windows, why the Windows module delay-loads it, and what proves a build carries a working one
 - `docs/LCO_CODE_PROVENANCE.md` — **the licence record per Csound source.** Read before taking any instrument code from anywhere; the authority where it and the next file disagree
 - `docs/LCO_CSOUND_SOURCES_AND_LICENCES.md` — the authoring practice that follows from that record ("take physics, not code")
 - `docs/devlog.md` — development history and design decisions
