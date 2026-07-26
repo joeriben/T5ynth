@@ -95,21 +95,38 @@ def foreign_references(path):
     whitelist, deliberately: the old blacklist of /opt/homebrew, /usr/local and
     /Cellar/ passes anything a differently-configured build machine records —
     /Users/…, /sw, a Nix store path — which is the same defect wearing a
-    different prefix."""
+    different prefix.
+
+    /System/Volumes is carved back out of the /System exemption: on APFS the data
+    volume is also reachable as /System/Volumes/Data/opt/homebrew/…, so a whole
+    Homebrew tree can be spelled as if it were the OS's own."""
     load = subprocess.run(["otool", "-L", str(path)],
                           capture_output=True, text=True).stdout
-    rpaths = subprocess.run(["otool", "-l", str(path)],
-                            capture_output=True, text=True).stdout
-    refs = [l.split()[0] for l in load.splitlines()[1:] if l.startswith("\t")]
-    want_path = False
-    for line in rpaths.splitlines():
+    refs = [_first_field(l) for l in load.splitlines()[1:] if l.startswith("\t")]
+    refs += rpaths_of(path)
+    return [r for r in refs
+            if not r.startswith(("@", "/usr/lib/", "/System/"))
+            or r.startswith("/System/Volumes/")]
+
+
+def _first_field(line):
+    """otool prints `\\t<path> (compatibility version …)`. Splitting on whitespace
+    truncates a path that contains a space, which then gets reported under a name
+    that does not exist."""
+    return line.strip().rsplit(" (", 1)[0].strip()
+
+
+def rpaths_of(path):
+    out = subprocess.run(["otool", "-l", str(path)],
+                         capture_output=True, text=True).stdout
+    found, want_path = [], False
+    for line in out.splitlines():
         if "cmd LC_RPATH" in line:
             want_path = True
         elif want_path and line.strip().startswith("path "):
-            refs.append(line.split()[1])
+            found.append(line.strip()[5:].rsplit(" (offset ", 1)[0].strip())
             want_path = False
-    return [r for r in refs
-            if not r.startswith(("@", "/usr/lib/", "/System/"))]
+    return found
 
 
 def check_bundle_contents(bundle):
@@ -117,10 +134,23 @@ def check_bundle_contents(bundle):
     opcodes = bundle / "Contents" / "libs" / "Opcodes64"
     licences = bundle / "Contents" / "Resources" / "licenses" / "csound"
 
-    if not lib.is_file():
-        fail(f"no bundled Csound library at {lib}")
+    if not lib.is_file() or lib.is_symlink():
+        fail(f"no bundled Csound library at {lib}"
+             + (" (it is a symlink)" if lib.is_symlink() else ""))
     if not opcodes.is_dir() or not any(opcodes.glob("*.dylib")):
         fail(f"no bundled plugin opcodes at {opcodes}")
+    # A symlink anywhere under Contents/libs is invisible to every check below:
+    # os.walk does not descend a symlinked directory and this file skips symlinked
+    # files, so a Contents/libs that LOOKS complete can be links to files that
+    # exist on this machine only. Measured: with Opcodes64 a symlink, the sweep
+    # dropped from 35 Mach-O files to 11 and still said PASS.
+    links = sorted({p for p in [opcodes] + [Path(d) / n
+                                            for d, ds, fs in os.walk(bundle / "Contents" / "libs")
+                                            for n in ds + fs]
+                    if p.is_symlink()})
+    if links:
+        fail("symlink(s) under Contents/libs, which every check below walks past: "
+             + ", ".join(str(p.relative_to(bundle)) for p in links))
     if not (opcodes / "libscansyn.dylib").is_file():
         fail("libscansyn.dylib missing — scanu/scanu2/scans would be gone")
     for name in ("NOTICE.txt", "LGPL-2.1.txt"):
@@ -134,7 +164,7 @@ def check_bundle_contents(bundle):
     # PyInstaller backend, hundreds of Mach-Os that are another concern's
     # business, and a check that pulls them in would grow exceptions until it
     # stops meaning anything.
-    checked = offenders = 0
+    checked = 0
     problems = []
     for m in mach_o_files(bundle / "Contents" / "libs", bundle / "Contents" / "MacOS"):
         checked += 1
@@ -144,17 +174,33 @@ def check_bundle_contents(bundle):
         # because that directory is sealed as resources — bytes checked, nested
         # signatures not. An install_name_tool'd library whose signature was not
         # renewed does not merely fail to load, it KILLS the process.
+        #
+        # The bundle's own executable is the exception: codesign --verify on it
+        # verifies the whole bundle seal, so anything added to Contents/Resources
+        # after signing — which is exactly what CI does with the PyInstaller
+        # backend (.github/workflows/build.yml) — reports here as "the executable
+        # has a broken signature". Run this AFTER the bundle is re-sealed; the
+        # message says so rather than sending someone after the wrong file.
         if subprocess.run(["codesign", "--verify", str(m)],
                           capture_output=True).returncode != 0:
-            problems.append(f"{rel}: unsigned or broken signature")
-            offenders += 1
+            problems.append(
+                f"{rel}: unsigned or broken signature"
+                + (" — note that verifying the bundle's executable verifies the "
+                   "whole bundle seal, so this also fires when something was "
+                   "copied into the bundle after signing; re-sign, then re-run"
+                   if m.parent.name == "MacOS" else ""))
         for ref in foreign_references(m):
             problems.append(f"{rel}: {ref}")
-            offenders += 1
+        # dyld aborts at launch on a duplicate LC_RPATH — before main(), with a
+        # crash report that names no file this sweep would otherwise flag.
+        seen = rpaths_of(m)
+        for dup in {r for r in seen if seen.count(r) > 1}:
+            problems.append(f"{rel}: LC_RPATH {dup} appears {seen.count(dup)} "
+                            "times — dyld kills the process at launch")
     if problems:
         fail("bundle is not self-contained:\n      " + "\n      ".join(problems))
-    ok(f"{checked} Mach-O files: each signed, none naming anything outside the "
-       f"bundle but /usr/lib and /System")
+    ok(f"{checked} Mach-O files: each signed, no duplicate rpath, none naming "
+       f"anything outside the bundle but /usr/lib and /System")
     return lib, opcodes
 
 
@@ -213,27 +259,72 @@ def load_bundled(lib_path, opcodes):
     return lib
 
 
+# One opcode per bundled module that matters, written the way an orchestra would
+# write it. A module that did not load takes its opcodes with it, and Csound says
+# so only when something tries to compile them — which is why this is a compile
+# per module rather than a count. The presence of a FILE named libscansyn.dylib
+# proves nothing: with a different Mach-O under that name the file check passed
+# while `scanu` was gone.
+MODULE_PROBES = (
+    ("libfractalnoise", "asig fractalnoise 0.2, 2\nout asig"),
+    ("libscansyn",      "asig scans 0.5, 220, 1, 1\nout asig"),
+    ("libmixer",        "asig oscili 0.2, 220\nMixerSend asig, 1, 1, 0.5\nout asig"),
+    ("libdoppler",      "asig oscili 0.2, 220\nadop doppler asig, 1, 2\nout adop"),
+    ("liburandom",      "ax urandom\nout ax * 0.1"),
+    ("libpadsynth",     'gitab ftgen 0, 0, 262144, "padsynth", 261.6, 10, 1, 1, 1\n'
+                        "asig oscili 0.2, 220, gitab\nout asig"),
+    ("libpvsops",       "asig oscili 0.2, 220\nfsig pvsanal asig, 1024, 256, 1024, 1\n"
+                        "ftr pvstrace fsig, 20\naout pvsynth ftr\nout aout"),
+    ("libtrigenvsegs",  "ktrig metro 2\n"
+                        "kenv trigexpseg ktrig, 0.001, 0.1, 1, 0.2, 0.001\n"
+                        "asig oscili 0.2 * kenv, 220\nout asig"),
+)
+
+# 1917 entries register with no plugin modules at all, 2267 with the 24 this
+# bundle carries. A floor rather than the exact figure, so a Csound update does
+# not fail a build over a few new entries — but far enough above 1917 that a
+# bundle which lost its modules cannot pass. Measured: with 22 of the 24 modules
+# deleted, the old check still said PASS at 1929 entries.
+MIN_OPCODE_ENTRIES = 2200
+
+
 def check_plugin_opcodes(lib):
     """The measured trap: a bundle without Opcodes64 still compiles core opcodes
     and silently drops to the 1917 built-in entries, 350 fewer than with the
-    modules we ship. `fractalnoise` is one of the missing ones, so this answers
-    the question with a compile rather than with a count that could drift."""
+    modules we ship — no scanu/scans, no fractalnoise, no GEN padsynth."""
     cs = lib.csoundCreate(None)
     try:
         for opt in (b"-n", b"-d", b"-m0"):
             lib.csoundSetOption(cs, opt)
         entries = ctypes.c_void_p()
         count = lib.csoundNewOpcodeList(cs, ctypes.byref(entries))
-        csd = ("<CsoundSynthesizer>\n<CsInstruments>\nsr=44100\nksmps=64\nnchnls=1\n"
-               "0dbfs=1\ninstr 1\nasig fractalnoise 0.2, 2\nout asig\nendin\n"
-               "</CsInstruments>\n<CsScore>\ne 0\n</CsScore></CsoundSynthesizer>\n")
-        if lib.csoundCompileCsdText(cs, csd.encode()) != 0:
-            fail("the bundled Csound has no plugin opcodes (fractalnoise did not "
-                 "compile) — scanu/scans, tvconv, ftgenonce, limit1 and GEN "
-                 "padsynth are gone with it")
-        ok(f"plugin opcodes register ({count} opcode entries; fractalnoise compiles)")
     finally:
         lib.csoundDestroy(cs)
+    if count < MIN_OPCODE_ENTRIES:
+        fail(f"only {count} opcode entries register — 2267 with the bundled plugin "
+             "modules, 1917 with none of them, so modules are missing or did not "
+             "load")
+
+    missing = []
+    for module, body in MODULE_PROBES:
+        cs = lib.csoundCreate(None)
+        try:
+            for opt in (b"-n", b"-d", b"-m0"):
+                lib.csoundSetOption(cs, opt)
+            csd = ("<CsoundSynthesizer>\n<CsInstruments>\nsr=44100\nksmps=64\n"
+                   f"nchnls=1\n0dbfs=1\ninstr 1\n{body}\nendin\n</CsInstruments>\n"
+                   "<CsScore>\ne 0\n</CsScore></CsoundSynthesizer>\n")
+            if lib.csoundCompileCsdText(cs, csd.encode()) != 0:
+                missing.append(module)
+        finally:
+            lib.csoundDestroy(cs)
+    if missing:
+        fail("plugin modules that did not deliver their opcodes: "
+             + ", ".join(missing)
+             + "\n      (the author WRITES Csound — an opcode that is not there "
+               "is a capability it cannot reach)")
+    ok(f"{count} opcode entries, and an opcode out of each of "
+       f"{len(MODULE_PROBES)} bundled modules compiles")
 
 
 def play_real_orchestra(lib):

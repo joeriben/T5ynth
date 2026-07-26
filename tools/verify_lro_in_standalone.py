@@ -300,6 +300,9 @@ def main():
     if args.prove_it_can_fail:
         ok("and so is the bundle's own Contents/libs — this run must produce NO "
            "sound; if it does, the test is measuring something else")
+        print("      EXPECTED: the app will be killed by dyld before main() "
+              "(\"Library not loaded: @loader_path/../libs/CsoundLib64\") and "
+              "macOS will file a crash report for it. That IS the result.")
 
     name, orchestra = orchestra_from_preset(args.preset)
     ok(f"orchestra taken from preset '{name}' ({len(orchestra)} chars)")

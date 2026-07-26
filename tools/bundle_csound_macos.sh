@@ -26,12 +26,19 @@
 # synthesis. They land in Contents/libs/Opcodes64, and the host points Csound at
 # that directory at runtime (CsoundEngine.cpp, lco_write.py).
 #
-# Which plugins: exactly those whose non-system dependencies are already covered
-# by what we bundle. That is computed per file, not from a hand-written list that
-# would drift — a plugin needing fltk, jack, fluidsynth, hdf5, portaudio, liblo,
-# libpng, Python, libfaust or libwiiuse is skipped and named. (libfaust would be
-# pointless anyway: faustcompile returns -1 here and an import("stdfaust.lib")
-# segfaults the host — see CLAUDE.md.)
+# Which plugins: exactly those with NO non-system dependency of their own. That is
+# computed per file, not from a hand-written list that would drift — a plugin
+# needing fltk, jack, fluidsynth, hdf5, portaudio, liblo, libpng, Python, libfaust
+# or libwiiuse is skipped and named on every build. (libfaust would be pointless
+# anyway: faustcompile returns -1 here and an import("stdfaust.lib") segfaults the
+# host — see CLAUDE.md.)
+#
+# The rule is deliberately stricter than "its dependencies happen to be in
+# Contents/libs". Exactly one module would qualify under the looser rule —
+# libmp3out.dylib, which needs libmp3lame that libsndfile brings in anyway — and
+# it is the mp3 FILE opcodes. An orchestra body reads and writes no files (the
+# host owns that), so bundling it would buy nothing and cost a load-command
+# rewrite in a directory where nothing else needs one.
 #
 # Usage: bundle_csound_macos.sh <bundle> [<bundle> ...]
 #   CSOUND_FRAMEWORK_BINARY   override the framework binary to copy
@@ -66,10 +73,17 @@ command -v dylibbundler >/dev/null \
 # records an rpath from wherever Csound was FOUND (T5YNTH_CSOUND_PREFIX may name
 # any prefix), and a leftover reference to that prefix would pass a blacklist and
 # exist on no other machine.
+#
+# /System/Volumes is excluded from the /System/ exemption: on APFS the whole data
+# volume — /opt/homebrew included — is also reachable as
+# /System/Volumes/Data/opt/homebrew/…, and that spelling would otherwise sail
+# through as "the OS's own".
 foreign_deps() {
     otool -L "$1" | tail -n +2 | awk '{print $1}' \
         | grep -vE '^(@|/usr/lib/|/System/)' \
         | grep -v "/$(basename "$1")\$" || true
+    otool -L "$1" | tail -n +2 | awk '{print $1}' \
+        | grep -E '^/System/Volumes/' || true
 }
 
 # Every Mach-O in a bundle, NUL-separated. Not `find -perm -u+x`: dylibbundler
@@ -102,6 +116,18 @@ strip_rpaths() {
     local f="$1" pattern="$2" rp
     while :; do
         rp="$(rpaths_of "$f" | grep -E "$pattern" | head -1)" || true
+        [ -z "$rp" ] && break
+        install_name_tool -delete_rpath "$rp" "$f" 2>/dev/null || break
+    done
+}
+
+# Leave one of each. dylibbundler rewrites EVERY absolute rpath to the same
+# @loader_path/../libs/, so a binary that had two of them now has one load command
+# twice — and that is not cosmetic: dyld aborts the process at launch.
+dedupe_rpaths() {
+    local f="$1" rp
+    while :; do
+        rp="$(rpaths_of "$f" | sort | uniq -d | head -1)" || true
         [ -z "$rp" ] && break
         install_name_tool -delete_rpath "$rp" "$f" 2>/dev/null || break
     done
@@ -144,7 +170,14 @@ bundle_one() {
     #    rebuild the linker has restored the absolute reference, and when it has
     #    not, OLD_REF is already the @loader_path form and this is a no-op.
     install_name_tool -change "$OLD_REF" "@loader_path/../libs/CsoundLib64" "$BIN" 2>/dev/null
-    strip_rpaths "$BIN" '^/opt/homebrew|^/usr/local|/Cellar/'
+    # Every rpath that is not bundle-relative goes, for the same reason foreign_deps
+    # is a whitelist: CMake records an rpath from wherever Csound was FOUND, and
+    # T5YNTH_CSOUND_PREFIX may name any prefix. A blacklist of /opt/homebrew and
+    # /usr/local left a CI-workspace rpath standing, dylibbundler then rewrote it —
+    # and the one below it — to the SAME @loader_path/../libs/, and dyld hard-fails
+    # on a duplicate LC_RPATH. Both gates were green on that bundle; the app died
+    # at launch with "duplicate LC_RPATH".
+    strip_rpaths "$BIN" '^[^@]'
 
     # 3) Plugin opcodes: copy the ones whose dependencies we can satisfy, name the
     #    rest. A skipped plugin is a capability the LRO's author cannot reach, so
@@ -189,6 +222,7 @@ bundle_one() {
     for f in "$LIBS"/*; do
         if [ -f "$f" ]; then strip_rpaths "$f" '.'; fi
     done
+    dedupe_rpaths "$BIN"
 
     # 5) LGPL 2.1: the licence text and the notice that says which libraries are
     #    bundled and how to replace them ship INSIDE the bundle, not only in the repo.
@@ -226,15 +260,35 @@ bundle_one() {
     #    PyInstaller backend, whose hundreds of Mach-Os are another concern's
     #    responsibility, and a gate that drags them in would either be noisy or
     #    would have to learn exceptions until it stops meaning anything.
-    local offenders="" refs
+    #
+    #    A symlink under Contents/libs is a hole in all of it: `find -type f` does
+    #    not report one and `os.walk` does not descend one, so a Contents/libs that
+    #    LOOKS complete can consist of links to files that exist only here — signed
+    #    by nobody, checked by nothing, absent on the user's machine.
+    local links
+    links="$(find "$LIBS" -type l 2>/dev/null || true)"
+    [ -z "$links" ] || die "symlink(s) under Contents/libs, which escape every \
+check below and point at files the user's machine will not have: \
+$(echo "$links" | sed "s|^$APP/||" | tr '\n' ' ')"
+
+    local offenders="" refs dupes
     while IFS= read -r -d '' m; do
         codesign --verify "$m" >/dev/null 2>&1 \
             || die "unsigned or broken signature after bundling: ${m#"$APP"/}"
         refs="$({ otool -L "$m" 2>/dev/null | tail -n +2 | awk '{print $1}'
                   rpaths_of "$m" 2>/dev/null; } \
                 | grep -vE '^(@|/usr/lib/|/System/)' || true)"
+        refs="$refs
+$({ otool -L "$m" 2>/dev/null | tail -n +2 | awk '{print $1}'
+    rpaths_of "$m" 2>/dev/null; } | grep -E '^/System/Volumes/' || true)"
+        refs="$(echo "$refs" | grep -v '^$' || true)"
         [ -z "$refs" ] || offenders="$offenders
 ${m#"$APP"/}: $(echo "$refs" | tr '\n' ' ')"
+        # dyld aborts the process on a duplicate LC_RPATH, before main(), with no
+        # part of this bundle at fault that any other check can see.
+        dupes="$(rpaths_of "$m" 2>/dev/null | sort | uniq -d || true)"
+        [ -z "$dupes" ] || die "duplicate LC_RPATH in ${m#"$APP"/} (dyld kills the \
+process at launch): $(echo "$dupes" | tr '\n' ' ')"
     done < <(printf '%s\0' "$BIN"; mach_o_files "$LIBS")
 
     [ -z "$offenders" ] || die "bundle still reaches outside itself:$offenders"
