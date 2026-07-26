@@ -19,6 +19,10 @@ constexpr float kActiveBlockThresholdDb = -40.0f;
 constexpr float kTransientActiveRatio = 0.35f;
 constexpr float kTransientCrestDb = 18.0f;
 constexpr float kTransientPeakGapDb = 8.0f;
+// Inside this much of the sample's own pitch, the direct read IS the better
+// answer as well as the cheaper one: it hands the recorded samples through
+// untouched, where the stretcher would take them apart and rebuild them.
+constexpr float kNearUnitySemitones = 0.1f;
 
 #if SAMPLER_DEBUG_LOG
 juce::String samplerPtrTag(const void* ptr)
@@ -97,6 +101,9 @@ void SamplePlayer::reset()
     morphIncrement_ = 0.0f;
     sharedMode = false;
     stretcher.reset();
+    pitchModReachSemis_ = 0.0f;
+    pitchPathLatched_ = false;
+    pitchPathUsesStretch_ = false;
 }
 
 void SamplePlayer::loadBuffer(const juce::AudioBuffer<float>& buffer, double bufferSampleRate)
@@ -302,6 +309,12 @@ void SamplePlayer::glideToRatio(double targetRatio, float durationMs)
 
 void SamplePlayer::retrigger()
 {
+    // Fresh note: the render path is chosen again on this note's first block.
+    // Above the empty-buffer early return — this is note state, not buffer
+    // geometry, and must never leak from one note into the next.
+    pitchPathLatched_ = false;
+    pitchPathUsesStretch_ = false;
+
     const auto& buf = currentPlaybackBuffer();
     const int bufLen = buf.getNumSamples();
     if (bufLen == 0) return;
@@ -760,8 +773,18 @@ float SamplePlayer::processSample()
             transposeRatio = glideTargetRatio;
     }
 
+    // pitchModFactor belongs in the read speed, not only in the stretcher's
+    // transposition: reading faster or slower IS how this path bends a note, so
+    // leaving it out silently deletes everything routed to the pitch bus —
+    // envelopes, LFOs, Drift, pitch bend, MPE per-note bend. It was invisible
+    // while this path was only ever entered inside a 0.1-semitone dead zone
+    // (0.6 cents of error at worst); once the render path is latched at the note's
+    // first block it becomes unbounded, and a note held on the direct read simply
+    // would not bend. Block-rate steps in the factor step the read speed, never
+    // the position, so there is no seam — the same block-rate quantisation the
+    // stretch path has.
     const double srRatio = currentBufferOriginalSR() / playbackSampleRate;
-    double speedRatio = srRatio * transposeRatio;
+    double speedRatio = srRatio * transposeRatio * static_cast<double>(pitchModFactor);
 
     // Read with cubic interpolation. The first pass uses the linear source path
     // so loop crossfade/optimization is only heard after the first wrap.
@@ -819,10 +842,45 @@ void SamplePlayer::renderPitchedBlock(float* output, int numSamples)
     // Determine mode before glide advancement (use current ratio)
     double effectiveRatio = transposeRatio * static_cast<double>(pitchModFactor);
     float semitones = static_cast<float>(12.0 * std::log2(std::max(effectiveRatio, 1e-6)));
-    bool nearUnity = std::abs(semitones) < 0.1f;
+
+    // Which of the two render paths this note uses is decided ONCE, here, on its
+    // first block, and then kept until the note retriggers.
+    //
+    // Deciding it per block — asking "is the CURRENT pitch inside the dead
+    // zone?" — switches engines under a sounding note, and every such switch
+    // costs an analysis window: the stretcher's input→output positional latency
+    // is a FULL window, so entering mid-note restarted the heard stream ~50 ms
+    // back into already-played material with a splice click, and leaving it
+    // skipped ~100 ms forward, because readPosition leads the heard stream by
+    // that window while stretching. A vibrato on a root-pitch note was enough
+    // to trigger it.
+    //
+    // The reach the voice pushes (setPitchModulationReach) is how far pitch
+    // bend and the pitch bus can carry this note at full scale, so a note that
+    // can never leave the dead zone keeps the exact direct read for its whole
+    // life, and one that can leave it is on the stretcher from its first
+    // sample. Notes that DO stay on the direct read still follow their pitch
+    // modulation — read faster or slower, so the colour rides along with the
+    // pitch the way it does on a real instrument, which is what BJ chose over
+    // formant-preserving vibrato (2026-07-26).
+    //
+    // Consequence, deliberate: a poly BIND glide (glideToNote → glideToRatio)
+    // arrives mid-note and can take a latched direct-read note far outside the
+    // dead zone. It stays on the direct read and the glide is heard tape-style.
+    // Re-deciding there would reintroduce exactly the mid-note switch this
+    // removes. The path it stays on is the shipped PitchShiftQuality::Bypass
+    // path, not a new one.
+    if (!pitchPathLatched_)
+    {
+        const float baseSemis = static_cast<float>(
+            12.0 * std::log2(std::max(transposeRatio, 1e-6)));
+        pitchPathUsesStretch_ =
+            (std::abs(baseSemis) + pitchModReachSemis_) >= kNearUnitySemitones;
+        pitchPathLatched_ = true;
+    }
 
     // Bypass: processSample() handles glide per-sample — no block-level advancement
-    if (pitchQuality == PitchShiftQuality::Bypass || nearUnity)
+    if (pitchQuality == PitchShiftQuality::Bypass || !pitchPathUsesStretch_)
     {
         for (int i = 0; i < numSamples; ++i)
         {
@@ -1097,7 +1155,7 @@ void SamplePlayer::primeStretcher()
     // fit — to zero at P1 = 0 — so the STFT started from empty history and the
     // synthesis-window overlap faded the first ~windowSize of output in from
     // silence: measured 46 ms to 10 % of level on every transposed note (the
-    // root takes the nearUnity bypass and never enters the stretcher), and a
+    // root note stays on the direct read and never enters the stretcher), and a
     // fresh generation lands in exactly this state because loadGeneratedAudio
     // trims leading silence and auto-positions P1 at the first active window.
     // Standard edge handling instead: REFLECT the buffer around the start

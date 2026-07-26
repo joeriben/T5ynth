@@ -1597,6 +1597,7 @@ struct BlockParams
     // Drift offsets for filter and pitch (applied per-voice in SynthVoice)
     float driftFilterOffset = 0.0f;  // normalized cutoff contribution (octave-fraction), summed into the cutoff bus
     float driftPitchOffset = 0.0f;   // normalized pitch contribution (semitone-fraction), summed into the pitch bus
+    float driftPitchReach  = 0.0f;   // the largest |driftPitchOffset| the current arming/depths allow, phase-independent
     float performancePitchRatio = 1.0f; // MIDI pitch bend, applied as a frequency multiplier
 
     // Noise oscillator

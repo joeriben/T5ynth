@@ -102,6 +102,11 @@ public:
                             float ampEnvVal, float mod1EnvVal, float mod2EnvVal,
                             float lfo1Val, float lfo2Val, float lfo3Val) const;
 
+    // The widest |bus| the same sum can reach with every routed source at full
+    // scale, in bus units. The sampler needs it at a note's FIRST block to pick
+    // its render path once and keep it (SamplePlayer::setPitchModulationReach).
+    float pitchBusReachSemitones(const BlockParams& p) const;
+
     // The same bus as a frequency RATIO, resolved from RAW (un-depthed) LFO
     // samples using this voice's current envelope levels. For callers OUTSIDE
     // the render loop: the Csound bridge must publish its control channels

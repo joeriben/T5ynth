@@ -349,6 +349,47 @@ float SynthVoice::pitchBusSemitones(const BlockParams& p,
     return semis + aftertouchDrive(p, AftertouchTarget::Pitch, aftertouch_);
 }
 
+float SynthVoice::pitchBusReachSemitones(const BlockParams& p) const
+{
+    // Mirrors pitchBusSemitones term for term, with each routed source at its
+    // extreme instead of its current value. Envelopes run 0..1, so a pitch-
+    // targeted envelope reaches 1; an LFO reaches its depth.
+    //
+    // The line drawn here: what the PATCH routes to pitch is counted at full
+    // scale, live performance gestures are not. Pitch bend and aftertouch are
+    // armed in every preset, so counting their range would put every note on the
+    // stretcher and the exact read would become unreachable; a note struck at the
+    // sample's own pitch and then bent is heard tape-style, which is the trade
+    // that was chosen (2026-07-26).
+    //
+    // What that leaves under-counted: aftertouch→Pitch, and the envelope scaling
+    // computeEffectiveLfoDepth can put on an LFO's depth. Both can push the real
+    // bus past this number. That is the safe direction — such a note keeps the
+    // direct read and follows its modulation by reading faster or slower, which is
+    // a real bend, not a lost one (SamplePlayer::processSample folds pitchModFactor
+    // into the read speed). Over-estimating instead would put quiet notes on the
+    // stretcher for a movement that never arrives.
+    //
+    // Drift is counted by its REACH, not its current output: the offset crosses
+    // zero constantly, so reading the instantaneous value made the path depend on
+    // the drift waveform's phase at note-on — neighbouring notes in one chord
+    // landing on different paths for no reason a player could hear or predict.
+    float bus = std::abs(p.driftPitchReach);
+    if (p.ampTarget  == EnvTarget::Pitch) bus += 1.0f;
+    if (p.mod1Target == EnvTarget::Pitch) bus += 1.0f;
+    if (p.mod2Target == EnvTarget::Pitch) bus += 1.0f;
+    if (p.lfo1Target == LfoTarget::Pitch) bus += std::abs(p.lfo1Depth);
+    if (p.lfo2Target == LfoTarget::Pitch) bus += std::abs(p.lfo2Depth);
+    if (p.lfo3Target == LfoTarget::Pitch) bus += std::abs(p.lfo3Depth);
+
+    // The terms above are all normalized bus units, not semitones — the bus is a
+    // normalized sum and kPitchModSemitones turns it into semitones exactly once
+    // (BlockParams.h: ±1 summed → ±12 semitones). Converting here rather than at
+    // the call site keeps the function's name true; a caller that had to apply
+    // the factor itself would be one omission away from a 12x error.
+    return bus * ModCalib::kPitchModSemitones;
+}
+
 float SynthVoice::pitchBusRatioFromRawLfo(const BlockParams& p,
                                           float lfo1Raw, float lfo2Raw, float lfo3Raw) const
 {
@@ -798,6 +839,15 @@ void SynthVoice::renderBlock(float* output, float* outputRight, const BlockParam
             lfo1Buf[mid] * lfo1Depth, lfo2Buf[mid] * lfo2Depth, lfo3Buf[mid] * lfo3Depth);
         sampler.setPitchModulation(effectivePitchRatio
             * std::pow(2.0f, pitchSemis * ModCalib::kPitchModSemitones / 12.0f));
+
+        // How far this note's pitch can travel from the sample's own pitch. The
+        // sampler reads it on the note's FIRST block to choose its render path
+        // once, so it never switches engines under a sounding note. Pushed every
+        // block because the first block is not knowable from here; only that
+        // first read decides anything.
+        sampler.setPitchModulationReach(
+            std::abs(12.0f * std::log2(std::max(effectivePitchRatio, 1e-6f)))
+            + pitchBusReachSemitones(p));
 
         sampler.renderPitchedBlock(samplerBlockBuf_.data(), numSamples);
     }

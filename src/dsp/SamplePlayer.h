@@ -128,6 +128,15 @@ public:
     /** Set pitch modulation factor (1.0 = no mod). Applied on top of transposeRatio
      *  in renderPitchedBlock. Use for envelope/LFO pitch modulation at block rate. */
     void setPitchModulation(float factor) { pitchModFactor = factor; }
+
+    /** How far this note's pitch can be carried away from the sample's own
+     *  pitch, in semitones — pitch bend plus everything routed to the pitch
+     *  bus, at full scale. Push it before the note's first renderPitchedBlock;
+     *  that block latches the render path for the whole note (see
+     *  renderPitchedBlock). An UNDER-estimate is safe: the note then stays on
+     *  the direct read, which is the chosen behaviour, not an artefact. */
+    void setPitchModulationReach(float semitones)
+        { pitchModReachSemis_ = std::abs(semitones); }
     void setSourceGain(float gain) { sourceGain_ = juce::jmax(0.0f, gain); }
     float getSourceGain() const { return sourceGain_; }
 
@@ -285,6 +294,11 @@ private:
     double transposeRatio     = 1.0;
     float  pitchModFactor     = 1.0f;  // block-rate pitch mod from envelopes/LFOs
     float  sourceGain_        = 1.0f;  // constant per-voice gain applied before stretch
+    // Render path, decided ONCE at the note's first block and kept for the
+    // whole note. See renderPitchedBlock for why it must not be re-decided.
+    float  pitchModReachSemis_    = 0.0f;
+    bool   pitchPathLatched_      = false;
+    bool   pitchPathUsesStretch_  = false;
     // Held-note Drift-Crossfade adopt state (morphToBufferFrom). A held voice
     // equal-power crossfades from morphFromSnapshot_ to the new buffer over
     // morphMs (the global Drift Crossfade), so a regenerated sample swaps in

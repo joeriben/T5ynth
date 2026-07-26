@@ -58,6 +58,14 @@ public:
     /** Get the combined offset for a given target parameter. */
     float getOffsetForTarget(int target) const;
 
+    /** The largest magnitude getOffsetForTarget(target) can reach with the
+     *  current arming/depths, independent of where the waveforms happen to sit
+     *  right now. Every shipped waveform peaks at 1, so this is the sum of
+     *  |depth| * halfRange over the contributing LFOs. Needed where a decision
+     *  must be made once from what CAN happen rather than from the instantaneous
+     *  value — e.g. the sampler's render-path latch at note start. */
+    float getReachForTarget(int target) const;
+
     /** Configure a single internal LFO. */
     void setLfoRate(int lfoIndex, float hz);
     void setLfoDepth(int lfoIndex, float amount);

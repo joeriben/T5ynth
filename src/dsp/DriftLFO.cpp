@@ -124,6 +124,29 @@ float DriftLFO::getOffsetForTarget(int target) const
     return totalOffset;
 }
 
+float DriftLFO::getReachForTarget(int target) const
+{
+    // Same terms as getOffsetForTarget, with waveformValue at its bound instead
+    // of its current value: every waveform above is confined to [-1, 1] (the
+    // Sample&Hold branch included — nextRandom is int64/2^63).
+    if (!active || target <= 0 || target > NumTargets)
+        return 0.0f;
+
+    float total = 0.0f;
+    const float hr = halfRangeForTarget(target);
+
+    for (const auto& lfo : lfos)
+    {
+        if (lfo.armed)   // armed for beat-sync → contributes nothing yet
+            continue;
+
+        if (lfo.target == target)
+            total += std::abs(lfo.depth) * hr;
+    }
+
+    return total;
+}
+
 void DriftLFO::setLfoRate(int lfoIndex, float hz)
 {
     if (lfoIndex >= 0 && lfoIndex < NUM_LFOS)

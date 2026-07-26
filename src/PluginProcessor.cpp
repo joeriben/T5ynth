@@ -3479,6 +3479,9 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
     bp.driftScanOffset   = driftLfo.getOffsetForTarget(DriftLFO::TgtWtScan);
     bp.driftFilterOffset = driftLfo.getOffsetForTarget(DriftLFO::TgtFilter);
     bp.driftPitchOffset  = driftLfo.getOffsetForTarget(DriftLFO::TgtPitch);
+    // Phase-independent, for decisions a voice must make once at note start
+    // rather than from wherever the drift waveform happens to sit.
+    bp.driftPitchReach   = driftLfo.getReachForTarget(DriftLFO::TgtPitch);
     // Block-level drift targets (delay/reverb) applied after modDelayTime etc. are declared
 
     // Drift → envelope amounts (additive, clamped to 0–1)
