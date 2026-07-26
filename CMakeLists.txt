@@ -135,8 +135,34 @@ if(WIN32 AND NOT T5YNTH_CSOUND_FOUND AND T5YNTH_CSOUND_PREFIX)
     endif()
 endif()
 
+# Linux does NOT vendor, and the reason is not squeamishness about binaries: the
+# app itself is compiled on the machine that packages it, so a Csound built there
+# carries exactly the glibc floor akróasys already carries, while a checked-in .so
+# would be one binary in the tree nobody could regenerate. Ubuntu 24.04 ships
+# 6.18.1 — the same version as both payloads — from the distribution's own archive,
+# which is a first-party, licence-audited source and not the unknown-and-opaque
+# situation `brew install` would have been on someone's Mac.
+#
+# It costs exactly one module: Debian and Ubuntu ship no scanned synthesis at all
+# (no libscansyn in libcsound64-6.0, and none in the separate csound-plugins
+# package either), so scanu/scanu2/scans are reachable on macOS and Windows and not
+# here. Nothing in backend/lco_library.json uses them. Declared, not hidden:
+# tools/verify_csound_bundle.py knows the difference per platform.
+if(UNIX AND NOT APPLE AND NOT T5YNTH_CSOUND_FOUND)
+    find_library(T5YNTH_CSOUND_LINUX_LIB NAMES csound64
+                 HINTS "${T5YNTH_CSOUND_PREFIX}/lib")
+    find_path(T5YNTH_CSOUND_LINUX_INCLUDE csound/csound.h
+              HINTS "${T5YNTH_CSOUND_PREFIX}/include")
+    if(T5YNTH_CSOUND_LINUX_LIB AND T5YNTH_CSOUND_LINUX_INCLUDE)
+        set(T5YNTH_CSOUND_FOUND TRUE)
+        set(T5YNTH_CSOUND_INCLUDE "${T5YNTH_CSOUND_LINUX_INCLUDE}")
+    endif()
+endif()
+
 if(T5YNTH_CSOUND_VENDORED)
     message(STATUS "Csound: vendored payload at ${T5YNTH_CSOUND_VENDORED}")
+elseif(T5YNTH_CSOUND_LINUX_LIB)
+    message(STATUS "Csound: system library at ${T5YNTH_CSOUND_LINUX_LIB}")
 elseif(T5YNTH_CSOUND_FOUND)
     message(STATUS "Csound: system framework at ${T5YNTH_CSOUND_FRAMEWORK}")
 else()
@@ -304,6 +330,31 @@ elseif(APPLE AND T5YNTH_CSOUND_FOUND AND T5YNTH_BUNDLE_CSOUND)
     endif()
 endif()
 
+# Linux: the tarball artefacts get a libs/ dir beside the binary and an $ORIGIN
+# rpath, so they run on a machine with no Csound installed. The .deb does not go
+# through here — it ships the bare executable and depends on libcsound64-6.0, which
+# is what a distribution package is for.
+if(UNIX AND NOT APPLE AND T5YNTH_CSOUND_LINUX_LIB AND T5YNTH_BUNDLE_CSOUND)
+    find_program(T5YNTH_PATCHELF patchelf)
+    if(NOT T5YNTH_PATCHELF)
+        message(WARNING
+            "Csound found but patchelf is not installed — the artefacts will keep "
+            "linking ${T5YNTH_CSOUND_LINUX_LIB} and will only run on a machine that "
+            "has it. `apt install patchelf` to bundle Csound.")
+    else()
+        foreach(_fmt Standalone VST3)
+            if(TARGET T5ynth_${_fmt})
+                add_custom_command(TARGET T5ynth_${_fmt} POST_BUILD
+                    COMMAND ${CMAKE_COMMAND} -E env
+                        "CSOUND_LIBRARY=${T5YNTH_CSOUND_LINUX_LIB}"
+                        bash "${CMAKE_SOURCE_DIR}/tools/bundle_csound_linux.sh"
+                             "$<TARGET_FILE:T5ynth_${_fmt}>"
+                    VERBATIM)
+            endif()
+        endforeach()
+    endif()
+endif()
+
 # Windows: the DLL and its plugin opcodes go next to the module that loads them —
 # beside the .exe for the standalone, inside Contents/x86_64-win for the VST3.
 # src/dsp/CsoundEngine.cpp loads csound64.dll from exactly there, by absolute
@@ -431,6 +482,18 @@ if(T5YNTH_CSOUND_VENDORED)
             target_link_libraries(T5ynth INTERFACE delayimp)
         endif()
     endif()
+elseif(T5YNTH_CSOUND_LINUX_LIB)
+    # Linked by SONAME, so ONE binary serves both distributions: the tarball finds
+    # the bundled copy through the $ORIGIN/libs rpath below, and the .deb — which
+    # ships the bare executable and depends on libcsound64-6.0 — finds the
+    # distribution's own, because an rpath that resolves to nothing simply falls
+    # through to the default search. The opcode directory follows from the same
+    # rule as everywhere: a sibling Opcodes64 next to the library actually loaded.
+    # The bundled copy has one; /usr/lib does not, so there Csound's own baked-in
+    # plugin path is left alone — which is the correct answer for a distro install.
+    target_sources(T5ynth PRIVATE src/dsp/CsoundEngine.cpp)
+    target_include_directories(T5ynth PRIVATE "${T5YNTH_CSOUND_INCLUDE}")
+    target_link_libraries(T5ynth PRIVATE "${T5YNTH_CSOUND_LINUX_LIB}")
 elseif(T5YNTH_CSOUND_FOUND)
     target_sources(T5ynth PRIVATE src/dsp/CsoundEngine.cpp)
     get_filename_component(_csound_fw_dir "${T5YNTH_CSOUND_FRAMEWORK}" DIRECTORY)

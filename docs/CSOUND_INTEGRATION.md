@@ -16,17 +16,39 @@ The LRO **is** Csound, so Csound ships inside the app. Nobody installs anything.
 
 ## What ships, and where it comes from
 
-`third_party/csound/` holds the exact bytes — `include/csound/` shared by both
-platforms, `macos-arm64/lib/` a drop-in `Contents/libs`, `windows-x64/{lib,bin}/`
-the import library and the runtime files. Provenance, the plugin-module selection
-and the refresh recipe are in that directory's README.
+`third_party/csound/` holds the exact bytes for the two platforms that need them —
+`include/csound/` shared, `macos-arm64/lib/` a drop-in `Contents/libs`,
+`windows-x64/{lib,bin}/` the import library and the runtime files. Provenance, the
+plugin-module selection and the refresh recipe are in that directory's README.
 
-| | macOS | Windows |
-|---|---|---|
-| library | `Contents/libs/CsoundLib64` | `csound64.dll` beside the module |
-| plugin opcodes | `Contents/libs/Opcodes64/` (24) | `plugins64/` (16) |
-| how it is found | load command `@loader_path/../libs/…`, recorded at link time | delay-load, then `LoadLibraryA` by absolute path at first use |
-| bundling step | `tools/bundle_csound_macos.sh` (POST_BUILD) | CMake `copy_directory` (POST_BUILD) |
+**Linux does not vendor, and that is not an inconsistency.** The app itself is
+compiled on the machine that packages it, so a Csound from that machine carries
+exactly the glibc floor akróasys already carries, while a checked-in `.so` would be
+the one binary in the tree nobody could regenerate. Ubuntu 24.04 ships the same
+6.18.1 from the distribution's own archive: a first-party, licence-audited source,
+which is what makes it a different question from `brew install` on a user's Mac.
+
+| | macOS | Windows | Linux |
+|---|---|---|---|
+| library | `Contents/libs/CsoundLib64` | `csound64.dll` beside the module | `libs/libcsound64.so.6.0`, or the distro's for the `.deb` |
+| plugin opcodes | `Contents/libs/Opcodes64/` (24) | `plugins64/` (16) | `libs/Opcodes64/`, or Csound's own for the `.deb` |
+| how it is found | load command `@loader_path/../libs/…`, recorded at link time | delay-load, then `LoadLibraryW` by absolute path at first use | SONAME + `$ORIGIN/libs` rpath |
+| where it comes from | vendored | vendored | `apt install libcsound64-dev` on the runner |
+| bundling step | `tools/bundle_csound_macos.sh` | CMake `copy_directory` | `tools/bundle_csound_linux.sh` (patchelf) |
+
+One binary serves both Linux distributions. It links Csound by SONAME, so the
+tarball resolves it through the `$ORIGIN/libs` rpath, and the `.deb` — which ships
+the bare executable and declares `libcsound64-6.0` — resolves it in `/usr/lib`,
+because an rpath that finds nothing simply falls through. The opcode directory
+follows the same rule everywhere: a sibling `Opcodes64` next to the library actually
+loaded. The bundled copy has one; `/usr/lib` does not, so there Csound's own baked-in
+plugin path is left alone, which is the right answer for a distro install.
+
+**What Linux costs: `scansyn`.** Debian and Ubuntu ship no scanned synthesis at all —
+not in `libcsound64-6.0`, and not in the separate `csound-plugins` package either.
+So `scanu`, `scanu2` and `scans` are reachable on macOS and Windows and not on Linux.
+Nothing in `backend/lco_library.json` uses them, and the verifier probes each module
+exactly where it exists, so a platform that has it can never lose it quietly.
 
 ## The two things that are not obvious
 
@@ -92,11 +114,14 @@ below then catches, loudly.
 ## What proves it
 
 - `tools/verify_csound_bundle.py <bundle-or-dir>` — runs on every CI build, all
-  bundles. macOS: under `sandbox-exec` with every Homebrew Csound path denied,
-  proving the denial bites first. Windows: loads by absolute path and reads back
-  `GetModuleFileNameW` to prove it is the shipped file, and reads the module's PE
-  to prove `csound64.dll` is delay-imported and not normally imported. Both then
-  compile and PLAY a real library orchestra and require non-silent samples.
+  bundles, all three platforms. macOS: under `sandbox-exec` with every Homebrew
+  Csound path denied, proving the denial bites first. Windows: loads by absolute
+  path and reads back `GetModuleFileNameW` to prove it is the shipped file, and
+  reads the module's PE to prove `csound64.dll` is delay-imported and not normally
+  imported. Linux: reads `/proc/self/maps` back for the same statement — which
+  matters most there, because the build machine is exactly the machine that has
+  Csound in `/usr/lib` — plus `ldd` over every bundled ELF. All three then compile
+  and PLAY a real library orchestra and require non-silent samples.
 - `tools/verify_lro_in_standalone.py` — requirement 4, macOS: launches the built
   Standalone with a throwaway settings home and a preset that selects the LRO,
   Homebrew Csound denied, records the audio and checks the pitch. `--prove-it-can-fail`

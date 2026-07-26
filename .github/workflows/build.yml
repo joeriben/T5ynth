@@ -430,6 +430,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y cmake build-essential patchelf \
+            libcsound64-dev \
             libasound2-dev libcurl4-openssl-dev libfreetype-dev \
             libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev \
             libxcomposite-dev libxext-dev libxrender-dev libfontconfig1-dev \
@@ -463,10 +464,23 @@ jobs:
       - name: Build
         run: cmake --build build --config Release -j$(nproc)
 
+      # Same reason as the other two platforms, and here the trap is sharpest: the
+      # runner HAS Csound in /usr/lib (that is where the bundle comes from), so a
+      # bundle that silently falls through to it looks identical to a good one.
+      # The check reads /proc/self/maps back to prove which file was mapped.
+      - name: Verify Csound travels with the build
+        run: |
+          python3 tools/verify_csound_bundle.py build/T5ynth_artefacts/Release/Standalone
+          python3 tools/verify_csound_bundle.py \
+            build/T5ynth_artefacts/Release/VST3/akroasys.vst3/Contents/x86_64-linux
+
       - name: Assemble base distribution
         run: |
           mkdir -p dist/akroasys
-          cp build/T5ynth_artefacts/Release/Standalone/akroasys dist/akroasys/
+          # -R over the whole directory: since the Csound bundling step the
+          # Standalone is a binary PLUS libs/ (with libs/Opcodes64) and
+          # licenses/csound, and copying only the binary would ship a silent LRO.
+          cp -R build/T5ynth_artefacts/Release/Standalone/. dist/akroasys/
           mkdir -p dist/akroasys/backend
           cp -R backend/dist/pipe_inference/* dist/akroasys/backend/
           cp LICENSE.txt THIRD_PARTY_LICENSES.txt dist/akroasys/

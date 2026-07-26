@@ -16,6 +16,13 @@ Build an Ubuntu/Debian .deb package for the akroasys standalone app. The package
 This Linux package path is standalone-only. VST3 distribution remains a
 separate archive path for now.
 
+Csound is a DEPENDENCY here, not a payload: the .deb ships the bare binary and
+declares libcsound64-6.0, so apt installs the distribution's own library and it
+gets the distribution's security updates. The tarball artefacts do carry their
+own copy (tools/bundle_csound_linux.sh), because they have no package manager
+to ask. One binary serves both — it links Csound by SONAME, and the tarball's
+\$ORIGIN/libs rpath simply resolves to nothing here and falls through.
+
 Important: this script does not build Python/Torch on the target machine. It
 expects a prebuilt backend bundle produced earlier on a build host or in CI.
 EOF
@@ -179,7 +186,7 @@ Section: sound
 Priority: optional
 Architecture: $arch
 Maintainer: akroasys Maintainers <noreply@github.com>
-Depends: bash, libc6, libgcc-s1, libstdc++6, libgtk-3-0t64 | libgtk-3-0, libwebkit2gtk-4.1-0, libasound2t64 | libasound2, libcurl4t64 | libcurl4, libfontconfig1, libfreetype6, libx11-6, libxrandr2, libxinerama1, libxcursor1, libxcomposite1, libxext6, libxrender1
+Depends: bash, libc6, libgcc-s1, libstdc++6, libcsound64-6.0, libgtk-3-0t64 | libgtk-3-0, libwebkit2gtk-4.1-0, libasound2t64 | libasound2, libcurl4t64 | libcurl4, libfontconfig1, libfreetype6, libx11-6, libxrandr2, libxinerama1, libxcursor1, libxcomposite1, libxext6, libxrender1
 Installed-Size: $installed_size_kb
 Homepage: https://github.com/joeriben/akroasys
 Description: Text-to-sound synthesizer standalone app

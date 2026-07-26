@@ -9,11 +9,12 @@ then certify nothing — which is exactly the trap this file exists to avoid.
 
     macOS    tools/verify_csound_bundle.py build_clean/T5ynth_artefacts/Release/Standalone/akroasys.app
     Windows  tools/verify_csound_bundle.py build\\T5ynth_artefacts\\Release\\Standalone
+    Linux    tools/verify_csound_bundle.py build/T5ynth_artefacts/Release/Standalone
 
-Both platforms end in the same place: load the SHIPPED library, prove the plugin
+Every platform ends in the same place: load the SHIPPED library, prove the plugin
 opcode modules came with it, then compile and PLAY a real LRO orchestra in the
 host's own scaffold (backend/lco_write.wrap) and require non-silent samples.
-They differ in how the fall-through is ruled out, because the two loaders differ:
+They differ in how the fall-through is ruled out, because the loaders differ:
 
   macOS    the runtime half runs under `sandbox-exec` with every Homebrew Csound
            path denied, and FIRST proves the denial actually bites.
@@ -24,6 +25,13 @@ They differ in how the fall-through is ruled out, because the two loaders differ
            runtime (`VCRUNTIME140`, `MSVCP140`, the UCRT) — measured from the PE
            headers, and the same runtime our own MSVC build already requires, so
            this run does not certify anything about a machine without it.
+  Linux    the build machine HAS Csound installed (that is where the bundle comes
+           from), so the same trap applies as on macOS and there is no sandbox-exec
+           to answer it with. Instead the bundled library is loaded by absolute path
+           and /proc/self/maps is read back to prove the mapping is the bundled file
+           and not /usr/lib — which is the exact statement, not an approximation of
+           it. The static half reads every bundled ELF's rpath and resolved
+           dependencies and refuses anything outside the artefact.
 
 What it does not do: launch the Standalone. That test is BJ's fourth requirement
 and needs a person or a driven GUI; this file is the part that can run on every
@@ -37,6 +45,7 @@ import sys
 from pathlib import Path
 
 WINDOWS = sys.platform == "win32"
+LINUX = sys.platform.startswith("linux")
 
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "backend"))
@@ -282,6 +291,104 @@ def _pe_imports(path):
     return walk(1, 20, 12), walk(13, 32, 4)   # IMAGE_IMPORT_DESCRIPTOR / ImgDelayDescr
 
 
+# ── static half, Linux ──────────────────────────────────────────────────────
+
+# The core runtime every ELF on the machine shares. tools/bundle_csound_linux.sh
+# deliberately does NOT copy these — a bundled libc or libstdc++ is how a
+# "self-contained" build becomes one that dies on a newer kernel or loader.
+LINUX_SYSTEM_LIBS = (
+    "libc.so", "libm.so", "libdl.so", "libpthread.so", "librt.so", "ld-linux",
+    "libgcc_s.so", "libstdc++.so", "libatomic.so", "linux-vdso.so",
+)
+
+
+def _is_system_lib(name):
+    return any(name.startswith(p) for p in LINUX_SYSTEM_LIBS)
+
+
+def _resolved_deps(path):
+    """What the loader actually binds this file to, as absolute paths. `ldd`
+    rather than `readelf -d`, because DT_NEEDED gives SONAMEs and the question
+    here is which FILE each one resolves to on this machine."""
+    out = subprocess.run(["ldd", str(path)], capture_output=True, text=True).stdout
+    deps, missing = [], []
+    for line in out.splitlines():
+        if "not found" in line:
+            missing.append(line.strip().split(" ", 1)[0])
+        elif "=>" in line:
+            target = line.split("=>", 1)[1].strip().rsplit(" (", 1)[0].strip()
+            if target.startswith("/"):
+                deps.append(target)
+    return deps, missing
+
+
+def check_linux_payload(root):
+    """`root` is the directory the binary lives in — the Standalone directory, or
+    Contents/x86_64-linux inside the VST3."""
+    libs = root / "libs"
+    opcodes = libs / "Opcodes64"
+    licences = root / "licenses" / "csound"
+
+    shipped = sorted(libs.glob("libcsound64.so*")) if libs.is_dir() else []
+    if not shipped:
+        fail(f"no bundled Csound library under {libs}")
+    lib = shipped[0]
+    if not opcodes.is_dir() or not any(opcodes.glob("*.so")):
+        fail(f"no bundled plugin opcodes at {opcodes}")
+    for name in ("NOTICE.txt", "LGPL-2.1.txt"):
+        if not (licences / name).is_file():
+            fail(f"LGPL 2.1 requires {name} beside the library ({licences})")
+    ok(f"{lib.name} + {len(list(opcodes.glob('*.so')))} plugin opcode modules "
+       f"+ licence texts present")
+
+    binaries = [p for p in root.iterdir()
+                if p.is_file() and os.access(p, os.X_OK) and p.suffix in ("", ".so")]
+    if not binaries:
+        fail(f"no akróasys binary in {root} — nothing to check, and a green result "
+             "here would be meaningless")
+
+    problems = []
+    for f in binaries + sorted(libs.glob("*.so*")) + sorted(opcodes.glob("*.so")):
+        rel = f.relative_to(root)
+        deps, missing = _resolved_deps(f)
+        for name in missing:
+            problems.append(f"{rel}: {name} not found")
+        for dep in deps:
+            if _is_system_lib(Path(dep).name):
+                continue
+            # The whole point: after bundling, every non-system dependency must
+            # come from inside the artefact. One survivor and the LRO is silent on
+            # a machine without Csound — which is the case this exists for, and the
+            # one the build machine cannot notice, because it HAS Csound.
+            if not Path(dep).resolve().is_relative_to(root.resolve()):
+                problems.append(f"{rel}: still resolves {dep}")
+    if problems:
+        fail("artefact is not self-contained:\n      " + "\n      ".join(problems))
+    ok(f"{len(binaries) + len(list(libs.glob('*.so*'))) + len(list(opcodes.glob('*.so')))} "
+       "ELF files: none resolving outside the artefact but the core runtime")
+    return lib, opcodes
+
+
+def prove_this_is_the_bundled_so(lib_path):
+    """Linux has no sandbox-exec, and the build machine is exactly the machine that
+    HAS Csound in /usr/lib — so ask the loader which file it actually mapped."""
+    mapped = set()
+    with open("/proc/self/maps", encoding="utf-8", errors="replace") as fh:
+        for line in fh:
+            parts = line.rstrip("\n").split(maxsplit=5)
+            if len(parts) == 6 and parts[5].startswith("/") and "csound" in parts[5]:
+                mapped.add(parts[5])
+    wanted = str(lib_path.resolve())
+    stray = sorted(m for m in mapped if m != wanted)
+    if wanted not in mapped:
+        fail(f"the bundled library is not mapped in this process — mapped instead: "
+             f"{', '.join(sorted(mapped)) or 'nothing'}")
+    if stray:
+        fail("a second Csound is mapped in this process, so this run proves "
+             "nothing: " + ", ".join(stray))
+    ok(f"the loaded library is the bundled one ({wanted})")
+
+
 def check_windows_payload(root):
     """`root` is the directory the module lives in — beside akroasys.exe for the
     standalone, Contents/x86_64-win inside the VST3."""
@@ -399,6 +506,8 @@ def load_bundled(lib_path, opcodes):
         fn = getattr(lib, name)
         fn.restype = restype
         fn.argtypes = argtypes
+    if LINUX:
+        prove_this_is_the_bundled_so(lib_path)
     lib.csoundSetOpcodedir(str(opcodes).encode())
     ok(f"loaded {lib_path.name} with its own {opcodes.name}")
     return lib
@@ -412,7 +521,6 @@ def load_bundled(lib_path, opcodes):
 # while `scanu` was gone.
 MODULE_PROBES = (
     ("fractalnoise", "asig fractalnoise 0.2, 2\nout asig"),
-    ("scansyn",      "asig scans 0.5, 220, 1, 1\nout asig"),
     ("mixer",        "asig oscili 0.2, 220\nMixerSend asig, 1, 1, 0.5\nout asig"),
     ("doppler",      "asig oscili 0.2, 220\nadop doppler asig, 1, 2\nout adop"),
     ("padsynth",     'gitab ftgen 0, 0, 262144, "padsynth", 261.6, 10, 1, 1, 1\n'
@@ -424,12 +532,23 @@ MODULE_PROBES = (
                      "asig oscili 0.2 * kenv, 220\nout asig"),
 )
 
-# urandom is /dev/urandom and exists only in the macOS payload — upstream ships no
-# such module for Windows. It is probed where it is there, and its absence is a
-# recorded platform difference (third_party/csound/README.md), not a hole here.
-MACOS_ONLY_PROBES = (
-    ("urandom", "ax urandom\nout ax * 0.1"),
-)
+# Not every module exists everywhere, and the differences are upstream's, not ours.
+# urandom is /dev/urandom, so Windows has no such module. scansyn is the opposite
+# case and the one worth knowing: Debian and Ubuntu ship NO scanned synthesis at
+# all — not in libcsound64-6.0 and not in the separate csound-plugins package — so
+# scanu/scanu2/scans are reachable on macOS and Windows and not on Linux. Nothing
+# in backend/lco_library.json uses them. Recorded in third_party/csound/README.md
+# and in docs/CSOUND_INTEGRATION.md; probed exactly where the module exists, so a
+# platform that HAS it can never lose it quietly.
+PLATFORM_PROBES = {
+    "urandom": ("urandom", "ax urandom\nout ax * 0.1"),
+    "scansyn": ("scansyn", "asig scans 0.5, 220, 1, 1\nout asig"),
+}
+PLATFORM_ONLY = {
+    "darwin": ("urandom", "scansyn"),
+    "win32":  ("scansyn",),
+    "linux":  ("urandom",),
+}
 
 # 1917 entries register with no plugin modules at all, 2267 with the 24 the macOS
 # payload carries. A floor rather than the exact figure, so a Csound update does
@@ -437,14 +556,14 @@ MACOS_ONLY_PROBES = (
 # bundle which lost its modules cannot pass. Measured: with 22 of the 24 modules
 # deleted, the old check still said PASS at 1929 entries.
 #
-# Windows ships 16 modules. The figure cannot be measured on a Mac, but the macOS
-# counterparts of exactly those modules can: they register 2062 entries against the
-# same 6.18.1 core (0 modules → 1917, 1 → 1928, all 24 → 2267). 2000 is that minus a
-# margin for the few modules whose Windows build differs — loose enough not to turn
-# a good build red, tight enough that a payload down to two or three modules cannot
-# pass. The exact count is printed on every run; the first green Windows CI run is
-# what replaces this with the measured Windows figure.
-MIN_OPCODE_ENTRIES = 2000 if WINDOWS else 2200
+# Windows ships 16 modules and Linux ships whatever the distribution built. Neither
+# figure can be measured on a Mac, but the macOS counterparts of the Windows set
+# can: they register 2062 entries against the same 6.18.1 core (0 modules → 1917,
+# 1 → 1928, all 24 → 2267). 2000 is that minus a margin — loose enough not to turn a
+# good build red, tight enough that a payload down to two or three modules cannot
+# pass. The exact count is printed on every run; the first green CI run on each
+# platform is what replaces this with the measured figure.
+MIN_OPCODE_ENTRIES = 2200 if not (WINDOWS or LINUX) else 2000
 
 
 def check_plugin_opcodes(lib):
@@ -464,7 +583,10 @@ def check_plugin_opcodes(lib):
              "modules, 1917 with none of them, so modules are missing or did not "
              "load")
 
-    probes = MODULE_PROBES if WINDOWS else MODULE_PROBES + MACOS_ONLY_PROBES
+    extra = tuple(PLATFORM_PROBES[n]
+                  for n in PLATFORM_ONLY.get(
+                      "linux" if LINUX else sys.platform, ()))
+    probes = MODULE_PROBES + extra
     missing = []
     for module, body in probes:
         cs = lib.csoundCreate(None)
@@ -588,13 +710,16 @@ def main():
     if not bundle.is_dir():
         fail(f"not a bundle: {bundle}")
 
-    if WINDOWS:
-        # No sandbox and no second process: the DLL is loaded by absolute path and
-        # the loader is asked to confirm it, which is a stronger statement than
-        # "nothing else was reachable" and needs no privilege.
+    if WINDOWS or LINUX:
+        # No sandbox and no second process: the library is loaded by absolute path
+        # and the loader is asked to confirm which file it mapped, which is a
+        # stronger statement than "nothing else was reachable" and needs no
+        # privilege. On Linux that matters twice over — the build machine is exactly
+        # the machine that has Csound in /usr/lib.
         print(f"verifying {bundle}")
-        dll, plugins = check_windows_payload(bundle)
-        lib = load_bundled(dll, plugins)
+        payload, plugins = (check_windows_payload if WINDOWS
+                            else check_linux_payload)(bundle)
+        lib = load_bundled(payload, plugins)
         check_plugin_opcodes(lib)
         play_real_orchestra(lib)
         print("PASS  the shipped files play the LRO with no Csound on the system")
