@@ -1781,6 +1781,75 @@
    }
   },
   {
+   "key": "plucked_wire",
+   "surface_forms": [
+    "plucked wire",
+    "gezupfter draht",
+    "taut wire",
+    "gespannter draht",
+    "waveguide string",
+    "wellenleiter-saite",
+    "wire string",
+    "drahtsaite",
+    "twang",
+    "twangy"
+   ],
+   "priority": 10,
+   "why": "a wire under tension, plucked once and then left alone: the note is made by the pluck and nothing feeds it afterwards, so it rings and dies the way a real wire does -- long and singing at the bottom of the keyboard, a short bright tick at the top. This is NOT `string`, which is a comb resonator fed the whole time so that a held note stands; it is the other thing, an actual travelling wave in a wire, and it is the only entry in the library that fades by itself. Karplus-Strong with the Jaffe-Smith extensions (David A. Jaffe and Julius O. Smith, 'Extensions of the Karplus-Strong Plucked-String Algorithm', Computer Music Journal 7(2), 1983), as Csound's `wgpluck2` implements it: two delay rails with a one-pole reflection filter standing in for the bridge. THREE THINGS TO KNOW BEFORE REACHING FOR IT. (1) IT TAKES THE KEY AT THE START OF THE NOTE AND THEN HOLDS IT. `wgpluck2` reads its frequency at i-rate, so the `reinit` on `ktrig` in the code is what makes it play the note at all -- and glide, pitch bend, vibrato and everything else on the pitch bus do not reach it once the note has begun. A legato slide leaves the wire at the pitch it was plucked at. A note that has to bend needs a pitch-following body beside it via `+`. (2) IT DECAYS, and how fast depends steeply on the pitch. Measured at the oscillator's default 4x oversampling, time to fall 20 dB: at refl 0.70 a note at 110 and 220 Hz has still not dropped 20 dB after 25 seconds, 440 Hz takes 4.4 s and 880 Hz 0.54 s; at refl 0.85 that is 8.5 s at 220, 1.05 s at 440 and 0.14 s at 880. So a long held note in the top octave will have gone silent by itself while the key is still down. That is the wire, not a fault -- but it is why this entry does not answer a prompt that asks for a sustained tone. The ring length also follows the LRO's oversampling setting, and steeply: at 1x that same 440 Hz note is down in 0.18 s where 4x gives 2.3 s. The model grows its delay line by whole periods until it holds at least 512 samples and rescales the reflection to match, so a shorter line -- a lower rate or a higher note -- ends up with a lossier bridge. It cannot be undone from outside: unwinding that rescaling would need a reflection below zero, which the model does not accept. Every figure here is at the default. (3) IT PLAYS SLIGHTLY FLAT, more so the higher the note and the higher refl. The bridge filter's pole is refl itself, so raising it adds delay to the loop, and the loop's length is the pitch; the delay line is also truncated to whole samples, which bites harder the shorter it is. Measured across the axis: within 4 cents at 110 and 220 Hz, within 18 at 440, and up to 44 cents flat at 880. The mechanism is read off the model's own source; the size of it is not derived, it is declared, and that is why the axis stops at 0.85. ABOVE THE AXIS IS COLOUR, NOT A NOTE. refl 0.90 to 0.98 is a different thing altogether: at 0.98 the sound is gone in 0.17 s at 220 Hz and sits 91 cents flat there, 172 cents at 440. What is left is a crackle, a small dry transient. Worth having -- layered under a pitched body with `+`, never asked to carry the pitch. TWO NOTES ON THE CODE. There is deliberately NO `dcblock`: `wgpluck2` produces no DC worth blocking here (0.05 % of rms at worst), while `dcblock2`'s corner scales with the sample rate, so at the oscillator's 4x it becomes an ~800 Hz highpass that takes 23 dB out of a note at 110 Hz -- it destroys exactly the low end this body is good at. And `PLUCKWIRE:` is a LABEL, which cannot be indexed the way this library's variable names are: a second copy of this body in the same instrument must be given a different label. refl = how long it rings, pick = where along the wire it is listened to.",
+   "code": "krefl   = 0.78   ; refl [0.70..0.85]: how long the wire rings on\nkpick   = 0.35   ; pick [0.25..0.45]: where along the wire it is listened to\n        if changed2(ktrig) == 1 then    ; icps is i-rate, so without this the wire is\n          reinit PLUCKWIRE              ;   struck once when the orchestra is built and\n        endif                           ;   never again -- silence at every note played\nPLUCKWIRE:\nifq     limit i(kfreq) * i(koct1), 20, 12000   ; before the first note i(kfreq) reads 0,\nastr    wgpluck2 0.25, 0.7, ifq, kpick, krefl  ;   and icps 0 asks for a rail so long the\n        rireturn                               ;   orchestra stops running in real time\nasig    = astr                                 ; no dcblock on purpose: see the entry",
+   "params": {
+    "refl": {
+     "range": [
+      0.7,
+      0.85
+     ],
+     "default": 0.78,
+     "note": "how long the wire rings on after the pluck. Low is the long one: at 0.70 a note below about 300 Hz simply does not stop inside the note, and 440 Hz takes 4.4 s to fall 20 dB; at 0.85 that same 440 Hz is down in 1.05 s and 880 Hz in 0.14 s. So the axis runs from a wire left ringing to a short dry pluck, and it shortens much faster the higher you play. It also detunes: the note goes flat as the axis rises, measured +3.2 down to -3.9 cents at 220 Hz across the window and -4.0 to -18.2 at 440. That is what stops the axis at 0.85 rather than at 0.98, where the model still runs but the pitch is no longer the played one -- that region is a crackle, not a note, and the entry text says how to use it. The two loudness meters disagree on this axis and the difference IS the parameter: the attack does not move at all (peak spread 0.0 dB at 110, 220 and 440 Hz), while the note's total energy falls -- 0.5 dB at 110 Hz, 2.9 at 220, 6.1 at 440 -- because a shorter ring simply holds less of it. It is not a fader; it is the ring length being what it says.",
+     "anchors": {
+      "ringing": {
+       "value": 0.7,
+       "gloss": "left to ring: below 300 Hz it never stops inside the note"
+      },
+      "plucked": {
+       "value": 0.78,
+       "gloss": "an ordinary pluck, ringing but clearly dying"
+      },
+      "dry": {
+       "value": 0.85,
+       "gloss": "short and dry, and already a few cents flat"
+      }
+     }
+    },
+    "pick": {
+     "range": [
+      0.25,
+      0.45
+     ],
+     "default": 0.35,
+     "note": "where along the wire the sound is picked up. This is geometry, not a tone control: a harmonic whose still point falls exactly on the listening spot cannot be heard at all, so it is simply missing. Measured at 220 Hz across the axis: the second harmonic travels from -7 dB at 0.25 to -21 dB at 0.45, and the third falls into a 68 dB hole at 0.33 -- so the tone goes from wiry through reedy to hollow. Loudness moves 2.5 dB across the axis (rms over a four-second note), which is the harmonics being moved rather than a gain. The axis stops at both ends for measured reasons. Past 0.50 there is nothing new: that is the middle of the wire and everything beyond mirrors what came before -- 0.80 measures the same as 0.20, harmonic for harmonic. And below 0.25 the tone starts losing real level (8 dB by 0.05), which would make the control a fader. The middle of the wire itself, 0.50, where the even harmonics vanish altogether (second harmonic 43 dB down), is a striking sound and costs 4 dB -- outside the axis but worth reaching for deliberately.",
+     "anchors": {
+      "bridge": {
+       "value": 0.25,
+       "gloss": "close to the end: the second harmonic strong, thin and wiry"
+      },
+      "third": {
+       "value": 0.33,
+       "gloss": "the third harmonic gone -- narrow and reedy"
+      },
+      "middle": {
+       "value": 0.45,
+       "gloss": "towards the middle: the second harmonic 21 dB down, hollow"
+      }
+     }
+    }
+   },
+   "anchor_code": {
+    "refl=0.70  (ringing: left to ring: below 300 Hz it never stops inside the note)": "krefl   = 0.70   ; refl [0.70..0.85]: how long the wire rings on\nkpick   = 0.35   ; pick [0.25..0.45]: where along the wire it is listened to\n        if changed2(ktrig) == 1 then    ; icps is i-rate, so without this the wire is\n          reinit PLUCKWIRE              ;   struck once when the orchestra is built and\n        endif                           ;   never again -- silence at every note played\nPLUCKWIRE:\nifq     limit i(kfreq) * i(koct1), 20, 12000   ; before the first note i(kfreq) reads 0,\nastr    wgpluck2 0.25, 0.7, ifq, kpick, krefl  ;   and icps 0 asks for a rail so long the\n        rireturn                               ;   orchestra stops running in real time\nasig    = astr                                 ; no dcblock on purpose: see the entry",
+    "refl=0.78  (plucked: an ordinary pluck, ringing but clearly dying)": "krefl   = 0.78   ; refl [0.70..0.85]: how long the wire rings on\nkpick   = 0.35   ; pick [0.25..0.45]: where along the wire it is listened to\n        if changed2(ktrig) == 1 then    ; icps is i-rate, so without this the wire is\n          reinit PLUCKWIRE              ;   struck once when the orchestra is built and\n        endif                           ;   never again -- silence at every note played\nPLUCKWIRE:\nifq     limit i(kfreq) * i(koct1), 20, 12000   ; before the first note i(kfreq) reads 0,\nastr    wgpluck2 0.25, 0.7, ifq, kpick, krefl  ;   and icps 0 asks for a rail so long the\n        rireturn                               ;   orchestra stops running in real time\nasig    = astr                                 ; no dcblock on purpose: see the entry",
+    "refl=0.85  (dry: short and dry, and already a few cents flat)": "krefl   = 0.85   ; refl [0.70..0.85]: how long the wire rings on\nkpick   = 0.35   ; pick [0.25..0.45]: where along the wire it is listened to\n        if changed2(ktrig) == 1 then    ; icps is i-rate, so without this the wire is\n          reinit PLUCKWIRE              ;   struck once when the orchestra is built and\n        endif                           ;   never again -- silence at every note played\nPLUCKWIRE:\nifq     limit i(kfreq) * i(koct1), 20, 12000   ; before the first note i(kfreq) reads 0,\nastr    wgpluck2 0.25, 0.7, ifq, kpick, krefl  ;   and icps 0 asks for a rail so long the\n        rireturn                               ;   orchestra stops running in real time\nasig    = astr                                 ; no dcblock on purpose: see the entry"
+   }
+  },
+  {
    "key": "bass_saw",
    "surface_forms": [
     "moog",
