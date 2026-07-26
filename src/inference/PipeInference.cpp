@@ -81,6 +81,31 @@ void configureInferenceCpuBudget()
     setEnvIfUnset("PYTHONUNBUFFERED", "1");
 }
 
+// Tell the backend which Csound the ENGINE is using, so its acceptance gate can
+// compile against the same one.
+//
+// The gate looks for a bundled CsoundLib64 by walking its own path up to a
+// "Contents" directory (lco_write.py, _bundled_csound_libs). That works for the
+// PyInstaller backend inside an installed app and finds nothing in a dev run from
+// backend/pipe_inference.py, which has no bundle above it — so on the machine
+// where the LRO is actually developed the gate would fall back to a system-wide
+// Csound, or to none at all, and judge an orchestra by a vocabulary the engine
+// does not have. The host knows where its own bundle is; one env var settles it
+// for both configurations. Absent in a build without Csound: nothing to point at,
+// and the gate's own search is unchanged.
+void exportBundledCsoundPath()
+{
+   #if JUCE_MAC
+    const auto lib = juce::File::getSpecialLocation (juce::File::currentExecutableFile)
+                         .getParentDirectory()      // Contents/MacOS
+                         .getParentDirectory()      // Contents
+                         .getChildFile ("libs/CsoundLib64");
+
+    if (lib.existsAsFile())
+        setEnvValue ("T5YNTH_CSOUND_LIB", lib.getFullPathName());
+   #endif
+}
+
 #ifdef _WIN32
 DWORD inferencePriorityClass()
 {
@@ -386,6 +411,7 @@ bool PipeInference::launch(const juce::File& backendDir)
     }
 
     configureInferenceCpuBudget();
+    exportBundledCsoundPath();
     auto stderrLog = juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
                          .getChildFile("T5ynth/Logs/backend_stderr.log");
 

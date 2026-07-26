@@ -1396,6 +1396,45 @@ def _bundled_csound_libs():
             return
 
 
+def _opcodedir_beside(lib_path):
+    """The plugin-opcode directory shipped NEXT TO a Csound library, or None.
+
+    Csound finds its plugin opcodes through a path baked in when the library was
+    built, so a copy inside an app bundle keeps reaching for the build machine's
+    tree — measured 2026-07-26: present, 2482 opcode entries register; absent,
+    1917, and the missing ones include scanu/scans, fractalnoise, tvconv,
+    ftgenonce, limit1 and GEN padsynth. tools/bundle_csound_macos.sh therefore
+    ships Opcodes64 beside the library, and both the engine (CsoundEngine.cpp) and
+    this gate point Csound at it — the same directory for both, or the gate would
+    judge an orchestra by a different vocabulary than the one that plays it."""
+    if not lib_path or not os.path.isabs(lib_path):
+        return None
+    cand = os.path.join(os.path.dirname(lib_path), "Opcodes64")
+    return cand if os.path.isdir(cand) else None
+
+
+def _csound_opcodedir():
+    """The bundled opcode dir the CLI must be pointed at, or None. Derived from
+    the library the host handed us (T5YNTH_CSOUND_LIB) even when the check itself
+    runs through the CLI: the CLI and the library must see one vocabulary."""
+    for path in [os.environ.get("T5YNTH_CSOUND_LIB")] + list(_bundled_csound_libs()):
+        found = _opcodedir_beside(path)
+        if found:
+            return found
+    return None
+
+
+def _csound_child_env():
+    """Environment for a Csound CLI child. OPCODE6DIR64 is set for the CHILD only
+    — never in this process, where it would also redirect any other Csound that
+    happens to be loaded here."""
+    env = dict(os.environ)
+    opcodedir = _csound_opcodedir()
+    if opcodedir:
+        env["OPCODE6DIR64"] = opcodedir
+    return env
+
+
 def _csound_library():
     """A loaded CsoundLib64 handle with the entry points the gate needs, or None."""
     global _csound_lib_cache
@@ -1411,6 +1450,7 @@ def _csound_library():
             lib = ctypes.CDLL(cand)
             lib.csoundCreate.restype = ctypes.c_void_p
             lib.csoundCreate.argtypes = [ctypes.c_void_p]
+            lib.csoundSetOpcodedir.argtypes = [ctypes.c_char_p]
             lib.csoundCompileCsdText.restype = ctypes.c_int
             lib.csoundCompileCsdText.argtypes = [ctypes.c_void_p, ctypes.c_char_p]
             lib.csoundSetOption.argtypes = [ctypes.c_void_p, ctypes.c_char_p]
@@ -1424,6 +1464,11 @@ def _csound_library():
             lib.csoundDestroy.argtypes = [ctypes.c_void_p]
         except (OSError, AttributeError):
             continue
+        # Before the first csoundCreate: the setting is global to this loaded
+        # image and is read when an instance is created.
+        opcodedir = _opcodedir_beside(cand)
+        if opcodedir:
+            lib.csoundSetOpcodedir(opcodedir.encode("utf-8"))
         _csound_lib_cache = lib
         break
     return _csound_lib_cache
@@ -1706,7 +1751,8 @@ def perform_check(orchestra):
             fh.write(csd)
         # -n: render nothing to a device. -d: no graphs. -m0: no per-note stats.
         r = subprocess.run([binary, "-n", "-d", "-m0", path],
-                           capture_output=True, text=True, timeout=90)
+                           capture_output=True, text=True, timeout=90,
+                           env=_csound_child_env())
         if r.returncode == 0:
             return True, ""
         return False, _explain_perf((r.stderr or "") + (r.stdout or ""), csd,
@@ -1778,7 +1824,8 @@ def _check_via_cli(binary, csd, orchestra):
         with fh:
             fh.write(csd)
         r = subprocess.run([binary, "--syntax-check-only", path],
-                           capture_output=True, text=True, timeout=90)
+                           capture_output=True, text=True, timeout=90,
+                           env=_csound_child_env())
         if r.returncode == 0:
             return True, ""
         return False, _explain((r.stderr or "") + (r.stdout or ""), orchestra)
