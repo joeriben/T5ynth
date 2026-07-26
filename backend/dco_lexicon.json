@@ -1,5 +1,5 @@
 {
- "lexicon_version": 11,
+ "lexicon_version": 12,
  "techniques": [
   {
    "key": "saw",
@@ -2437,6 +2437,140 @@
     "wave=0.45  (saw: bright, buzzy, all harmonics)": "ivph0   = frac(ivoice * 0.6180339887)   ; per-voice phase\nkvdr0   poscil 0.00245, 0.043 + 0.0037 * ivoice, giSine, ivph0\nkdty0   poscil 0.0042, 0.057     ; age: shape/duty wobble on kpw\nkpw0s0   = 0.02 + kdty0\naao0s0u0  vco2 0.6, (kfreq * koct1) * (1 + kvdr0), 4, kpw0s0, 0   ; wave seg0 imode4 copy 0\nacln0   = aao0s0u0 * 1.000000    ; clean oscillator (pre-drive)\nadrv0   = acln0                     ; drive 0: clean, no saturator stage\nkagw0   oscili 0.0105, 0.7        ; age: amplitude wobble\nasig    = adrv0 * (1 + kagw0)",
     "wave=0.55  (square: hollow, reedy, odd harmonics only)": "ivph0   = frac(ivoice * 0.6180339887)   ; per-voice phase\nkvdr0   poscil 0.00245, 0.043 + 0.0037 * ivoice, giSine, ivph0\nkdty0   poscil 0.0042, 0.057     ; age: shape/duty wobble on kpw\nkpw0s0   = 0.5 + kdty0\naao0s0u0  vco2 0.6, (kfreq * koct1) * (1 + kvdr0), 2, kpw0s0, 0   ; wave seg0 imode2 copy 0\nacln0   = aao0s0u0 * 0.578000    ; clean oscillator (pre-drive)\nadrv0   = acln0                     ; drive 0: clean, no saturator stage\nkagw0   oscili 0.0105, 0.7        ; age: amplitude wobble\nasig    = adrv0 * (1 + kagw0)",
     "wave=1.0  (pulse: thin, nasal, narrow)": "ivph0   = frac(ivoice * 0.6180339887)   ; per-voice phase\nkvdr0   poscil 0.00245, 0.043 + 0.0037 * ivoice, giSine, ivph0\nkdty0   poscil 0.0042, 0.057     ; age: shape/duty wobble on kpw\nkpw0s0   = 0.1 + kdty0\naao0s0u0  vco2 0.6, (kfreq * koct1) * (1 + kvdr0), 2, kpw0s0, 0   ; wave seg0 imode2 copy 0\nacln0   = aao0s0u0 * 0.578000    ; clean oscillator (pre-drive)\nadrv0   = acln0                     ; drive 0: clean, no saturator stage\nkagw0   oscili 0.0105, 0.7        ; age: amplitude wobble\nasig    = adrv0 * (1 + kagw0)"
+   }
+  },
+  {
+   "key": "blown_bottle",
+   "surface_forms": [
+    "blown bottle",
+    "bottle",
+    "flasche",
+    "angeblasene flasche",
+    "empty bottle",
+    "leere flasche",
+    "jug",
+    "bottle blowing",
+    "flaschenblasen",
+    "krug"
+   ],
+   "priority": 10,
+   "why": "air blown across the mouth of a bottle: a wide, soft, almost noteless tone with only two or three partials over the breath, and it stands as long as it is blown. Built from Csound's waveguide clarinet bore with its breath at the documented ceiling, where the reed stops reading as a reed and what is left is air over an opening; the bore's upper colour is then cut back to how open the blow sounds. NOT the reed instrument (`clarinet`) and not a struck vessel. blow = from a dull hoot with barely more than the fundamental, through the two spots that read as a real blown bottle, up to where the tube saturates and nothing further is added.",
+   "code": "kdrift  oscili 0.16, 0.07, giSine        ; the blow is never quite steady\nkblow   = 0.42 + kdrift\nkmult   = 1.2 * (10 ^ kblow)                ; how far up the bore's colour is let through\nasig    wgclar 0.5, kfreq * koct1, -0.3, 0.1, 0.1, 0.5, 5.735, 0, giSine, 30\n                                            ; kngain at its documented ceiling (0.5): at the top\n                                            ; of that axis the reed stops being a reed and the\n                                            ; tube reads as air across the mouth of a bottle.\n                                            ; the -0.3 is `kstiff` and is INERT -- measured\n                                            ; bit-identical from -0.9 to 0.0 in this build, so\n                                            ; never put a control on it.\n                                            ; kvamp is 0: the model's own vibrato stays off.\nasig    butterlp asig, kfreq * koct1 * kmult\nasig    = asig * 1.45 * kvol1",
+   "params": {
+    "blow": {
+     "range": [
+      0.0,
+      1.0
+     ],
+     "default": 0.42,
+     "note": "how far up the bore's own colour is let through, and with it how hard the blowing reads. measured over the whole range: the spectral centroid travels 456 -> 2188 Hz and the number of audible partials goes 2 -> 6, while the loudness moves only 2.3 dB, so this is a colour control and not a volume one. above the top the tube saturates: cutting at 12, 20 or 30 times the pitch gives the same file to three decimal places.",
+     "anchors": {
+      "hooted": {
+       "value": 0.0,
+       "gloss": "a dull hoot, barely more than the fundamental"
+      },
+      "bottle": {
+       "value": 0.26,
+       "gloss": "a real blown bottle, dark"
+      },
+      "open bottle": {
+       "value": 0.57,
+       "gloss": "the same bottle blown more openly"
+      },
+      "saturated": {
+       "value": 1.0,
+       "gloss": "as open as the tube goes; nothing more is added"
+      }
+     }
+    }
+   },
+   "anchor_code": {
+    "blow=0.0  (hooted: a dull hoot, barely more than the fundamental)": "kdrift  oscili 0.16, 0.07, giSine        ; the blow is never quite steady\nkblow   = 0.0 + kdrift\nkmult   = 1.2 * (10 ^ kblow)                ; how far up the bore's colour is let through\nasig    wgclar 0.5, kfreq * koct1, -0.3, 0.1, 0.1, 0.5, 5.735, 0, giSine, 30\n                                            ; kngain at its documented ceiling (0.5): at the top\n                                            ; of that axis the reed stops being a reed and the\n                                            ; tube reads as air across the mouth of a bottle.\n                                            ; the -0.3 is `kstiff` and is INERT -- measured\n                                            ; bit-identical from -0.9 to 0.0 in this build, so\n                                            ; never put a control on it.\n                                            ; kvamp is 0: the model's own vibrato stays off.\nasig    butterlp asig, kfreq * koct1 * kmult\nasig    = asig * 1.45 * kvol1",
+    "blow=0.26  (bottle: a real blown bottle, dark)": "kdrift  oscili 0.16, 0.07, giSine        ; the blow is never quite steady\nkblow   = 0.26 + kdrift\nkmult   = 1.2 * (10 ^ kblow)                ; how far up the bore's colour is let through\nasig    wgclar 0.5, kfreq * koct1, -0.3, 0.1, 0.1, 0.5, 5.735, 0, giSine, 30\n                                            ; kngain at its documented ceiling (0.5): at the top\n                                            ; of that axis the reed stops being a reed and the\n                                            ; tube reads as air across the mouth of a bottle.\n                                            ; the -0.3 is `kstiff` and is INERT -- measured\n                                            ; bit-identical from -0.9 to 0.0 in this build, so\n                                            ; never put a control on it.\n                                            ; kvamp is 0: the model's own vibrato stays off.\nasig    butterlp asig, kfreq * koct1 * kmult\nasig    = asig * 1.45 * kvol1",
+    "blow=0.57  (open bottle: the same bottle blown more openly)": "kdrift  oscili 0.16, 0.07, giSine        ; the blow is never quite steady\nkblow   = 0.57 + kdrift\nkmult   = 1.2 * (10 ^ kblow)                ; how far up the bore's colour is let through\nasig    wgclar 0.5, kfreq * koct1, -0.3, 0.1, 0.1, 0.5, 5.735, 0, giSine, 30\n                                            ; kngain at its documented ceiling (0.5): at the top\n                                            ; of that axis the reed stops being a reed and the\n                                            ; tube reads as air across the mouth of a bottle.\n                                            ; the -0.3 is `kstiff` and is INERT -- measured\n                                            ; bit-identical from -0.9 to 0.0 in this build, so\n                                            ; never put a control on it.\n                                            ; kvamp is 0: the model's own vibrato stays off.\nasig    butterlp asig, kfreq * koct1 * kmult\nasig    = asig * 1.45 * kvol1",
+    "blow=1.0  (saturated: as open as the tube goes; nothing more is added)": "kdrift  oscili 0.16, 0.07, giSine        ; the blow is never quite steady\nkblow   = 1.0 + kdrift\nkmult   = 1.2 * (10 ^ kblow)                ; how far up the bore's colour is let through\nasig    wgclar 0.5, kfreq * koct1, -0.3, 0.1, 0.1, 0.5, 5.735, 0, giSine, 30\n                                            ; kngain at its documented ceiling (0.5): at the top\n                                            ; of that axis the reed stops being a reed and the\n                                            ; tube reads as air across the mouth of a bottle.\n                                            ; the -0.3 is `kstiff` and is INERT -- measured\n                                            ; bit-identical from -0.9 to 0.0 in this build, so\n                                            ; never put a control on it.\n                                            ; kvamp is 0: the model's own vibrato stays off.\nasig    butterlp asig, kfreq * koct1 * kmult\nasig    = asig * 1.45 * kvol1"
+   }
+  },
+  {
+   "key": "driven_metal",
+   "surface_forms": [
+    "driven metal",
+    "metal drone",
+    "industrial",
+    "industrieklang",
+    "machine hum",
+    "maschinensummen",
+    "resonating metal",
+    "metallresonanz",
+    "metal body",
+    "metallkörper"
+   ],
+   "priority": 10,
+   "why": "a metal body held ringing by moving air rather than struck: three modes at stretched, non-whole-number spacings, driven continuously by filtered noise whose brightness keeps travelling, so the body never settles and a held note stands. Enigmatic rather than like any named instrument -- machine-room, industrial. Same modal filter bank as `struck_bar` and `cymbal`, but a different body: those are tuned bars and cymbals with whole-number-ish or dense spacings, this one is deliberately stretched and its character comes from the drive moving. stretch = from a hollow whole-number tube to a wide stretched bell. drive = how bright the air working the body is.",
+   "code": "kstr    = 0.475                             ; how far the modes are stretched off whole numbers\nkr2     = 2.00 + 1.60 * kstr\nkr3     = 3.00 + 5.20 * kstr\nkdrv    = 0.40                              ; how bright the air driving the body is\nkcen    = 600 * (11.667 ^ kdrv)\naexc    rand 0.05\nkcut    oscili kcen * 0.35, 0.09, giSine     ; the drive keeps moving, so the body keeps changing\nkcut    = kcen + kcut\naexc    butterlp aexc, kcut\na1      mode aexc, kfreq * koct1, 340        ; three modes, driven CONTINUOUSLY rather than struck:\na2      mode aexc, kfreq * koct1 * kr2, 260  ;   a held note stands, and the host owns the note-off\na3      mode aexc, kfreq * koct1 * kr3, 190\nasig    = (a1 * 0.6 + a2 * 0.3 + a3 * 0.16) * 0.27\nasig    = asig * kvol1",
+   "params": {
+    "stretch": {
+     "range": [
+      0.0,
+      1.0
+     ],
+     "default": 0.475,
+     "note": "how far the two upper modes sit off whole-number multiples of the played pitch. at zero they are the 2nd and 3rd harmonic and the body reads as a hollow tube with a note; stretched, the spacings go wide and it reads as a bell or a plate with no clear note. measured: centroid 363 -> 532 Hz across the axis with the loudness holding inside 0.2 dB. both ratios are k-rate, so the stretch may travel over the note.",
+     "anchors": {
+      "tube": {
+       "value": 0.0,
+       "gloss": "whole-number spacings: hollow, with a clear note"
+      },
+      "leaning": {
+       "value": 0.19,
+       "gloss": "just off true, faintly bell-like"
+      },
+      "bell": {
+       "value": 0.475,
+       "gloss": "the found body: wide, metallic, no settled note"
+      },
+      "plate": {
+       "value": 1.0,
+       "gloss": "far stretched: a plate, all clang and no pitch"
+      }
+     }
+    },
+    "drive": {
+     "range": [
+      0.0,
+      1.0
+     ],
+     "default": 0.4,
+     "note": "how bright the air driving the body is, which decides how much of the upper modes ever get woken. measured: centroid 349 -> 526 Hz with the loudness inside 0.2 dB. do NOT reach for the modes' Q instead -- measured over Q 60..1400 that is a 12.3 dB loudness ramp for 56 Hz of colour, i.e. a volume fader wearing a timbre name.",
+     "anchors": {
+      "muffled": {
+       "value": 0.0,
+       "gloss": "worked by dull air; only the lowest mode speaks"
+      },
+      "room": {
+       "value": 0.4,
+       "gloss": "the found drive: a machine room"
+      },
+      "bright": {
+       "value": 0.72,
+       "gloss": "brighter air, the upper modes come up"
+      },
+      "hissing": {
+       "value": 1.0,
+       "gloss": "driven by full-band hiss, all modes lit"
+      }
+     }
+    }
+   },
+   "anchor_code": {
+    "stretch=0.0  (tube: whole-number spacings: hollow, with a clear note)": "kstr    = 0.0                             ; how far the modes are stretched off whole numbers\nkr2     = 2.00 + 1.60 * kstr\nkr3     = 3.00 + 5.20 * kstr\nkdrv    = 0.40                              ; how bright the air driving the body is\nkcen    = 600 * (11.667 ^ kdrv)\naexc    rand 0.05\nkcut    oscili kcen * 0.35, 0.09, giSine     ; the drive keeps moving, so the body keeps changing\nkcut    = kcen + kcut\naexc    butterlp aexc, kcut\na1      mode aexc, kfreq * koct1, 340        ; three modes, driven CONTINUOUSLY rather than struck:\na2      mode aexc, kfreq * koct1 * kr2, 260  ;   a held note stands, and the host owns the note-off\na3      mode aexc, kfreq * koct1 * kr3, 190\nasig    = (a1 * 0.6 + a2 * 0.3 + a3 * 0.16) * 0.27\nasig    = asig * kvol1",
+    "stretch=0.19  (leaning: just off true, faintly bell-like)": "kstr    = 0.19                             ; how far the modes are stretched off whole numbers\nkr2     = 2.00 + 1.60 * kstr\nkr3     = 3.00 + 5.20 * kstr\nkdrv    = 0.40                              ; how bright the air driving the body is\nkcen    = 600 * (11.667 ^ kdrv)\naexc    rand 0.05\nkcut    oscili kcen * 0.35, 0.09, giSine     ; the drive keeps moving, so the body keeps changing\nkcut    = kcen + kcut\naexc    butterlp aexc, kcut\na1      mode aexc, kfreq * koct1, 340        ; three modes, driven CONTINUOUSLY rather than struck:\na2      mode aexc, kfreq * koct1 * kr2, 260  ;   a held note stands, and the host owns the note-off\na3      mode aexc, kfreq * koct1 * kr3, 190\nasig    = (a1 * 0.6 + a2 * 0.3 + a3 * 0.16) * 0.27\nasig    = asig * kvol1",
+    "stretch=0.475  (bell: the found body: wide, metallic, no settled note)": "kstr    = 0.475                             ; how far the modes are stretched off whole numbers\nkr2     = 2.00 + 1.60 * kstr\nkr3     = 3.00 + 5.20 * kstr\nkdrv    = 0.40                              ; how bright the air driving the body is\nkcen    = 600 * (11.667 ^ kdrv)\naexc    rand 0.05\nkcut    oscili kcen * 0.35, 0.09, giSine     ; the drive keeps moving, so the body keeps changing\nkcut    = kcen + kcut\naexc    butterlp aexc, kcut\na1      mode aexc, kfreq * koct1, 340        ; three modes, driven CONTINUOUSLY rather than struck:\na2      mode aexc, kfreq * koct1 * kr2, 260  ;   a held note stands, and the host owns the note-off\na3      mode aexc, kfreq * koct1 * kr3, 190\nasig    = (a1 * 0.6 + a2 * 0.3 + a3 * 0.16) * 0.27\nasig    = asig * kvol1",
+    "stretch=1.0  (plate: far stretched: a plate, all clang and no pitch)": "kstr    = 1.0                             ; how far the modes are stretched off whole numbers\nkr2     = 2.00 + 1.60 * kstr\nkr3     = 3.00 + 5.20 * kstr\nkdrv    = 0.40                              ; how bright the air driving the body is\nkcen    = 600 * (11.667 ^ kdrv)\naexc    rand 0.05\nkcut    oscili kcen * 0.35, 0.09, giSine     ; the drive keeps moving, so the body keeps changing\nkcut    = kcen + kcut\naexc    butterlp aexc, kcut\na1      mode aexc, kfreq * koct1, 340        ; three modes, driven CONTINUOUSLY rather than struck:\na2      mode aexc, kfreq * koct1 * kr2, 260  ;   a held note stands, and the host owns the note-off\na3      mode aexc, kfreq * koct1 * kr3, 190\nasig    = (a1 * 0.6 + a2 * 0.3 + a3 * 0.16) * 0.27\nasig    = asig * kvol1",
+    "drive=0.0  (muffled: worked by dull air; only the lowest mode speaks)": "kstr    = 0.475                             ; how far the modes are stretched off whole numbers\nkr2     = 2.00 + 1.60 * kstr\nkr3     = 3.00 + 5.20 * kstr\nkdrv    = 0.0                              ; how bright the air driving the body is\nkcen    = 600 * (11.667 ^ kdrv)\naexc    rand 0.05\nkcut    oscili kcen * 0.35, 0.09, giSine     ; the drive keeps moving, so the body keeps changing\nkcut    = kcen + kcut\naexc    butterlp aexc, kcut\na1      mode aexc, kfreq * koct1, 340        ; three modes, driven CONTINUOUSLY rather than struck:\na2      mode aexc, kfreq * koct1 * kr2, 260  ;   a held note stands, and the host owns the note-off\na3      mode aexc, kfreq * koct1 * kr3, 190\nasig    = (a1 * 0.6 + a2 * 0.3 + a3 * 0.16) * 0.27\nasig    = asig * kvol1",
+    "drive=0.40  (room: the found drive: a machine room)": "kstr    = 0.475                             ; how far the modes are stretched off whole numbers\nkr2     = 2.00 + 1.60 * kstr\nkr3     = 3.00 + 5.20 * kstr\nkdrv    = 0.4                              ; how bright the air driving the body is\nkcen    = 600 * (11.667 ^ kdrv)\naexc    rand 0.05\nkcut    oscili kcen * 0.35, 0.09, giSine     ; the drive keeps moving, so the body keeps changing\nkcut    = kcen + kcut\naexc    butterlp aexc, kcut\na1      mode aexc, kfreq * koct1, 340        ; three modes, driven CONTINUOUSLY rather than struck:\na2      mode aexc, kfreq * koct1 * kr2, 260  ;   a held note stands, and the host owns the note-off\na3      mode aexc, kfreq * koct1 * kr3, 190\nasig    = (a1 * 0.6 + a2 * 0.3 + a3 * 0.16) * 0.27\nasig    = asig * kvol1",
+    "drive=0.72  (bright: brighter air, the upper modes come up)": "kstr    = 0.475                             ; how far the modes are stretched off whole numbers\nkr2     = 2.00 + 1.60 * kstr\nkr3     = 3.00 + 5.20 * kstr\nkdrv    = 0.72                              ; how bright the air driving the body is\nkcen    = 600 * (11.667 ^ kdrv)\naexc    rand 0.05\nkcut    oscili kcen * 0.35, 0.09, giSine     ; the drive keeps moving, so the body keeps changing\nkcut    = kcen + kcut\naexc    butterlp aexc, kcut\na1      mode aexc, kfreq * koct1, 340        ; three modes, driven CONTINUOUSLY rather than struck:\na2      mode aexc, kfreq * koct1 * kr2, 260  ;   a held note stands, and the host owns the note-off\na3      mode aexc, kfreq * koct1 * kr3, 190\nasig    = (a1 * 0.6 + a2 * 0.3 + a3 * 0.16) * 0.27\nasig    = asig * kvol1",
+    "drive=1.0  (hissing: driven by full-band hiss, all modes lit)": "kstr    = 0.475                             ; how far the modes are stretched off whole numbers\nkr2     = 2.00 + 1.60 * kstr\nkr3     = 3.00 + 5.20 * kstr\nkdrv    = 1.0                              ; how bright the air driving the body is\nkcen    = 600 * (11.667 ^ kdrv)\naexc    rand 0.05\nkcut    oscili kcen * 0.35, 0.09, giSine     ; the drive keeps moving, so the body keeps changing\nkcut    = kcen + kcut\naexc    butterlp aexc, kcut\na1      mode aexc, kfreq * koct1, 340        ; three modes, driven CONTINUOUSLY rather than struck:\na2      mode aexc, kfreq * koct1 * kr2, 260  ;   a held note stands, and the host owns the note-off\na3      mode aexc, kfreq * koct1 * kr3, 190\nasig    = (a1 * 0.6 + a2 * 0.3 + a3 * 0.16) * 0.27\nasig    = asig * kvol1"
    }
   }
  ],
