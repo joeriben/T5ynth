@@ -136,6 +136,12 @@ dedupe_rpaths() {
 bundle_one() {
     local APP="$1"
     [ -d "$APP" ] || die "not a bundle: $APP"
+    # Absolute from here on. dylibbundler resolves @loader_path against the file it
+    # is fixing and then compares the result with the destination it was given as a
+    # STRING: hand it a relative bundle path and it tries to copy CsoundLib64 onto
+    # itself, cp refuses, and the run dies mid-bundle. CMake always passes an
+    # absolute path, so this only ever bit a hand-typed one.
+    APP="$(cd "$APP" && pwd -P)"
 
     # The executable name is NOT necessarily the bundle folder name (and differs
     # for VST3/AU bundles) -- read CFBundleExecutable, fall back to the sole Mach-O.
