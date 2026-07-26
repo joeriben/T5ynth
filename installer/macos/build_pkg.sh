@@ -155,6 +155,37 @@ if [[ -n "$APP_SIGN_IDENTITY" ]]; then
         --sign "$APP_SIGN_IDENTITY" \
         "$STAGED_APP"
     codesign --verify --deep --strict "$STAGED_APP"
+
+    # LAUNCH the signed copy. `--options runtime` turns on library validation,
+    # and that is a runtime verdict no verify command reproduces: a bundled dylib
+    # whose signature does not carry the SAME Team ID as the app is refused by
+    # dyld, and the app dies before main() with "different Team IDs". Since
+    # Contents/libs/CsoundLib64 arrived by copy (tools/bundle_csound_macos.sh)
+    # and is signed here only because --deep reaches it, this is the one place
+    # that can catch a signing order that leaves it behind — measured: the same
+    # app signed `--options runtime --sign -` (ad-hoc, hence no Team ID at all)
+    # does not start. Everything upstream of this step is green in that case, so
+    # without this check a release could ship an app that cannot launch at all.
+    # The VST3 and AU are signed by the same command and cannot be launched
+    # standalone; a DAW disables library validation to load third-party plugins,
+    # which is why the .app is the exposed one.
+    echo "  Launching the signed app to prove dyld accepts the bundled libraries..."
+    APP_EXEC="$STAGED_APP/Contents/MacOS/$(/usr/libexec/PlistBuddy -c \
+        'Print :CFBundleExecutable' "$STAGED_APP/Contents/Info.plist")"
+    LAUNCH_LOG="$WORK/signed-launch.log"
+    T5YNTH_ALLOW_NO_MODELS=1 "$APP_EXEC" > "$LAUNCH_LOG" 2>&1 &
+    LAUNCH_PID=$!
+    sleep 10
+    if kill -0 "$LAUNCH_PID" 2>/dev/null; then
+        kill "$LAUNCH_PID" 2>/dev/null || true
+        wait "$LAUNCH_PID" 2>/dev/null || true
+        echo "  Signed app launched and stayed up."
+    else
+        wait "$LAUNCH_PID" 2>/dev/null || true
+        echo "Error: the Developer ID-signed app does not launch:" >&2
+        cat "$LAUNCH_LOG" >&2
+        exit 1
+    fi
 fi
 
 # Prevent Installer from "following" an existing akroasys.app with the same
