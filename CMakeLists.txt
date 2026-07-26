@@ -59,24 +59,49 @@ FetchContent_MakeAvailable(signalsmith_stretch)
 
 add_subdirectory(JUCE)
 
-# ── Optional: Csound engine (Phase 1, commit C1) ──────────────────────────
-# Homebrew ships ONLY CsoundLib64.framework for the C API on macOS -- there is
-# no find_package module for Csound and no .dylib to link against (verified
-# ground truth in tools/csound_poc.cpp:13-18). NEVER REQUIRED: CI runners and
-# any dev machine without Csound installed must build exactly as before.
-# T5YNTH_CSOUND_FOUND gates the conditional target_sources/link block below;
-# the ALWAYS-defined T5YNTH_HAS_CSOUND compile definition (near JUCE_USE_CURL)
-# lets every call site branch without a CMake-level #ifdef.
+# ── Csound engine ─────────────────────────────────────────────────────────
+# The LRO IS Csound, so Csound travels with the app: third_party/csound/<platform>
+# holds the exact payload a bundle ships — the library, its support libraries and
+# the plugin opcode modules, with every load command already pointing inside the
+# bundle. A build therefore needs no Homebrew, no dylibbundler and no system
+# Csound anywhere, and dev and CI compile against the same bytes.
 #
-# T5YNTH_CSOUND_PREFIX (CMake var or environment) names an installation that is
-# neither Homebrew's nor /Library/Frameworks — a bottle unpacked in CI, a build
-# of one's own. Its Frameworks/ dir is searched first; everything downstream
-# (headers, bundling) follows from the framework path, not from the prefix.
+# STILL NEVER REQUIRED (CMakeLists' oldest rule): delete third_party/csound, or
+# build on a platform that has no payload yet, and everything builds exactly as
+# before — T5YNTH_CSOUND_FOUND goes false, CsoundEngine.cpp is not compiled, and
+# the always-defined T5YNTH_HAS_CSOUND lets every call site branch at runtime.
+#
+# T5YNTH_CSOUND_PREFIX (CMake var or environment) overrides the vendored payload
+# with an installation of one's own — on macOS its Frameworks/ dir, as Homebrew
+# lays it out. Everything downstream follows from what was found, not from the
+# prefix.
 set(T5YNTH_CSOUND_FOUND FALSE)
-if(APPLE)
-    if(NOT T5YNTH_CSOUND_PREFIX AND DEFINED ENV{T5YNTH_CSOUND_PREFIX})
-        set(T5YNTH_CSOUND_PREFIX "$ENV{T5YNTH_CSOUND_PREFIX}")
+set(T5YNTH_CSOUND_VENDORED "")
+if(APPLE AND CMAKE_SYSTEM_PROCESSOR MATCHES "arm64|aarch64")
+    set(_csound_vendor "${CMAKE_SOURCE_DIR}/third_party/csound/macos-arm64")
+elseif(WIN32)
+    set(_csound_vendor "${CMAKE_SOURCE_DIR}/third_party/csound/windows-x64")
+else()
+    set(_csound_vendor "")
+endif()
+
+if(NOT T5YNTH_CSOUND_PREFIX AND DEFINED ENV{T5YNTH_CSOUND_PREFIX})
+    set(T5YNTH_CSOUND_PREFIX "$ENV{T5YNTH_CSOUND_PREFIX}")
+endif()
+
+if(_csound_vendor AND NOT T5YNTH_CSOUND_PREFIX
+   AND EXISTS "${_csound_vendor}/include/csound/csound.h")
+    if(APPLE AND EXISTS "${_csound_vendor}/lib/CsoundLib64")
+        set(T5YNTH_CSOUND_VENDORED "${_csound_vendor}")
+        set(T5YNTH_CSOUND_FOUND TRUE)
+    elseif(WIN32 AND EXISTS "${_csound_vendor}/lib/csound64.lib")
+        set(T5YNTH_CSOUND_VENDORED "${_csound_vendor}")
+        set(T5YNTH_CSOUND_FOUND TRUE)
     endif()
+endif()
+
+if(APPLE AND NOT T5YNTH_CSOUND_FOUND)
+    # No payload (or an explicit prefix): the framework, as Homebrew ships it.
     find_library(T5YNTH_CSOUND_FRAMEWORK NAMES CsoundLib64
                  PATHS "${T5YNTH_CSOUND_PREFIX}/Frameworks"
                        /opt/homebrew/opt/csound/Frameworks /Library/Frameworks
@@ -84,6 +109,21 @@ if(APPLE)
     if(T5YNTH_CSOUND_FRAMEWORK)
         set(T5YNTH_CSOUND_FOUND TRUE)
     endif()
+endif()
+
+if(WIN32 AND NOT T5YNTH_CSOUND_FOUND AND T5YNTH_CSOUND_PREFIX)
+    if(EXISTS "${T5YNTH_CSOUND_PREFIX}/lib/csound64.lib")
+        set(T5YNTH_CSOUND_VENDORED "${T5YNTH_CSOUND_PREFIX}")
+        set(T5YNTH_CSOUND_FOUND TRUE)
+    endif()
+endif()
+
+if(T5YNTH_CSOUND_VENDORED)
+    message(STATUS "Csound: vendored payload at ${T5YNTH_CSOUND_VENDORED}")
+elseif(T5YNTH_CSOUND_FOUND)
+    message(STATUS "Csound: system framework at ${T5YNTH_CSOUND_FRAMEWORK}")
+else()
+    message(STATUS "Csound: none — the LRO will be silent in this build")
 endif()
 
 set(T5YNTH_PLUGIN_FORMATS Standalone VST3)
@@ -209,7 +249,24 @@ endif()
 option(T5YNTH_BUNDLE_CSOUND
     "Copy Csound into the macOS bundles so they need no system Csound"
     ON)
-if(APPLE AND T5YNTH_CSOUND_FOUND AND T5YNTH_BUNDLE_CSOUND)
+if(APPLE AND T5YNTH_CSOUND_VENDORED AND T5YNTH_BUNDLE_CSOUND)
+    # Vendored: the payload is already linked for this layout, so bundling is a
+    # copy plus signatures. Not optional here and deliberately so — the binary
+    # names @loader_path/../libs/CsoundLib64, and a bundle without it would not
+    # launch at all. No dylibbundler, no Homebrew, nothing to install.
+    foreach(_fmt Standalone VST3 AU)
+        if(TARGET T5ynth_${_fmt})
+            add_custom_command(TARGET T5ynth_${_fmt} POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E env
+                    "CSOUND_VENDORED_LIBS=${T5YNTH_CSOUND_VENDORED}/lib"
+                    bash "${CMAKE_SOURCE_DIR}/tools/bundle_csound_macos.sh"
+                    "$<TARGET_BUNDLE_DIR:T5ynth_${_fmt}>"
+                VERBATIM)
+        endif()
+    endforeach()
+elseif(APPLE AND T5YNTH_CSOUND_FOUND AND T5YNTH_BUNDLE_CSOUND)
+    # A system framework instead of the payload: the old route, which has to
+    # flatten the framework and pull its dependency tree in with dylibbundler.
     find_program(T5YNTH_DYLIBBUNDLER dylibbundler)
     if(NOT T5YNTH_DYLIBBUNDLER)
         message(WARNING
@@ -228,6 +285,21 @@ if(APPLE AND T5YNTH_CSOUND_FOUND AND T5YNTH_BUNDLE_CSOUND)
             endif()
         endforeach()
     endif()
+endif()
+
+# Windows: the DLL and its plugin opcodes go next to the executable and into the
+# VST3 bundle, where the loader looks for them (src/dsp/CsoundEngine.cpp points
+# Csound at the plugins64 dir beside the module it was loaded from).
+if(WIN32 AND T5YNTH_CSOUND_VENDORED AND T5YNTH_BUNDLE_CSOUND)
+    foreach(_fmt Standalone VST3)
+        if(TARGET T5ynth_${_fmt})
+            add_custom_command(TARGET T5ynth_${_fmt} POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_directory
+                    "${T5YNTH_CSOUND_VENDORED}/bin"
+                    "$<TARGET_FILE_DIR:T5ynth_${_fmt}>"
+                VERBATIM)
+        endif()
+    endforeach()
 endif()
 
 # The standalone brings its own JUCEApplication (src/StandaloneAppLauncher.cpp)
@@ -312,7 +384,18 @@ target_sources(T5ynth PRIVATE
 # target_sources/link additions must stay inside this if(): CsoundEngine.cpp
 # #includes <csound/csound.h> at file scope and cannot even preprocess without
 # the framework's headers on the include path.
-if(T5YNTH_CSOUND_FOUND)
+if(T5YNTH_CSOUND_VENDORED)
+    target_sources(T5ynth PRIVATE src/dsp/CsoundEngine.cpp)
+    target_include_directories(T5ynth PRIVATE "${T5YNTH_CSOUND_VENDORED}/include")
+    if(APPLE)
+        # The vendored library's own install name is @loader_path/../libs/CsoundLib64,
+        # so linking it records exactly the load command the bundled layout needs —
+        # no install_name_tool, no rpath, nothing machine-specific in the binary.
+        target_link_libraries(T5ynth PRIVATE "${T5YNTH_CSOUND_VENDORED}/lib/CsoundLib64")
+    else()
+        target_link_libraries(T5ynth PRIVATE "${T5YNTH_CSOUND_VENDORED}/lib/csound64.lib")
+    endif()
+elseif(T5YNTH_CSOUND_FOUND)
     target_sources(T5ynth PRIVATE src/dsp/CsoundEngine.cpp)
     get_filename_component(_csound_fw_dir "${T5YNTH_CSOUND_FRAMEWORK}" DIRECTORY)
     # Homebrew's opt-prefix ships an "include/csound" symlink pointing into the

@@ -262,10 +262,13 @@ def fundamental(mono, start, rate):
 
 
 def main():
+    global APP
     ap = argparse.ArgumentParser()
     ap.add_argument("--preset", default="Bowed Cello",
                     help="preset whose stored orchestra is played")
     ap.add_argument("--seconds", type=float, default=3.0, help="note length")
+    ap.add_argument("--app", default=str(APP),
+                    help="the bundle to test (default: the one in build_clean)")
     ap.add_argument("--keep", action="store_true", help="leave the app running")
     ap.add_argument("--prove-it-can-fail", action="store_true",
                     help="take the bundled Csound away and require SILENCE — the "
@@ -278,6 +281,7 @@ def main():
         fail("python-rtmidi is needed to send the note (pip install python-rtmidi)")
     if not shutil.which("ffmpeg"):
         fail("ffmpeg is needed to record BlackHole")
+    APP = Path(args.app).resolve()
     if not APP.is_dir():
         fail(f"no built Standalone at {APP}")
     # Refuse rather than kill: an instance already running may be someone's open

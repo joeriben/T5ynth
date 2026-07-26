@@ -40,12 +40,24 @@
 # host owns that), so bundling it would buy nothing and cost a load-command
 # rewrite in a directory where nothing else needs one.
 #
+# TWO SOURCES for the same payload:
+#
+#   CSOUND_VENDORED_LIBS  a ready Contents/libs tree (third_party/csound/…/lib).
+#                         Every load command already resolves inside the bundle,
+#                         so bundling is a copy plus signatures — no Homebrew, no
+#                         dylibbundler, nothing to install. This is what a build
+#                         uses by default, and what CI uses.
+#   CSOUND_FRAMEWORK_BINARY  a system framework to flatten and pull apart, which
+#                         is how the vendored tree was made in the first place.
+#
 # Usage: bundle_csound_macos.sh <bundle> [<bundle> ...]
+#   CSOUND_VENDORED_LIBS      a prepared Contents/libs to copy in (takes priority)
 #   CSOUND_FRAMEWORK_BINARY   override the framework binary to copy
 #   CSOUND_OPCODE_DIR         override the plugin opcode directory to copy
 #   CSOUND_LICENSE_DIR        override the licence texts copied into the bundle
 set -euo pipefail
 
+VENDORED_LIBS="${CSOUND_VENDORED_LIBS:-}"
 # The framework ROOT's symlinks (CsoundLib64 -> Versions/Current/CsoundLib64,
 # Resources -> Versions/Current/Resources), never Versions/6.0 directly: a
 # version-pinned path is a landmine on the next Csound. `cp` follows them.
@@ -58,10 +70,17 @@ LICENSE_SRC="${CSOUND_LICENSE_DIR:-$REPO_ROOT/resources/licenses/csound}"
 
 die() { echo "bundle_csound_macos: $*" >&2; exit 1; }
 
-command -v dylibbundler >/dev/null \
-    || die "dylibbundler not found (brew install dylibbundler)"
-[ -f "$FW_BIN" ]     || die "no Csound framework binary at $FW_BIN"
-[ -d "$OPCODE_SRC" ] || die "no Csound plugin opcode dir at $OPCODE_SRC"
+if [ -n "$VENDORED_LIBS" ]; then
+    [ -f "$VENDORED_LIBS/CsoundLib64" ] \
+        || die "no CsoundLib64 in the vendored payload at $VENDORED_LIBS"
+    [ -d "$VENDORED_LIBS/Opcodes64" ] \
+        || die "no Opcodes64 in the vendored payload at $VENDORED_LIBS"
+else
+    command -v dylibbundler >/dev/null \
+        || die "dylibbundler not found (brew install dylibbundler)"
+    [ -f "$FW_BIN" ]     || die "no Csound framework binary at $FW_BIN"
+    [ -d "$OPCODE_SRC" ] || die "no Csound plugin opcode dir at $OPCODE_SRC"
+fi
 [ -f "$LICENSE_SRC/NOTICE.txt" ] \
     || die "no Csound licence texts at $LICENSE_SRC (LGPL 2.1 requires them in the bundle)"
 
@@ -133,103 +152,11 @@ dedupe_rpaths() {
     done
 }
 
-bundle_one() {
-    local APP="$1"
-    [ -d "$APP" ] || die "not a bundle: $APP"
-    # Absolute from here on. dylibbundler resolves @loader_path against the file it
-    # is fixing and then compares the result with the destination it was given as a
-    # STRING: hand it a relative bundle path and it tries to copy CsoundLib64 onto
-    # itself, cp refuses, and the run dies mid-bundle. CMake always passes an
-    # absolute path, so this only ever bit a hand-typed one.
-    APP="$(cd "$APP" && pwd -P)"
-
-    # The executable name is NOT necessarily the bundle folder name (and differs
-    # for VST3/AU bundles) -- read CFBundleExecutable, fall back to the sole Mach-O.
-    local EXEC_NAME BIN LIBS OPCODES OLD_REF
-    EXEC_NAME="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' \
-                 "$APP/Contents/Info.plist" 2>/dev/null || true)"
-    [ -n "$EXEC_NAME" ] || EXEC_NAME="$(ls "$APP/Contents/MacOS" 2>/dev/null | head -1)"
-    BIN="$APP/Contents/MacOS/$EXEC_NAME"
-    LIBS="$APP/Contents/libs"
-    OPCODES="$LIBS/Opcodes64"
-
-    [ -x "$BIN" ] || die "no executable at $BIN"
-
-    # The load command this bundle currently records for Csound. Absent means the
-    # bundle was built without Csound (T5YNTH_CSOUND_FOUND false) — nothing to do,
-    # and NOT an error: a build without Csound must stay a valid build.
-    OLD_REF="$(otool -L "$BIN" | awk '/CsoundLib64/{print $1; exit}')"
-    if [ -z "$OLD_REF" ]; then
-        echo "  $(basename "$APP"): does not link CsoundLib64 — nothing to bundle"
-        return 0
-    fi
-
-    mkdir -p "$LIBS"
-
-    # 1) Flatten the framework binary to a plain dylib in Contents/libs.
-    cp -f "$FW_BIN" "$LIBS/CsoundLib64"
-    chmod +w "$LIBS/CsoundLib64"
-    install_name_tool -id "@loader_path/../libs/CsoundLib64" "$LIBS/CsoundLib64" 2>/dev/null
-    strip_rpaths "$LIBS/CsoundLib64" '.'
-
-    # 2) Point the bundle's own binary at the flattened dylib. Idempotent: on a
-    #    rebuild the linker has restored the absolute reference, and when it has
-    #    not, OLD_REF is already the @loader_path form and this is a no-op.
-    install_name_tool -change "$OLD_REF" "@loader_path/../libs/CsoundLib64" "$BIN" 2>/dev/null
-    # Every rpath that is not bundle-relative goes, for the same reason foreign_deps
-    # is a whitelist: CMake records an rpath from wherever Csound was FOUND, and
-    # T5YNTH_CSOUND_PREFIX may name any prefix. A blacklist of /opt/homebrew and
-    # /usr/local left a CI-workspace rpath standing, dylibbundler then rewrote it —
-    # and the one below it — to the SAME @loader_path/../libs/, and dyld hard-fails
-    # on a duplicate LC_RPATH. Both gates were green on that bundle; the app died
-    # at launch with "duplicate LC_RPATH".
-    strip_rpaths "$BIN" '^[^@]'
-
-    # 3) Plugin opcodes: copy the ones whose dependencies we can satisfy, name the
-    #    rest. A skipped plugin is a capability the LRO's author cannot reach, so
-    #    this list is printed on every build rather than decided silently.
-    rm -rf "$OPCODES"
-    mkdir -p "$OPCODES"
-    local skipped=() f deps
-    for f in "$OPCODE_SRC"/*.dylib; do
-        [ -f "$f" ] || continue
-        deps="$(foreign_deps "$f" | sed 's|.*/||' | sort -u | tr '\n' ' ')"
-        # libstdutil is Csound's UTILITY module (srconv, dnoise …), not opcodes,
-        # and it is the only dep-carrying file we would otherwise have to rewrite.
-        if [ -n "${deps// /}" ] || [ "$(basename "$f")" = "libstdutil.dylib" ]; then
-            skipped+=("$(basename "$f") [${deps:-utilities, not opcodes}]")
-            continue
-        fi
-        cp -f "$f" "$OPCODES/"
-        chmod +w "$OPCODES/$(basename "$f")"
-        # Its recorded install name is the absolute path it was built at. Nothing
-        # links against a dlopen'd plugin, so this is hygiene rather than a fix —
-        # but it is also what lets step 6 stay strict, with no exception for the
-        # one load command that is a self-reference.
-        install_name_tool -id "@loader_path/$(basename "$f")" \
-            "$OPCODES/$(basename "$f")" 2>/dev/null
-    done
-    # libscansyn carries scanu/scanu2/scans — named in CLAUDE.md as available on
-    # this build, and the canary that step 3 actually ran.
-    [ -f "$OPCODES/libscansyn.dylib" ] \
-        || die "libscansyn.dylib did not reach $OPCODES (scanu/scans would be gone)"
-
-    # 4) Let dylibbundler pull CsoundLib64's own tree (libsndfile & co.) into libs
-    #    and rewrite every inter-lib reference to @loader_path/../libs. That prefix
-    #    is right for both locations: for the executable in Contents/MacOS and for a
-    #    dylib in Contents/libs, ../libs is Contents/libs. The copied plugins are
-    #    dependency-free by construction (step 3), so they are not passed in.
-    dylibbundler -of -b -cd \
-      -x "$LIBS/CsoundLib64" \
-      -x "$BIN" \
-      -d "$LIBS" \
-      -p "@loader_path/../libs/" < /dev/null
-
-    for f in "$LIBS"/*; do
-        if [ -f "$f" ]; then strip_rpaths "$f" '.'; fi
-    done
-    dedupe_rpaths "$BIN"
-
+finish_bundle() {
+    # Everything from here is common to both sources of the payload: the
+    # licences the LGPL requires in the bundle, the signatures, and the checks
+    # that can fail. APP/BIN/LIBS/OPCODES and SKIPPED come from the caller.
+    local APP="$1" BIN="$2" LIBS="$3" OPCODES="$4" SKIPPED="$5"
     # 5) LGPL 2.1: the licence text and the notice that says which libraries are
     #    bundled and how to replace them ship INSIDE the bundle, not only in the repo.
     mkdir -p "$APP/Contents/Resources/licenses/csound"
@@ -301,12 +228,133 @@ process at launch): $(echo "$dupes" | tr '\n' ' ')"
 
     echo "  $(basename "$APP"): $(ls -1 "$LIBS" | grep -v Opcodes64 | wc -l | tr -d ' ') libs, \
 $(ls -1 "$OPCODES" | wc -l | tr -d ' ') plugin opcode modules"
-    if [ ${#skipped[@]} -gt 0 ]; then
-        printf '    not bundled (foreign dependency): %s\n' "${skipped[@]}"
-    fi
+    [ -z "$SKIPPED" ] || echo "$SKIPPED" | grep -v '^$' \
+        | sed 's/^/    not bundled (foreign dependency): /'
 }
 
-echo "bundling Csound ($FW_BIN)"
+bundle_one() {
+    local APP="$1"
+    [ -d "$APP" ] || die "not a bundle: $APP"
+    # Absolute from here on. dylibbundler resolves @loader_path against the file it
+    # is fixing and then compares the result with the destination it was given as a
+    # STRING: hand it a relative bundle path and it tries to copy CsoundLib64 onto
+    # itself, cp refuses, and the run dies mid-bundle. CMake always passes an
+    # absolute path, so this only ever bit a hand-typed one.
+    APP="$(cd "$APP" && pwd -P)"
+
+    # The executable name is NOT necessarily the bundle folder name (and differs
+    # for VST3/AU bundles) -- read CFBundleExecutable, fall back to the sole Mach-O.
+    local EXEC_NAME BIN LIBS OPCODES OLD_REF
+    EXEC_NAME="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' \
+                 "$APP/Contents/Info.plist" 2>/dev/null || true)"
+    [ -n "$EXEC_NAME" ] || EXEC_NAME="$(ls "$APP/Contents/MacOS" 2>/dev/null | head -1)"
+    BIN="$APP/Contents/MacOS/$EXEC_NAME"
+    LIBS="$APP/Contents/libs"
+    OPCODES="$LIBS/Opcodes64"
+
+    [ -x "$BIN" ] || die "no executable at $BIN"
+
+    # The load command this bundle currently records for Csound. Absent means the
+    # bundle was built without Csound (T5YNTH_CSOUND_FOUND false) — nothing to do,
+    # and NOT an error: a build without Csound must stay a valid build.
+    OLD_REF="$(otool -L "$BIN" | awk '/CsoundLib64/{print $1; exit}')"
+    if [ -z "$OLD_REF" ]; then
+        echo "  $(basename "$APP"): does not link CsoundLib64 — nothing to bundle"
+        return 0
+    fi
+
+    mkdir -p "$LIBS"
+
+    # 0) The vendored payload: a Contents/libs that is already correct. Copy it,
+    #    strip whatever rpath the link line left in our own binary, and go
+    #    straight to the licences, the signatures and the checks — steps 1 to 4
+    #    exist only to MAKE such a tree out of a system framework.
+    if [ -n "$VENDORED_LIBS" ]; then
+        rm -rf "$LIBS"
+        mkdir -p "$LIBS"
+        cp -R "$VENDORED_LIBS"/. "$LIBS/"
+        chmod -R u+w "$LIBS"
+        install_name_tool -change "$OLD_REF" "@loader_path/../libs/CsoundLib64" \
+            "$BIN" 2>/dev/null || true
+        strip_rpaths "$BIN" '^[^@]'
+        dedupe_rpaths "$BIN"
+        finish_bundle "$APP" "$BIN" "$LIBS" "$OPCODES" ""
+        return 0
+    fi
+
+    # 1) Flatten the framework binary to a plain dylib in Contents/libs.
+    cp -f "$FW_BIN" "$LIBS/CsoundLib64"
+    chmod +w "$LIBS/CsoundLib64"
+    install_name_tool -id "@loader_path/../libs/CsoundLib64" "$LIBS/CsoundLib64" 2>/dev/null
+    strip_rpaths "$LIBS/CsoundLib64" '.'
+
+    # 2) Point the bundle's own binary at the flattened dylib. Idempotent: on a
+    #    rebuild the linker has restored the absolute reference, and when it has
+    #    not, OLD_REF is already the @loader_path form and this is a no-op.
+    install_name_tool -change "$OLD_REF" "@loader_path/../libs/CsoundLib64" "$BIN" 2>/dev/null
+    # Every rpath that is not bundle-relative goes, for the same reason foreign_deps
+    # is a whitelist: CMake records an rpath from wherever Csound was FOUND, and
+    # T5YNTH_CSOUND_PREFIX may name any prefix. A blacklist of /opt/homebrew and
+    # /usr/local left a CI-workspace rpath standing, dylibbundler then rewrote it —
+    # and the one below it — to the SAME @loader_path/../libs/, and dyld hard-fails
+    # on a duplicate LC_RPATH. Both gates were green on that bundle; the app died
+    # at launch with "duplicate LC_RPATH".
+    strip_rpaths "$BIN" '^[^@]'
+
+    # 3) Plugin opcodes: copy the ones whose dependencies we can satisfy, name the
+    #    rest. A skipped plugin is a capability the LRO's author cannot reach, so
+    #    this list is printed on every build rather than decided silently.
+    rm -rf "$OPCODES"
+    mkdir -p "$OPCODES"
+    local skipped="" f deps
+    for f in "$OPCODE_SRC"/*.dylib; do
+        [ -f "$f" ] || continue
+        deps="$(foreign_deps "$f" | sed 's|.*/||' | sort -u | tr '\n' ' ')"
+        # libstdutil is Csound's UTILITY module (srconv, dnoise …), not opcodes,
+        # and it is the only dep-carrying file we would otherwise have to rewrite.
+        if [ -n "${deps// /}" ] || [ "$(basename "$f")" = "libstdutil.dylib" ]; then
+            skipped="$skipped$(basename "$f") [${deps:-utilities, not opcodes}]
+"
+            continue
+        fi
+        cp -f "$f" "$OPCODES/"
+        chmod +w "$OPCODES/$(basename "$f")"
+        # Its recorded install name is the absolute path it was built at. Nothing
+        # links against a dlopen'd plugin, so this is hygiene rather than a fix —
+        # but it is also what lets step 6 stay strict, with no exception for the
+        # one load command that is a self-reference.
+        install_name_tool -id "@loader_path/$(basename "$f")" \
+            "$OPCODES/$(basename "$f")" 2>/dev/null
+    done
+    # libscansyn carries scanu/scanu2/scans — named in CLAUDE.md as available on
+    # this build, and the canary that step 3 actually ran.
+    [ -f "$OPCODES/libscansyn.dylib" ] \
+        || die "libscansyn.dylib did not reach $OPCODES (scanu/scans would be gone)"
+
+    # 4) Let dylibbundler pull CsoundLib64's own tree (libsndfile & co.) into libs
+    #    and rewrite every inter-lib reference to @loader_path/../libs. That prefix
+    #    is right for both locations: for the executable in Contents/MacOS and for a
+    #    dylib in Contents/libs, ../libs is Contents/libs. The copied plugins are
+    #    dependency-free by construction (step 3), so they are not passed in.
+    dylibbundler -of -b -cd \
+      -x "$LIBS/CsoundLib64" \
+      -x "$BIN" \
+      -d "$LIBS" \
+      -p "@loader_path/../libs/" < /dev/null
+
+    for f in "$LIBS"/*; do
+        if [ -f "$f" ]; then strip_rpaths "$f" '.'; fi
+    done
+    dedupe_rpaths "$BIN"
+
+    finish_bundle "$APP" "$BIN" "$LIBS" "$OPCODES" "$skipped"
+}
+
+if [ -n "$VENDORED_LIBS" ]; then
+    echo "bundling Csound (vendored payload $VENDORED_LIBS)"
+else
+    echo "bundling Csound ($FW_BIN)"
+fi
 for app in "$@"; do
     bundle_one "$app"
 done
