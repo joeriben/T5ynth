@@ -132,6 +132,32 @@ if [[ -n "$AU" ]]; then
     [[ "$(basename "$AU")" == *.component ]] || die "AU path must be a .component bundle: $AU"
 fi
 
+# ── Signing the libraries Csound arrived with ────────────────────────
+# `codesign --deep` does NOT sign loose dylibs inside a bundle: measured on this
+# machine, `codesign --force --deep --sign <id> akroasys.app` leaves
+# Contents/libs/libogg.0.8.6.dylib "not signed at all", and
+# `codesign --verify --deep --strict` then still returns 0, because Contents/libs
+# is sealed as resources — the bytes are checked, the nested signatures are not.
+# Under `--options runtime` dyld enforces library validation, so an unsigned or
+# differently-signed dylib there is refused and the app dies before main(). Hence
+# every Mach-O we put in Contents/libs is signed BY NAME, inside out, before the
+# bundle that contains it. No -perm filter: dylibbundler writes its copies 0644.
+sign_bundled_libs() {
+    local bundle="$1" identity="$2" libs="$1/Contents/libs" f
+    [[ -d "$libs" ]] || return 0
+    while IFS= read -r -d '' f; do
+        case "$(file -b "$f" 2>/dev/null)" in
+            *Mach-O*) ;;
+            *) continue ;;
+        esac
+        codesign --force --timestamp --options runtime --sign "$identity" "$f" \
+            || die "could not sign $f"
+        codesign --verify "$f" || die "signature did not stick on $f"
+    done < <(find "$libs" -type f -print0)
+    echo "    signed $(find "$libs" -type f | wc -l | tr -d ' ') bundled files in \
+$(basename "$bundle")/Contents/libs"
+}
+
 # ── Temp workspace ───────────────────────────────────────────────────
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
@@ -147,6 +173,7 @@ STAGED_APP="$STAGE_APP/$(basename "$APP")"
 
 if [[ -n "$APP_SIGN_IDENTITY" ]]; then
     echo "  Signing app bundle with Developer ID..."
+    sign_bundled_libs "$STAGED_APP" "$APP_SIGN_IDENTITY"
     codesign \
         --force \
         --deep \
@@ -161,11 +188,11 @@ if [[ -n "$APP_SIGN_IDENTITY" ]]; then
     # whose signature does not carry the SAME Team ID as the app is refused by
     # dyld, and the app dies before main() with "different Team IDs". Since
     # Contents/libs/CsoundLib64 arrived by copy (tools/bundle_csound_macos.sh)
-    # and is signed here only because --deep reaches it, this is the one place
-    # that can catch a signing order that leaves it behind — measured: the same
-    # app signed `--options runtime --sign -` (ad-hoc, hence no Team ID at all)
-    # does not start. Everything upstream of this step is green in that case, so
-    # without this check a release could ship an app that cannot launch at all.
+    # and is signed by name just above (--deep would NOT reach it), this is the
+    # one place that can catch a signing order that leaves it behind — measured:
+    # the same app signed `--options runtime --sign -` (ad-hoc, hence no Team ID
+    # at all) does not start. Everything upstream of this step is green in that
+    # case, so without this check a release could ship an app that cannot launch.
     # The VST3 and AU are signed by the same command and cannot be launched
     # standalone; a DAW disables library validation to load third-party plugins,
     # which is why the .app is the exposed one.
@@ -248,6 +275,7 @@ if [[ -n "$VST3" ]]; then
 
     if [[ -n "$APP_SIGN_IDENTITY" ]]; then
         echo "  Signing VST3 plugin with Developer ID..."
+        sign_bundled_libs "$STAGED_VST3" "$APP_SIGN_IDENTITY"
         codesign \
             --force \
             --deep \
@@ -276,6 +304,7 @@ if [[ -n "$AU" ]]; then
 
     if [[ -n "$APP_SIGN_IDENTITY" ]]; then
         echo "  Signing AU plugin with Developer ID..."
+        sign_bundled_libs "$STAGED_AU" "$APP_SIGN_IDENTITY"
         codesign \
             --force \
             --deep \
