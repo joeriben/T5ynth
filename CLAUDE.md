@@ -79,6 +79,24 @@ Three hard rules, each independently BLOCKING:
 - **Two mechanical gates that fire at authoring time, either of which would have caught this on day one:** (a) the frozen old-corpus parity test above, gating deletion of the old modules; (b) a substrate-idiom grep — if the substrate was chosen for `vco2`/`kpw`/`foscil` and the emitted orchestra contains none of them (only `oscili`/`lfo`), fail. An additive `oscili` bank is precisely the toy vocabulary rule 2 forbids.
 - **Name the layer that owns movement.** If the oscillator is deliberately a standing tone while [[project_lco_movement_by_default]] still requires the sound to MOVE, the morph/motion capability must be proven at the layer that DOES own it, on the same end-to-end prompt path the user drives. A per-layer "not my job" must never leave a required capability untested at every layer — resolve the standing-tone-vs-movement split in writing before shipping.
 
+## Instrument Authoring (BLOCKING — every lexicon/library entry, every Csound body)
+
+Born from a real, expensive regression (2026-07-25/26): one session added 30+ lexicon instruments in ~24 h, "optimised" them against a meter it had built itself, never heard one against a real reference, and all 39 entries had to be reverted (`defd42c9`). None was convincing. The cost was days of work and a token spend that would have been four figures in euros.
+
+Five rules, each independently BLOCKING. They apply to any commit that adds or edits an instrument body in `backend/lco_library.json` / `backend/dco_lexicon.json`, or any Csound body anywhere.
+
+1. **Chained to existing synthesis methods.** Before the first line of orchestra, the method and its source are written down: modal synthesis with *published* mode ratios; Karplus-Strong / Jaffe-Smith; an FM algorithm from the literature; a documented Csound idiom (`vco2`+`kpw`, `foscil`) or a shipped model opcode (`fmrhode`, `fmwurlie`, `fmbell`, `fmb3`, `fmvoice`, `fmpercfl`, `fmmetal` — all present in the project's Csound). **Cannot name the method AND a source → the instrument is not built.** No invented instrument mechanics, no "modelled to the best of my knowledge". This is stricter than `docs/LCO_CODE_PROVENANCE.md`, which secures the *licence*; this secures that the *method itself exists*.
+
+2. **Use the substrate's model — never correct it.** No fitted curve, polynomial, or measured compensation layered over an existing model. The reverted rhodes did exactly this: `fmrhode` underneath (correct), and on top `kdepthexc = 1.57317198*ktrem² + 1.08273457*ktrem - 0.01098466` plus a hardcoded `0.7821`, fitted against a measurement window the entry's own text admits opens after 80 % of the note's energy is gone. A model bent straight with your own numbers is already destroyed. Also: one control must not drive two distinct model inputs (`bark` fed `fmrhode`'s kc1 *and* kc2), and a model's characteristic behaviour must not be defaulted away (tremolo at `0.01` = a Rhodes that does not wobble).
+
+3. **The acceptance criterion is never self-scored.** An entry is done when BJ has heard it A/B against a **real reference on disk** — see `feedback_compare_against_real_reference`. Deliverable per instrument: one folder with `ref.wav` and `lro.wav`, same pitch, length and loudness. Own measurements may accompany the result; they never decide it. A green suite built from the implementation's own vocabulary certifies nothing.
+
+4. **Reference first, code second.** The reference file must exist on disk before an orchestra line is written. This is the order reversal that turns rule 3 from an appeal into a gate.
+
+5. **No quantity targets, no unattended optimisation.** The unit of work is ONE instrument. "Add N instruments" is an unbounded order and was half the cause. Fixed attempt budget agreed up front; when it is spent the entry is dropped rather than optimised further (`feedback_quality_bar_omit_mediocre`). No batches, no agent fleets for lexicon entries, no self-scoring loop left running.
+
+Open question that gates all of the above and is BJ's to answer, not the implementation's: **whether the LRO is meant to imitate real instruments at all.** Csound's FM model opcodes are mid-1990s STK-lineage; used perfectly they will not pass for a real Rhodes against a sample library. If imitation is the bar, the lexicon strategy cannot meet it however cleanly it is executed. If the job is translating language into *sound spaces* (`project_lco_imagination_is_the_goal`), then "sounds like a real Rhodes" is the wrong criterion and the right one must be written down before any entry is authored.
+
 ## Release (BLOCKING — applies to every `v*` tag)
 
 Before `git push origin v*` runs, EVERY step of `docs/RELEASE_PROCESS.md` §7 must have been executed AND the evidence pasted into the conversation. No exceptions, no "I already know it works".
