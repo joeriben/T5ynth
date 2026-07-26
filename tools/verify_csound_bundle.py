@@ -28,13 +28,29 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "backend"))
 
-# Everything a Homebrew Csound could be reached through. The Cellar is the one
-# that matters most: the library's baked-in opcode path points straight into it.
+# What the child may not read. Not a list of Csound paths — the WHOLE of both
+# Homebrew prefixes, plus the system-wide framework location. A named-paths list
+# only denies the ways I thought of; the bundle's dependency tree is libsndfile,
+# ogg, vorbis, FLAC, opus, mpg123, lame and gettext as well, and any one of them
+# resolving back to Homebrew would make a green run mean nothing. This is
+# affordable because the child is /usr/bin/python3, which links nothing outside
+# /usr/lib and /System (measured 2026-07-26).
+DENIED_PREFIXES = (
+    "/opt/homebrew",
+    "/usr/local",
+    "/Library/Frameworks/CsoundLib64.framework",
+)
+
+# The paths that must be gone for the test to mean anything, checked by name so
+# the failure says which one survived. The Cellar matters most: the library's
+# baked-in opcode path points straight into it.
 HOMEBREW_CSOUND = (
     "/opt/homebrew/Cellar/csound",
     "/opt/homebrew/opt/csound",
     "/opt/homebrew/bin/csound",
     "/opt/homebrew/lib/libcsnd6.6.0.dylib",
+    "/opt/homebrew/Frameworks/CsoundLib64.framework",
+    "/opt/homebrew/lib/libsndfile.1.dylib",
     "/usr/local/opt/csound",
     "/Library/Frameworks/CsoundLib64.framework",
 )
@@ -55,19 +71,35 @@ def ok(msg):
 
 # ── static half: does the bundle name anything outside itself ────────────────
 
-def mach_o_files(bundle):
-    out = subprocess.run(["find", str(bundle), "-type", "f", "-perm", "-u+x"],
-                         capture_output=True, text=True).stdout.split()
-    for path in out:
-        kind = subprocess.run(["file", "-b", path], capture_output=True,
-                              text=True).stdout
-        if "Mach-O" in kind:
-            yield path
+def mach_o_files(*roots):
+    """Every Mach-O under the given paths. Not `find -perm -u+x`: dylibbundler
+    writes its copies 0644, and that filter hid 9 of the 10 bundled libraries from
+    this check. os.walk rather than parsing find's output, because a path with a
+    space in it silently split into two nonexistent ones."""
+    for root in roots:
+        root = Path(root)
+        paths = [root] if root.is_file() else \
+                [Path(d) / f for d, _, fs in os.walk(root) for f in fs]
+        for path in paths:
+            if path.is_symlink() or not path.is_file():
+                continue
+            kind = subprocess.run(["file", "-b", str(path)],
+                                  capture_output=True, text=True).stdout
+            if "Mach-O" in kind:
+                yield path
 
 
 def foreign_references(path):
-    load = subprocess.run(["otool", "-L", path], capture_output=True, text=True).stdout
-    rpaths = subprocess.run(["otool", "-l", path], capture_output=True, text=True).stdout
+    """Everything the file names that is not inside the bundle (@loader_path,
+    @rpath, @executable_path) and not the OS's own (/usr/lib, /System). A
+    whitelist, deliberately: the old blacklist of /opt/homebrew, /usr/local and
+    /Cellar/ passes anything a differently-configured build machine records —
+    /Users/…, /sw, a Nix store path — which is the same defect wearing a
+    different prefix."""
+    load = subprocess.run(["otool", "-L", str(path)],
+                          capture_output=True, text=True).stdout
+    rpaths = subprocess.run(["otool", "-l", str(path)],
+                            capture_output=True, text=True).stdout
     refs = [l.split()[0] for l in load.splitlines()[1:] if l.startswith("\t")]
     want_path = False
     for line in rpaths.splitlines():
@@ -77,7 +109,7 @@ def foreign_references(path):
             refs.append(line.split()[1])
             want_path = False
     return [r for r in refs
-            if r.startswith(("/opt/homebrew", "/usr/local")) or "/Cellar/" in r]
+            if not r.startswith(("@", "/usr/lib/", "/System/"))]
 
 
 def check_bundle_contents(bundle):
@@ -97,13 +129,32 @@ def check_bundle_contents(bundle):
     ok(f"{lib.name} + {len(list(opcodes.glob('*.dylib')))} plugin opcode modules "
        f"+ licence texts present")
 
-    offenders = []
-    for m in mach_o_files(bundle):
+    # Scope: what the bundling step is responsible for — Contents/libs and the
+    # bundle's own binary. Not the whole bundle: a release .app also carries the
+    # PyInstaller backend, hundreds of Mach-Os that are another concern's
+    # business, and a check that pulls them in would grow exceptions until it
+    # stops meaning anything.
+    checked = offenders = 0
+    problems = []
+    for m in mach_o_files(bundle / "Contents" / "libs", bundle / "Contents" / "MacOS"):
+        checked += 1
+        rel = m.relative_to(bundle)
+        # `codesign --verify --deep --strict` on the bundle is NOT enough, and
+        # this is measured: it returns 0 with an unsigned dylib in Contents/libs,
+        # because that directory is sealed as resources — bytes checked, nested
+        # signatures not. An install_name_tool'd library whose signature was not
+        # renewed does not merely fail to load, it KILLS the process.
+        if subprocess.run(["codesign", "--verify", str(m)],
+                          capture_output=True).returncode != 0:
+            problems.append(f"{rel}: unsigned or broken signature")
+            offenders += 1
         for ref in foreign_references(m):
-            offenders.append(f"{Path(m).relative_to(bundle)}: {ref}")
-    if offenders:
-        fail("bundle reaches outside itself:\n      " + "\n      ".join(offenders))
-    ok("no Mach-O in the bundle names /opt/homebrew, /usr/local or a Cellar path")
+            problems.append(f"{rel}: {ref}")
+            offenders += 1
+    if problems:
+        fail("bundle is not self-contained:\n      " + "\n      ".join(problems))
+    ok(f"{checked} Mach-O files: each signed, none naming anything outside the "
+       f"bundle but /usr/lib and /System")
     return lib, opcodes
 
 
@@ -112,12 +163,13 @@ def check_bundle_contents(bundle):
 def prove_homebrew_is_unreachable():
     """If the sandbox did not actually cut Csound off, every result after this is
     worthless — the bundle could be reaching straight back into Homebrew."""
-    reachable = [p for p in HOMEBREW_CSOUND if os.path.exists(p) and _readable(p)]
+    reachable = [p for p in HOMEBREW_CSOUND + DENIED_PREFIXES
+                 if os.path.exists(p) and _readable(p)]
     if reachable:
-        fail("the sandbox did not deny Homebrew's Csound — still readable: "
+        fail("the sandbox did not deny Homebrew — still readable: "
              + ", ".join(reachable) + "\n      "
              "(this test proves nothing while that is true)")
-    ok("Homebrew's Csound is unreachable in this process")
+    ok("neither Homebrew prefix is readable in this process")
 
 
 def _readable(path):
@@ -163,7 +215,8 @@ def load_bundled(lib_path, opcodes):
 
 def check_plugin_opcodes(lib):
     """The measured trap: a bundle without Opcodes64 still compiles core opcodes
-    and silently loses 565 entries. `fractalnoise` is one of them, so it answers
+    and silently drops to the 1917 built-in entries, 350 fewer than with the
+    modules we ship. `fractalnoise` is one of the missing ones, so this answers
     the question with a compile rather than with a count that could drift."""
     cs = lib.csoundCreate(None)
     try:
@@ -253,16 +306,25 @@ SANDBOX_PROFILE = """(version 1)
 """
 
 
+SYSTEM_PYTHON = "/usr/bin/python3"
+
+
 def run_child_under_sandbox(bundle):
-    denies = "\n".join(
-        f'(deny file-read* (subpath "{p}"))' if os.path.isdir(p)
-        else f'(deny file-read* (literal "{p}"))'
-        for p in HOMEBREW_CSOUND)
+    denies = "\n".join(f'(deny file-read* (subpath "{p}"))' for p in DENIED_PREFIXES)
     profile = Path(os.environ.get("TMPDIR", "/tmp")) / "deny_homebrew_csound.sb"
     profile.write_text(SANDBOX_PROFILE.format(denies=denies))
-    print(f"      denying Homebrew Csound via {profile}")
+    # The child is the SYSTEM python, not ours: this interpreter comes from the
+    # .venv and links a Homebrew libpython, so it could not even start inside a
+    # sandbox that denies the whole prefix — and a sandbox narrow enough for it to
+    # start is a sandbox the bundle's dependency tree can slip through. Measured:
+    # /usr/bin/python3 names nothing outside /usr/lib and /System, and the parts
+    # of backend/lco_write.py this test uses are standard library only.
+    if not os.path.exists(SYSTEM_PYTHON):
+        fail(f"{SYSTEM_PYTHON} is missing — the check needs an interpreter that "
+             "does not itself depend on Homebrew")
+    print(f"      denying {', '.join(DENIED_PREFIXES)} via {profile}")
     return subprocess.run(["/usr/bin/sandbox-exec", "-f", str(profile),
-                           sys.executable, str(Path(__file__).resolve()),
+                           SYSTEM_PYTHON, str(Path(__file__).resolve()),
                            str(bundle), "--child"]).returncode
 
 

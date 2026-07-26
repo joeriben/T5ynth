@@ -16,12 +16,15 @@
 # CsoundLib64 finds Resources/Opcodes64 through an absolute path baked in at
 # build time (`strings` shows /opt/homebrew/Cellar/csound/<version>/…/Opcodes64).
 # On this machine a flattened copy therefore still reaches into the Cellar and
-# everything works; on a machine WITHOUT Homebrew Csound the same copy silently
-# loses 565 of 2482 registered opcode entries — among them scanu/scanu2/scans,
-# fractalnoise, tvconv, MixerSend, ftgenonce, limit1 and GEN padsynth. The LRO's
-# author WRITES Csound, so every one of those is something it may legitimately
-# reach for. They are copied to Contents/libs/Opcodes64 here, and the host points
-# Csound at that directory at runtime (CsoundEngine.cpp, lco_write.py).
+# everything works; on a machine WITHOUT Homebrew Csound the same copy is down to
+# the 1917 built-in opcode entries — no scanu/scanu2/scans, no fractalnoise, no
+# tvconv, MixerSend, ftgenonce, limit1 or GEN padsynth. The LRO's author WRITES
+# Csound, so every one of those is something it may legitimately reach for. The
+# 24 modules bundled here restore 350 entries (2267 registered); the 215 further
+# entries Homebrew's full set would add (2482) are in the modules we cannot
+# bundle — fltk widgets, jack, Python, websockets and the like, none of them
+# synthesis. They land in Contents/libs/Opcodes64, and the host points Csound at
+# that directory at runtime (CsoundEngine.cpp, lco_write.py).
 #
 # Which plugins: exactly those whose non-system dependencies are already covered
 # by what we bundle. That is computed per file, not from a hand-written list that
@@ -56,10 +59,29 @@ command -v dylibbundler >/dev/null \
     || die "no Csound licence texts at $LICENSE_SRC (LGPL 2.1 requires them in the bundle)"
 
 # Every non-system, non-self dependency this Mach-O records, one per line.
+#
+# WHITELIST, not blacklist: a reference is acceptable only if it is bundle-relative
+# (@loader_path/@executable_path/@rpath) or the OS's own (/usr/lib, /System). A
+# blacklist of /opt/homebrew|/usr/local|Cellar looks equivalent and is not — CMake
+# records an rpath from wherever Csound was FOUND (T5YNTH_CSOUND_PREFIX may name
+# any prefix), and a leftover reference to that prefix would pass a blacklist and
+# exist on no other machine.
 foreign_deps() {
     otool -L "$1" | tail -n +2 | awk '{print $1}' \
-        | grep -v '^/usr/lib/' | grep -v '^/System/' | grep -v '^@' \
+        | grep -vE '^(@|/usr/lib/|/System/)' \
         | grep -v "/$(basename "$1")\$" || true
+}
+
+# Every Mach-O in a bundle, NUL-separated. Not `find -perm -u+x`: dylibbundler
+# writes its output at mode 0644, so a permission filter hides 9 of the 10 bundled
+# dylibs from the very check that exists to catch a missed rewrite (measured — a
+# planted 0644 dylib naming /opt/homebrew passed step 6 unnoticed).
+mach_o_files() {
+    find "$1" -type f -print0 | while IFS= read -r -d '' f; do
+        case "$(file -b "$f" 2>/dev/null)" in
+            *Mach-O*) printf '%s\0' "$f" ;;
+        esac
+    done
 }
 
 rpaths_of() {
@@ -173,34 +195,49 @@ bundle_one() {
     mkdir -p "$APP/Contents/Resources/licenses/csound"
     cp -f "$LICENSE_SRC"/*.txt "$APP/Contents/Resources/licenses/csound/"
 
-    # 6) THE CHECK THAT CAN FAIL. Everything above can succeed while leaving one
-    #    load command pointing at Homebrew — and on this machine that resolves, so
-    #    the bundle works here and is broken everywhere else. Refuse to hand out
-    #    such a bundle: no Mach-O in it may name a path outside the bundle except
-    #    the OS's own.
-    local offenders
-    offenders="$(find "$APP" -type f -perm -u+x -print0 2>/dev/null \
-        | xargs -0 file 2>/dev/null | awk -F: '/Mach-O/{print $1}' \
-        | while read -r m; do
-              { otool -L "$m" 2>/dev/null | tail -n +2 | awk '{print $1}'
-                rpaths_of "$m" 2>/dev/null; } \
-                  | grep -E '^(/opt/homebrew|/usr/local|.*/Cellar/)' \
-                  | sed "s|^|${m#$APP/}: |"
-          done)" || true   # a clean bundle makes the last grep exit 1; that is the PASS
+    # 6) Re-sign every copied file INDIVIDUALLY, then the executable, then re-seal
+    #    the bundle. Three measured reasons this is not boilerplate:
+    #      * install_name_tool invalidates a dylib's signature, and dyld does not
+    #        merely refuse such a library — it KILLS the process (rc 137).
+    #      * `codesign --deep` does NOT sign loose dylibs inside a bundle: an
+    #        unsigned Contents/libs/libogg.dylib stays unsigned through
+    #        `codesign --force --deep --sign - <app>`. Every file must be named.
+    #      * a failure here must be FATAL. With `|| true` the script printed its
+    #        success line and exited 0 on a bundle that would SIGKILL on launch.
+    while IFS= read -r -d '' f; do
+        codesign --force --sign - "$f" >/dev/null 2>&1 \
+            || die "could not sign $f"
+    done < <(mach_o_files "$LIBS")
+    codesign --force --sign - "$BIN" >/dev/null 2>&1 || die "could not sign $BIN"
+    codesign --force --deep --sign - "$APP" >/dev/null 2>&1 \
+        || die "could not seal $(basename "$APP")"
 
-    [ -z "$offenders" ] || die "bundle still reaches outside itself:
-$offenders"
+    # 7) THE CHECKS THAT CAN FAIL, after everything else has succeeded.
+    #
+    #    `codesign --verify --deep --strict` is NOT one of them: measured, it
+    #    returns 0 on a bundle containing an unsigned dylib, because Contents/libs
+    #    is sealed as RESOURCES — the bytes are checked, the nested signatures are
+    #    not. So each Mach-O is verified by name, and each is required to name
+    #    nothing outside the bundle but the OS's own libraries. The second check is
+    #    the difference between a bundle that works everywhere and one that happens
+    #    to work here, where the path it still names exists.
+    #    Scope: the bundle's own binary and everything WE put in Contents/libs.
+    #    Deliberately not the whole bundle — a release .app also carries the
+    #    PyInstaller backend, whose hundreds of Mach-Os are another concern's
+    #    responsibility, and a gate that drags them in would either be noisy or
+    #    would have to learn exceptions until it stops meaning anything.
+    local offenders="" refs
+    while IFS= read -r -d '' m; do
+        codesign --verify "$m" >/dev/null 2>&1 \
+            || die "unsigned or broken signature after bundling: ${m#"$APP"/}"
+        refs="$({ otool -L "$m" 2>/dev/null | tail -n +2 | awk '{print $1}'
+                  rpaths_of "$m" 2>/dev/null; } \
+                | grep -vE '^(@|/usr/lib/|/System/)' || true)"
+        [ -z "$refs" ] || offenders="$offenders
+${m#"$APP"/}: $(echo "$refs" | tr '\n' ' ')"
+    done < <(printf '%s\0' "$BIN"; mach_o_files "$LIBS")
 
-    # 7) Re-sign every copied dylib, then the executable, then re-seal the whole
-    #    bundle: the bundle-level signature must cover the newly-added libs/, and a
-    #    dylib whose signature install_name_tool invalidated is not merely
-    #    unsigned — dyld KILLS the process that loads it (measured 2026-07-26).
-    find "$LIBS" -type f \( -name "CsoundLib64" -o -name "*.dylib" \) \
-        -exec codesign --force --sign - {} + 2>/dev/null || true
-    codesign --force --sign - "$BIN" 2>/dev/null || true
-    codesign --force --deep --sign - "$APP" 2>/dev/null || true
-    codesign --verify --deep "$APP" \
-        || die "$(basename "$APP") does not verify after bundling"
+    [ -z "$offenders" ] || die "bundle still reaches outside itself:$offenders"
 
     echo "  $(basename "$APP"): $(ls -1 "$LIBS" | grep -v Opcodes64 | wc -l | tr -d ' ') libs, \
 $(ls -1 "$OPCODES" | wc -l | tr -d ' ') plugin opcode modules"
