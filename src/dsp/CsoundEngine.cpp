@@ -37,12 +37,62 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <dlfcn.h>
 #include <mutex>
 #include <string>
+#include <sys/stat.h>
 #include <vector>
 
 namespace
 {
+    // ── Where Csound looks for its plugin opcodes ───────────────────────────
+    //
+    // Csound resolves them through a path baked in when the library was BUILT:
+    // on this machine `strings CsoundLib64` shows
+    // /opt/homebrew/Cellar/csound/<version>/…/Resources/Opcodes64. A copy of the
+    // library inside our bundle therefore keeps reaching into a Homebrew tree
+    // that exists here and nowhere else — measured 2026-07-26: with that tree
+    // present 2482 opcode entries register, without it 1917, and the 565 missing
+    // ones include scanu/scanu2/scans, fractalnoise, tvconv, MixerSend,
+    // ftgenonce, limit1 and GEN padsynth. The author WRITES Csound and may reach
+    // for any of them, so they are copied next to the library
+    // (tools/bundle_csound_macos.sh) and pointed at here.
+    //
+    // The rule is deliberately self-validating: use the Opcodes64 that sits NEXT
+    // TO the library actually loaded, and only if it is really there. A plain
+    // system install has no such sibling directory, so nothing is overridden and
+    // Csound's own resolution — which is correct there — is left alone.
+    //
+    // csoundSetOpcodedir is global to this loaded image and takes effect at the
+    // next csoundCreate, hence once, before the first one. It cannot disturb
+    // another plugin's Csound in the same host process: that one is a different
+    // image with its own copy of this state.
+    void useBundledOpcodeDirIfPresent()
+    {
+        static std::once_flag once;
+        std::call_once (once, []
+        {
+            Dl_info info {};
+            if (dladdr (reinterpret_cast<const void*> (&csoundCreate), &info) == 0
+                || info.dli_fname == nullptr)
+                return;
+
+            std::string dir { info.dli_fname };
+            const auto slash = dir.rfind ('/');
+            if (slash == std::string::npos)
+                return;
+
+            dir.resize (slash);
+            dir += "/Opcodes64";
+
+            struct stat st {};
+            if (stat (dir.c_str(), &st) != 0 || ! S_ISDIR (st.st_mode))
+                return;
+
+            csoundSetOpcodedir (dir.c_str());
+        });
+    }
+
     // Hard-wired 12-partial bell/pad SPECTRUM (amp, ratio), adapted from the
     // BJ-approved tools/csound_poc_out/csound_strike_pad.csd. STANDING TONE
     // (BJ 2026-07-17, "Hüllkurven gehören nicht in den Oszillator. Vollständig
@@ -472,6 +522,7 @@ bool CsoundEngine::prepare (double sampleRate, int maxBlockSize, const char* orc
         impl->csound = nullptr;
     }
 
+    useBundledOpcodeDirIfPresent();
     impl->csound = csoundCreate(nullptr); // NEVER in the constructor (host plugin-scan
                                            // constructs processors without prepareToPlay)
     if (impl->csound == nullptr)
@@ -858,6 +909,7 @@ std::vector<float> CsoundEngine::renderBareOscillator (const std::string& orches
     // same mutex) for the whole render, delaying the sound the user is waiting for.
     std::unique_lock<std::mutex> lifecycleLock (csoundLifecycleGlobal());
 
+    useBundledOpcodeDirIfPresent();
     CSOUND* cs = csoundCreate(nullptr);
     if (cs == nullptr)
         return {};

@@ -1,0 +1,77 @@
+Csound and its audio-file libraries, as bundled with akróasys
+=============================================================
+
+akróasys plays its language-resonant oscillator (LRO) through Csound: the
+orchestra code that an LRO sound consists of is compiled and run by the Csound
+library at runtime. That library, and the audio-file libraries it needs, are
+bundled inside this application:
+
+    Contents/libs/CsoundLib64            the Csound library itself
+    Contents/libs/Opcodes64/*.dylib      Csound's plugin opcodes
+    Contents/libs/lib*.dylib             the audio-file libraries Csound needs
+
+Nothing here is linked statically, and nothing here is modified: each file is a
+copy of the shared library as built by its own project, with only its recorded
+load paths rewritten so that it is found inside this bundle instead of in a
+system-wide location.
+
+
+What is bundled, and under which licence
+----------------------------------------
+
+  Csound 6.18.1               LGPL-2.1-or-later   https://csound.com
+    CsoundLib64, Opcodes64/*                      https://github.com/csound/csound
+
+  libsndfile 1.2.2            LGPL-2.1-or-later   https://libsndfile.github.io/libsndfile/
+
+  libFLAC 1.5.0               BSD-3-Clause        https://xiph.org/flac/
+    (FLAC's command-line tools are GPL-2.0-or-later; they are not bundled.)
+
+  libogg 1.3.6                BSD-3-Clause        https://xiph.org/ogg/
+  libvorbis, libvorbisenc 1.3.7
+                              BSD-3-Clause        https://xiph.org/vorbis/
+  libopus 1.6.1               BSD-3-Clause        https://opus-codec.org
+
+  libmpg123 1.33.6            LGPL-2.1-only       https://mpg123.de
+
+  libmp3lame 4.0              LGPL-2.0-or-later   https://lame.sourceforge.io
+
+  libintl (GNU gettext runtime) 1.0
+                              LGPL-2.1-or-later   https://www.gnu.org/software/gettext/
+    (The gettext command-line tools are GPL-3.0-or-later; they are not bundled.)
+
+The full text of the GNU Lesser General Public License, version 2.1, is in
+LGPL-2.1.txt next to this file; it also serves the two "or later" cases above.
+The BSD 3-Clause terms of the Xiph and Opus libraries, with their own copyright
+notices, are in BSD-3-Clause-Xiph.txt.
+
+Complete corresponding source for every library named above is available from
+the project URL given with it. For the exact revisions bundled here, see the
+release tag of the version number stated.
+
+
+Replacing the Csound library with your own build
+------------------------------------------------
+
+The LGPL asks that you be able to run this application against your own version
+of the library. You can:
+
+  1. Build or obtain your own CsoundLib64 for this architecture (Csound 6.18.x;
+     akróasys uses the Csound 6 C API: csoundCreate, csoundCompileCsdText,
+     csoundPerformKsmps, and the named-channel calls).
+
+  2. Record the load path this bundle expects:
+
+         install_name_tool -id @loader_path/../libs/CsoundLib64 CsoundLib64
+
+  3. Put it in place of Contents/libs/CsoundLib64. If your build needs plugin
+     opcodes of its own, replace Contents/libs/Opcodes64/ with yours as well —
+     akróasys points Csound at whatever that directory contains.
+
+  4. Re-sign the application, because macOS refuses to load a library that the
+     application's signature does not cover:
+
+         codesign --force --deep --sign - akroasys.app
+
+akróasys itself is licensed under the GNU General Public License, version 3; its
+own source is at https://github.com/joeriben/t5ynth.

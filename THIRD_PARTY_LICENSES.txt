@@ -134,6 +134,49 @@ VST3 SDK, LV2, and others).
 
 ---
 
+## Csound (and the audio-file libraries it needs)
+
+**Version:** 6.18.1
+**License:** LGPL-2.1-or-later
+**URL:** https://csound.com — source: https://github.com/csound/csound
+**Full license:** `resources/licenses/csound/LGPL-2.1.txt`, and inside every
+macOS bundle at `Contents/Resources/licenses/csound/`
+
+The language-resonant oscillator IS Csound: the orchestra code an LRO sound
+consists of is compiled and performed by the Csound library at runtime
+(`src/dsp/CsoundEngine.cpp` uses the Csound 6 C API; `backend/lco_write.py`
+compiles the same text as its acceptance gate).
+
+Csound is **not** statically linked and **not** modified. On macOS,
+`tools/bundle_csound_macos.sh` copies the shared library, its plugin opcode
+modules and its dependency tree into `Contents/libs`, rewriting only the recorded
+load paths so they resolve inside the bundle — the LGPL's relinking freedom is
+preserved, and `Contents/Resources/licenses/csound/NOTICE.txt` documents how to
+substitute your own build of the library. Nothing is bundled on Windows or Linux
+yet, where the LRO stays silent unless Csound is installed system-wide.
+
+Bundled with it, because Csound links them:
+
+| library | version | licence |
+|---|---|---|
+| libsndfile | 1.2.2 | LGPL-2.1-or-later |
+| libFLAC | 1.5.0 | BSD-3-Clause (FLAC's GPL tools are not bundled) |
+| libogg | 1.3.6 | BSD-3-Clause |
+| libvorbis, libvorbisenc | 1.3.7 | BSD-3-Clause |
+| libopus | 1.6.1 | BSD-3-Clause |
+| libmpg123 | 1.33.6 | LGPL-2.1-only |
+| libmp3lame | 4.0 | LGPL-2.0-or-later |
+| libintl (GNU gettext runtime) | 1.0 | LGPL-2.1-or-later (gettext's GPL tools are not bundled) |
+
+The BSD-3-Clause texts with each project's own copyright notice are in
+`resources/licenses/csound/BSD-3-Clause-Xiph.txt`.
+
+Csound's own **instrument code** is a separate question from this licence record:
+see `docs/LCO_CODE_PROVENANCE.md`, which governs where an orchestra body in
+`backend/lco_library.json` may come from.
+
+---
+
 ## Reverb Impulse Responses — EMT 140 Plate
 
 **Author:** Greg Hopkins

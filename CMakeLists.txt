@@ -67,10 +67,19 @@ add_subdirectory(JUCE)
 # T5YNTH_CSOUND_FOUND gates the conditional target_sources/link block below;
 # the ALWAYS-defined T5YNTH_HAS_CSOUND compile definition (near JUCE_USE_CURL)
 # lets every call site branch without a CMake-level #ifdef.
+#
+# T5YNTH_CSOUND_PREFIX (CMake var or environment) names an installation that is
+# neither Homebrew's nor /Library/Frameworks — a bottle unpacked in CI, a build
+# of one's own. Its Frameworks/ dir is searched first; everything downstream
+# (headers, bundling) follows from the framework path, not from the prefix.
 set(T5YNTH_CSOUND_FOUND FALSE)
 if(APPLE)
+    if(NOT T5YNTH_CSOUND_PREFIX AND DEFINED ENV{T5YNTH_CSOUND_PREFIX})
+        set(T5YNTH_CSOUND_PREFIX "$ENV{T5YNTH_CSOUND_PREFIX}")
+    endif()
     find_library(T5YNTH_CSOUND_FRAMEWORK NAMES CsoundLib64
-                 PATHS /opt/homebrew/opt/csound/Frameworks /Library/Frameworks
+                 PATHS "${T5YNTH_CSOUND_PREFIX}/Frameworks"
+                       /opt/homebrew/opt/csound/Frameworks /Library/Frameworks
                  NO_DEFAULT_PATH)
     if(T5YNTH_CSOUND_FRAMEWORK)
         set(T5YNTH_CSOUND_FOUND TRUE)
@@ -178,6 +187,47 @@ if(APPLE AND TARGET T5ynth_Standalone)
         COMMAND codesign --force --sign - --deep
             "$<TARGET_BUNDLE_DIR:T5ynth_Standalone>"
         VERBATIM)
+endif()
+
+# ── macOS: make each bundle self-contained w.r.t. Csound ──────────────────
+# Without this the LRO is silent on every machine that does not have Csound
+# installed — which is every machine but this one, and the reason the published
+# build compiles green and makes no sound (docs/plans/HANDOVER_LCO.md §8.1).
+# tools/bundle_csound_macos.sh copies CsoundLib64, its plugin opcodes and its
+# dependency tree into Contents/libs, rewrites every load command to
+# @loader_path, ships the LGPL texts, and re-signs — for the .app, the .vst3 AND
+# the .component, because all three link the library and all three need the copy.
+#
+# Runs LAST on each target: POST_BUILD commands execute in the order they are
+# added, so this follows JUCE's own signing steps and the re-signs above, and
+# re-seals the bundle itself afterwards.
+#
+# Never required, exactly like the library itself: no Csound -> no bundling step,
+# and a machine with Csound but without dylibbundler builds as it did before,
+# linking the system framework directly. The bundling is what an INSTALLER needs;
+# a dev build that only ever runs on this machine works without it.
+option(T5YNTH_BUNDLE_CSOUND
+    "Copy Csound into the macOS bundles so they need no system Csound"
+    ON)
+if(APPLE AND T5YNTH_CSOUND_FOUND AND T5YNTH_BUNDLE_CSOUND)
+    find_program(T5YNTH_DYLIBBUNDLER dylibbundler)
+    if(NOT T5YNTH_DYLIBBUNDLER)
+        message(WARNING
+            "Csound found but dylibbundler is not installed — the bundles will "
+            "keep linking ${T5YNTH_CSOUND_FRAMEWORK} and will only run on a "
+            "machine that has it. `brew install dylibbundler` to bundle Csound.")
+    else()
+        foreach(_fmt Standalone VST3 AU)
+            if(TARGET T5ynth_${_fmt})
+                add_custom_command(TARGET T5ynth_${_fmt} POST_BUILD
+                    COMMAND ${CMAKE_COMMAND} -E env
+                        "CSOUND_FRAMEWORK_BINARY=${T5YNTH_CSOUND_FRAMEWORK}/CsoundLib64"
+                        bash "${CMAKE_SOURCE_DIR}/tools/bundle_csound_macos.sh"
+                        "$<TARGET_BUNDLE_DIR:T5ynth_${_fmt}>"
+                    VERBATIM)
+            endif()
+        endforeach()
+    endif()
 endif()
 
 # The standalone brings its own JUCEApplication (src/StandaloneAppLauncher.cpp)
