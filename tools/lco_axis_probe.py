@@ -231,6 +231,12 @@ _MENTIONS = re.compile(r"movement\s*:\s*texture", re.I)
 # accident or by a negation. See `declares_decay`.
 DECAY = re.compile(r"^;\s*DECAY:\s*SELF\s*$")
 _MENTIONS_DECAY = re.compile(r"decay\s*:\s*self", re.I)
+# The third class, and the only one that takes an ARGUMENT: an axis whose level
+# difference is part of what the axis does. It names the axis because a body with three
+# axes must not blanket-excuse all three — the whole point of §4's fader check is that
+# one control among several can be the volume knob. See `declares_loudness`.
+LOUD = re.compile(r"^;\s*LOUDNESS:\s*([a-z][a-z0-9 _-]{0,15}?)\s*$")
+_MENTIONS_LOUD = re.compile(r"loudness\s*:", re.I)
 _BLOCK = re.compile(r"/\*.*?\*/", re.S)
 _STRING = re.compile(r'"[^"]*"')
 
@@ -466,6 +472,115 @@ def declares_decay(body):
     return False
 
 
+def declares_loudness(body, known=None):
+    """{axis names} whose level difference this body declares to be part of the axis.
+
+    §4's fader check exists because instrument 3 shipped two colour controls that were
+    volume controls (−4 dB and 3–5 dB), and it must keep catching those. But it was
+    written as a 1.00 dB threshold, and BJ ruled on 2026-07-27 that the rule is not
+    applied that rigidly — *„die wenden wir nicht zu starr an"*. His reasoning is about
+    what the rule is FOR: the synth already owns an envelope, and what degrades it is a
+    body that brings a REDUNDANT second one. An amplitude behaviour that IS the sound
+    being named is not redundant — *„‚Pluck' ist ja gerade eine Transiente in sich, also
+    qua benennung"* — and a name prescribes no envelope at all: *„zB ‚Piano' ist keine
+    Benennung eines spezifischen Hüllkurvenverhaltens. Die tiefe A-Seite eines
+    10-Meter-Flügels schwingt Minuten."*
+
+    So the number stops being the verdict where the author says the level is part of the
+    control, and BJ's ear becomes the verdict instead. It is a declaration and not a
+    larger bound for three reasons, all of them the same reason the other two classes are
+    declarations: a bound big enough to pass `plucked_wire`'s pickup axis (1.53 dB) is a
+    bound that hides instrument 3's `damping` for good; the measurement stays printed
+    either way; and someone has to write the line, which is what puts it in front of a
+    review rather than inside a constant.
+
+    It is the only declaration that takes an ARGUMENT, and that is not decoration. A body
+    may carry three axes of which exactly one legitimately moves the level; a class-wide
+    flag would excuse the other two, i.e. would switch the check off for the body that
+    most needs it. An axis name that matches no declared axis raises rather than passing
+    silently, because a typo in the argument is indistinguishable from an excuse that
+    was never granted.
+
+        ; LOUDNESS: pick
+
+    Same discipline as `declares_texture` and `declares_decay`: one exact standalone line
+    in caps, and a body that merely mentions the phrase is an error.
+    """
+    src = _BLOCK.sub("", body or "")
+    lines = [l.strip() for l in src.splitlines()]
+    out = {m.group(1) for m in (LOUD.match(l) for l in lines) if m}
+    bad = [l for l in lines if _MENTIONS_LOUD.search(l) and not LOUD.match(l)]
+    if bad:
+        raise SystemExit(
+            "this body mentions a loudness declaration but does not make one:\n"
+            + "\n".join(f"    {l}" for l in bad)
+            + "\nThe declaration is one standalone comment line, exactly:\n"
+              "    ; LOUDNESS: <axis name>\n"
+              "with any explanation on the lines after it.")
+    if known is None:
+        known = set(axes(body))
+    unknown = sorted(out - set(known))
+    if unknown:
+        raise SystemExit(
+            "this body declares a loudness axis it does not have: "
+            + ", ".join(unknown)
+            + "\nDeclared axes are: " + (", ".join(sorted(known)) or "(none)"))
+    return out
+
+
+# What it takes for an axis to be doing something OTHER than moving the level. One
+# definition of "this axis does something", used by `report` for its per-axis verdict.
+# Same numbers as `lco_param_audit.MOVES_*`, which reads them over the anchors. `gate`
+# reuses the two CENTROID bounds for a stricter question — see `axis_moves` — because
+# the beat meters and `comb_db` can be satisfied by amplitude alone, and amplitude is
+# what a `; LOUDNESS:` declaration is asking to be excused for.
+MOVES_COLOUR_HZ, MOVES_COMB_DB, MOVES_MOTION_HZ = 40.0, 1.5, 15.0
+MOVES_BEAT_HZ, MOVES_BEAT_DEPTH = 0.5, 0.05
+
+
+def _axis_moves(centroid_hz, comb_db, motion_hz, beat_hz, beat_depth):
+    return ((centroid_hz or 0) > MOVES_COLOUR_HZ or (comb_db or 0) > MOVES_COMB_DB
+            or (motion_hz or 0) > MOVES_MOTION_HZ or (beat_hz or 0) > MOVES_BEAT_HZ
+            or (beat_depth or 0) > MOVES_BEAT_DEPTH)
+
+
+def _spread_holding(items, hold):
+    """Max level spread with the `hold` dimensions pinned — the spread the REST produce.
+
+    `items` is [(corner dict, level)]. Corners are grouped by their values on `hold`, and
+    the answer is the widest spread found inside a single group, so nothing that varies
+    across groups can contribute to it.
+
+    This is what makes `; LOUDNESS: <axis>` name an axis instead of switching the check
+    off. Pinning the declared axes leaves a number that only the UNDECLARED ones could
+    have made: if that still breaks the bound, some other control is the fader and the
+    declaration did not help it. Pinning the others the same way isolates what the
+    declared axis itself does, which is the figure that goes in front of BJ's ear.
+
+    Returns (spread, quietest corner, loudest corner) — the witness comes back with the
+    number because the corners that make the ungated span are usually NOT the ones that
+    make this one, and a failure message that names the wrong pair is worse than one that
+    names none.
+    """
+    groups = {}
+    for c, v in items:
+        groups.setdefault(tuple(sorted((k, c[k]) for k in hold if k in c)), []).append((v, c))
+    best = (0.0, None, None)
+    for g in groups.values():
+        if len(g) < 2:
+            continue
+        lo, hi = min(g, key=lambda t: t[0]), max(g, key=lambda t: t[0])
+        # `best[1] is None` first, and not just the wider span: a group whose members are
+        # all IDENTICAL has a spread of exactly 0.0 and would never replace the initial
+        # tuple, so the witness stayed None and callers that read it as "there was nothing
+        # to compare" saw no evidence where the evidence was a flat zero. That is the
+        # difference between an axis that was not measured and an axis that does nothing,
+        # and reading the second as the first let a pure gain axis keep its declaration.
+        if best[1] is None or hi[0] - lo[0] > best[0]:
+            best = (hi[0] - lo[0], lo, hi)
+    return best
+
+
 def axes(body):
     """{axis name: (variable, default, line index, (lo, hi))} for every declaration."""
     out = {}
@@ -508,6 +623,10 @@ def sweep(body, name, values, freq=220.0, dur=4.0):
     # still on the four-second rms, called the ring-length control "A FADER — it moves
     # loudness" — and this is the tool an author runs FIRST, before the entry is written.
     decaying = declares_decay(body)
+    # Read here for the same reason: `gate` stops FAILING a declared axis on its level,
+    # and an author running `--axis` first must not be told "A FADER" about the very axis
+    # the gate is about to pass. The declaration names an axis, so this asks about THIS one.
+    loud_ok = name in declares_loudness(body)
     for v in values:
         y, err = M.render(with_axis(body, name, v), dur=dur, freq=freq,
                           preroll=PREROLL)
@@ -516,6 +635,7 @@ def sweep(body, name, values, freq=220.0, dur=4.0):
             continue
         r = with_exact_peak(M.measure(y, freq), y)
         r["decaying"] = decaying
+        r["loudness_declared"] = loud_ok
         r["level_db"] = peak_db(r) if decaying else r["rms_db"]
         r["value"] = v
         if err:
@@ -560,11 +680,17 @@ def report(name, rows, quiet=False):
                "beat_rate_spread_hz": round(sp("beat_rate_hz"), 2),
                "beat_depth_spread": round(sp("beat_depth"), 3)}
     ok_loud = verdict["rms_spread_db"] <= 1.0
-    moves = (verdict["centroid_spread_hz"] > 40 or verdict["comb_spread_db"] > 1.5
-             or verdict["motion_spread_hz"] > 15
-             or verdict["beat_rate_spread_hz"] > 0.5
-             or verdict["beat_depth_spread"] > 0.05)
+    moves = _axis_moves(verdict["centroid_spread_hz"], verdict["comb_spread_db"],
+                        verdict["motion_spread_hz"], verdict["beat_rate_spread_hz"],
+                        verdict["beat_depth_spread"])
+    # A declared axis that also MOVES the sound gets its level reported instead of
+    # judged. It does not get "A FADER and nothing else" waived: a control whose only
+    # effect is level is the case §4 still fails outright, and no declaration covers it.
+    declared = any(r.get("loudness_declared") for r in good)
+    verdict["loudness_declared"] = declared
     verdict["verdict"] = ("colour" if ok_loud and moves else
+                          f"colour, +{verdict['rms_spread_db']:.2f} dB DECLARED"
+                          if declared and moves else
                           "A FADER — it moves loudness" if not ok_loud and moves else
                           "moves nothing measurable" if ok_loud else
                           "A FADER and nothing else")
@@ -610,6 +736,7 @@ def gate(body, freq=220.0, steps=3, registers=(55, 110, 220, 440, 880, 1760)):
     texture = declares_texture(body)
     decaying = declares_decay(body)
     names = sorted(declared)
+    loud_axes = declares_loudness(body, names)
 
     def level(r):
         """The number the loudness verdicts are read from.
@@ -790,10 +917,87 @@ def gate(body, freq=220.0, steps=3, registers=(55, 110, 220, 440, 880, 1760)):
             stats["drift_candidate"] = wd
             if is_trend(wd, long):
                 fails.append(drift_fail(wd, long))
-    if stats["loudness_spread_db"] is not None and stats["loudness_spread_db"] > 1.0:
-        fails.append(("one loudness", pk[1],
-                      f"{stats['loudness_spread_db']:.2f} dB across the corners "
-                      f"({meter})"))
+    # A declared axis is held still here, and what is left is what the OTHER axes do on
+    # their own. With nothing declared this is the same set of corners it always was, so
+    # the number and the verdict are unchanged for every body in the library.
+    # A declaration only APPLIES to an axis that moves the sound as well. Without this the
+    # rule could be declared away outright: a pure gain axis went from two failures to a
+    # clean PASS by adding one comment line, and with every axis declared `_spread_holding`
+    # had nothing left to vary and read exactly 0.00 dB by construction — the class-wide
+    # flag that naming an axis exists to prevent. `report` already refused to call such an
+    # axis anything but "A FADER and nothing else"; the gate did not, so the two disagreed
+    # about the same body.
+    #
+    # Judged on `at_freq` — the SAME renders the rule it unlocks is read from. Judging it
+    # over all six registers was the first attempt and it reopened the hole from the other
+    # side: a 20 dB gain axis with a trace of spectral movement above 500 Hz passed,
+    # because the evidence for "it does something else" came from 880 and 1760 Hz while
+    # the corner rule is only ever evaluated at `freq`. An exemption may not rest on
+    # renders the rule never looks at.
+    corner_items = [(c, level(r)) for c, r in at_freq]
+
+    def axis_moves(a):
+        """True / False / None — None meaning there is no evidence either way.
+
+        SPECTRAL evidence only, which is narrower than `_axis_moves` and deliberately so.
+        Three of that function's five meters can be satisfied by amplitude alone: the two
+        beat meters are read off the rectified envelope, and `comb_db` is moved by AM
+        sidebands with no partial changing at all. Measured: an axis that is 2.41 dB of
+        gain plus a 2 % tremolo moves `comb_db` 7.4 dB and the beat rate 9 -> 12 Hz while
+        every harmonic h1..h10 stays put to a tenth of a dB — and it cleared this guard
+        and passed. A second amplitude envelope is precisely the thing §4 forbids, so
+        amplitude may not be the evidence that excuses one. What is left is the two
+        centroid meters, which a gain change and a tremolo do not move.
+        """
+        hold = set(names) - {a}
+        got = []
+
+        def sp(key):
+            vals = [(c, r[key]) for c, r in at_freq if r.get(key) is not None]
+            s, lo_, _hi = _spread_holding(vals, hold)
+            got.append(lo_ is not None)
+            return s
+        moved = (sp("centroid") > MOVES_COLOUR_HZ
+                 or sp("centroid_motion_hz") > MOVES_MOTION_HZ)
+        # `--steps 1` renders one corner per axis, so every group is a singleton and all
+        # five meters read 0.0 — which is silence, not a verdict. Answering "inert" there
+        # failed the shipped entry on a mode the gate explicitly supports.
+        return moved if any(got) else None
+    inert = sorted(a for a in loud_axes if axis_moves(a) is False)
+    if inert:
+        stats["loudness_declared_inert"] = inert
+        loud_axes = loud_axes - set(inert)
+        _w = _spread_holding(corner_items, set(names) - set(inert))[2]
+        fails.append(("one loudness", (_w[1] if _w else pk[1]),
+                      f"{', '.join(inert)} declare(s) `; LOUDNESS:` but move(s) no "
+                      f"SPECTRUM at {freq:.0f} Hz, so the declaration does not apply — an "
+                      f"axis that only changes how loud or how wobbly the sound is, is a "
+                      f"volume control and a second envelope"))
+    gated_corner, where = stats["loudness_spread_db"], pk[1]
+    if loud_axes:
+        others = set(names) - loud_axes
+        stats["loudness_declared"] = {
+            "axes": sorted(loud_axes),
+            "corner_db": round(_spread_holding(corner_items, others)[0], 2)}
+        if others:
+            gated_corner, _clo, chi = _spread_holding(corner_items, loud_axes)
+            gated_corner = round(gated_corner, 2)
+            where = chi[1] if chi else pk[1]
+        else:
+            # Nothing left to hold the declared axes against. Reported as a GAP, not as
+            # 0.00 dB: a pinned-everything grouping is all singletons and would print a
+            # perfect score for a rule that measured nothing.
+            gated_corner = None
+        stats["loudness_spread_undeclared_db"] = gated_corner
+    if gated_corner is not None and gated_corner > 1.0:
+        # The tail names WHICH axes the number belongs to on a body that declares one,
+        # because "1.53 dB across the corners" read as a verdict on the whole cube when
+        # the declaration had already removed one axis from it.
+        rest = ", ".join(sorted(set(names) - loud_axes)) or "the body itself"
+        fails.append(("one loudness", where,
+                      f"{gated_corner:.2f} dB across the corners ({meter})"
+                      + (f", from {rest} with "
+                         f"{', '.join(sorted(loud_axes))} held still" if loud_axes else "")))
     # The body AS WRITTEN, at its own defaults, at every register. Its own configuration
     # is the one that matters most and it need not sit on the cube grid at all, so these
     # renders are their own rows — see the tilt note below for the ten-fold error that
@@ -883,11 +1087,24 @@ def gate(body, freq=220.0, steps=3, registers=(55, 110, 220, 440, 880, 1760)):
         lo, hi = min(allv, key=lambda t: t[0]), max(allv, key=lambda t: t[0])
         stats["cross_spread_db"] = round(hi[0] - lo[0], 2)
         stats["cross_quietest"], stats["cross_loudest"] = lo[1], hi[1]
+        # The declaration deliberately does NOT reach this check. It was granted here too
+        # at first, and that is a hole with no floor: the declared axis was pinned at
+        # every register at once, so 36 dB of pure gain across a two-axis cube could pass
+        # both loudness rules on a trace of spectral movement. The corner rule and this
+        # one are not the same rule twice — this one is the WIDEST guarantee the platform
+        # makes ("one loudness at every register") and its 3.00 dB bound is already three
+        # times as loose as the corner rule's, precisely because register variation is
+        # expected. An axis that moves the level by more than that is not a colour control
+        # with a side effect, whatever it declares, and the gate should say so and let BJ
+        # overrule it — the declaration is not there to make the widest bound unreachable.
         if stats["cross_spread_db"] > 3.0:
             fails.append(("one loudness at every register", hi[1],
                           f"{stats['cross_spread_db']:.2f} dB across the corners AND "
                           f"registers together — quietest {lo[0]:.2f} at {lo[1]}, "
-                          f"loudest {hi[0]:.2f} at {hi[1]}"))
+                          f"loudest {hi[0]:.2f} at {hi[1]}"
+                          + (f". `; LOUDNESS:` does not reach this check: it clears the "
+                             f"corner rule at {freq:.0f} Hz, not the one-loudness-"
+                             f"everywhere bound" if loud_axes else "")))
     return not fails, fails, stats
 
 
@@ -898,7 +1115,8 @@ def main():
                     help="recount which shipped entries move at every register")
     ap.add_argument("--axis", action="append", help="axis name (repeatable)")
     ap.add_argument("--all", action="store_true", help="every declared axis")
-    ap.add_argument("--values", help="comma-separated values (default 0,0.5,1)")
+    ap.add_argument("--values", help="comma-separated values "
+                                     "(default: 3 steps over each axis's declared range)")
     ap.add_argument("--freq", type=float, default=220.0)
     ap.add_argument("--registers", help="also sweep the register, e.g. 110,220,440,880")
     ap.add_argument("--gate", action="store_true",
@@ -1064,6 +1282,25 @@ def main():
                 print(f"           the level falls {short:+.2f} dB inside a held note at "
                       f"{c} and {long:+.2f} dB over one four times as long. Excused "
                       f"because it FALLS; a swell of the same size would still fail.")
+        if st.get("loudness_declared"):
+            # The declared axis's own figure and the number the verdict actually used,
+            # both printed. The point of naming an axis instead of switching the check
+            # off is that the reader can see which is which.
+            ld = st["loudness_declared"]
+            _u = st.get("loudness_spread_undeclared_db")
+            _corner = (f"the corner rule reads {_u} dB against its 1.00 dB bound"
+                       if _u is not None else
+                       "the corner rule measured NOTHING, because every axis is "
+                       "declared and there is nothing left to hold them against — the "
+                       "only loudness bound this body faced is the 3.00 dB one below")
+            print(f"  LOUDNESS  {', '.join(ld['axes'])} declare(s) its level difference to "
+                  f"be part of what it does and moves the sound as well, so it is held "
+                  f"still at {args.freq:.0f} Hz and {_corner}.")
+            print(f"            what it moves on its own: {ld['corner_db']} dB at "
+                  f"{args.freq:.0f} Hz. That is a READING, not a pass — whether it is a "
+                  f"control or a fader is BJ's ear (see `declares_loudness`). The "
+                  f"one-loudness-at-every-register bound of 3.00 dB is NOT waived by the "
+                  f"declaration and read {st.get('cross_spread_db')} dB here.")
         for rule, corner, detail in fails:
             print(f"  FAIL  {rule}: {corner}  {detail}")
         # Reported, not gated — see `gate`. Grouped by register, because the shape of
@@ -1084,24 +1321,43 @@ def main():
                     f"too but DECLARE the event-texture class, so they are not in the same "
                     f"position and are not counted here. Measured {_MOVE_CENSUS[3]}; "
                     f"re-derive with --census)")
+        # A PASS says what was actually checked. On a body with a declared loudness axis
+        # "holds one loudness" and "struck equally hard" are both false as printed — the
+        # level DOES move, by the amount two lines above — so the sentence has to name
+        # the axis instead of claiming a uniformity the run did not find.
+        _ld = st.get("loudness_declared")
+        _but = (f"; {', '.join(_ld['axes'])} moves it {_ld['corner_db']} dB and says so"
+                if _ld else "")
         if not ok:
             print(f"  -> {len(fails)} failure(s)")
         elif st.get("texture"):
-            print("  PASS  every corner renders and holds one loudness; movement is this "
-                  "class's declared exemption and stands on BJ's ear, not on this run")
+            print("  PASS  every corner renders and holds one loudness" + _but
+                  + "; movement is this class's declared exemption and stands on BJ's "
+                    "ear, not on this run")
         elif st.get("decay"):
-            print("  PASS  every corner renders, moves, and is struck equally hard; the "
-                  "ring-down is this class's declared exemption, the attack is not")
+            print("  PASS  every corner renders, moves, and is struck equally hard"
+                  + _but + "; the ring-down is this class's declared exemption, the "
+                           "attack is not")
         else:
-            print("  PASS  every corner renders, moves, and holds one loudness")
+            print("  PASS  every corner renders, moves, and holds one loudness" + _but)
         return 0 if ok else 1
 
     names = sorted(declared) if args.all else (args.axis or [])
-    values = ([float(x) for x in args.values.split(",")] if args.values
-              else [0.0, 0.5, 1.0])
+    given = [float(x) for x in args.values.split(",")] if args.values else None
     for n in names:
         if n not in declared:
             raise SystemExit(f"no axis {n!r}; declared: {sorted(declared)}")
+        # Each axis over ITS OWN declared range, which is what `--gate` has always done
+        # and this report never did: the default was a literal 0, 0.5, 1 whatever the
+        # axis declared. On `plucked_wire` that swept `pick` to 0 and 1 — both outside
+        # the axis, both a silent wire — and read "+31.61 dB" for a control whose real
+        # travel moves 1.52; and it swept `refl` to 0 and 1, where `wgpluck2` clamps, so
+        # all three steps came back byte-identical and the ring-length axis read "moves
+        # nothing measurable". Two wrong verdicts about a shipped entry, from the tool an
+        # author runs FIRST. `--values` still overrides, and then it means literally what
+        # it says.
+        lo, hi = declared[n][3]
+        values = given or ([lo + (hi - lo) * i / 2 for i in range(3)])
         report(n, sweep(body, n, values, args.freq))
     return 0
 

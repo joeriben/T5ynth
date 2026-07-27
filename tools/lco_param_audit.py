@@ -338,7 +338,18 @@ def tracking(body, low=110.0, high=880.0):
 
 def audit_one(inst, registers=REGISTERS, quick=False):
     key = inst["key"]
-    rep = {"key": key, "structure": structure(inst), "registers": {}, "axes": {}}
+    rep = {"key": key, "structure": structure(inst), "registers": {}, "axes": {},
+           # Which axes declare their level difference to be part of what they do. Read
+           # from the body, like the other two declarations, so this file and
+           # `lco_axis_probe` do not give opposite verdicts on one invariant.
+           #
+           # They can still differ, and the difference is a real one rather than a bug to
+           # paper over: this file reads the NAMED ANCHORS, the gate steps evenly across
+           # the declared range. An axis whose colour change lives at its midpoint is
+           # granted the declaration by the gate and refused it here. When they disagree,
+           # this file is the stricter reading and the anchors are what an author actually
+           # ships, so the finding stands until BJ says otherwise.
+           "loudness_declared": sorted(_P.declares_loudness(inst["code"] or ""))}
 
     for f in registers:
         rep["registers"][str(f)] = render_report(inst["code"], f)
@@ -478,17 +489,26 @@ def verdicts(rep):
         bad = [r for r in a["anchors"] if "f0" not in r]
         for r in bad:
             out.append(("M1", f"{axis}/{r['anchor']}: {r.get('error')}"))
-        sp = a.get("rms_spread_db")
-        if sp is not None and sp >= LOUD_BAD_DB:
-            out.append(("M5", f"{axis}: moves loudness {sp:.2f} dB over its "
-                              "travel — this is a volume control"))
-        elif sp is not None and sp > LOUD_OK_DB:
-            out.append(("M5", f"{axis}: moves loudness {sp:.2f} dB over its travel"))
         moved = ((a.get("centroid_spread_hz") or 0) > MOVES_COLOUR_HZ
                  or (a.get("comb_spread_db") or 0) > MOVES_COMB_DB
                  or (a.get("motion_spread_hz") or 0) > MOVES_MOTION_HZ
                  or (a.get("beat_rate_spread_hz") or 0) > MOVES_BEAT_HZ
                  or (a.get("beat_depth_spread") or 0) > MOVES_BEAT_DEPTH)
+        sp = a.get("rms_spread_db")
+        # `; LOUDNESS: <axis>` — the level difference is part of what the axis does, so
+        # the number is reported and BJ's ear is the verdict (§4, BJ 2026-07-27). It is
+        # ANDed with `moved` and that is the whole safeguard: an axis that moves the
+        # level and nothing else is a volume control whatever it declares about itself,
+        # which is exactly the case that shipped once (instrument 3's `damping`).
+        declared_loud = axis in (rep.get("loudness_declared") or []) and moved
+        if sp is not None and sp >= LOUD_BAD_DB and not declared_loud:
+            out.append(("M5", f"{axis}: moves loudness {sp:.2f} dB over its "
+                              "travel — this is a volume control"
+                        + ("; `; LOUDNESS` does not cover it, because the axis moves "
+                           "nothing else" if axis in (rep.get("loudness_declared") or [])
+                           else "")))
+        elif sp is not None and sp > LOUD_OK_DB and not declared_loud:
+            out.append(("M5", f"{axis}: moves loudness {sp:.2f} dB over its travel"))
         if a.get("centroid_spread_hz") is not None and not moved:
             out.append(("M6", f"{axis}: changes nothing measurable — centroid "
                               f"{a.get('centroid_spread_hz')} Hz, comb "
