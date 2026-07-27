@@ -50,6 +50,40 @@ SR = 44100
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# What may be quoted from this file, and what may not
+# ─────────────────────────────────────────────────────────────────────────────
+# This is printed by every tool that reports from here, because it was NOT and the
+# numbers travelled without it. The concrete damage: a count of "18 axes are really
+# volume controls" was reported as a finding when 17 of the 18 read "no anchor_code
+# — cannot be measured". The silence of the meter was counted as a result. Exactly
+# one of the eighteen had been measured.
+#
+# BJ, 2026-07-27, on the whole class of tool in this directory: these hearing models
+# are self-built, outside any research contribution to the subject; on the basis of
+# this work an IRCAM or any sound-research chair would have none of it. A measuring
+# device is itself an instrument and falls under the rule that already governs every
+# sounding body here — a named method and a source, written down before the first
+# line. That rule was never applied to the measuring side.
+
+LIMITS = """\
+limits of this measurement — what it may be quoted for
+  reads a signal, and can be quoted as such: f0, cents, partial amplitudes,
+    odd/even ratio, peak, RMS, crest.
+  invented here, no external referent: every threshold in this file and in
+    lco_axis_probe, and the derived meters centroid_motion_hz, motion_coherence,
+    comb_db, event_rate_hz, loudness_travel_db, beat_depth. The beat meters and
+    comb_db can be satisfied by amplitude alone, so they do not measure the thing
+    their names say.
+  not loudness: every dB here is peak or RMS amplitude. Perceived loudness has
+    standards -- ITU-R BS.1770 / EBU R128, ISO 532-1/-2 -- and none is used here.
+    Two entries compared in dB have not been compared for how loud they sound.
+  rate: SR is 44100. The plugin compiles Csound at 176400 by default, so a reading
+    taken without changing SR was taken at a rate the instrument never runs at.
+  the self-tests check that the code computes what it claims to compute. They do
+    not check that the computed thing means anything."""
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # The scaffold: the real host, with the plugin's per-voice channels stood in for
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -2170,6 +2204,9 @@ def main():
     out = measure(y, args.freq)
     if err:
         out["warning"] = err
+    # On stderr, so a caller piping the JSON still gets clean JSON and a person
+    # reading the terminal cannot take the numbers without the limits.
+    print(LIMITS, file=sys.stderr)
     print(json.dumps(out, indent=1))
     return 0
 

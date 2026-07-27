@@ -545,10 +545,22 @@ def split_declared(key, findings, code=None):
     real, declared = [], []
     for level, msg in findings:
         reason = declared_reason(key, level, code)
-        unmeasurable = ("csound:" in msg or "cannot be measured" in msg
-                        or "SILENT" in msg or msg.startswith("HOT"))
-        (real if (reason is None or unmeasurable) else declared).append((level, msg))
+        (real if (reason is None or unmeasurable(msg)) else declared).append((level, msg))
     return real, declared
+
+
+def unmeasurable(msg):
+    """Is this finding a failure to MEASURE rather than something measured?
+
+    Kept as a named function because the distinction has to be visible in the
+    SUMMARY as well, and was not: the run of 2026-07-27 printed "75 findings" of
+    which 17 of the 18 volume-control findings said "no anchor_code — cannot be
+    measured". Reported onward, that became "18 axes are really volume controls".
+    Exactly one had been measured. A tool that prints its silence in the same list
+    and the same count as its results invites precisely that.
+    """
+    return ("csound:" in msg or "cannot be measured" in msg
+            or "SILENT" in msg or msg.startswith("HOT"))
 
 
 def main():
@@ -558,6 +570,18 @@ def main():
     ap.add_argument("--params-only", action="store_true",
                     help="only entries that already carry parameters")
     args = ap.parse_args()
+
+    print(_P.LIMITS + """
+
+limits of this audit
+  it renders the NAMED ANCHORS, where the gate steps evenly across the range. The
+    two therefore disagree legitimately, and this file is the stricter reading.
+  its finding categories carry aesthetic names -- "this is a volume control",
+    "changes nothing measurable", "stands still" -- and are computed from the
+    thresholds above, which have no source.
+  a finding that says "cannot be measured" is absence of data. It is counted
+    separately in the summary and must never be quoted inside a count of findings.""",
+          file=sys.stderr)
 
     lib = load()
     insts = lib["instruments"]
@@ -615,9 +639,13 @@ def main():
         Path(args.out).write_text(json.dumps(reports, indent=1))
         print(f"\nwrote {args.out}")
 
+    # Measured and unmeasured are counted apart. Lumped together they read as one
+    # number of things found, and were passed on as exactly that.
+    blind = sum(1 for r in reports for _l, m in r["verdicts"] if unmeasurable(m))
     n = sum(len(r["verdicts"]) for r in reports)
     d = sum(len(r["declared"]) for r in reports)
-    print(f"\n{len(reports)} instruments, {n} findings, {d} declared properties")
+    print(f"\n{len(reports)} instruments, {n - blind} measured findings, "
+          f"{blind} could not be measured, {d} declared properties")
     return 0
 
 

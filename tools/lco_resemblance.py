@@ -126,6 +126,21 @@ def main() -> int:
     args = ap.parse_args()
     only = {k.strip() for k in args.keys.split(",") if k.strip()}
 
+    print("""\
+limits of this run -- read before quoting any number from it
+  out of domain. CLAP is trained on captioned real-world recordings. Here it is
+    asked to rank synthetic single notes against a closed set of synthesiser jargon.
+    Its own controls failing is the expected result of that, not a fault to repair.
+  a rank is not recognisability, even with the controls passing. There is no
+    listener, no panel and no cross-language check -- which is where the question
+    actually lives: Zacharakis, Pastiadis & Reiss on the semantic dimensions of
+    timbre; Saitis & Weinzierl, "The Semantics of Timbre", in Siedenburg et al.
+    (eds.), Timbre, Springer 2019. For descriptors rather than semantics, Peeters,
+    Giordano, Susini, Misdariis & McAdams, The Timbre Toolbox, JASA 130(5), 2011 --
+    whose own finding is that most such descriptors are redundant.
+  the control set and the rank-5 bar were chosen here, by hand, against nothing.
+""", file=sys.stderr)
+
     lex = json.loads(LEX.read_text())
     entries = lex["techniques"]
     print(f"lexicon_version {lex.get('lexicon_version')}, {len(entries)} entries",

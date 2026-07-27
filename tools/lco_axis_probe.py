@@ -95,6 +95,31 @@ _MOVE_CENSUS = (21, 12, 0, "2026-07-27")
 _MOVE_REGISTERS = (55.0, 110.0, 220.0, 440.0, 880.0, 1760.0)
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# What a PASS from this file is worth
+# ─────────────────────────────────────────────────────────────────────────────
+# Printed at the head of every run, because the thresholds below are mine and have
+# no source. Three of them survive without any theory of hearing — a control that
+# changes no sample, a body that ignores kfreq, a body that overdrives the host —
+# and everything else is this file reporting on its own numbers.
+
+LIMITS = M.LIMITS + """
+
+limits of this gate
+  an authoring tool for LIBRARY entries. It never sees a line the author writes at
+    runtime; nothing in backend/ imports it.
+  valid without any theory of hearing: a control that changes no sample of the
+    output; a body that does not follow kfreq; a body that overdrives the host.
+  everything else is a threshold of this file reporting on itself -- "moves colour"
+    40 Hz, "moves fast" 15 Hz, comb 1.5 dB, beat 0.5 Hz and 5 %, the corner rule
+    1.00 dB, the cross-register rule 3.00 dB, the pitch window 60 cents. None comes
+    from a measured perceptual threshold. They come from the entries that happened
+    to be in front of the author when they were written.
+  six fixed registers, nothing between them and nothing outside them.
+  PASS means these thresholds were satisfied. It is not a statement about the sound,
+    and it does not stand in for BJ having heard the entry."""
+
+
 def census():
     """Recount which shipped entries move at every register. ~378 renders.
 
@@ -1129,6 +1154,7 @@ def main():
     if not args.body:
         ap.error("--body is required (or --census)")
 
+    print(LIMITS, file=sys.stderr)
     body = Path(args.body).read_text().rstrip("\n")
     declared = axes(body)
     if not declared:
