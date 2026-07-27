@@ -8,9 +8,17 @@ is whether a word in that prose reliably reaches the sound it names: whether `ho
 listener travels, whether a dominant impression exists that no word in the entry covers
 and that the model therefore can never ask for.
 
-Every test ends in a **diff to `backend/dco_lexicon.json`** — a rewritten `note`, a
-replaced anchor word, a new anchor, a narrowed range. A test whose outcome would change no
-word in the library was not worth running, and must not be built.
+A test earns its place by what its possible answers would *make us do*, and that is a
+property of the design, not of the result. Before building, write down each answer the task
+can produce and the action that follows from it. If every answer leads to the same action,
+there is no question here. At least one answer must change a word in
+`backend/dco_lexicon.json` — a rewritten `note`, a replaced anchor word, a new anchor, a
+narrowed range.
+
+**A run in which every word holds is a full result, not a wasted one.** It says the anchors
+reach the sounds they name, which is exactly what the author model depends on. Demanding a
+diff as the price of admission would reward tasks built to find fault — the same
+self-serving shape as a meter that scores its own instrument.
 
 ## The two failures this policy exists to prevent
 
@@ -36,8 +44,9 @@ Answer all four in writing. A "no" anywhere means the test is not built.
    direction in a `note`, an entry's `why`. Not a parameter; a word.
 2. **Could `lco_measure` settle it?** If yes, measure it and stop. Duration, level,
    centroid, partial amplitudes, beat rate are not ear questions.
-3. **What changes in the library if the answer goes each way?** Write both diffs before
-   listening. If one of them is "nothing", there is no test here.
+3. **What follows from each possible answer?** Write them all down before listening — the
+   confirming one included. "The words hold, nothing changes" is a legitimate branch. The
+   test fails this gate only when *every* branch leads to the same action.
 4. **What is already known?** The opcode source in `csound/csound` (`Opcodes/*.c`) and the
    published listening tests for this model class — see
    `feedback_hypothesis_policy_empirical_lookup`. Where a perceptual tolerance exists it

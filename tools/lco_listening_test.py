@@ -22,7 +22,10 @@ takes the listener's word instead. Then, and only after the assignment is given,
 one free-text question -- what changes that none of these words covers -- because
 an impression the entry has no name for is one the author model can never ask for.
 
-Every run ends in a diff to backend/dco_lexicon.json or it was wasted.
+What qualifies a task is that its possible answers lead to DIFFERENT actions --
+a property of the design, knowable beforehand. Whether a given run produces a
+diff to backend/dco_lexicon.json is not knowable, and a run in which every word
+holds is a full result: it says the anchors reach the sounds they name.
 """
 
 from __future__ import annotations
