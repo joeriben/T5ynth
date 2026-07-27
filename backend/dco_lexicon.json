@@ -96,54 +96,6 @@
    "code": "ivph0   = frac(ivoice * 0.6180339887)   ; per-voice phase\nkvdr0   poscil 0.00245, 0.043 + 0.0037 * ivoice, giSine, ivph0\nkdty0   poscil 0.0042, 0.057     ; age: shape/duty wobble on kpw\nkpw0s0   = 0.1 + kdty0\naao0s0u0  vco2 0.6, (kfreq * koct1) * (1 + kvdr0), 2, kpw0s0, 0   ; wave seg0 imode2 copy 0\nacln0   = aao0s0u0 * 0.578000    ; clean oscillator (pre-drive)\nadrv0   = acln0                     ; drive 0: clean, no saturator stage\nkagw0   oscili 0.0105, 0.7        ; age: amplitude wobble\nasig    = adrv0 * (1 + kagw0)"
   },
   {
-   "key": "pwm",
-   "surface_forms": [
-    "pwm",
-    "pulse width modulation",
-    "pulsbreite",
-    "pulsbreitenmodulation",
-    "pulsweitenmodulation",
-    "pw",
-    "duty sweep",
-    "pulsweite"
-   ],
-   "template": {
-    "keyframes": [
-     {
-      "kind": "pulse",
-      "width": 0.5
-     },
-     {
-      "kind": "pulse",
-      "width": 0.08
-     }
-    ],
-    "motion": [
-     {
-      "to": 0,
-      "dur_frac": 0.0,
-      "curve": "lin"
-     },
-     {
-      "to": 1,
-      "dur_frac": 0.5,
-      "curve": "lin"
-     },
-     {
-      "to": 0,
-      "dur_frac": 0.5,
-      "curve": "lin"
-     }
-    ],
-    "loop": true,
-    "frames": 256,
-    "motion_rate_hz": 0.35
-   },
-   "priority": 10,
-   "why": "pulse-width modulation -- classic PWM: the duty cycle sweeps continuously from 80% down to 20% and back, ~2 s per round trip by default (1 s per half-cycle); slow/fast stretch or compress it to 4 s / 1 s, so the tone hollows out and fills back in",
-   "code": "klfo0    oscili 0.5, 0.5            ; -0.5..0.5, 1s per half-cycle\nkpw0     = 0.5 + 0.6 * klfo0     ; duty 0.20..0.80, square at centre\nivph0   = frac(ivoice * 0.6180339887)   ; per-voice phase\nkvdr0   poscil 0.0007, 0.043 + 0.0037 * ivoice, giSine, ivph0\napw0     vco2 0.6, (kfreq * koct1) * (1 + kvdr0), 2, kpw0 ; imode 2 = pulse, kpw = width\nasig    = apw0 - 0.6 * (2 * kpw0 - 1) ; remove the duty's DC offset, A*(2d-1)"
-  },
-  {
    "key": "triangle",
    "surface_forms": [
     "triangle",
@@ -2369,20 +2321,28 @@
   {
    "key": "analog_osc",
    "surface_forms": [
-    "analog oscillator",
-    "analogue oscillator",
     "analog osc",
-    "analogue osc",
-    "vco",
-    "minimoog",
-    "sub 37",
+    "analog oscillator",
     "analog synth",
-    "analogue synth",
-    "juno",
-    "prophet",
-    "oberheim",
-    "analogoszillator",
     "analoger oszillator",
+    "analogoszillator",
+    "analogue osc",
+    "analogue oscillator",
+    "analogue synth",
+    "duty sweep",
+    "juno",
+    "minimoog",
+    "oberheim",
+    "prophet",
+    "pulsbreite",
+    "pulsbreitenmodulation",
+    "pulse width modulation",
+    "pulsweite",
+    "pulsweitenmodulation",
+    "pw",
+    "pwm",
+    "sub 37",
+    "vco",
     "vintage synth"
    ],
    "template": {
@@ -2403,30 +2363,115 @@
     "motion_rate_hz": 0.25
    },
    "priority": 10,
-   "why": "analogue oscillator / vco / minimoog / juno / prophet / analogue synth: wave morphs continuously triangle to saw to square to pulse; drive is the mixer pushed past unity into a soft limiter (careful: it makes a saw ROUNDER and darker, only a triangle brighter); fat = detuned unison, age = analogue instability",
+   "why": "analogue oscillator / vco / minimoog / juno / prophet: ONE waveform generator with every control the shape needs. `wave` runs triangle - saw - pulse; `width` is the pulse duty and `pwm`/`pwmrate` set that duty in motion, which is pulse-width modulation; `finetune` shifts it in cents so several layers can be detuned against each other; `drive` mixes in a soft limiter that adds harmonics without adding level; `age` is component drift. Level holds to 0.35 dB across every axis and across six registers.",
    "params": {
     "wave": {
      "range": [
       0.0,
       1.0
      ],
-     "default": 0.45,
+     "default": 0.5,
+     "note": "which waveform. 0.0 is a triangle, 0.5 a sawtooth, 1.0 a pulse of the width set by `width`. Below 0.5 it is one vco2 rail in imode 4, where the pulse-width argument is the ramp's shape; above 0.5 it crossfades to a second rail in imode 2, where that same argument is the duty. Measured at 220 Hz: the spectral centroid runs 614 Hz at the triangle, 2211 at the saw, 5696 at a square, and the level holds to 0.35 dB across the whole axis -- so this is a colour control, not a volume control.",
      "anchors": {
       "triangle": {
        "value": 0.0,
-       "gloss": "hollow, dark, few harmonics"
+       "gloss": "the fewest harmonics of the three"
       },
       "saw": {
-       "value": 0.45,
-       "gloss": "bright, buzzy, all harmonics"
-      },
-      "square": {
-       "value": 0.55,
-       "gloss": "hollow, reedy, odd harmonics only"
+       "value": 0.5,
+       "gloss": "every harmonic present, falling 1/h"
       },
       "pulse": {
        "value": 1.0,
-       "gloss": "thin, nasal, narrow"
+       "gloss": "the pulse rail; `width` then decides its duty"
+      }
+     }
+    },
+    "width": {
+     "range": [
+      0.05,
+      0.95
+     ],
+     "default": 0.5,
+     "note": "the pulse duty -- the ON fraction of one period -- and it only acts once `wave` is in the pulse half. 0.5 is a square (odd harmonics only); away from 0.5 the even harmonics come in and the nth harmonic is cancelled wherever n*duty is a whole number. 0.12 and 0.88 sound alike because a pulse and its complement have the same magnitude spectrum. Two things are handled in the body rather than left to the player: a duty off 0.5 carries a DC offset of A*(2d-1), removed exactly; and the level is held (rms 2A*sqrt(d(1-d)) normalised out), so the measured spread over the whole range is 0.08 dB.",
+     "anchors": {
+      "narrow": {
+       "value": 0.12,
+       "gloss": "thin and nasal; the reedy end"
+      },
+      "square": {
+       "value": 0.5,
+       "gloss": "odd harmonics only -- hollow, woody"
+      },
+      "wide": {
+       "value": 0.88,
+       "gloss": "the mirror of narrow, same spectrum"
+      }
+     }
+    },
+    "pwm": {
+     "range": [
+      0.0,
+      1.0
+     ],
+     "default": 0.0,
+     "note": "how far the duty swings, at `rate` per second. 0 leaves the width standing where `width` put it. This is pulse-width MODULATION -- the width in motion -- and it is what makes one oscillator sound like it is breathing. The sweep goes THROUGH the square: as the depth rises the swing recentres on duty 0.5, so at full depth it crosses the square from either side of it and the even harmonics vanish and return once per swing, whatever `width` is set to. Measured at 220 Hz, even-to-odd harmonic energy runs 0.08 to 0.94 at full depth and is the same at width 0.12, 0.30 and 0.50; the sweep stands still only at its two turning points (9 % of the note). Colour travels 731 Hz of centroid while the level travels 0.36 dB.",
+     "anchors": {
+      "still": {
+       "value": 0.0,
+       "gloss": "no movement; a standing pulse"
+      },
+      "gentle": {
+       "value": 0.35,
+       "gloss": "a slow breathing under the tone"
+      },
+      "full": {
+       "value": 1.0,
+       "gloss": "the duty crosses the square from both sides, evens in and out once per swing"
+      }
+     }
+    },
+    "rate": {
+     "range": [
+      0.05,
+      8.0
+     ],
+     "default": 0.5,
+     "note": "how many times per second the width completes a swing. Slow is the classic string-machine drift; above about 4 the swing itself becomes a timbre rather than a movement. Has no audible effect while `pwm` is 0.",
+     "anchors": {
+      "slow": {
+       "value": 0.15,
+       "gloss": "one swing every seven seconds"
+      },
+      "classic": {
+       "value": 0.5,
+       "gloss": "two seconds a round trip"
+      },
+      "fast": {
+       "value": 4.0,
+       "gloss": "fast enough to hear as texture"
+      }
+     }
+    },
+    "finetune": {
+     "range": [
+      -50.0,
+      50.0
+     ],
+     "default": 0.0,
+     "note": "cents off the played note, so two or three layers of this oscillator can be detuned against each other -- the octave knobs the player has (koct1/2/3) move in octaves and cannot do it. Beating between two layers a few cents apart is what makes a sound thick; that thickness is composed from layers here and is not a knob on one oscillator. Measured: -25 asked gives -25 heard.",
+     "anchors": {
+      "flat": {
+       "value": -12.0,
+       "gloss": "a slow beat against a layer at zero"
+      },
+      "centre": {
+       "value": 0.0,
+       "gloss": "the played note exactly"
+      },
+      "sharp": {
+       "value": 12.0,
+       "gloss": "the same beat the other way"
       }
      }
     },
@@ -2436,48 +2481,19 @@
       1.0
      ],
      "default": 0.0,
-     "note": "counter-intuitive, and this is the real behaviour of the hardware this models: on a saw or a narrow pulse, drive makes the tone ROUNDER and DARKER (the soft limiter rounds off the sharp edge and takes highs away); on a triangle, drive ADDS harmonics and makes it BRIGHTER. Never describe drive as simply 'brighter'.",
+     "note": "how hard the oscillator is pushed into a soft limiter. `balance` holds the result at the clean signal's level, so this adds harmonics without adding loudness: measured 0.00 dB across the whole axis. On a saw the spectral centroid runs 2177 Hz at 0 to 6234 Hz at 1. What it does depends on the waveform, and the entry says so rather than pretending otherwise: a limiter first ROUNDS a shape and only then clips it, so a triangle -- which has almost no harmonics to begin with -- goes darker before it goes brighter (598 Hz down to 306 at drive 0.2, back up to 798 at 1). A saw shows the same dip but only 91 Hz of it before it climbs.",
      "anchors": {
       "clean": {
        "value": 0.0,
-       "gloss": "no saturation, the pure oscillator"
+       "gloss": "the bare oscillator"
       },
       "warm": {
        "value": 0.3,
-       "gloss": "light saturation, gentle rounding"
+       "gloss": "clearly harder than clean, not yet fully clipped"
       },
       "hot": {
-       "value": 0.6,
-       "gloss": "heavy saturation, strongly reshaped"
-      },
-      "screaming": {
        "value": 1.0,
-       "gloss": "maximum saturation, fully driven"
-      }
-     }
-    },
-    "fat": {
-     "range": [
-      0.0,
-      1.0
-     ],
-     "default": 0.0,
-     "anchors": {
-      "single": {
-       "value": 0.0,
-       "gloss": "one oscillator, no thickening"
-      },
-      "subtle": {
-       "value": 0.15,
-       "gloss": "a whisper of ensemble width"
-      },
-      "thick": {
-       "value": 0.5,
-       "gloss": "clearly layered, wide"
-      },
-      "wide": {
-       "value": 1.0,
-       "gloss": "maximally spread, chorus-like"
+       "gloss": "fully into the limiter"
       }
      }
     },
@@ -2487,28 +2503,46 @@
       1.0
      ],
      "default": 0.35,
+     "note": "how far the components have drifted: a slow pitch wander, a jitter on the duty, and a slow level wobble, each scaled by this one value and each at its own unrelated rate so they never lock. At 0 the oscillator is mathematically exact and sounds it. Every voice enters the drift at a different phase, so a chord does not wander in lockstep.",
      "anchors": {
-      "new": {
+      "exact": {
        "value": 0.0,
-       "gloss": "pristine, stable, no drift"
+       "gloss": "no drift at all -- digital-still"
       },
       "worn": {
        "value": 0.35,
-       "gloss": "gentle analogue life -- pitch, level and shape all drifting slightly"
+       "gloss": "audible but not a fault"
       },
       "old": {
-       "value": 0.8,
-       "gloss": "unstable, wandering pitch and level, worn-in gear"
+       "value": 1.0,
+       "gloss": "the tuning visibly restless"
       }
      }
     }
    },
-   "code": "ivph0   = frac(ivoice * 0.6180339887)   ; per-voice phase\nkvdr0   poscil 0.00245, 0.043 + 0.0037 * ivoice, giSine, ivph0\nkdty0   poscil 0.0042, 0.057     ; age: shape/duty wobble on kpw\nkpw0s0   = 0.02 + kdty0\naao0s0u0  vco2 0.6, (kfreq * koct1) * (1 + kvdr0), 4, kpw0s0, 0   ; wave seg0 imode4 copy 0\nacln0   = aao0s0u0 * 1.000000    ; clean oscillator (pre-drive)\nadrv0   = acln0                     ; drive 0: clean, no saturator stage\nkagw0   oscili 0.0105, 0.7        ; age: amplitude wobble\nasig    = adrv0 * (1 + kagw0)",
+   "code": "kwave   = 0.50    ; wave [0..1]: triangle 0.0, saw 0.5, pulse 1.0\nkwidth  = 0.50    ; width [0.05..0.95]: pulse duty, the ON fraction; 0.5 is a square\nkpwm    = 0.00    ; pwm [0..1]: how far the width swings either side of `width`\nkrate   = 0.50    ; rate [0.05..8]: width swings per second\nkfinetune = 0.00  ; finetune [-50..50]: cents off the played note\nkdrive  = 0.00    ; drive [0..1]: mixed into a soft limiter\nkage    = 0.35    ; age [0..1]: component drift -- pitch, duty and level wobble\n\nivph    = frac(ivoice * 0.6180339887)          ; each voice enters the drift elsewhere\nkdrf    poscil 0.007 * kage, 0.043 + 0.0037 * ivoice, giSine, ivph\nkjit    poscil 0.012 * kage, 0.057             ; age: duty jitter\nklvl    oscili 0.030 * kage, 0.7               ; age: level wobble\nkf0     = (kfreq * koct1) * (2 ^ (kfinetune / 1200)) * (1 + kdrf)\n\nkcen    = kwidth + (0.5 - kwidth) * kpwm      ; deep modulation recentres on the\nkswing  poscil 0.45 * kpwm, krate             ;   square, so the sweep ALWAYS crosses\nkduty   limit kcen + kswing + kjit, 0.05, 0.95;   it and never flattens on the limit\nkramp   limit 0.5 - 0.96 * kwave + kjit, 0.02, 0.5   ; imode 4: 0.5 triangle .. 0.02 saw\nkmix    limit (kwave - 0.5) * 2, 0, 1          ; the upper half crossfades saw -> pulse\n\naramp   vco2 0.6, kf0, 4, kramp                ; triangle/saw rail, rms = A/sqrt(3)\napuls   vco2 0.6, kf0, 2, kduty                ; pulse rail, kpw IS the duty\napuls   = apuls - 0.6 * (2 * kduty - 1)        ; a duty off 0.5 carries DC: measured\nknrm    = 0.57735 / (2 * sqrt(kduty * (1 - kduty)))  ; a pulse holds rms 2A*sqrt(d(1-d)),\napuls   = apuls * knrm                         ;   so this puts it on the ramp's level\naosc    = aramp * (1 - kmix) + apuls * kmix\n\nkg      = 0.3 + 20 * kdrive                    ; at 0 the limiter sits in its linear\nadrv    = tanh(aosc * kg)                      ;   region and passes the oscillator\nadrv    balance adrv, aosc                     ; the limiter changes colour, not level\nasig    = adrv * (1 + klvl)\n",
    "anchor_code": {
-    "wave=0.0  (triangle: hollow, dark, few harmonics)": "ivph0   = frac(ivoice * 0.6180339887)   ; per-voice phase\nkvdr0   poscil 0.00245, 0.043 + 0.0037 * ivoice, giSine, ivph0\nkdty0   poscil 0.0042, 0.057     ; age: shape/duty wobble on kpw\nkpw0s0   = 0.5 + kdty0\naao0s0u0  vco2 0.6, (kfreq * koct1) * (1 + kvdr0), 4, kpw0s0, 0   ; wave seg0 imode4 copy 0\nacln0   = aao0s0u0 * 1.000000    ; clean oscillator (pre-drive)\nadrv0   = acln0                     ; drive 0: clean, no saturator stage\nkagw0   oscili 0.0105, 0.7        ; age: amplitude wobble\nasig    = adrv0 * (1 + kagw0)",
-    "wave=0.45  (saw: bright, buzzy, all harmonics)": "ivph0   = frac(ivoice * 0.6180339887)   ; per-voice phase\nkvdr0   poscil 0.00245, 0.043 + 0.0037 * ivoice, giSine, ivph0\nkdty0   poscil 0.0042, 0.057     ; age: shape/duty wobble on kpw\nkpw0s0   = 0.02 + kdty0\naao0s0u0  vco2 0.6, (kfreq * koct1) * (1 + kvdr0), 4, kpw0s0, 0   ; wave seg0 imode4 copy 0\nacln0   = aao0s0u0 * 1.000000    ; clean oscillator (pre-drive)\nadrv0   = acln0                     ; drive 0: clean, no saturator stage\nkagw0   oscili 0.0105, 0.7        ; age: amplitude wobble\nasig    = adrv0 * (1 + kagw0)",
-    "wave=0.55  (square: hollow, reedy, odd harmonics only)": "ivph0   = frac(ivoice * 0.6180339887)   ; per-voice phase\nkvdr0   poscil 0.00245, 0.043 + 0.0037 * ivoice, giSine, ivph0\nkdty0   poscil 0.0042, 0.057     ; age: shape/duty wobble on kpw\nkpw0s0   = 0.5 + kdty0\naao0s0u0  vco2 0.6, (kfreq * koct1) * (1 + kvdr0), 2, kpw0s0, 0   ; wave seg0 imode2 copy 0\nacln0   = aao0s0u0 * 0.578000    ; clean oscillator (pre-drive)\nadrv0   = acln0                     ; drive 0: clean, no saturator stage\nkagw0   oscili 0.0105, 0.7        ; age: amplitude wobble\nasig    = adrv0 * (1 + kagw0)",
-    "wave=1.0  (pulse: thin, nasal, narrow)": "ivph0   = frac(ivoice * 0.6180339887)   ; per-voice phase\nkvdr0   poscil 0.00245, 0.043 + 0.0037 * ivoice, giSine, ivph0\nkdty0   poscil 0.0042, 0.057     ; age: shape/duty wobble on kpw\nkpw0s0   = 0.1 + kdty0\naao0s0u0  vco2 0.6, (kfreq * koct1) * (1 + kvdr0), 2, kpw0s0, 0   ; wave seg0 imode2 copy 0\nacln0   = aao0s0u0 * 0.578000    ; clean oscillator (pre-drive)\nadrv0   = acln0                     ; drive 0: clean, no saturator stage\nkagw0   oscili 0.0105, 0.7        ; age: amplitude wobble\nasig    = adrv0 * (1 + kagw0)"
+    "wave=0  (triangle: the fewest harmonics of the three)": "kwave   = 0      ; wave [0..1]: triangle 0.0, saw 0.5, pulse 1.0\nkwidth  = 0.50    ; width [0.05..0.95]: pulse duty, the ON fraction; 0.5 is a square\nkpwm    = 0.00    ; pwm [0..1]: how far the width swings either side of `width`\nkrate   = 0.50    ; rate [0.05..8]: width swings per second\nkfinetune = 0.00  ; finetune [-50..50]: cents off the played note\nkdrive  = 0.00    ; drive [0..1]: mixed into a soft limiter\nkage    = 0.35    ; age [0..1]: component drift -- pitch, duty and level wobble\n\nivph    = frac(ivoice * 0.6180339887)          ; each voice enters the drift elsewhere\nkdrf    poscil 0.007 * kage, 0.043 + 0.0037 * ivoice, giSine, ivph\nkjit    poscil 0.012 * kage, 0.057             ; age: duty jitter\nklvl    oscili 0.030 * kage, 0.7               ; age: level wobble\nkf0     = (kfreq * koct1) * (2 ^ (kfinetune / 1200)) * (1 + kdrf)\n\nkcen    = kwidth + (0.5 - kwidth) * kpwm      ; deep modulation recentres on the\nkswing  poscil 0.45 * kpwm, krate             ;   square, so the sweep ALWAYS crosses\nkduty   limit kcen + kswing + kjit, 0.05, 0.95;   it and never flattens on the limit\nkramp   limit 0.5 - 0.96 * kwave + kjit, 0.02, 0.5   ; imode 4: 0.5 triangle .. 0.02 saw\nkmix    limit (kwave - 0.5) * 2, 0, 1          ; the upper half crossfades saw -> pulse\n\naramp   vco2 0.6, kf0, 4, kramp                ; triangle/saw rail, rms = A/sqrt(3)\napuls   vco2 0.6, kf0, 2, kduty                ; pulse rail, kpw IS the duty\napuls   = apuls - 0.6 * (2 * kduty - 1)        ; a duty off 0.5 carries DC: measured\nknrm    = 0.57735 / (2 * sqrt(kduty * (1 - kduty)))  ; a pulse holds rms 2A*sqrt(d(1-d)),\napuls   = apuls * knrm                         ;   so this puts it on the ramp's level\naosc    = aramp * (1 - kmix) + apuls * kmix\n\nkg      = 0.3 + 20 * kdrive                    ; at 0 the limiter sits in its linear\nadrv    = tanh(aosc * kg)                      ;   region and passes the oscillator\nadrv    balance adrv, aosc                     ; the limiter changes colour, not level\nasig    = adrv * (1 + klvl)\n",
+    "wave=0.5  (saw: every harmonic present, falling 1/h)": "kwave   = 0.5    ; wave [0..1]: triangle 0.0, saw 0.5, pulse 1.0\nkwidth  = 0.50    ; width [0.05..0.95]: pulse duty, the ON fraction; 0.5 is a square\nkpwm    = 0.00    ; pwm [0..1]: how far the width swings either side of `width`\nkrate   = 0.50    ; rate [0.05..8]: width swings per second\nkfinetune = 0.00  ; finetune [-50..50]: cents off the played note\nkdrive  = 0.00    ; drive [0..1]: mixed into a soft limiter\nkage    = 0.35    ; age [0..1]: component drift -- pitch, duty and level wobble\n\nivph    = frac(ivoice * 0.6180339887)          ; each voice enters the drift elsewhere\nkdrf    poscil 0.007 * kage, 0.043 + 0.0037 * ivoice, giSine, ivph\nkjit    poscil 0.012 * kage, 0.057             ; age: duty jitter\nklvl    oscili 0.030 * kage, 0.7               ; age: level wobble\nkf0     = (kfreq * koct1) * (2 ^ (kfinetune / 1200)) * (1 + kdrf)\n\nkcen    = kwidth + (0.5 - kwidth) * kpwm      ; deep modulation recentres on the\nkswing  poscil 0.45 * kpwm, krate             ;   square, so the sweep ALWAYS crosses\nkduty   limit kcen + kswing + kjit, 0.05, 0.95;   it and never flattens on the limit\nkramp   limit 0.5 - 0.96 * kwave + kjit, 0.02, 0.5   ; imode 4: 0.5 triangle .. 0.02 saw\nkmix    limit (kwave - 0.5) * 2, 0, 1          ; the upper half crossfades saw -> pulse\n\naramp   vco2 0.6, kf0, 4, kramp                ; triangle/saw rail, rms = A/sqrt(3)\napuls   vco2 0.6, kf0, 2, kduty                ; pulse rail, kpw IS the duty\napuls   = apuls - 0.6 * (2 * kduty - 1)        ; a duty off 0.5 carries DC: measured\nknrm    = 0.57735 / (2 * sqrt(kduty * (1 - kduty)))  ; a pulse holds rms 2A*sqrt(d(1-d)),\napuls   = apuls * knrm                         ;   so this puts it on the ramp's level\naosc    = aramp * (1 - kmix) + apuls * kmix\n\nkg      = 0.3 + 20 * kdrive                    ; at 0 the limiter sits in its linear\nadrv    = tanh(aosc * kg)                      ;   region and passes the oscillator\nadrv    balance adrv, aosc                     ; the limiter changes colour, not level\nasig    = adrv * (1 + klvl)\n",
+    "wave=1  (pulse: the pulse rail; `width` then decides its duty)": "kwave   = 1      ; wave [0..1]: triangle 0.0, saw 0.5, pulse 1.0\nkwidth  = 0.50    ; width [0.05..0.95]: pulse duty, the ON fraction; 0.5 is a square\nkpwm    = 0.00    ; pwm [0..1]: how far the width swings either side of `width`\nkrate   = 0.50    ; rate [0.05..8]: width swings per second\nkfinetune = 0.00  ; finetune [-50..50]: cents off the played note\nkdrive  = 0.00    ; drive [0..1]: mixed into a soft limiter\nkage    = 0.35    ; age [0..1]: component drift -- pitch, duty and level wobble\n\nivph    = frac(ivoice * 0.6180339887)          ; each voice enters the drift elsewhere\nkdrf    poscil 0.007 * kage, 0.043 + 0.0037 * ivoice, giSine, ivph\nkjit    poscil 0.012 * kage, 0.057             ; age: duty jitter\nklvl    oscili 0.030 * kage, 0.7               ; age: level wobble\nkf0     = (kfreq * koct1) * (2 ^ (kfinetune / 1200)) * (1 + kdrf)\n\nkcen    = kwidth + (0.5 - kwidth) * kpwm      ; deep modulation recentres on the\nkswing  poscil 0.45 * kpwm, krate             ;   square, so the sweep ALWAYS crosses\nkduty   limit kcen + kswing + kjit, 0.05, 0.95;   it and never flattens on the limit\nkramp   limit 0.5 - 0.96 * kwave + kjit, 0.02, 0.5   ; imode 4: 0.5 triangle .. 0.02 saw\nkmix    limit (kwave - 0.5) * 2, 0, 1          ; the upper half crossfades saw -> pulse\n\naramp   vco2 0.6, kf0, 4, kramp                ; triangle/saw rail, rms = A/sqrt(3)\napuls   vco2 0.6, kf0, 2, kduty                ; pulse rail, kpw IS the duty\napuls   = apuls - 0.6 * (2 * kduty - 1)        ; a duty off 0.5 carries DC: measured\nknrm    = 0.57735 / (2 * sqrt(kduty * (1 - kduty)))  ; a pulse holds rms 2A*sqrt(d(1-d)),\napuls   = apuls * knrm                         ;   so this puts it on the ramp's level\naosc    = aramp * (1 - kmix) + apuls * kmix\n\nkg      = 0.3 + 20 * kdrive                    ; at 0 the limiter sits in its linear\nadrv    = tanh(aosc * kg)                      ;   region and passes the oscillator\nadrv    balance adrv, aosc                     ; the limiter changes colour, not level\nasig    = adrv * (1 + klvl)\n",
+    "width=0.12 with wave=1  (narrow: thin and nasal; the reedy end)": "kwave   = 1      ; wave [0..1]: triangle 0.0, saw 0.5, pulse 1.0\nkwidth  = 0.12   ; width [0.05..0.95]: pulse duty, the ON fraction; 0.5 is a square\nkpwm    = 0.00    ; pwm [0..1]: how far the width swings either side of `width`\nkrate   = 0.50    ; rate [0.05..8]: width swings per second\nkfinetune = 0.00  ; finetune [-50..50]: cents off the played note\nkdrive  = 0.00    ; drive [0..1]: mixed into a soft limiter\nkage    = 0.35    ; age [0..1]: component drift -- pitch, duty and level wobble\n\nivph    = frac(ivoice * 0.6180339887)          ; each voice enters the drift elsewhere\nkdrf    poscil 0.007 * kage, 0.043 + 0.0037 * ivoice, giSine, ivph\nkjit    poscil 0.012 * kage, 0.057             ; age: duty jitter\nklvl    oscili 0.030 * kage, 0.7               ; age: level wobble\nkf0     = (kfreq * koct1) * (2 ^ (kfinetune / 1200)) * (1 + kdrf)\n\nkcen    = kwidth + (0.5 - kwidth) * kpwm      ; deep modulation recentres on the\nkswing  poscil 0.45 * kpwm, krate             ;   square, so the sweep ALWAYS crosses\nkduty   limit kcen + kswing + kjit, 0.05, 0.95;   it and never flattens on the limit\nkramp   limit 0.5 - 0.96 * kwave + kjit, 0.02, 0.5   ; imode 4: 0.5 triangle .. 0.02 saw\nkmix    limit (kwave - 0.5) * 2, 0, 1          ; the upper half crossfades saw -> pulse\n\naramp   vco2 0.6, kf0, 4, kramp                ; triangle/saw rail, rms = A/sqrt(3)\napuls   vco2 0.6, kf0, 2, kduty                ; pulse rail, kpw IS the duty\napuls   = apuls - 0.6 * (2 * kduty - 1)        ; a duty off 0.5 carries DC: measured\nknrm    = 0.57735 / (2 * sqrt(kduty * (1 - kduty)))  ; a pulse holds rms 2A*sqrt(d(1-d)),\napuls   = apuls * knrm                         ;   so this puts it on the ramp's level\naosc    = aramp * (1 - kmix) + apuls * kmix\n\nkg      = 0.3 + 20 * kdrive                    ; at 0 the limiter sits in its linear\nadrv    = tanh(aosc * kg)                      ;   region and passes the oscillator\nadrv    balance adrv, aosc                     ; the limiter changes colour, not level\nasig    = adrv * (1 + klvl)\n",
+    "width=0.5 with wave=1  (square: odd harmonics only -- hollow, woody)": "kwave   = 1      ; wave [0..1]: triangle 0.0, saw 0.5, pulse 1.0\nkwidth  = 0.5    ; width [0.05..0.95]: pulse duty, the ON fraction; 0.5 is a square\nkpwm    = 0.00    ; pwm [0..1]: how far the width swings either side of `width`\nkrate   = 0.50    ; rate [0.05..8]: width swings per second\nkfinetune = 0.00  ; finetune [-50..50]: cents off the played note\nkdrive  = 0.00    ; drive [0..1]: mixed into a soft limiter\nkage    = 0.35    ; age [0..1]: component drift -- pitch, duty and level wobble\n\nivph    = frac(ivoice * 0.6180339887)          ; each voice enters the drift elsewhere\nkdrf    poscil 0.007 * kage, 0.043 + 0.0037 * ivoice, giSine, ivph\nkjit    poscil 0.012 * kage, 0.057             ; age: duty jitter\nklvl    oscili 0.030 * kage, 0.7               ; age: level wobble\nkf0     = (kfreq * koct1) * (2 ^ (kfinetune / 1200)) * (1 + kdrf)\n\nkcen    = kwidth + (0.5 - kwidth) * kpwm      ; deep modulation recentres on the\nkswing  poscil 0.45 * kpwm, krate             ;   square, so the sweep ALWAYS crosses\nkduty   limit kcen + kswing + kjit, 0.05, 0.95;   it and never flattens on the limit\nkramp   limit 0.5 - 0.96 * kwave + kjit, 0.02, 0.5   ; imode 4: 0.5 triangle .. 0.02 saw\nkmix    limit (kwave - 0.5) * 2, 0, 1          ; the upper half crossfades saw -> pulse\n\naramp   vco2 0.6, kf0, 4, kramp                ; triangle/saw rail, rms = A/sqrt(3)\napuls   vco2 0.6, kf0, 2, kduty                ; pulse rail, kpw IS the duty\napuls   = apuls - 0.6 * (2 * kduty - 1)        ; a duty off 0.5 carries DC: measured\nknrm    = 0.57735 / (2 * sqrt(kduty * (1 - kduty)))  ; a pulse holds rms 2A*sqrt(d(1-d)),\napuls   = apuls * knrm                         ;   so this puts it on the ramp's level\naosc    = aramp * (1 - kmix) + apuls * kmix\n\nkg      = 0.3 + 20 * kdrive                    ; at 0 the limiter sits in its linear\nadrv    = tanh(aosc * kg)                      ;   region and passes the oscillator\nadrv    balance adrv, aosc                     ; the limiter changes colour, not level\nasig    = adrv * (1 + klvl)\n",
+    "width=0.88 with wave=1  (wide: the mirror of narrow, same spectrum)": "kwave   = 1      ; wave [0..1]: triangle 0.0, saw 0.5, pulse 1.0\nkwidth  = 0.88   ; width [0.05..0.95]: pulse duty, the ON fraction; 0.5 is a square\nkpwm    = 0.00    ; pwm [0..1]: how far the width swings either side of `width`\nkrate   = 0.50    ; rate [0.05..8]: width swings per second\nkfinetune = 0.00  ; finetune [-50..50]: cents off the played note\nkdrive  = 0.00    ; drive [0..1]: mixed into a soft limiter\nkage    = 0.35    ; age [0..1]: component drift -- pitch, duty and level wobble\n\nivph    = frac(ivoice * 0.6180339887)          ; each voice enters the drift elsewhere\nkdrf    poscil 0.007 * kage, 0.043 + 0.0037 * ivoice, giSine, ivph\nkjit    poscil 0.012 * kage, 0.057             ; age: duty jitter\nklvl    oscili 0.030 * kage, 0.7               ; age: level wobble\nkf0     = (kfreq * koct1) * (2 ^ (kfinetune / 1200)) * (1 + kdrf)\n\nkcen    = kwidth + (0.5 - kwidth) * kpwm      ; deep modulation recentres on the\nkswing  poscil 0.45 * kpwm, krate             ;   square, so the sweep ALWAYS crosses\nkduty   limit kcen + kswing + kjit, 0.05, 0.95;   it and never flattens on the limit\nkramp   limit 0.5 - 0.96 * kwave + kjit, 0.02, 0.5   ; imode 4: 0.5 triangle .. 0.02 saw\nkmix    limit (kwave - 0.5) * 2, 0, 1          ; the upper half crossfades saw -> pulse\n\naramp   vco2 0.6, kf0, 4, kramp                ; triangle/saw rail, rms = A/sqrt(3)\napuls   vco2 0.6, kf0, 2, kduty                ; pulse rail, kpw IS the duty\napuls   = apuls - 0.6 * (2 * kduty - 1)        ; a duty off 0.5 carries DC: measured\nknrm    = 0.57735 / (2 * sqrt(kduty * (1 - kduty)))  ; a pulse holds rms 2A*sqrt(d(1-d)),\napuls   = apuls * knrm                         ;   so this puts it on the ramp's level\naosc    = aramp * (1 - kmix) + apuls * kmix\n\nkg      = 0.3 + 20 * kdrive                    ; at 0 the limiter sits in its linear\nadrv    = tanh(aosc * kg)                      ;   region and passes the oscillator\nadrv    balance adrv, aosc                     ; the limiter changes colour, not level\nasig    = adrv * (1 + klvl)\n",
+    "pwm=0 with wave=1  (still: no movement; a standing pulse)": "kwave   = 1      ; wave [0..1]: triangle 0.0, saw 0.5, pulse 1.0\nkwidth  = 0.50    ; width [0.05..0.95]: pulse duty, the ON fraction; 0.5 is a square\nkpwm    = 0      ; pwm [0..1]: how far the width swings either side of `width`\nkrate   = 0.50    ; rate [0.05..8]: width swings per second\nkfinetune = 0.00  ; finetune [-50..50]: cents off the played note\nkdrive  = 0.00    ; drive [0..1]: mixed into a soft limiter\nkage    = 0.35    ; age [0..1]: component drift -- pitch, duty and level wobble\n\nivph    = frac(ivoice * 0.6180339887)          ; each voice enters the drift elsewhere\nkdrf    poscil 0.007 * kage, 0.043 + 0.0037 * ivoice, giSine, ivph\nkjit    poscil 0.012 * kage, 0.057             ; age: duty jitter\nklvl    oscili 0.030 * kage, 0.7               ; age: level wobble\nkf0     = (kfreq * koct1) * (2 ^ (kfinetune / 1200)) * (1 + kdrf)\n\nkcen    = kwidth + (0.5 - kwidth) * kpwm      ; deep modulation recentres on the\nkswing  poscil 0.45 * kpwm, krate             ;   square, so the sweep ALWAYS crosses\nkduty   limit kcen + kswing + kjit, 0.05, 0.95;   it and never flattens on the limit\nkramp   limit 0.5 - 0.96 * kwave + kjit, 0.02, 0.5   ; imode 4: 0.5 triangle .. 0.02 saw\nkmix    limit (kwave - 0.5) * 2, 0, 1          ; the upper half crossfades saw -> pulse\n\naramp   vco2 0.6, kf0, 4, kramp                ; triangle/saw rail, rms = A/sqrt(3)\napuls   vco2 0.6, kf0, 2, kduty                ; pulse rail, kpw IS the duty\napuls   = apuls - 0.6 * (2 * kduty - 1)        ; a duty off 0.5 carries DC: measured\nknrm    = 0.57735 / (2 * sqrt(kduty * (1 - kduty)))  ; a pulse holds rms 2A*sqrt(d(1-d)),\napuls   = apuls * knrm                         ;   so this puts it on the ramp's level\naosc    = aramp * (1 - kmix) + apuls * kmix\n\nkg      = 0.3 + 20 * kdrive                    ; at 0 the limiter sits in its linear\nadrv    = tanh(aosc * kg)                      ;   region and passes the oscillator\nadrv    balance adrv, aosc                     ; the limiter changes colour, not level\nasig    = adrv * (1 + klvl)\n",
+    "pwm=0.35 with wave=1  (gentle: a slow breathing under the tone)": "kwave   = 1      ; wave [0..1]: triangle 0.0, saw 0.5, pulse 1.0\nkwidth  = 0.50    ; width [0.05..0.95]: pulse duty, the ON fraction; 0.5 is a square\nkpwm    = 0.35   ; pwm [0..1]: how far the width swings either side of `width`\nkrate   = 0.50    ; rate [0.05..8]: width swings per second\nkfinetune = 0.00  ; finetune [-50..50]: cents off the played note\nkdrive  = 0.00    ; drive [0..1]: mixed into a soft limiter\nkage    = 0.35    ; age [0..1]: component drift -- pitch, duty and level wobble\n\nivph    = frac(ivoice * 0.6180339887)          ; each voice enters the drift elsewhere\nkdrf    poscil 0.007 * kage, 0.043 + 0.0037 * ivoice, giSine, ivph\nkjit    poscil 0.012 * kage, 0.057             ; age: duty jitter\nklvl    oscili 0.030 * kage, 0.7               ; age: level wobble\nkf0     = (kfreq * koct1) * (2 ^ (kfinetune / 1200)) * (1 + kdrf)\n\nkcen    = kwidth + (0.5 - kwidth) * kpwm      ; deep modulation recentres on the\nkswing  poscil 0.45 * kpwm, krate             ;   square, so the sweep ALWAYS crosses\nkduty   limit kcen + kswing + kjit, 0.05, 0.95;   it and never flattens on the limit\nkramp   limit 0.5 - 0.96 * kwave + kjit, 0.02, 0.5   ; imode 4: 0.5 triangle .. 0.02 saw\nkmix    limit (kwave - 0.5) * 2, 0, 1          ; the upper half crossfades saw -> pulse\n\naramp   vco2 0.6, kf0, 4, kramp                ; triangle/saw rail, rms = A/sqrt(3)\napuls   vco2 0.6, kf0, 2, kduty                ; pulse rail, kpw IS the duty\napuls   = apuls - 0.6 * (2 * kduty - 1)        ; a duty off 0.5 carries DC: measured\nknrm    = 0.57735 / (2 * sqrt(kduty * (1 - kduty)))  ; a pulse holds rms 2A*sqrt(d(1-d)),\napuls   = apuls * knrm                         ;   so this puts it on the ramp's level\naosc    = aramp * (1 - kmix) + apuls * kmix\n\nkg      = 0.3 + 20 * kdrive                    ; at 0 the limiter sits in its linear\nadrv    = tanh(aosc * kg)                      ;   region and passes the oscillator\nadrv    balance adrv, aosc                     ; the limiter changes colour, not level\nasig    = adrv * (1 + klvl)\n",
+    "pwm=1 with wave=1  (full: the duty crosses the square from both sides, evens in and out once per swing)": "kwave   = 1      ; wave [0..1]: triangle 0.0, saw 0.5, pulse 1.0\nkwidth  = 0.50    ; width [0.05..0.95]: pulse duty, the ON fraction; 0.5 is a square\nkpwm    = 1      ; pwm [0..1]: how far the width swings either side of `width`\nkrate   = 0.50    ; rate [0.05..8]: width swings per second\nkfinetune = 0.00  ; finetune [-50..50]: cents off the played note\nkdrive  = 0.00    ; drive [0..1]: mixed into a soft limiter\nkage    = 0.35    ; age [0..1]: component drift -- pitch, duty and level wobble\n\nivph    = frac(ivoice * 0.6180339887)          ; each voice enters the drift elsewhere\nkdrf    poscil 0.007 * kage, 0.043 + 0.0037 * ivoice, giSine, ivph\nkjit    poscil 0.012 * kage, 0.057             ; age: duty jitter\nklvl    oscili 0.030 * kage, 0.7               ; age: level wobble\nkf0     = (kfreq * koct1) * (2 ^ (kfinetune / 1200)) * (1 + kdrf)\n\nkcen    = kwidth + (0.5 - kwidth) * kpwm      ; deep modulation recentres on the\nkswing  poscil 0.45 * kpwm, krate             ;   square, so the sweep ALWAYS crosses\nkduty   limit kcen + kswing + kjit, 0.05, 0.95;   it and never flattens on the limit\nkramp   limit 0.5 - 0.96 * kwave + kjit, 0.02, 0.5   ; imode 4: 0.5 triangle .. 0.02 saw\nkmix    limit (kwave - 0.5) * 2, 0, 1          ; the upper half crossfades saw -> pulse\n\naramp   vco2 0.6, kf0, 4, kramp                ; triangle/saw rail, rms = A/sqrt(3)\napuls   vco2 0.6, kf0, 2, kduty                ; pulse rail, kpw IS the duty\napuls   = apuls - 0.6 * (2 * kduty - 1)        ; a duty off 0.5 carries DC: measured\nknrm    = 0.57735 / (2 * sqrt(kduty * (1 - kduty)))  ; a pulse holds rms 2A*sqrt(d(1-d)),\napuls   = apuls * knrm                         ;   so this puts it on the ramp's level\naosc    = aramp * (1 - kmix) + apuls * kmix\n\nkg      = 0.3 + 20 * kdrive                    ; at 0 the limiter sits in its linear\nadrv    = tanh(aosc * kg)                      ;   region and passes the oscillator\nadrv    balance adrv, aosc                     ; the limiter changes colour, not level\nasig    = adrv * (1 + klvl)\n",
+    "rate=0.15 with wave=1, pwm=1  (slow: one swing every seven seconds)": "kwave   = 1      ; wave [0..1]: triangle 0.0, saw 0.5, pulse 1.0\nkwidth  = 0.50    ; width [0.05..0.95]: pulse duty, the ON fraction; 0.5 is a square\nkpwm    = 1      ; pwm [0..1]: how far the width swings either side of `width`\nkrate   = 0.15   ; rate [0.05..8]: width swings per second\nkfinetune = 0.00  ; finetune [-50..50]: cents off the played note\nkdrive  = 0.00    ; drive [0..1]: mixed into a soft limiter\nkage    = 0.35    ; age [0..1]: component drift -- pitch, duty and level wobble\n\nivph    = frac(ivoice * 0.6180339887)          ; each voice enters the drift elsewhere\nkdrf    poscil 0.007 * kage, 0.043 + 0.0037 * ivoice, giSine, ivph\nkjit    poscil 0.012 * kage, 0.057             ; age: duty jitter\nklvl    oscili 0.030 * kage, 0.7               ; age: level wobble\nkf0     = (kfreq * koct1) * (2 ^ (kfinetune / 1200)) * (1 + kdrf)\n\nkcen    = kwidth + (0.5 - kwidth) * kpwm      ; deep modulation recentres on the\nkswing  poscil 0.45 * kpwm, krate             ;   square, so the sweep ALWAYS crosses\nkduty   limit kcen + kswing + kjit, 0.05, 0.95;   it and never flattens on the limit\nkramp   limit 0.5 - 0.96 * kwave + kjit, 0.02, 0.5   ; imode 4: 0.5 triangle .. 0.02 saw\nkmix    limit (kwave - 0.5) * 2, 0, 1          ; the upper half crossfades saw -> pulse\n\naramp   vco2 0.6, kf0, 4, kramp                ; triangle/saw rail, rms = A/sqrt(3)\napuls   vco2 0.6, kf0, 2, kduty                ; pulse rail, kpw IS the duty\napuls   = apuls - 0.6 * (2 * kduty - 1)        ; a duty off 0.5 carries DC: measured\nknrm    = 0.57735 / (2 * sqrt(kduty * (1 - kduty)))  ; a pulse holds rms 2A*sqrt(d(1-d)),\napuls   = apuls * knrm                         ;   so this puts it on the ramp's level\naosc    = aramp * (1 - kmix) + apuls * kmix\n\nkg      = 0.3 + 20 * kdrive                    ; at 0 the limiter sits in its linear\nadrv    = tanh(aosc * kg)                      ;   region and passes the oscillator\nadrv    balance adrv, aosc                     ; the limiter changes colour, not level\nasig    = adrv * (1 + klvl)\n",
+    "rate=0.5 with wave=1, pwm=1  (classic: two seconds a round trip)": "kwave   = 1      ; wave [0..1]: triangle 0.0, saw 0.5, pulse 1.0\nkwidth  = 0.50    ; width [0.05..0.95]: pulse duty, the ON fraction; 0.5 is a square\nkpwm    = 1      ; pwm [0..1]: how far the width swings either side of `width`\nkrate   = 0.5    ; rate [0.05..8]: width swings per second\nkfinetune = 0.00  ; finetune [-50..50]: cents off the played note\nkdrive  = 0.00    ; drive [0..1]: mixed into a soft limiter\nkage    = 0.35    ; age [0..1]: component drift -- pitch, duty and level wobble\n\nivph    = frac(ivoice * 0.6180339887)          ; each voice enters the drift elsewhere\nkdrf    poscil 0.007 * kage, 0.043 + 0.0037 * ivoice, giSine, ivph\nkjit    poscil 0.012 * kage, 0.057             ; age: duty jitter\nklvl    oscili 0.030 * kage, 0.7               ; age: level wobble\nkf0     = (kfreq * koct1) * (2 ^ (kfinetune / 1200)) * (1 + kdrf)\n\nkcen    = kwidth + (0.5 - kwidth) * kpwm      ; deep modulation recentres on the\nkswing  poscil 0.45 * kpwm, krate             ;   square, so the sweep ALWAYS crosses\nkduty   limit kcen + kswing + kjit, 0.05, 0.95;   it and never flattens on the limit\nkramp   limit 0.5 - 0.96 * kwave + kjit, 0.02, 0.5   ; imode 4: 0.5 triangle .. 0.02 saw\nkmix    limit (kwave - 0.5) * 2, 0, 1          ; the upper half crossfades saw -> pulse\n\naramp   vco2 0.6, kf0, 4, kramp                ; triangle/saw rail, rms = A/sqrt(3)\napuls   vco2 0.6, kf0, 2, kduty                ; pulse rail, kpw IS the duty\napuls   = apuls - 0.6 * (2 * kduty - 1)        ; a duty off 0.5 carries DC: measured\nknrm    = 0.57735 / (2 * sqrt(kduty * (1 - kduty)))  ; a pulse holds rms 2A*sqrt(d(1-d)),\napuls   = apuls * knrm                         ;   so this puts it on the ramp's level\naosc    = aramp * (1 - kmix) + apuls * kmix\n\nkg      = 0.3 + 20 * kdrive                    ; at 0 the limiter sits in its linear\nadrv    = tanh(aosc * kg)                      ;   region and passes the oscillator\nadrv    balance adrv, aosc                     ; the limiter changes colour, not level\nasig    = adrv * (1 + klvl)\n",
+    "rate=4 with wave=1, pwm=1  (fast: fast enough to hear as texture)": "kwave   = 1      ; wave [0..1]: triangle 0.0, saw 0.5, pulse 1.0\nkwidth  = 0.50    ; width [0.05..0.95]: pulse duty, the ON fraction; 0.5 is a square\nkpwm    = 1      ; pwm [0..1]: how far the width swings either side of `width`\nkrate   = 4      ; rate [0.05..8]: width swings per second\nkfinetune = 0.00  ; finetune [-50..50]: cents off the played note\nkdrive  = 0.00    ; drive [0..1]: mixed into a soft limiter\nkage    = 0.35    ; age [0..1]: component drift -- pitch, duty and level wobble\n\nivph    = frac(ivoice * 0.6180339887)          ; each voice enters the drift elsewhere\nkdrf    poscil 0.007 * kage, 0.043 + 0.0037 * ivoice, giSine, ivph\nkjit    poscil 0.012 * kage, 0.057             ; age: duty jitter\nklvl    oscili 0.030 * kage, 0.7               ; age: level wobble\nkf0     = (kfreq * koct1) * (2 ^ (kfinetune / 1200)) * (1 + kdrf)\n\nkcen    = kwidth + (0.5 - kwidth) * kpwm      ; deep modulation recentres on the\nkswing  poscil 0.45 * kpwm, krate             ;   square, so the sweep ALWAYS crosses\nkduty   limit kcen + kswing + kjit, 0.05, 0.95;   it and never flattens on the limit\nkramp   limit 0.5 - 0.96 * kwave + kjit, 0.02, 0.5   ; imode 4: 0.5 triangle .. 0.02 saw\nkmix    limit (kwave - 0.5) * 2, 0, 1          ; the upper half crossfades saw -> pulse\n\naramp   vco2 0.6, kf0, 4, kramp                ; triangle/saw rail, rms = A/sqrt(3)\napuls   vco2 0.6, kf0, 2, kduty                ; pulse rail, kpw IS the duty\napuls   = apuls - 0.6 * (2 * kduty - 1)        ; a duty off 0.5 carries DC: measured\nknrm    = 0.57735 / (2 * sqrt(kduty * (1 - kduty)))  ; a pulse holds rms 2A*sqrt(d(1-d)),\napuls   = apuls * knrm                         ;   so this puts it on the ramp's level\naosc    = aramp * (1 - kmix) + apuls * kmix\n\nkg      = 0.3 + 20 * kdrive                    ; at 0 the limiter sits in its linear\nadrv    = tanh(aosc * kg)                      ;   region and passes the oscillator\nadrv    balance adrv, aosc                     ; the limiter changes colour, not level\nasig    = adrv * (1 + klvl)\n",
+    "finetune=-12  (flat: a slow beat against a layer at zero)": "kwave   = 0.50    ; wave [0..1]: triangle 0.0, saw 0.5, pulse 1.0\nkwidth  = 0.50    ; width [0.05..0.95]: pulse duty, the ON fraction; 0.5 is a square\nkpwm    = 0.00    ; pwm [0..1]: how far the width swings either side of `width`\nkrate   = 0.50    ; rate [0.05..8]: width swings per second\nkfinetune = -12    ; finetune [-50..50]: cents off the played note\nkdrive  = 0.00    ; drive [0..1]: mixed into a soft limiter\nkage    = 0.35    ; age [0..1]: component drift -- pitch, duty and level wobble\n\nivph    = frac(ivoice * 0.6180339887)          ; each voice enters the drift elsewhere\nkdrf    poscil 0.007 * kage, 0.043 + 0.0037 * ivoice, giSine, ivph\nkjit    poscil 0.012 * kage, 0.057             ; age: duty jitter\nklvl    oscili 0.030 * kage, 0.7               ; age: level wobble\nkf0     = (kfreq * koct1) * (2 ^ (kfinetune / 1200)) * (1 + kdrf)\n\nkcen    = kwidth + (0.5 - kwidth) * kpwm      ; deep modulation recentres on the\nkswing  poscil 0.45 * kpwm, krate             ;   square, so the sweep ALWAYS crosses\nkduty   limit kcen + kswing + kjit, 0.05, 0.95;   it and never flattens on the limit\nkramp   limit 0.5 - 0.96 * kwave + kjit, 0.02, 0.5   ; imode 4: 0.5 triangle .. 0.02 saw\nkmix    limit (kwave - 0.5) * 2, 0, 1          ; the upper half crossfades saw -> pulse\n\naramp   vco2 0.6, kf0, 4, kramp                ; triangle/saw rail, rms = A/sqrt(3)\napuls   vco2 0.6, kf0, 2, kduty                ; pulse rail, kpw IS the duty\napuls   = apuls - 0.6 * (2 * kduty - 1)        ; a duty off 0.5 carries DC: measured\nknrm    = 0.57735 / (2 * sqrt(kduty * (1 - kduty)))  ; a pulse holds rms 2A*sqrt(d(1-d)),\napuls   = apuls * knrm                         ;   so this puts it on the ramp's level\naosc    = aramp * (1 - kmix) + apuls * kmix\n\nkg      = 0.3 + 20 * kdrive                    ; at 0 the limiter sits in its linear\nadrv    = tanh(aosc * kg)                      ;   region and passes the oscillator\nadrv    balance adrv, aosc                     ; the limiter changes colour, not level\nasig    = adrv * (1 + klvl)\n",
+    "finetune=0  (centre: the played note exactly)": "kwave   = 0.50    ; wave [0..1]: triangle 0.0, saw 0.5, pulse 1.0\nkwidth  = 0.50    ; width [0.05..0.95]: pulse duty, the ON fraction; 0.5 is a square\nkpwm    = 0.00    ; pwm [0..1]: how far the width swings either side of `width`\nkrate   = 0.50    ; rate [0.05..8]: width swings per second\nkfinetune = 0      ; finetune [-50..50]: cents off the played note\nkdrive  = 0.00    ; drive [0..1]: mixed into a soft limiter\nkage    = 0.35    ; age [0..1]: component drift -- pitch, duty and level wobble\n\nivph    = frac(ivoice * 0.6180339887)          ; each voice enters the drift elsewhere\nkdrf    poscil 0.007 * kage, 0.043 + 0.0037 * ivoice, giSine, ivph\nkjit    poscil 0.012 * kage, 0.057             ; age: duty jitter\nklvl    oscili 0.030 * kage, 0.7               ; age: level wobble\nkf0     = (kfreq * koct1) * (2 ^ (kfinetune / 1200)) * (1 + kdrf)\n\nkcen    = kwidth + (0.5 - kwidth) * kpwm      ; deep modulation recentres on the\nkswing  poscil 0.45 * kpwm, krate             ;   square, so the sweep ALWAYS crosses\nkduty   limit kcen + kswing + kjit, 0.05, 0.95;   it and never flattens on the limit\nkramp   limit 0.5 - 0.96 * kwave + kjit, 0.02, 0.5   ; imode 4: 0.5 triangle .. 0.02 saw\nkmix    limit (kwave - 0.5) * 2, 0, 1          ; the upper half crossfades saw -> pulse\n\naramp   vco2 0.6, kf0, 4, kramp                ; triangle/saw rail, rms = A/sqrt(3)\napuls   vco2 0.6, kf0, 2, kduty                ; pulse rail, kpw IS the duty\napuls   = apuls - 0.6 * (2 * kduty - 1)        ; a duty off 0.5 carries DC: measured\nknrm    = 0.57735 / (2 * sqrt(kduty * (1 - kduty)))  ; a pulse holds rms 2A*sqrt(d(1-d)),\napuls   = apuls * knrm                         ;   so this puts it on the ramp's level\naosc    = aramp * (1 - kmix) + apuls * kmix\n\nkg      = 0.3 + 20 * kdrive                    ; at 0 the limiter sits in its linear\nadrv    = tanh(aosc * kg)                      ;   region and passes the oscillator\nadrv    balance adrv, aosc                     ; the limiter changes colour, not level\nasig    = adrv * (1 + klvl)\n",
+    "finetune=12  (sharp: the same beat the other way)": "kwave   = 0.50    ; wave [0..1]: triangle 0.0, saw 0.5, pulse 1.0\nkwidth  = 0.50    ; width [0.05..0.95]: pulse duty, the ON fraction; 0.5 is a square\nkpwm    = 0.00    ; pwm [0..1]: how far the width swings either side of `width`\nkrate   = 0.50    ; rate [0.05..8]: width swings per second\nkfinetune = 12     ; finetune [-50..50]: cents off the played note\nkdrive  = 0.00    ; drive [0..1]: mixed into a soft limiter\nkage    = 0.35    ; age [0..1]: component drift -- pitch, duty and level wobble\n\nivph    = frac(ivoice * 0.6180339887)          ; each voice enters the drift elsewhere\nkdrf    poscil 0.007 * kage, 0.043 + 0.0037 * ivoice, giSine, ivph\nkjit    poscil 0.012 * kage, 0.057             ; age: duty jitter\nklvl    oscili 0.030 * kage, 0.7               ; age: level wobble\nkf0     = (kfreq * koct1) * (2 ^ (kfinetune / 1200)) * (1 + kdrf)\n\nkcen    = kwidth + (0.5 - kwidth) * kpwm      ; deep modulation recentres on the\nkswing  poscil 0.45 * kpwm, krate             ;   square, so the sweep ALWAYS crosses\nkduty   limit kcen + kswing + kjit, 0.05, 0.95;   it and never flattens on the limit\nkramp   limit 0.5 - 0.96 * kwave + kjit, 0.02, 0.5   ; imode 4: 0.5 triangle .. 0.02 saw\nkmix    limit (kwave - 0.5) * 2, 0, 1          ; the upper half crossfades saw -> pulse\n\naramp   vco2 0.6, kf0, 4, kramp                ; triangle/saw rail, rms = A/sqrt(3)\napuls   vco2 0.6, kf0, 2, kduty                ; pulse rail, kpw IS the duty\napuls   = apuls - 0.6 * (2 * kduty - 1)        ; a duty off 0.5 carries DC: measured\nknrm    = 0.57735 / (2 * sqrt(kduty * (1 - kduty)))  ; a pulse holds rms 2A*sqrt(d(1-d)),\napuls   = apuls * knrm                         ;   so this puts it on the ramp's level\naosc    = aramp * (1 - kmix) + apuls * kmix\n\nkg      = 0.3 + 20 * kdrive                    ; at 0 the limiter sits in its linear\nadrv    = tanh(aosc * kg)                      ;   region and passes the oscillator\nadrv    balance adrv, aosc                     ; the limiter changes colour, not level\nasig    = adrv * (1 + klvl)\n",
+    "drive=0  (clean: the bare oscillator)": "kwave   = 0.50    ; wave [0..1]: triangle 0.0, saw 0.5, pulse 1.0\nkwidth  = 0.50    ; width [0.05..0.95]: pulse duty, the ON fraction; 0.5 is a square\nkpwm    = 0.00    ; pwm [0..1]: how far the width swings either side of `width`\nkrate   = 0.50    ; rate [0.05..8]: width swings per second\nkfinetune = 0.00  ; finetune [-50..50]: cents off the played note\nkdrive  = 0      ; drive [0..1]: mixed into a soft limiter\nkage    = 0.35    ; age [0..1]: component drift -- pitch, duty and level wobble\n\nivph    = frac(ivoice * 0.6180339887)          ; each voice enters the drift elsewhere\nkdrf    poscil 0.007 * kage, 0.043 + 0.0037 * ivoice, giSine, ivph\nkjit    poscil 0.012 * kage, 0.057             ; age: duty jitter\nklvl    oscili 0.030 * kage, 0.7               ; age: level wobble\nkf0     = (kfreq * koct1) * (2 ^ (kfinetune / 1200)) * (1 + kdrf)\n\nkcen    = kwidth + (0.5 - kwidth) * kpwm      ; deep modulation recentres on the\nkswing  poscil 0.45 * kpwm, krate             ;   square, so the sweep ALWAYS crosses\nkduty   limit kcen + kswing + kjit, 0.05, 0.95;   it and never flattens on the limit\nkramp   limit 0.5 - 0.96 * kwave + kjit, 0.02, 0.5   ; imode 4: 0.5 triangle .. 0.02 saw\nkmix    limit (kwave - 0.5) * 2, 0, 1          ; the upper half crossfades saw -> pulse\n\naramp   vco2 0.6, kf0, 4, kramp                ; triangle/saw rail, rms = A/sqrt(3)\napuls   vco2 0.6, kf0, 2, kduty                ; pulse rail, kpw IS the duty\napuls   = apuls - 0.6 * (2 * kduty - 1)        ; a duty off 0.5 carries DC: measured\nknrm    = 0.57735 / (2 * sqrt(kduty * (1 - kduty)))  ; a pulse holds rms 2A*sqrt(d(1-d)),\napuls   = apuls * knrm                         ;   so this puts it on the ramp's level\naosc    = aramp * (1 - kmix) + apuls * kmix\n\nkg      = 0.3 + 20 * kdrive                    ; at 0 the limiter sits in its linear\nadrv    = tanh(aosc * kg)                      ;   region and passes the oscillator\nadrv    balance adrv, aosc                     ; the limiter changes colour, not level\nasig    = adrv * (1 + klvl)\n",
+    "drive=0.3  (warm: clearly harder than clean, not yet fully clipped)": "kwave   = 0.50    ; wave [0..1]: triangle 0.0, saw 0.5, pulse 1.0\nkwidth  = 0.50    ; width [0.05..0.95]: pulse duty, the ON fraction; 0.5 is a square\nkpwm    = 0.00    ; pwm [0..1]: how far the width swings either side of `width`\nkrate   = 0.50    ; rate [0.05..8]: width swings per second\nkfinetune = 0.00  ; finetune [-50..50]: cents off the played note\nkdrive  = 0.3    ; drive [0..1]: mixed into a soft limiter\nkage    = 0.35    ; age [0..1]: component drift -- pitch, duty and level wobble\n\nivph    = frac(ivoice * 0.6180339887)          ; each voice enters the drift elsewhere\nkdrf    poscil 0.007 * kage, 0.043 + 0.0037 * ivoice, giSine, ivph\nkjit    poscil 0.012 * kage, 0.057             ; age: duty jitter\nklvl    oscili 0.030 * kage, 0.7               ; age: level wobble\nkf0     = (kfreq * koct1) * (2 ^ (kfinetune / 1200)) * (1 + kdrf)\n\nkcen    = kwidth + (0.5 - kwidth) * kpwm      ; deep modulation recentres on the\nkswing  poscil 0.45 * kpwm, krate             ;   square, so the sweep ALWAYS crosses\nkduty   limit kcen + kswing + kjit, 0.05, 0.95;   it and never flattens on the limit\nkramp   limit 0.5 - 0.96 * kwave + kjit, 0.02, 0.5   ; imode 4: 0.5 triangle .. 0.02 saw\nkmix    limit (kwave - 0.5) * 2, 0, 1          ; the upper half crossfades saw -> pulse\n\naramp   vco2 0.6, kf0, 4, kramp                ; triangle/saw rail, rms = A/sqrt(3)\napuls   vco2 0.6, kf0, 2, kduty                ; pulse rail, kpw IS the duty\napuls   = apuls - 0.6 * (2 * kduty - 1)        ; a duty off 0.5 carries DC: measured\nknrm    = 0.57735 / (2 * sqrt(kduty * (1 - kduty)))  ; a pulse holds rms 2A*sqrt(d(1-d)),\napuls   = apuls * knrm                         ;   so this puts it on the ramp's level\naosc    = aramp * (1 - kmix) + apuls * kmix\n\nkg      = 0.3 + 20 * kdrive                    ; at 0 the limiter sits in its linear\nadrv    = tanh(aosc * kg)                      ;   region and passes the oscillator\nadrv    balance adrv, aosc                     ; the limiter changes colour, not level\nasig    = adrv * (1 + klvl)\n",
+    "drive=1  (hot: fully into the limiter)": "kwave   = 0.50    ; wave [0..1]: triangle 0.0, saw 0.5, pulse 1.0\nkwidth  = 0.50    ; width [0.05..0.95]: pulse duty, the ON fraction; 0.5 is a square\nkpwm    = 0.00    ; pwm [0..1]: how far the width swings either side of `width`\nkrate   = 0.50    ; rate [0.05..8]: width swings per second\nkfinetune = 0.00  ; finetune [-50..50]: cents off the played note\nkdrive  = 1      ; drive [0..1]: mixed into a soft limiter\nkage    = 0.35    ; age [0..1]: component drift -- pitch, duty and level wobble\n\nivph    = frac(ivoice * 0.6180339887)          ; each voice enters the drift elsewhere\nkdrf    poscil 0.007 * kage, 0.043 + 0.0037 * ivoice, giSine, ivph\nkjit    poscil 0.012 * kage, 0.057             ; age: duty jitter\nklvl    oscili 0.030 * kage, 0.7               ; age: level wobble\nkf0     = (kfreq * koct1) * (2 ^ (kfinetune / 1200)) * (1 + kdrf)\n\nkcen    = kwidth + (0.5 - kwidth) * kpwm      ; deep modulation recentres on the\nkswing  poscil 0.45 * kpwm, krate             ;   square, so the sweep ALWAYS crosses\nkduty   limit kcen + kswing + kjit, 0.05, 0.95;   it and never flattens on the limit\nkramp   limit 0.5 - 0.96 * kwave + kjit, 0.02, 0.5   ; imode 4: 0.5 triangle .. 0.02 saw\nkmix    limit (kwave - 0.5) * 2, 0, 1          ; the upper half crossfades saw -> pulse\n\naramp   vco2 0.6, kf0, 4, kramp                ; triangle/saw rail, rms = A/sqrt(3)\napuls   vco2 0.6, kf0, 2, kduty                ; pulse rail, kpw IS the duty\napuls   = apuls - 0.6 * (2 * kduty - 1)        ; a duty off 0.5 carries DC: measured\nknrm    = 0.57735 / (2 * sqrt(kduty * (1 - kduty)))  ; a pulse holds rms 2A*sqrt(d(1-d)),\napuls   = apuls * knrm                         ;   so this puts it on the ramp's level\naosc    = aramp * (1 - kmix) + apuls * kmix\n\nkg      = 0.3 + 20 * kdrive                    ; at 0 the limiter sits in its linear\nadrv    = tanh(aosc * kg)                      ;   region and passes the oscillator\nadrv    balance adrv, aosc                     ; the limiter changes colour, not level\nasig    = adrv * (1 + klvl)\n",
+    "age=0  (exact: no drift at all -- digital-still)": "kwave   = 0.50    ; wave [0..1]: triangle 0.0, saw 0.5, pulse 1.0\nkwidth  = 0.50    ; width [0.05..0.95]: pulse duty, the ON fraction; 0.5 is a square\nkpwm    = 0.00    ; pwm [0..1]: how far the width swings either side of `width`\nkrate   = 0.50    ; rate [0.05..8]: width swings per second\nkfinetune = 0.00  ; finetune [-50..50]: cents off the played note\nkdrive  = 0.00    ; drive [0..1]: mixed into a soft limiter\nkage    = 0      ; age [0..1]: component drift -- pitch, duty and level wobble\n\nivph    = frac(ivoice * 0.6180339887)          ; each voice enters the drift elsewhere\nkdrf    poscil 0.007 * kage, 0.043 + 0.0037 * ivoice, giSine, ivph\nkjit    poscil 0.012 * kage, 0.057             ; age: duty jitter\nklvl    oscili 0.030 * kage, 0.7               ; age: level wobble\nkf0     = (kfreq * koct1) * (2 ^ (kfinetune / 1200)) * (1 + kdrf)\n\nkcen    = kwidth + (0.5 - kwidth) * kpwm      ; deep modulation recentres on the\nkswing  poscil 0.45 * kpwm, krate             ;   square, so the sweep ALWAYS crosses\nkduty   limit kcen + kswing + kjit, 0.05, 0.95;   it and never flattens on the limit\nkramp   limit 0.5 - 0.96 * kwave + kjit, 0.02, 0.5   ; imode 4: 0.5 triangle .. 0.02 saw\nkmix    limit (kwave - 0.5) * 2, 0, 1          ; the upper half crossfades saw -> pulse\n\naramp   vco2 0.6, kf0, 4, kramp                ; triangle/saw rail, rms = A/sqrt(3)\napuls   vco2 0.6, kf0, 2, kduty                ; pulse rail, kpw IS the duty\napuls   = apuls - 0.6 * (2 * kduty - 1)        ; a duty off 0.5 carries DC: measured\nknrm    = 0.57735 / (2 * sqrt(kduty * (1 - kduty)))  ; a pulse holds rms 2A*sqrt(d(1-d)),\napuls   = apuls * knrm                         ;   so this puts it on the ramp's level\naosc    = aramp * (1 - kmix) + apuls * kmix\n\nkg      = 0.3 + 20 * kdrive                    ; at 0 the limiter sits in its linear\nadrv    = tanh(aosc * kg)                      ;   region and passes the oscillator\nadrv    balance adrv, aosc                     ; the limiter changes colour, not level\nasig    = adrv * (1 + klvl)\n",
+    "age=0.35  (worn: audible but not a fault)": "kwave   = 0.50    ; wave [0..1]: triangle 0.0, saw 0.5, pulse 1.0\nkwidth  = 0.50    ; width [0.05..0.95]: pulse duty, the ON fraction; 0.5 is a square\nkpwm    = 0.00    ; pwm [0..1]: how far the width swings either side of `width`\nkrate   = 0.50    ; rate [0.05..8]: width swings per second\nkfinetune = 0.00  ; finetune [-50..50]: cents off the played note\nkdrive  = 0.00    ; drive [0..1]: mixed into a soft limiter\nkage    = 0.35   ; age [0..1]: component drift -- pitch, duty and level wobble\n\nivph    = frac(ivoice * 0.6180339887)          ; each voice enters the drift elsewhere\nkdrf    poscil 0.007 * kage, 0.043 + 0.0037 * ivoice, giSine, ivph\nkjit    poscil 0.012 * kage, 0.057             ; age: duty jitter\nklvl    oscili 0.030 * kage, 0.7               ; age: level wobble\nkf0     = (kfreq * koct1) * (2 ^ (kfinetune / 1200)) * (1 + kdrf)\n\nkcen    = kwidth + (0.5 - kwidth) * kpwm      ; deep modulation recentres on the\nkswing  poscil 0.45 * kpwm, krate             ;   square, so the sweep ALWAYS crosses\nkduty   limit kcen + kswing + kjit, 0.05, 0.95;   it and never flattens on the limit\nkramp   limit 0.5 - 0.96 * kwave + kjit, 0.02, 0.5   ; imode 4: 0.5 triangle .. 0.02 saw\nkmix    limit (kwave - 0.5) * 2, 0, 1          ; the upper half crossfades saw -> pulse\n\naramp   vco2 0.6, kf0, 4, kramp                ; triangle/saw rail, rms = A/sqrt(3)\napuls   vco2 0.6, kf0, 2, kduty                ; pulse rail, kpw IS the duty\napuls   = apuls - 0.6 * (2 * kduty - 1)        ; a duty off 0.5 carries DC: measured\nknrm    = 0.57735 / (2 * sqrt(kduty * (1 - kduty)))  ; a pulse holds rms 2A*sqrt(d(1-d)),\napuls   = apuls * knrm                         ;   so this puts it on the ramp's level\naosc    = aramp * (1 - kmix) + apuls * kmix\n\nkg      = 0.3 + 20 * kdrive                    ; at 0 the limiter sits in its linear\nadrv    = tanh(aosc * kg)                      ;   region and passes the oscillator\nadrv    balance adrv, aosc                     ; the limiter changes colour, not level\nasig    = adrv * (1 + klvl)\n",
+    "age=1  (old: the tuning visibly restless)": "kwave   = 0.50    ; wave [0..1]: triangle 0.0, saw 0.5, pulse 1.0\nkwidth  = 0.50    ; width [0.05..0.95]: pulse duty, the ON fraction; 0.5 is a square\nkpwm    = 0.00    ; pwm [0..1]: how far the width swings either side of `width`\nkrate   = 0.50    ; rate [0.05..8]: width swings per second\nkfinetune = 0.00  ; finetune [-50..50]: cents off the played note\nkdrive  = 0.00    ; drive [0..1]: mixed into a soft limiter\nkage    = 1      ; age [0..1]: component drift -- pitch, duty and level wobble\n\nivph    = frac(ivoice * 0.6180339887)          ; each voice enters the drift elsewhere\nkdrf    poscil 0.007 * kage, 0.043 + 0.0037 * ivoice, giSine, ivph\nkjit    poscil 0.012 * kage, 0.057             ; age: duty jitter\nklvl    oscili 0.030 * kage, 0.7               ; age: level wobble\nkf0     = (kfreq * koct1) * (2 ^ (kfinetune / 1200)) * (1 + kdrf)\n\nkcen    = kwidth + (0.5 - kwidth) * kpwm      ; deep modulation recentres on the\nkswing  poscil 0.45 * kpwm, krate             ;   square, so the sweep ALWAYS crosses\nkduty   limit kcen + kswing + kjit, 0.05, 0.95;   it and never flattens on the limit\nkramp   limit 0.5 - 0.96 * kwave + kjit, 0.02, 0.5   ; imode 4: 0.5 triangle .. 0.02 saw\nkmix    limit (kwave - 0.5) * 2, 0, 1          ; the upper half crossfades saw -> pulse\n\naramp   vco2 0.6, kf0, 4, kramp                ; triangle/saw rail, rms = A/sqrt(3)\napuls   vco2 0.6, kf0, 2, kduty                ; pulse rail, kpw IS the duty\napuls   = apuls - 0.6 * (2 * kduty - 1)        ; a duty off 0.5 carries DC: measured\nknrm    = 0.57735 / (2 * sqrt(kduty * (1 - kduty)))  ; a pulse holds rms 2A*sqrt(d(1-d)),\napuls   = apuls * knrm                         ;   so this puts it on the ramp's level\naosc    = aramp * (1 - kmix) + apuls * kmix\n\nkg      = 0.3 + 20 * kdrive                    ; at 0 the limiter sits in its linear\nadrv    = tanh(aosc * kg)                      ;   region and passes the oscillator\nadrv    balance adrv, aosc                     ; the limiter changes colour, not level\nasig    = adrv * (1 + klvl)\n"
    }
   },
   {
