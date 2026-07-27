@@ -91,7 +91,7 @@ AXIS = re.compile(r"^(?P<pad>\s*)k(?P<var>[a-z][a-z0-9]*)(?P<gap>\s+)=(?P<sp>\s*
 # `; MOVEMENT: TEXTURE`. Without it the census was cited in every gate run as "N of the
 # M shipped entries are in the same position" about entries that are not in the same
 # position at all: they are exempt from that rule by BJ's ruling of 2026-07-25.
-_MOVE_CENSUS = (37, 25, 7, "2026-07-25")
+_MOVE_CENSUS = (21, 12, 0, "2026-07-27")
 _MOVE_REGISTERS = (55.0, 110.0, 220.0, 440.0, 880.0, 1760.0)
 
 
@@ -777,15 +777,15 @@ def gate(body, freq=220.0, steps=3, registers=(55, 110, 220, 440, 880, 1760)):
                 fails.append(("renders", dict(corner, **{"Hz": f}), err))
                 continue
             # Movement is measured at every register and GATED at `freq`. Not gated
-            # everywhere, on measured grounds: of the 62 shipped entries at their
-            # defaults, only 37 satisfy `moves` at all six registers (`--census`;
-            # `_MOVE_CENSUS` above). The rest are mostly the three classes `moves`
-            # itself documents as beyond it — `string` travels 2881-3402 Hz at
-            # coherence 0.14-0.25 because a decaying high-Q bank's late window is a
-            # noise floor, `cymbal`, `drum_head` and `pink_noise` likewise — plus
-            # fixed-formant bodies (`voice`, `saw`, `sub_sine`) whose travel shrinks in
-            # cents as the note rises past their formants. Gating everywhere would
-            # condemn 20 long-shipped entries (25 fail, 5 of them declared) in the
+            # everywhere, on measured grounds: of the 33 shipped entries at their
+            # defaults, only 21 satisfy `moves` at all six registers (`--census`;
+            # `_MOVE_CENSUS` above). The rest are mostly the two classes `moves` itself
+            # documents as beyond it — `string` travels 1614-2435 Hz at coherence
+            # 0.03-0.23 because a decaying high-Q bank's late window is a noise floor,
+            # `cymbal`, `drum_head` and `driven_metal` likewise — plus fixed-formant
+            # bodies (`saw`, `analog_osc`, `sub_sine`, `bass_saw`) whose travel shrinks
+            # in cents as the note rises past their formants. Gating everywhere would
+            # condemn 12 long-shipped entries (12 fail, none of them declared) in the
             # name of a meter limit, which is a change of standard and BJ's to make,
             # not a defect to fix. It is REPORTED so the register dependence is
             # visible: the same body used to pass or fail purely on which registers
@@ -1184,7 +1184,16 @@ def main():
                       f"{max(rep) - min(rep):.2f} dB — a tilt under that is noise")
 
     if args.gate:
-        ok, fails, st = gate(body, args.freq, args.steps)
+        # `--registers` reaches the gate. It did not: the flag was parsed, used for the
+        # tilt print above, and then dropped, so `--gate --registers 110,220` silently ran
+        # the default six. The gate's own note says a body "used to pass or fail purely on
+        # which registers were in the list" — an author who narrows that list and is given
+        # a verdict about a different one is in exactly that position, and cannot see it.
+        # `gate` forces `--freq` into the set regardless, so a narrowed list still checks
+        # the register the corner rule is read at.
+        ok, fails, st = gate(body, args.freq, args.steps,
+                             registers=[float(x) for x in args.registers.split(",")]
+                             if args.registers else (55, 110, 220, 440, 880, 1760))
         # renders/corners, NOT a remembered register count: it is the honest number
         # only while every corner rendered. When one did not, `rows` shrank and the
         # division silently reported a wrong register count as if nothing were missing,
@@ -1317,10 +1326,12 @@ def main():
                   + ", ".join(f"{n} at {f:.0f} Hz" for f, n in sorted(by_hz.items()))
                   + f" (reported, not gated: {_MOVE_CENSUS[1] - _MOVE_CENSUS[2]} of the "
                     f"{_MOVE_CENSUS[0] + _MOVE_CENSUS[1]} shipped entries are in the same "
-                    f"position at some register — a further {_MOVE_CENSUS[2]} stand still "
-                    f"too but DECLARE the event-texture class, so they are not in the same "
-                    f"position and are not counted here. Measured {_MOVE_CENSUS[3]}; "
-                    f"re-derive with --census)")
+                    f"position at some register"
+                  + (f" — a further {_MOVE_CENSUS[2]} stand still too but DECLARE the "
+                     f"event-texture class, so they are not in the same position and are "
+                     f"not counted here" if _MOVE_CENSUS[2] else
+                     ", and no shipped entry declares the event-texture class today")
+                  + f". Measured {_MOVE_CENSUS[3]}; re-derive with --census)")
         # A PASS says what was actually checked. On a body with a declared loudness axis
         # "holds one loudness" and "struck equally hard" are both false as printed — the
         # level DOES move, by the amount two lines above — so the sentence has to name
