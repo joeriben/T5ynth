@@ -1,28 +1,30 @@
 #!/usr/bin/env python3
-"""Play one instrument across every one of its parameters. See docs/LCO_TEST_POLICY.md.
+"""Play one instrument as its parameters COMBINE. See docs/LCO_TEST_POLICY.md.
 
 BEFORE any word is put on trial, the instrument itself has to be heard. A word test
 asks whether `worn` reaches the sound it names; it cannot say whether the oscillator
-is any good, whether a control stays usable over its whole range, or where it stops
-being material. Nothing measured here answers that either -- a level flat to 0.02 dB
-says nothing about whether the thing plays.
+is any good, whether a control stays usable, or where it stops being material.
 
-So this page is not a test and has no right answer. It is the instrument laid out:
-every parameter stepped across its declared range at one pitch, the others at their
-defaults, plus whatever it replaces, plus a few octaves of the default sound.
+And a row per control, everything else at its default, answers the wrong question.
+The author model does not move one knob -- it writes a body with every parameter
+set at once, and these are the same parameters the player will see in the Prompt
+Orchestra field. So a control that behaves alone and falls apart in company is a
+defect this page has to be able to show. What is laid out here is the parameter
+space, not the parameters:
 
-Three things it does that are not decoration:
+  * with two controls, the whole grid -- every value of one against every value of
+    the other;
+  * with three or more, a two-level factorial over ALL of them at once (the full
+    2^n up to five controls; beyond that a 32-run resolution IV fraction, where
+    each control is low in half the runs and high in the other half and no pair of
+    controls is confounded), plus a spread of interior points from a Halton
+    sequence so no two of those share a value on any axis.
 
-  * ONE gain for the whole page. Loudness differences between clips are the
-    instrument's own, and nothing clips on export -- a page written at 16 bit
-    silently flattened the peaks of every narrow pulse on it.
-  * A parameter that only acts inside another one's region is rendered inside it
-    (`width` needs `wave` at pulse), or the row is five copies of a control that
-    was never switched on.
-  * A parameter whose whole point is a second layer is rendered AS two layers.
-    Twelve cents on a single tone with nothing to beat against is inaudible by
-    construction; the same twelve cents against an undetuned copy is the sound
-    the parameter exists for.
+Then one row of the default setting across the keyboard, because a range problem
+shows there and nowhere else.
+
+One gain for the whole page, so loudness differences between clips are the
+instrument's own and nothing clips on export.
 
 One player. A click plays, a click on another clip replaces the running one, a
 click on the yellow one stops.
@@ -48,15 +50,10 @@ import lco_measure as M  # noqa: E402
 
 LEX = REPO / "backend" / "dco_lexicon.json"
 PREROLL = 0.5
-STEPS = 5
 PAGE_PEAK = 0.89
-
-# A parameter that only acts inside a region of another one, and the setting that
-# switches it on.
-CONTEXT = {"width": {"wave": 1.0}, "pwm": {"wave": 1.0}, "rate": {"wave": 1.0, "pwm": 1.0}}
-
-# A parameter that only exists to be heard against a second, undetuned layer.
-LAYERED = {"finetune"}
+GRID = 5          # steps per axis when there are exactly two controls
+INTERIOR = 12     # Halton points through the cube when there are three or more
+PRIMES = [2, 3, 5, 7, 11, 13, 17, 19, 23]
 
 
 def entry_of(key, lex=None):
@@ -83,24 +80,56 @@ def set_params(body, **vals):
     return out
 
 
+def halton(i, base):
+    f, r, n = 1.0, 0.0, i
+    while n > 0:
+        f /= base
+        r += f * (n % base)
+        n //= base
+    return r
+
+
+def factorial_runs(n):
+    """Two-level runs over n controls: full 2^n to five, else a 32-run resolution IV
+    fraction. The generators below are the textbook ones -- each added control is the
+    parity of three base controls, which keeps every control balanced 16/16 and every
+    PAIR of controls unconfounded, so a defect that only appears when two are extreme
+    together still has to show up."""
+    if n <= 5:
+        return [[(i >> b) & 1 for b in range(n)] for i in range(2 ** n)]
+    gens = [(0, 1, 2), (1, 2, 3), (0, 2, 3), (0, 1, 3), (0, 1, 2, 3)]
+    runs = []
+    for i in range(32):
+        base = [(i >> b) & 1 for b in range(5)]
+        row = list(base)
+        for g in gens[: n - 5]:
+            row.append(int(np.bitwise_xor.reduce([base[k] for k in g])))
+        runs.append(row)
+    return runs
+
+
 PAGE = """<!doctype html><meta charset=utf-8><title>{title}</title>
 <style>
-body{{font:15px system-ui;margin:0 24px 90px;max-width:920px;color:#222}}
+body{{font:15px system-ui;margin:0 24px 90px;max-width:960px;color:#222}}
 h1{{font-size:20px;margin-bottom:4px}}
-h2{{font-size:15px;margin:26px 0 2px;font-weight:600}}
+h2{{font-size:15px;margin:28px 0 2px;font-weight:600}}
 #now{{position:sticky;top:0;background:#fff;padding:12px 0;margin-bottom:6px;
 border-bottom:2px solid #ccc;z-index:20;display:flex;align-items:center;gap:16px}}
-#player{{width:340px;height:34px}} #nowlabel{{font-weight:bold;color:#333}}
+#player{{width:340px;height:34px}} #nowlabel{{font-weight:bold;color:#333;font-size:13.5px}}
 .note{{background:#f6f8fa;border:1px solid #dfe2e5;border-radius:6px;padding:10px 13px;
 font-size:13px;margin:10px 0;line-height:1.65}}
 .sub{{font-size:12.5px;color:#666;margin:0 0 8px;line-height:1.5}}
-.row{{display:flex;gap:7px;flex-wrap:wrap;align-items:stretch}}
+.row{{display:flex;gap:6px;flex-wrap:wrap;align-items:stretch}}
 .clip{{cursor:pointer;border:1px solid #bbb;background:#f4f4f4;border-radius:6px;
-padding:8px 13px;font-size:13px;line-height:1.35;text-align:center;min-width:74px}}
+padding:7px 11px;font-size:12.5px;line-height:1.35;text-align:center;min-width:64px}}
 .clip:hover{{background:#e7e7e7}} .clip.playing{{background:#ffca28;border-color:#f57f17}}
-.clip b{{display:block;font-size:14px}} .clip span{{color:#777;font-size:11px}}
-.clip.playing span{{color:#7a5b00}}
-.old{{background:#fff;border-style:dashed}}
+.clip b{{display:block;font-size:13px;font-weight:600}}
+.clip span{{color:#777;font-size:11px}} .clip.playing span{{color:#7a5b00}}
+table{{border-collapse:collapse;margin-top:4px}}
+td,th{{padding:3px 4px;text-align:center}}
+th{{font-size:11.5px;color:#666;font-weight:500}}
+th.rowhead{{text-align:right;padding-right:8px;white-space:nowrap}}
+.legend{{font-size:11.5px;color:#888;margin:0 0 6px;font-family:ui-monospace,monospace}}
 code{{background:#eef1f4;padding:1px 4px;border-radius:3px;font-size:12px}}
 </style>
 <div id='now'><audio id='player' controls preload='auto'></audio>
@@ -137,7 +166,10 @@ def main():
     out = Path(args.out) / f"{args.key}_audition"
     out.mkdir(parents=True, exist_ok=True)
     body = inst["code"]
-    clips = []          # (name, label, big, small, cls, audio)
+    names = list(inst["params"])
+    rng = {n: inst["params"][n]["range"] for n in names}
+    dflt = {n: inst["params"][n]["default"] for n in names}
+    clips = []
 
     def render(code, freq=None):
         y, err = M.render(code, dur=args.dur, freq=freq or args.freq, preroll=PREROLL)
@@ -146,13 +178,71 @@ def main():
         return y
 
     def add(y, name, label, big, small, cls=""):
-        clips.append((name, label, big, small, cls, y))
+        clips.append((name, y))
         return (f"<button class='clip {cls}' data-src='{name}.wav' data-label=\"{label}\">"
                 f"<b>{big}</b><span>{small}</span></button>")
 
+    def full(vals):
+        return ", ".join(f"{n} {vals.get(n, dflt[n]):g}" for n in names)
+
     sections = ""
 
-    # the default sound over the keyboard: a range problem shows here and nowhere else
+    if len(names) == 2:
+        a, b = names
+        av = [rng[a][0] + (rng[a][1] - rng[a][0]) * i / (GRID - 1) for i in range(GRID)]
+        bv = [rng[b][0] + (rng[b][1] - rng[b][0]) * i / (GRID - 1) for i in range(GRID)]
+        rows = f"<tr><th></th><th colspan='{GRID}'>{b}</th></tr><tr><th></th>"
+        rows += "".join(f"<th>{v:g}</th>" for v in bv) + "</tr>"
+        for i, x in enumerate(av):
+            rows += f"<tr><th class='rowhead'>{a} {x:g}</th>"
+            for j, y in enumerate(bv):
+                s = {a: x, b: y}
+                rows += ("<td>" + add(render(set_params(body, **s)), f"g{i}{j}",
+                                      full(s), f"{x:g}", f"{y:g}") + "</td>")
+            rows += "</tr>"
+        sections += (f"<h2>Beide Regler gegeneinander &mdash; {GRID}×{GRID}</h2>"
+                     f"<p class='sub'>Jeder Wert von <code>{a}</code> gegen jeden Wert von "
+                     f"<code>{b}</code>. Oben auf dem Knopf steht <code>{a}</code>, "
+                     f"darunter <code>{b}</code>.</p><table>{rows}</table>")
+    elif len(names) == 1:
+        a = names[0]
+        av = [rng[a][0] + (rng[a][1] - rng[a][0]) * i / (GRID - 1) for i in range(GRID)]
+        row = "".join(add(render(set_params(body, **{a: v})), f"s{i}", full({a: v}),
+                          f"{v:g}", "") for i, v in enumerate(av))
+        sections += (f"<h2>{a} über seinen Bereich</h2>"
+                     f"<p class='sub'>Dieser Klangkörper hat nur einen Regler; "
+                     f"es gibt nichts zu kombinieren.</p><div class='row'>{row}</div>")
+    else:
+        runs = factorial_runs(len(names))
+        legend = " · ".join(names)
+        row = ""
+        for i, r in enumerate(runs):
+            s = {n: rng[n][r[k]] for k, n in enumerate(names)}
+            row += add(render(set_params(body, **s)), f"f{i:02d}", full(s),
+                       " · ".join(f"{s[n]:g}" for n in names), "")
+        kind = ("alle " + str(2 ** len(names)) if len(names) <= 5
+                else "32 aus " + str(2 ** len(names)))
+        sections += (f"<h2>Alle Regler zugleich, jeweils ganz unten oder ganz oben</h2>"
+                     f"<p class='sub'>{kind} Ecken des Parameterraums. Jeder Regler steht in "
+                     "der Hälfte der Klänge unten und in der anderen oben, und kein Reglerpaar "
+                     "ist mit einem anderen verwechselbar &mdash; ein Fehler, der nur auftritt, "
+                     "wenn zwei zugleich am Anschlag stehen, muss hier auftauchen.</p>"
+                     f"<p class='legend'>Reihenfolge auf dem Knopf: {legend}</p>"
+                     f"<div class='row'>{row}</div>")
+
+        row = ""
+        for i in range(INTERIOR):
+            s = {n: rng[n][0] + (rng[n][1] - rng[n][0]) * halton(i + 1, PRIMES[k])
+                 for k, n in enumerate(names)}
+            row += add(render(set_params(body, **s)), f"h{i:02d}", full(s),
+                       " · ".join(f"{s[n]:.2f}" for n in names), "")
+        sections += (f"<h2>Quer durch den Raum, {INTERIOR} Stellungen</h2>"
+                     "<p class='sub'>Keine Ecken, sondern Werte mitten im Bereich, aus einer "
+                     "Halton-Folge: keine zwei dieser Klänge teilen sich auf irgendeiner Achse "
+                     "denselben Wert.</p>"
+                     f"<p class='legend'>Reihenfolge auf dem Knopf: {legend}</p>"
+                     f"<div class='row'>{row}</div>")
+
     row = "".join(add(render(body, freq=f), f"oct_{f:.0f}", f"Vorgabe, {f:.0f} Hz",
                       f"{f:.0f} Hz", "Vorgabe")
                   for f in (55.0, 110.0, 220.0, 440.0, 880.0, 1760.0))
@@ -160,57 +250,6 @@ def main():
                  "<p class='sub'>Alle Regler auf ihrem Vorgabewert. Hier zeigt sich, ob der "
                  "Klang über den Tonumfang trägt.</p>"
                  f"<div class='row'>{row}</div>")
-
-    for pn, p in inst["params"].items():
-        lo, hi = p["range"]
-        ctx = CONTEXT.get(pn, {})
-        vals = [lo + (hi - lo) * i / (STEPS - 1) for i in range(STEPS)]
-        anchors = {a["value"]: nm for nm, a in p["anchors"].items()}
-        for v in anchors:
-            if not any(abs(v - x) < 1e-9 for x in vals):
-                vals.append(v)
-        vals.sort()
-
-        base = render(set_params(body, **{pn: lo * 0}, **ctx)) if pn in LAYERED else None
-        row = ""
-        for i, v in enumerate(vals):
-            y = render(set_params(body, **{pn: v}, **ctx))
-            if base is not None:
-                y = 0.5 * (y + base)
-            lab = (f"{pn} = {v:g}" + (f"  ({anchors[v]})" if v in anchors else "")
-                   + ("  [" + ", ".join(f"{k} {w:g}" for k, w in ctx.items()) + "]" if ctx else "")
-                   + ("  gegen eine zweite Schicht auf 0" if base is not None else ""))
-            row += add(y, f"{pn}_{i}", lab, f"{v:g}", anchors.get(v, ""))
-
-        note = p["note"].split(". ")[0] + "."
-        extra = ""
-        if ctx:
-            extra += ("  Dabei fest: "
-                      + ", ".join(f"<code>{k}</code> {w:g}" for k, w in ctx.items()) + ".")
-        if base is not None:
-            extra += ("  Jeder Klang ist die Summe aus zwei Schichten &mdash; eine auf 0, "
-                      "eine auf dem angegebenen Wert. Allein gespielt hat dieser Regler "
-                      "nichts, wogegen er wirken könnte.")
-        sections += (f"<h2>{pn} &mdash; {lo:g} bis {hi:g}</h2>"
-                     f"<p class='sub'>{note}{extra}</p><div class='row'>{row}</div>")
-
-    # the one choice in this body that is mine and not the model's
-    if args.key == "analog_osc":
-        flat = set_params(body, wave=1.0, pwm=1.0)
-        loose = flat.replace("apuls   = apuls * knrm", "apuls   = apuls * 1.0")
-        if loose == flat:
-            raise SystemExit("normalisation line not found")
-        row = (add(render(flat), "norm_on", "PWM-Fahrt, Pegel ausgeglichen",
-                   "ausgeglichen", "wie gebaut")
-               + add(render(loose), "norm_off", "PWM-Fahrt, Pegel läuft mit",
-                     "läuft mit", "wie vco2 es gibt", cls="old"))
-        sections += ("<h2>Die eine Entscheidung, die ich getroffen habe</h2>"
-                     "<p class='sub'>Ein Puls wird leiser, je schmaler er wird &mdash; auf "
-                     "einem analogen Gerät sackt der Pegel während der Fahrt hörbar ab, und "
-                     "das gehört zum Klang der Pulsbreitenmodulation. Ich habe ihn "
-                     "ausgeglichen, weil im Lexikon alle Klangkörper eine Lautstärke haben "
-                     "sollen. Beides steht hier nebeneinander.</p>"
-                     f"<div class='row'>{row}</div>")
 
     for spec in filter(None, args.compare.split(",")):
         rev, _, key = spec.partition(":")
@@ -220,31 +259,33 @@ def main():
         tmp.write_text(raw)
         old = entry_of(key, tmp)
         row = "".join(add(render(old["code"], freq=f), f"old_{key}_{f:.0f}",
-                          f"ALT {key}, {f:.0f} Hz", f"{f:.0f} Hz", "alt", cls="old")
+                          f"ALT {key}, {f:.0f} Hz", f"{f:.0f} Hz", "alt")
                       for f in (110.0, 220.0, 440.0))
         sections += (f"<h2>Zum Vergleich: das alte <code>{key}</code></h2>"
                      "<p class='sub'>Wie es vor diesem Umbau klang, an drei Tonhöhen. "
                      "Derselbe Seitenpegel &mdash; ein Lautstärkeunterschied ist echt.</p>"
                      f"<div class='row'>{row}</div>")
 
-    peak = max(float(np.max(np.abs(y))) for *_, y in clips)
+    peak = max(float(np.max(np.abs(y))) for _, y in clips)
     g = PAGE_PEAK / peak
-    for name, _, _, _, _, y in clips:
+    for name, y in clips:
         sf.write(out / f"{name}.wav", (y * g).astype(np.float32), M.SR, subtype="PCM_24")
 
     intro = (f"<b>{args.key}</b>, {len(clips)} Klänge, je {args.dur:g} s bei "
-             f"{args.freq:.0f} Hz, wo nicht anders angegeben. Jede Zeile ist ein Regler über "
-             "seinen ganzen Bereich, die übrigen Regler auf Vorgabe; benannte Anker stehen "
-             "unter ihrem Knopf.<br>"
+             f"{args.freq:.0f} Hz, wo nicht anders angegeben. Geprüft wird die "
+             "<b>Kombination</b> der Regler, nicht ein Regler nach dem anderen: der "
+             "schreibende Agent bewegt keinen einzelnen Knopf, er setzt alle auf einmal, und "
+             "es sind dieselben Regler, die der Spieler später im Prompt-Orchestra-Feld "
+             "sieht.<br>"
              f"Die ganze Seite hat <b>eine</b> Verstärkung ({20 * np.log10(g):+.1f} dB, "
              f"höchste Spitze {peak:.2f}). Was hier lauter klingt, ist lauter."
              "<br><b>Das ist kein Test und hat keine richtige Antwort.</b> Die Frage ist, ob "
-             "der Oszillator etwas taugt und ob jeder Regler über seinen Bereich brauchbar "
-             "bleibt.")
+             "der Klangkörper über seinen ganzen Raum brauchbar bleibt.")
     (out / "index.html").write_text(
         PAGE.format(title=f"{args.key} &mdash; durchhören", intro=intro, sections=sections),
         encoding="utf-8")
-    print(f"{out}/index.html   ({len(clips)} Klänge, Spitze {peak:.2f}, Gain {20*np.log10(g):+.1f} dB)")
+    print(f"{out}/index.html   ({len(clips)} Klänge, Spitze {peak:.2f}, "
+          f"Gain {20*np.log10(g):+.1f} dB)")
     return 0
 
 
