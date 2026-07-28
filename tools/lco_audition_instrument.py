@@ -1,27 +1,29 @@
 #!/usr/bin/env python3
-"""Play one instrument as its parameters COMBINE. See docs/LCO_TEST_POLICY.md.
+"""Play one instrument as its controls COMBINE -- each control against each other one.
 
 BEFORE any word is put on trial, the instrument itself has to be heard. A word test
 asks whether `worn` reaches the sound it names; it cannot say whether the oscillator
-is any good, whether a control stays usable, or where it stops being material.
+is any good, or where a control stops being usable.
 
 And a row per control, everything else at its default, answers the wrong question.
-The author model does not move one knob -- it writes a body with every parameter
-set at once, and these are the same parameters the player will see in the Prompt
-Orchestra field. So a control that behaves alone and falls apart in company is a
-defect this page has to be able to show. What is laid out here is the parameter
-space, not the parameters:
+Neither the author model nor the player moves one knob: both set them all at once,
+and BJ (2026-07-28) confirmed these are the same controls the player will see in the
+Prompt Orchestra field. A control that behaves alone and falls apart in company is
+exactly the defect this page has to be able to show.
 
-  * with two controls, the whole grid -- every value of one against every value of
-    the other;
-  * with three or more, a two-level factorial over ALL of them at once (the full
-    2^n up to five controls; beyond that a 32-run resolution IV fraction, where
-    each control is low in half the runs and high in the other half and no pair of
-    controls is confounded), plus a spread of interior points from a Halton
-    sequence so no two of those share a value on any axis.
+So: one small table per PAIR of controls -- rows one control, columns the other,
+everything else on its default. Seven controls make 21 tables. What is on trial in
+each is whether the row control still means the same thing in every column.
 
-Then one row of the default setting across the keyboard, because a range problem
-shows there and nowhere else.
+A first version laid out 32 corners of the whole cube as a flat list of seven-number
+settings instead. It is a defensible experimental design and it is unreadable: a
+human cannot hear "0 . 0.95 . 1 . 0.05 . -50 . 0 . 0" as a question. A combination of
+two named controls is a question; a preset is not.
+
+A control that does nothing until another one switches it on is rendered with that
+one switched on (`width`, `pwm` and `rate` need `wave` at pulse), or its table is
+nine copies of the same saw. Where the enabling control is one of the pair, it is
+left free.
 
 One gain for the whole page, so loudness differences between clips are the
 instrument's own and nothing clips on export.
@@ -33,6 +35,7 @@ click on the yellow one stops.
 from __future__ import annotations
 
 import argparse
+import itertools
 import json
 import re
 import subprocess
@@ -51,9 +54,15 @@ import lco_measure as M  # noqa: E402
 LEX = REPO / "backend" / "dco_lexicon.json"
 PREROLL = 0.5
 PAGE_PEAK = 0.89
-GRID = 5          # steps per axis when there are exactly two controls
-INTERIOR = 12     # Halton points through the cube when there are three or more
-PRIMES = [2, 3, 5, 7, 11, 13, 17, 19, 23]
+STEPS = 3         # levels per axis in a pair table
+SOLO_STEPS = 5    # a body with only two controls has one table, so it can afford more
+
+# A control that is inert until another one is set, and what sets it. Applied to every
+# pair except where the enabling control is itself one of the two on trial.
+CONTEXT = {
+    "analog_osc": {"width": {"wave": 1.0}, "pwm": {"wave": 1.0},
+                   "rate": {"wave": 1.0, "pwm": 1.0}},
+}
 
 
 def entry_of(key, lex=None):
@@ -80,56 +89,31 @@ def set_params(body, **vals):
     return out
 
 
-def halton(i, base):
-    f, r, n = 1.0, 0.0, i
-    while n > 0:
-        f /= base
-        r += f * (n % base)
-        n //= base
-    return r
-
-
-def factorial_runs(n):
-    """Two-level runs over n controls: full 2^n to five, else a 32-run resolution IV
-    fraction. The generators below are the textbook ones -- each added control is the
-    parity of three base controls, which keeps every control balanced 16/16 and every
-    PAIR of controls unconfounded, so a defect that only appears when two are extreme
-    together still has to show up."""
-    if n <= 5:
-        return [[(i >> b) & 1 for b in range(n)] for i in range(2 ** n)]
-    gens = [(0, 1, 2), (1, 2, 3), (0, 2, 3), (0, 1, 3), (0, 1, 2, 3)]
-    runs = []
-    for i in range(32):
-        base = [(i >> b) & 1 for b in range(5)]
-        row = list(base)
-        for g in gens[: n - 5]:
-            row.append(int(np.bitwise_xor.reduce([base[k] for k in g])))
-        runs.append(row)
-    return runs
-
-
 PAGE = """<!doctype html><meta charset=utf-8><title>{title}</title>
 <style>
-body{{font:15px system-ui;margin:0 24px 90px;max-width:960px;color:#222}}
+body{{font:15px system-ui;margin:0 24px 90px;max-width:1080px;color:#222}}
 h1{{font-size:20px;margin-bottom:4px}}
-h2{{font-size:15px;margin:28px 0 2px;font-weight:600}}
+h2{{font-size:15px;margin:26px 0 6px;font-weight:600}}
 #now{{position:sticky;top:0;background:#fff;padding:12px 0;margin-bottom:6px;
 border-bottom:2px solid #ccc;z-index:20;display:flex;align-items:center;gap:16px}}
-#player{{width:340px;height:34px}} #nowlabel{{font-weight:bold;color:#333;font-size:13.5px}}
+#player{{width:330px;height:34px}} #nowlabel{{font-weight:bold;color:#333;font-size:13px}}
 .note{{background:#f6f8fa;border:1px solid #dfe2e5;border-radius:6px;padding:10px 13px;
 font-size:13px;margin:10px 0;line-height:1.65}}
 .sub{{font-size:12.5px;color:#666;margin:0 0 8px;line-height:1.5}}
-.row{{display:flex;gap:6px;flex-wrap:wrap;align-items:stretch}}
-.clip{{cursor:pointer;border:1px solid #bbb;background:#f4f4f4;border-radius:6px;
-padding:7px 11px;font-size:12.5px;line-height:1.35;text-align:center;min-width:64px}}
+.row{{display:flex;gap:6px;flex-wrap:wrap}}
+.pairs{{display:flex;flex-wrap:wrap;gap:22px 30px}}
+.pair h3{{font-size:13.5px;margin:0 0 1px;font-weight:600}}
+.pair p{{font-size:11.5px;color:#8a8a8a;margin:0 0 4px}}
+.clip{{cursor:pointer;border:1px solid #bbb;background:#f4f4f4;border-radius:5px;
+padding:6px 9px;font-size:12.5px;line-height:1.3;text-align:center;min-width:40px}}
 .clip:hover{{background:#e7e7e7}} .clip.playing{{background:#ffca28;border-color:#f57f17}}
 .clip b{{display:block;font-size:13px;font-weight:600}}
 .clip span{{color:#777;font-size:11px}} .clip.playing span{{color:#7a5b00}}
-table{{border-collapse:collapse;margin-top:4px}}
-td,th{{padding:3px 4px;text-align:center}}
-th{{font-size:11.5px;color:#666;font-weight:500}}
-th.rowhead{{text-align:right;padding-right:8px;white-space:nowrap}}
-.legend{{font-size:11.5px;color:#888;margin:0 0 6px;font-family:ui-monospace,monospace}}
+table{{border-collapse:collapse}}
+td,th{{padding:2px 3px;text-align:center}}
+th{{font-size:11.5px;color:#555;font-weight:500;white-space:nowrap}}
+th.rh{{text-align:right;padding-right:7px}}
+th.corner{{text-align:right;padding-right:7px;color:#999;font-style:italic}}
 code{{background:#eef1f4;padding:1px 4px;border-radius:3px;font-size:12px}}
 </style>
 <div id='now'><audio id='player' controls preload='auto'></audio>
@@ -169,6 +153,7 @@ def main():
     names = list(inst["params"])
     rng = {n: inst["params"][n]["range"] for n in names}
     dflt = {n: inst["params"][n]["default"] for n in names}
+    ctx = CONTEXT.get(args.key, {})
     clips = []
 
     def render(code, freq=None):
@@ -177,71 +162,59 @@ def main():
             raise SystemExit(err)
         return y
 
-    def add(y, name, label, big, small, cls=""):
+    def add(y, name, label, big, small="", cls=""):
         clips.append((name, y))
         return (f"<button class='clip {cls}' data-src='{name}.wav' data-label=\"{label}\">"
                 f"<b>{big}</b><span>{small}</span></button>")
 
-    def full(vals):
-        return ", ".join(f"{n} {vals.get(n, dflt[n]):g}" for n in names)
+    def steps(n, k):
+        lo, hi = rng[n]
+        return [lo + (hi - lo) * i / (k - 1) for i in range(k)]
 
+    pairs = list(itertools.combinations(names, 2))
+    k = SOLO_STEPS if len(pairs) == 1 else STEPS
     sections = ""
 
-    if len(names) == 2:
-        a, b = names
-        av = [rng[a][0] + (rng[a][1] - rng[a][0]) * i / (GRID - 1) for i in range(GRID)]
-        bv = [rng[b][0] + (rng[b][1] - rng[b][0]) * i / (GRID - 1) for i in range(GRID)]
-        rows = f"<tr><th></th><th colspan='{GRID}'>{b}</th></tr><tr><th></th>"
-        rows += "".join(f"<th>{v:g}</th>" for v in bv) + "</tr>"
-        for i, x in enumerate(av):
-            rows += f"<tr><th class='rowhead'>{a} {x:g}</th>"
-            for j, y in enumerate(bv):
-                s = {a: x, b: y}
-                rows += ("<td>" + add(render(set_params(body, **s)), f"g{i}{j}",
-                                      full(s), f"{x:g}", f"{y:g}") + "</td>")
-            rows += "</tr>"
-        sections += (f"<h2>Beide Regler gegeneinander &mdash; {GRID}×{GRID}</h2>"
-                     f"<p class='sub'>Jeder Wert von <code>{a}</code> gegen jeden Wert von "
-                     f"<code>{b}</code>. Oben auf dem Knopf steht <code>{a}</code>, "
-                     f"darunter <code>{b}</code>.</p><table>{rows}</table>")
-    elif len(names) == 1:
+    if not pairs:
         a = names[0]
-        av = [rng[a][0] + (rng[a][1] - rng[a][0]) * i / (GRID - 1) for i in range(GRID)]
-        row = "".join(add(render(set_params(body, **{a: v})), f"s{i}", full({a: v}),
-                          f"{v:g}", "") for i, v in enumerate(av))
-        sections += (f"<h2>{a} über seinen Bereich</h2>"
-                     f"<p class='sub'>Dieser Klangkörper hat nur einen Regler; "
+        row = "".join(add(render(set_params(body, **{a: v})), f"s{i}",
+                          f"{a} = {v:g}", f"{v:g}")
+                      for i, v in enumerate(steps(a, SOLO_STEPS)))
+        sections += (f"<h2>{a}</h2><p class='sub'>Dieser Klangkörper hat nur einen Regler; "
                      f"es gibt nichts zu kombinieren.</p><div class='row'>{row}</div>")
     else:
-        runs = factorial_runs(len(names))
-        legend = " · ".join(names)
-        row = ""
-        for i, r in enumerate(runs):
-            s = {n: rng[n][r[k]] for k, n in enumerate(names)}
-            row += add(render(set_params(body, **s)), f"f{i:02d}", full(s),
-                       " · ".join(f"{s[n]:g}" for n in names), "")
-        kind = ("alle " + str(2 ** len(names)) if len(names) <= 5
-                else "32 aus " + str(2 ** len(names)))
-        sections += (f"<h2>Alle Regler zugleich, jeweils ganz unten oder ganz oben</h2>"
-                     f"<p class='sub'>{kind} Ecken des Parameterraums. Jeder Regler steht in "
-                     "der Hälfte der Klänge unten und in der anderen oben, und kein Reglerpaar "
-                     "ist mit einem anderen verwechselbar &mdash; ein Fehler, der nur auftritt, "
-                     "wenn zwei zugleich am Anschlag stehen, muss hier auftauchen.</p>"
-                     f"<p class='legend'>Reihenfolge auf dem Knopf: {legend}</p>"
-                     f"<div class='row'>{row}</div>")
-
-        row = ""
-        for i in range(INTERIOR):
-            s = {n: rng[n][0] + (rng[n][1] - rng[n][0]) * halton(i + 1, PRIMES[k])
-                 for k, n in enumerate(names)}
-            row += add(render(set_params(body, **s)), f"h{i:02d}", full(s),
-                       " · ".join(f"{s[n]:.2f}" for n in names), "")
-        sections += (f"<h2>Quer durch den Raum, {INTERIOR} Stellungen</h2>"
-                     "<p class='sub'>Keine Ecken, sondern Werte mitten im Bereich, aus einer "
-                     "Halton-Folge: keine zwei dieser Klänge teilen sich auf irgendeiner Achse "
-                     "denselben Wert.</p>"
-                     f"<p class='legend'>Reihenfolge auf dem Knopf: {legend}</p>"
-                     f"<div class='row'>{row}</div>")
+        blocks = ""
+        for pi, (a, b) in enumerate(pairs):
+            fixed = {}
+            for who in (a, b):
+                for cn, cv in ctx.get(who, {}).items():
+                    if cn not in (a, b):
+                        fixed[cn] = cv
+            av, bv = steps(a, k), steps(b, k)
+            t = (f"<tr><th class='corner'>{a} &#9585; {b}</th>"
+                 + "".join(f"<th>{v:g}</th>" for v in bv) + "</tr>")
+            for i, x in enumerate(av):
+                t += f"<tr><th class='rh'>{x:g}</th>"
+                for j, y in enumerate(bv):
+                    s = dict(fixed, **{a: x, b: y})
+                    lab = ", ".join(f"{n} {s.get(n, dflt[n]):g}" for n in names)
+                    if fixed:
+                        lab += ("   (dafür fest: "
+                                + ", ".join(f"{n} {v:g}" for n, v in fixed.items()) + ")")
+                    t += ("<td>" + add(render(set_params(body, **s)), f"p{pi:02d}_{i}{j}",
+                                       lab, "&#9834;") + "</td>")
+                t += "</tr>"
+            note = ("dafür fest: " + ", ".join(f"{n} {v:g}" for n, v in fixed.items())
+                    if fixed else "alles übrige auf Vorgabe")
+            blocks += (f"<div class='pair'><h3>{a} × {b}</h3><p>{note}</p>"
+                       f"<table>{t}</table></div>")
+        sections += (f"<h2>Jeder Regler gegen jeden &mdash; {len(pairs)} "
+                     f"{'Tabelle' if len(pairs) == 1 else 'Tabellen'}, je {k}×{k}</h2>"
+                     "<p class='sub'>Zeilen der eine Regler, Spalten der andere, alles übrige "
+                     "auf Vorgabe. Die Frage in jeder Tabelle: bedeutet der Zeilenregler in "
+                     "jeder Spalte noch dasselbe? Die vollständige Einstellung steht oben "
+                     "neben dem Abspieler, sobald ein Klang läuft.</p>"
+                     f"<div class='pairs'>{blocks}</div>")
 
     row = "".join(add(render(body, freq=f), f"oct_{f:.0f}", f"Vorgabe, {f:.0f} Hz",
                       f"{f:.0f} Hz", "Vorgabe")
@@ -273,10 +246,9 @@ def main():
 
     intro = (f"<b>{args.key}</b>, {len(clips)} Klänge, je {args.dur:g} s bei "
              f"{args.freq:.0f} Hz, wo nicht anders angegeben. Geprüft wird die "
-             "<b>Kombination</b> der Regler, nicht ein Regler nach dem anderen: der "
-             "schreibende Agent bewegt keinen einzelnen Knopf, er setzt alle auf einmal, und "
-             "es sind dieselben Regler, die der Spieler später im Prompt-Orchestra-Feld "
-             "sieht.<br>"
+             "<b>Kombination</b> der Regler: jeder gegen jeden, in einer eigenen kleinen "
+             "Tabelle. Weder der schreibende Agent noch der Spieler bewegt einen einzelnen "
+             "Knopf &mdash; beide stellen alle zugleich.<br>"
              f"Die ganze Seite hat <b>eine</b> Verstärkung ({20 * np.log10(g):+.1f} dB, "
              f"höchste Spitze {peak:.2f}). Was hier lauter klingt, ist lauter."
              "<br><b>Das ist kein Test und hat keine richtige Antwort.</b> Die Frage ist, ob "
