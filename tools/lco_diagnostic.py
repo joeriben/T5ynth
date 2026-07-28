@@ -139,20 +139,26 @@ SYSP = {
 SCENE_STANCES = {"abduction", "opposite", "verniedlicher", "entkitscher"}
 
 
-def build_dco_user_turn(stance, machine_reading, flags_line, prev, recent):
-    """MIRROR of RepromptStances::buildDcoStanceUserTurn (the DCO variant)."""
+def build_dco_user_turn(stance, heard_tags, heard_spectral, flags_line, prev, recent):
+    """MIRROR of RepromptStances::buildDcoStanceUserTurn (the LCO variant).
+
+    Since 2026-07-28 this builder is handed the EAR's output — CLAP tags plus the
+    computed spectral words, separately labelled — not a reading of the recipe.
+    The labels changed with it: nothing here may claim the code was READ.
+    """
     tried = ("\nAlready tried (do not reuse): " + " / ".join(recent)) if recent else ""
+    spec = ("\nSpectral: " + heard_spectral) if heard_spectral else ""
     if stance == "transcribe":
         notu = ("\nNot understood: " + flags_line) if flags_line else ""
-        return "Machine reading: " + machine_reading + notu
+        return "Neural ear: " + heard_tags + spec + notu
     if stance == "abduction":
-        return "The oscillator does: " + machine_reading + tried
+        return "Heard: " + heard_tags + spec + tried
     if stance == "opposite":
-        return 'Current prompt: "' + prev + '"\nThe machine read it as: ' + machine_reading + tried
+        return 'Current prompt: "' + prev + '"\nHeard: ' + heard_tags + spec + tried
     if stance in ("entkitscher", "verniedlicher"):
-        return 'Current prompt: "' + prev + '"\nMachine reading: ' + machine_reading
+        return 'Current prompt: "' + prev + '"\nHeard: ' + heard_tags + spec
     if stance == "variation":
-        return 'Current prompt: "' + prev + '"\nThe machine read it as: ' + machine_reading
+        return 'Current prompt: "' + prev + '"\nHeard now: ' + heard_tags + spec
     return ""
 
 
@@ -329,6 +335,19 @@ def contains_synth_speak(text):
 
 
 def run_reprompt(client, corpus, brief, max_new_tokens=64):
+    # OBSOLETE SHAPE (2026-07-28). This probe fed the stance turns a *reading* of
+    # the router's recipe. The product's Re-Prompt step now renders the authored
+    # orchestra and hands the turn CLAP tags + spectral words (see
+    # build_dco_user_turn above, and PromptPanel::triggerDcoReprompt). This harness
+    # has no renderer, so it cannot produce that input, and measuring the old shape
+    # would certify a turn the product no longer emits — which is worse than not
+    # measuring. Reviving it means giving it an ear (a Csound render + the backend's
+    # `analyze` op), not passing a reading in the tags slot.
+    raise SystemExit(
+        "run_reprompt is obsolete: the LCO Re-Prompt turn is built from a CLAP "
+        "description of a rendered probe since 2026-07-28, and this harness has no "
+        "renderer. Give it one (Csound render -> mode:'analyze') before re-enabling."
+    )
     # A spanning subset: one FM, one additive/spectral, one analog, one natural.
     seeds = ["glassy bell", "warm hollow clarinet", "gritty distorted bass",
              "a warm hollow pad that slowly opens up"]
@@ -339,7 +358,9 @@ def run_reprompt(client, corpus, brief, max_new_tokens=64):
         fl = flags_line_from(resp)
         for stance, sysp in SYSP.items():
             for vocab_mode in ("with_vocab", "without_vocab"):
-                user_turn = build_dco_user_turn(stance, mr, fl, seed, [])
+                # The ear's two halves, which this harness cannot produce (no
+                # renderer) -- see run_reprompt's SystemExit. Empty ON PURPOSE.
+                user_turn = build_dco_user_turn(stance, "", "", fl, seed, [])
                 if vocab_mode == "with_vocab":
                     user_turn = user_turn + vocab_constraint(brief)
                 try:

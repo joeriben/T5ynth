@@ -153,34 +153,41 @@ assert set(SYSTEM_PROMPTS) == set(REQUIRED_STANCES), (set(SYSTEM_PROMPTS), REQUI
 
 
 # ─────────────────────────────────────────────────────────────────────────
-# DCO user-turn builder -- transliterated from C++, no Python equivalent
-# exists (buildDcoStanceUserTurn is a DCO-only function; the C++ file's own
-# comment calls it "the self-READING twin of buildStanceUserTurn").
+# LCO user-turn builder -- transliterated from C++, no Python equivalent
+# exists (buildDcoStanceUserTurn is an LCO-only function).
 # Keep in sync with src/inference/RepromptStances.cpp::buildDcoStanceUserTurn
 # -- the C++ side is authoritative.
+#
+# 2026-07-28: the LCO step LISTENS. It renders the authored orchestra and builds
+# the turn from CLAP tags + the computed spectral words, each under its own
+# label, instead of quoting the author's reading of its own code. Nothing this
+# builder emits may claim the code was read.
 # ─────────────────────────────────────────────────────────────────────────
 
-def build_dco_stance_user_turn(stance_key: str, machine_reading: str, flags_line: str,
-                                prev_prompt: str, recent: list[str]) -> str:
+def build_dco_stance_user_turn(stance_key: str, heard_tags: str, heard_spectral: str,
+                                flags_line: str, prev_prompt: str,
+                                recent: list[str]) -> str:
     def tried_clause() -> str:
         if not recent:
             return ""
         return "\nAlready tried (do not reuse): " + " / ".join(recent)
 
+    spec = f"\nSpectral: {heard_spectral}" if heard_spectral else ""
+
     if stance_key == "transcribe":
         not_understood = f"\nNot understood: {flags_line}" if flags_line else ""
-        return f"Machine reading: {machine_reading}{not_understood}"
+        return f"Neural ear: {heard_tags}{spec}{not_understood}"
     if stance_key == "abduction":
-        return f"The oscillator does: {machine_reading}{tried_clause()}"
+        return f"Heard: {heard_tags}{spec}{tried_clause()}"
     if stance_key == "opposite":
-        return (f'Current prompt: "{prev_prompt}"\nThe machine read it as: '
-                f'{machine_reading}{tried_clause()}')
+        return (f'Current prompt: "{prev_prompt}"\nHeard: '
+                f'{heard_tags}{spec}{tried_clause()}')
     if stance_key == "entkitscher":
-        return f'Current prompt: "{prev_prompt}"\nMachine reading: {machine_reading}'
+        return f'Current prompt: "{prev_prompt}"\nHeard: {heard_tags}{spec}'
     if stance_key == "verniedlicher":
-        return f'Current prompt: "{prev_prompt}"\nMachine reading: {machine_reading}'
+        return f'Current prompt: "{prev_prompt}"\nHeard: {heard_tags}{spec}'
     if stance_key == "variation":
-        return f'Current prompt: "{prev_prompt}"\nThe machine read it as: {machine_reading}'
+        return f'Current prompt: "{prev_prompt}"\nHeard now: {heard_tags}{spec}'
     return ""   # "off" or unknown
 
 
@@ -392,7 +399,21 @@ def run_chain(client, stance_key, seed_prompt, iters, device, failures, report):
     """One full (stance, seed) chain: 1 priming author() + `iters` x
     (interpret -> clean -> author). Returns the list of per-iteration
     records (dicts) actually completed (may be short if a mechanical
-    failure cut the chain off)."""
+    failure cut the chain off).
+
+    OBSOLETE SHAPE (2026-07-28): this chain feeds the stance turns the author's
+    READING of its own code. The product renders the authored orchestra and feeds
+    them a CLAP description of it instead (PromptPanel::triggerDcoReprompt); the
+    builder above was updated with it. This harness has no renderer, so it cannot
+    produce that input -- and a chain that keeps passing on the retired shape would
+    certify a turn the product no longer emits. Reviving it means giving it an ear
+    (a Csound render + the backend's `analyze` op), not putting a reading in the
+    tags slot."""
+    raise SystemExit(
+        "run_chain is obsolete: the LCO Re-Prompt turn is built from a CLAP "
+        "description of a rendered probe since 2026-07-28, and this harness has no "
+        "renderer. Give it one (Csound render -> mode:'analyze') before re-enabling."
+    )
     where0 = f"[{stance_key} / seed={truncate(seed_prompt, 40)!r}]"
     report(f"\n{'=' * 78}")
     report(f"STANCE: {stance_key}   SEED: {seed_prompt!r}")
@@ -419,7 +440,13 @@ def run_chain(client, stance_key, seed_prompt, iters, device, failures, report):
     for i in range(1, iters + 1):
         where = f"{where0} iter {i}"
         sysp = SYSTEM_PROMPTS[stance_key]
-        user_turn = build_dco_stance_user_turn(stance_key, reading, flags_line, prev, recent)
+        # The ear's two halves, which this harness cannot produce (no renderer) --
+        # see run_chain's SystemExit. Left empty ON PURPOSE: whoever wires the ear
+        # fills these from a render + mode:'analyze', and until then the turn is
+        # visibly empty rather than quietly carrying a reading in the tags slot.
+        heard_tags, heard_spectral = "", ""
+        user_turn = build_dco_stance_user_turn(stance_key, heard_tags, heard_spectral,
+                                               flags_line, prev, recent)
         try:
             raw_reply = interpret(client, sysp, user_turn, MAX_NEW_TOKENS, device)
         except PipeProtocolError as e:

@@ -211,14 +211,23 @@ public:
 
     /** Take over the Re-Prompt chain's bookkeeping for an orchestra that was
      *  RECALLED rather than authored (MainPanel's SNAP recall): the stance turns
-     *  read the panel's last machine reading and last prompt, so leaving them on
-     *  the bake the recall just replaced would make GENERATE rewrite a sound that
-     *  is no longer loaded. Mirrors what triggerDcoBake's completion lambda sets.
+     *  carry the panel's last prompt, so leaving it on the bake the recall just
+     *  replaced would make GENERATE rewrite a sound that is no longer loaded.
+     *  Mirrors what triggerDcoBake's completion lambda sets. The reading travels
+     *  with it for the trace and the preset; since the Re-Prompt step listens
+     *  instead of quoting it, no stance turn reads it any more.
      *  Message thread. */
     void adoptRecalledOrchestra(const juce::String& prompt, const juce::String& reading)
     {
         dcoLastMachineReading_ = reading;
         dcoLastFlagsLine_ = {};
+        // A recall publishes an orchestra without being a bake, so it has to clear
+        // the ear-failure latch itself: an orchestra that could not be listened to
+        // has just been REPLACED by this one, and leaving the latch armed would send
+        // the next GENERATE press into a bake that authors over the sound the user
+        // deliberately recalled — silently, since the message that armed it belonged
+        // to the previous orchestra.
+        dcoEarFailed_ = false;
         adoptRecalledPrompt(prompt);
     }
 
@@ -515,11 +524,13 @@ private:
     bool   csoundCompileSeenBusy_ = false;   // observed at least one busy tick this window
     double csoundCompileWatchStartMs_ = 0.0; // juce::Time::getMillisecondCounterHiRes() at window-open
 
-    // DCO Re-Prompt (stance-driven self-reading loop, docs/DCO_REPROMPT_CONCEPT.md):
-    // a SECOND stance bar bound to its OWN parameter (dcoRepromptStance — never
-    // repromptStance; paradigm isolation, see BlockParams.h). One step = the router
-    // reads its own last bake (resolved + recipe facts + flags), Qwen rewrites the
-    // DCO prompt under the selected stance, then triggerDcoBake() re-bakes it. The
+    // DCO Re-Prompt (stance-driven self-listening loop, docs/DCO_REPROMPT_CONCEPT.md
+    // and its Nachtrag of 2026-07-28): a SECOND stance bar bound to its OWN parameter
+    // (dcoRepromptStance — never repromptStance; paradigm isolation, see
+    // BlockParams.h). One step = a bare probe render of the authored orchestra, CLAP
+    // describes it, the language model rewrites the LCO prompt under the selected
+    // stance, then triggerDcoBake() re-bakes it. A step that cannot listen does not
+    // step — there is no fallback onto the author's own READING line. The
     // reused GENERATE button drives it (there is no separate STEP button): stance
     // Off → bake, stance engaged → one step. All state below is panel-local and
     // deliberately NOT persisted (the same seam as dcoPromptEditor itself, above):
@@ -567,6 +578,17 @@ private:
     // callAsync, read in triggerDcoReprompt) — no cross-thread access.
     juce::String dcoReferenceVocab_;
     bool dcoRepromptBusy_ = false;
+    // Set when a STEP found the ORCHESTRA unlistenable — it failed to compile, went
+    // non-finite, or never left the noise floor: the NEXT GENERATE press authors
+    // instead of stepping, so a sound the ear cannot reach is never a dead end
+    // (hasCsoundOrchestra() reads the last REQUESTED text and is never rolled back
+    // on a failed compile, so without this every press would retry a step that
+    // cannot work). NOT set when the EAR was merely unreachable — that is a wait,
+    // not a broken instrument, and must never reroute GENERATE into re-authoring.
+    // Cleared by anything that publishes a different orchestra: a bake's completion
+    // lambda and adoptRecalledOrchestra (preset restore / SNAP recall).
+    // Message thread only.
+    bool dcoEarFailed_ = false;
     void triggerDcoReprompt();
 
     static constexpr int kNumSeedModeBtns = 3;

@@ -63,41 +63,45 @@ namespace RepromptStances
                                       const juce::StringArray& recentList,
                                       const juce::String& spectral);
 
-    /** The DCO twin of buildStanceUserTurn — same per-stance structure and tone,
-     *  for the DCO/Advanced panel's Re-Prompt step (docs/DCO_REPROMPT_CONCEPT.md).
+    /** The LCO twin of buildStanceUserTurn — same per-stance structure and tone,
+     *  for the LCO/Advanced panel's Re-Prompt step (docs/DCO_REPROMPT_CONCEPT.md).
      *
-     *  The one fundamental difference from the neural loop: the DCO's
-     *  interpretation is fully machine-readable BEFORE any audio renders (the
-     *  authorDcoRecipe() response's resolved{} + recipe facts + flags[]), so
-     *  there is nothing to HEAR — CLAP's ear is replaced by the router's own
-     *  SELF-READING of what it just baked. `tags`/`spectral` (buildStanceUserTurn)
-     *  become `machineReading`/`flagsLine` here; both are plain display strings
-     *  the CALLER builds from the authorDcoRecipe() JSON (PromptPanel::
-     *  triggerDcoBake), not parsed or interpreted by this function.
+     *  SAME KIND OF INPUT AS THE NEURAL TWIN since BJ's decision of 2026-07-28
+     *  (that document's Nachtrag of the same date): CLAP tags + spectral words of
+     *  a bare probe render of the authored orchestra. It used to be handed the
+     *  retired router's own reading of its recipe instead — the loop READ where
+     *  the neural one HEARD — which is why the labels this builder emits used to
+     *  say "Machine reading". That rested on a closed, pre-heard lexicon; authored
+     *  Csound is open, so there is a sound to hear and nothing to look up.
      *
-     *  Guardrail note (router not author): numbers embedded in machineReading
-     *  (motion rate, frame count, ...) are DISPLAY strings for the LLM's prose
-     *  only. Whatever Qwen writes back is re-authored through authorDcoRecipe()'s
-     *  lexicon exactly like hand-typed text — this function cannot bypass that
-     *  validation, it only composes the prompt Qwen sees.
+     *  The two halves stay separate and separately labelled, exactly as
+     *  buildStanceUserTurn does it: `heardTags` is an association ranked out of a
+     *  fixed vocabulary, `heardSpectral` is computed from the signal, and the
+     *  model must be able to tell them apart.
      *
-     *  The stance SYSTEM prompts are UNCHANGED and shared verbatim with the
-     *  neural loop (stanceSystemPrompt above) — they still say "neural ear" /
-     *  "spectral descriptors", a known v1 mismatch accepted for now (see
-     *  docs/DCO_REPROMPT_CONCEPT.md, section "Qwen-Realismus").
+     *  Guardrail note (the code is the author's, not this function's): whatever the
+     *  model writes back is re-authored from scratch by the Csound author exactly
+     *  like hand-typed text — this function only composes the prompt it sees.
      *
-     *  @param stanceKey      one of the six shipped stance ids
-     *  @param machineReading the router's own reading of the last bake, one line
-     *                        (e.g. "technique: pwm; adjectives: warm; motion:
-     *                        open_up; motion rate 0.35 Hz; frames 64")
-     *  @param flagsLine      the flags[] honesty channel as one line (e.g.
-     *                        "screamy (no mapping - ignored)"); empty when clean
-     *  @param prevPrompt     the DCO loop's own last link (mirrors prevPolePrompt)
-     *  @param recentList     the DCO loop's anti-stasis memory (its last <=3
-     *                        links); only abduction/opposite read it
+     *  The stance SYSTEM prompts are UNCHANGED and shared verbatim with the neural
+     *  loop (stanceSystemPrompt above); their "neural ear" / "spectral descriptors"
+     *  wording, a known v1 mismatch while this loop read instead of heard, now
+     *  describes what actually arrives.
+     *
+     *  @param stanceKey     one of the six shipped stance ids
+     *  @param heardTags     CLAP top-k timbre tags of the probe render, comma-joined
+     *  @param heardSpectral the computed spectral words (e.g. "warm, full-bodied,
+     *                       tonal"); may be empty, and is then left out with its label
+     *  @param flagsLine     the flags[] honesty channel as one line; it has had no
+     *                       producer since the Csound switch and is empty in the
+     *                       shipped product (see the concept doc's status head)
+     *  @param prevPrompt    the LCO loop's own last link (mirrors prevPolePrompt)
+     *  @param recentList    the LCO loop's anti-stasis memory (its last <=3 links);
+     *                       only abduction/opposite read it
      *  @return the user-turn string; empty for an unknown key or "off". */
     juce::String buildDcoStanceUserTurn (const juce::String& stanceKey,
-                                         const juce::String& machineReading,
+                                         const juce::String& heardTags,
+                                         const juce::String& heardSpectral,
                                          const juce::String& flagsLine,
                                          const juce::String& prevPrompt,
                                          const juce::StringArray& recentList);
@@ -151,9 +155,9 @@ namespace RepromptStances
     /** Compose the machine listener's DESCRIPTION of one sound from the two
      *  outputs of the shipped analyze op: the learned timbre words (CLAP top-k)
      *  and the computed spectral words. This is the describing agent's product —
-     *  what buildSelfCheckUserTurn hands to the comparing one, and what the
-     *  HEARD AS field shows, so the user reads the same description the
-     *  comparison was made on. Either half may be empty. */
+     *  what buildSelfCheckUserTurn hands to the comparing one. Either half may be
+     *  empty. NOT what the LCO Re-Prompt ear uses: that keeps the two halves
+     *  apart and separately labelled (buildDcoStanceUserTurn). */
     juce::String composeHeardDescription (const juce::String& tags,
                                           const juce::String& spectral);
 

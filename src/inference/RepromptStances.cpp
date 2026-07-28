@@ -241,17 +241,31 @@ juce::String buildStanceUserTurn (const juce::String& stanceKey,
     return {};   // "off" or unknown
 }
 
-// ── DCO per-stance user-turn builder (self-READING twin of buildStanceUserTurn) ──
-// Same six stances, same per-stance shape/tone as buildStanceUserTurn above, but
-// every input is the DCO router's own machine-readable reading of the last bake
-// (resolved + recipe facts + flags), never CLAP tags/spectral words — see the
-// header doc and docs/DCO_REPROMPT_CONCEPT.md ("lesen -> deuten -> umformulieren").
+// ── LCO per-stance user-turn builder (twin of buildStanceUserTurn) ───────────
+// Same six stances, same per-stance shape/tone as buildStanceUserTurn above, on
+// the SAME kind of input since BJ's decision of 2026-07-28: CLAP tags + spectral
+// words of a bare probe render of the authored orchestra (PromptPanel::
+// triggerDcoReprompt). It used to receive the retired router's own reading of its
+// recipe instead — "lesen -> deuten -> umformulieren" — which is why the labels
+// below used to say "read" (docs/DCO_REPROMPT_CONCEPT.md and its Nachtrag).
+//
+// The two halves stay SEPARATE and separately labelled, as on the neural side:
+// the left is an association ranked out of a fixed vocabulary, the right is
+// computed from the signal, and running them together invites the model to weigh
+// them alike. The LCO shapes that still differ from the neural twin are the ones
+// the concept doc argues for — opposite carries prevPrompt here, because the
+// stance has real axes to invert.
 juce::String buildDcoStanceUserTurn (const juce::String& stanceKey,
-                                     const juce::String& machineReading,
+                                     const juce::String& heardTags,
+                                     const juce::String& heardSpectral,
                                      const juce::String& flagsLine,
                                      const juce::String& prevPrompt,
                                      const juce::StringArray& recentList)
 {
+    // "\nSpectral: {spectral}" when there is one, exactly as buildStanceUserTurn
+    // appends it for transcribe — empty half, no label.
+    const juce::String spec = heardSpectral.isNotEmpty()
+                                  ? ("\nSpectral: " + heardSpectral) : juce::String();
     // Identical shape to buildStanceUserTurn's local triedClause; duplicated
     // rather than shared, mirroring this file's existing style of one small
     // lambda per builder (buildStanceUserTurn does the same above).
@@ -263,42 +277,43 @@ juce::String buildDcoStanceUserTurn (const juce::String& stanceKey,
 
     if (stanceKey == "transcribe")
     {
-        // The shared system prompt asks for "machine measurements" from "a
-        // neural ear" / "spectral descriptors" — machineReading IS that
-        // measurement here (resolved + recipe facts), so it slots into the same
-        // shape. flagsLine surfaces what the router could NOT map, mirroring
-        // transcribe's "measured qualities only, no scene/story/metaphor" brief.
+        // The shared system prompt asks for "machine measurements" from "a neural
+        // ear" / "spectral descriptors", and that is now literally what arrives —
+        // same labels as the neural twin. flagsLine surfaces what the router could
+        // NOT map, mirroring transcribe's "measured qualities only, no
+        // scene/story/metaphor" brief; it has had no producer since the Csound
+        // switch, so in the shipped product this half is empty.
         const juce::String notUnderstood = flagsLine.isNotEmpty()
             ? ("\nNot understood: " + flagsLine) : juce::String();
-        return "Machine reading: " + machineReading + notUnderstood;
+        return "Neural ear: " + heardTags + spec + notUnderstood;
     }
     if (stanceKey == "abduction")
     {
-        // Bare description of what the oscillator does (no prevPrompt) — mirrors
-        // buildStanceUserTurn's "Heard: {tags}{tried}" shape.
-        return "The oscillator does: " + machineReading + triedClause();
+        // Bare description of what came out (no prevPrompt) — the neural twin's
+        // "Heard: {tags}{tried}" shape.
+        return "Heard: " + heardTags + spec + triedClause();
     }
     if (stanceKey == "opposite")
     {
-        // DCO opposite is BETTER defined than neural's opposite (docs/
-        // DCO_REPROMPT_CONCEPT.md, "Die sechs Stances im DCO"): the lexicon's
+        // LCO opposite is BETTER defined than neural's opposite (docs/
+        // DCO_REPROMPT_CONCEPT.md, "Die sechs Stances im DCO"): the library's
         // bipolar adjective/motion axes give it a real prompt to invert, so —
-        // unlike neural's opposite, which reads only tags — the DCO version
+        // unlike neural's opposite, which reads only tags — the LCO version
         // also carries prevPrompt.
-        return "Current prompt: \"" + prevPrompt + "\"\nThe machine read it as: "
-             + machineReading + triedClause();
+        return "Current prompt: \"" + prevPrompt + "\"\nHeard: "
+             + heardTags + spec + triedClause();
     }
     if (stanceKey == "entkitscher")
     {
-        return "Current prompt: \"" + prevPrompt + "\"\nMachine reading: " + machineReading;
+        return "Current prompt: \"" + prevPrompt + "\"\nHeard: " + heardTags + spec;
     }
     if (stanceKey == "verniedlicher")
     {
-        return "Current prompt: \"" + prevPrompt + "\"\nMachine reading: " + machineReading;
+        return "Current prompt: \"" + prevPrompt + "\"\nHeard: " + heardTags + spec;
     }
     if (stanceKey == "variation")
     {
-        return "Current prompt: \"" + prevPrompt + "\"\nThe machine read it as: " + machineReading;
+        return "Current prompt: \"" + prevPrompt + "\"\nHeard now: " + heardTags + spec;
     }
     return {};   // "off" or unknown
 }
@@ -307,14 +322,15 @@ juce::String buildDcoStanceUserTurn (const juce::String& stanceKey,
 // composeHeardDescription / selfCheckReportsMismatch / buildSelfCheckUserTurn
 // below feed the self-listen / compare loop, which is switched OFF in the product
 // (PromptPanel.cpp T5YNTH_LCO_SELFCHECK = 0). Retained + unit-tested, not deleted.
+// (The LCO Re-Prompt ear does NOT compose: it labels the two halves separately,
+// see buildDcoStanceUserTurn.)
 juce::String composeHeardDescription (const juce::String& tags,
                                       const juce::String& spectral)
 {
     // Semicolon, not comma: the two halves are different kinds of statement — the
     // left one associative, the right one computed — and running them into a
     // single comma list invites the comparing model to weigh a top-k association
-    // exactly as hard as a measurement. The order matches the HEARD AS field, so
-    // the description in the prompt and the one on screen read the same.
+    // exactly as hard as a measurement.
     const juce::String t = tags.trim(), s = spectral.trim();
     if (t.isEmpty()) return s;
     if (s.isEmpty()) return t;
@@ -423,10 +439,16 @@ juce::String cleanPrompt (const juce::String& raw, int maxChars, int maxWords)
             "prompt b:", "new prompt b:", "new prompt:", "prompt:", "next:",
             "output:", "answer:", "heard:", "machine heard:", "neural ear:",
             "current prompt b:", "current prompt:",
-            // DCO Re-Prompt user-turn labels (buildDcoStanceUserTurn below) —
-            // a leaked echo here would author into spurious lexicon flags,
-            // corrupting the honesty channel. Mirrored in _clean_prompt
-            // (tools/clap_llm_loop.py), which stays the source of truth.
+            // "heard now:" / "spectral:" complete the label set BOTH builders emit
+            // (variation's "Heard now:" has always been emitted on the neural side
+            // too; buildDcoStanceUserTurn joined them on 2026-07-28). These two are
+            // AHEAD of _clean_prompt in tools/clap_llm_loop.py, which is otherwise
+            // this list's source of truth and still lacks them — a gap in the
+            // harness, not here.
+            "heard now:", "spectral:",
+            // The LCO builder's FORMER labels. It no longer emits them, but a
+            // stale chain link or a preset written before that change still can,
+            // and stripping a label that cannot occur costs nothing.
             "machine reading:", "the oscillator does:",
             "the machine read it as:", "not understood:"
         };

@@ -254,47 +254,66 @@ int main()
     check ("description spectral only", composeHeardDescription ("", "bright, thin"), "bright, thin");
     checkTrue ("description both empty", composeHeardDescription ("", "  ").isEmpty());
 
-    std::printf ("DCO user turns (buildDcoStanceUserTurn):\n");
+    std::printf ("LCO user turns (buildDcoStanceUserTurn):\n");
     {
-        const juce::String reading = "technique: pwm; adjectives: warm; motion: open_up; "
-                                     "motion rate 0.35 Hz; frames 64";
+        // Since 2026-07-28 this builder is handed the EAR's output, not a reading
+        // of the recipe: CLAP tags and the computed spectral words, separately.
+        const juce::String tags = "chime, glassy, metallic, bright, ringing";
+        const juce::String spectral = "bright, thin, tonal";
         const juce::String flags = "screamy (no mapping - ignored)";
-        juce::StringArray dcoRecent { "old dco a", "old dco b" };
+        juce::StringArray dcoRecent { "old lco a", "old lco b" };
 
         // every stance key returns non-empty
         const char* dcoKeys[] = { "transcribe", "entkitscher", "verniedlicher",
                                   "variation", "abduction", "opposite" };
         for (auto* k : dcoKeys)
-            checkTrue ((juce::String ("dco non-empty: ") + k).toRawUTF8(),
-                       buildDcoStanceUserTurn (k, reading, flags, "prev dco prompt", dcoRecent).isNotEmpty());
+            checkTrue ((juce::String ("lco non-empty: ") + k).toRawUTF8(),
+                       buildDcoStanceUserTurn (k, tags, spectral, flags,
+                                               "prev lco prompt", dcoRecent).isNotEmpty());
 
         // unknown / off → empty
-        checkTrue ("dco off → empty turn",
-                   buildDcoStanceUserTurn ("off", reading, flags, "prev", {}).isEmpty());
-        checkTrue ("dco unknown → empty turn",
-                   buildDcoStanceUserTurn ("planetarizer", reading, flags, "prev", {}).isEmpty());
+        checkTrue ("lco off → empty turn",
+                   buildDcoStanceUserTurn ("off", tags, spectral, flags, "prev", {}).isEmpty());
+        checkTrue ("lco unknown → empty turn",
+                   buildDcoStanceUserTurn ("planetarizer", tags, spectral, flags, "prev", {}).isEmpty());
 
-        // transcribe: machineReading verbatim; flags line only when provided
-        checkTrue ("dco transcribe has reading",
-                   buildDcoStanceUserTurn ("transcribe", reading, flags, "prev", {}).contains (reading));
-        checkTrue ("dco transcribe has flags when given",
-                   buildDcoStanceUserTurn ("transcribe", reading, flags, "prev", {}).contains (flags));
-        checkTrue ("dco transcribe no flags line when empty",
-                   ! buildDcoStanceUserTurn ("transcribe", reading, "", "prev", {}).contains ("Not understood"));
+        // transcribe: tags verbatim, spectral under its OWN label; flags only when given
+        checkTrue ("lco transcribe has tags",
+                   buildDcoStanceUserTurn ("transcribe", tags, spectral, flags, "prev", {}).contains (tags));
+        checkTrue ("lco transcribe labels spectral separately",
+                   buildDcoStanceUserTurn ("transcribe", tags, spectral, flags, "prev", {})
+                       .contains ("\nSpectral: " + spectral));
+        checkTrue ("lco transcribe no spectral label when empty",
+                   ! buildDcoStanceUserTurn ("transcribe", tags, "", flags, "prev", {}).contains ("Spectral:"));
+        checkTrue ("lco transcribe has flags when given",
+                   buildDcoStanceUserTurn ("transcribe", tags, spectral, flags, "prev", {}).contains (flags));
+        checkTrue ("lco transcribe no flags line when empty",
+                   ! buildDcoStanceUserTurn ("transcribe", tags, spectral, "", "prev", {}).contains ("Not understood"));
+
+        // the turn must never claim the code was READ — it was heard
+        for (auto* k : dcoKeys)
+        {
+            const juce::String turn = buildDcoStanceUserTurn (k, tags, spectral, flags,
+                                                             "prev lco prompt", dcoRecent);
+            checkTrue ((juce::String ("lco no read-label: ") + k).toRawUTF8(),
+                       ! turn.containsIgnoreCase ("machine reading")
+                       && ! turn.containsIgnoreCase ("read it as")
+                       && ! turn.containsIgnoreCase ("the oscillator does"));
+        }
 
         // abduction/opposite: "Already tried" only when recentList is non-empty
-        checkTrue ("dco abduction tried when recent",
-                   buildDcoStanceUserTurn ("abduction", reading, "", "prev", dcoRecent).contains ("Already tried"));
-        checkTrue ("dco abduction no tried when empty",
-                   ! buildDcoStanceUserTurn ("abduction", reading, "", "prev", {}).contains ("Already tried"));
-        checkTrue ("dco opposite tried when recent",
-                   buildDcoStanceUserTurn ("opposite", reading, "", "prev", dcoRecent).contains ("Already tried"));
-        checkTrue ("dco opposite no tried when empty",
-                   ! buildDcoStanceUserTurn ("opposite", reading, "", "prev", {}).contains ("Already tried"));
+        checkTrue ("lco abduction tried when recent",
+                   buildDcoStanceUserTurn ("abduction", tags, "", "", "prev", dcoRecent).contains ("Already tried"));
+        checkTrue ("lco abduction no tried when empty",
+                   ! buildDcoStanceUserTurn ("abduction", tags, "", "", "prev", {}).contains ("Already tried"));
+        checkTrue ("lco opposite tried when recent",
+                   buildDcoStanceUserTurn ("opposite", tags, "", "", "prev", dcoRecent).contains ("Already tried"));
+        checkTrue ("lco opposite no tried when empty",
+                   ! buildDcoStanceUserTurn ("opposite", tags, "", "", "prev", {}).contains ("Already tried"));
 
         // variation contains prevPrompt
-        checkTrue ("dco variation has prevPrompt",
-                   buildDcoStanceUserTurn ("variation", reading, "", "shimmering pwm chain", {})
+        checkTrue ("lco variation has prevPrompt",
+                   buildDcoStanceUserTurn ("variation", tags, "", "", "shimmering pwm chain", {})
                        .contains ("shimmering pwm chain"));
     }
 

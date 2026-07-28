@@ -1183,6 +1183,12 @@ public:
     std::atomic<int> lroOsFactor_ { 4 };
     void setLroOsQuality(int qualityIndex);
     int  getLroOsQuality() const;
+    /** The FACTOR itself (1/2/4), not the quality index. The Re-Prompt ear needs it
+     *  to render its probe at the rate the live engine compiles the same authored
+     *  text at — an authored body may derive its partial count or FM index from
+     *  `sr`, so a probe at the bare host rate can render a different sound, not
+     *  just a dirtier one. Message thread, like every other reader of this. */
+    int  getLroOsFactor() const { return lroOsFactor_.load(std::memory_order_relaxed); }
 
     // ── LRO AUTHOR provider (external API as an alternative to the local GGUF,
     // NOT to be confused with lroOsFactor_ above, which is Csound's own sample

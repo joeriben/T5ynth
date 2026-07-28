@@ -5,7 +5,7 @@
 #include "../PluginProcessor.h"
 #include "../dsp/BlockParams.h"
 #include "../inference/RepromptStances.h"
-#include "../dsp/CsoundEngine.h"   // renderBareOscillator (DEPRECATED: self-check probe)
+#include "../dsp/CsoundEngine.h"   // renderBareOscillator (the Re-Prompt ear's probe)
 #include <thread>
 #include <cmath>
 #include <cstring>
@@ -465,14 +465,15 @@ PromptPanel::PromptPanel(T5ynthProcessor& processor)
         if (auto* dcoStanceParam = processor.getValueTreeState().getParameter(PID::dcoRepromptStance))
             dcoStanceBar.attachTo(*dcoStanceParam, RepromptStance::kCount);
         dcoStanceBar.setTooltip(
-            "LRO Re-Prompt stance: the machine reads its own last recipe (resolved "
-            "values + flags), not audio - it rewrites the LRO prompt before the next "
+            "LRO Re-Prompt stance: the machine listens to the oscillator it just "
+            "built and rewrites the LRO prompt from what it heard, before the next "
             "bake. Hover a glyph for its movement type.");
         dcoStanceBar.setPositionTooltips({
             "Off - Re-Prompt loop disabled.",
-            // "reads", not the neural list's "hears": the DCO stance works on the
-            // router's own recipe reading, never audio (docs/DCO_REPROMPT_CONCEPT.md).
-            "Transcribe (fixed point): the machine re-describes what it reads; the prompt stays put.",
+            // "hears", like the neural list: since 2026-07-28 this stance works on a
+            // CLAP description of the rendered oscillator, not on the author's own
+            // account of its code (docs/DCO_REPROMPT_CONCEPT.md, Nachtrag 2026-07-28).
+            "Transcribe (fixed point): the machine re-describes what it hears; the prompt stays put.",
             "Sober (inward spiral): re-states the sound plainly and factually - sentiment and scene stripped, the real source kept.",
             "Sweeten (damped settling): softens toward a gentler, cuter reading.",
             "Variation (bounded cluster): small variations around the current theme.",
@@ -2143,13 +2144,25 @@ void PromptPanel::triggerGenerationWithOffsets(std::vector<std::pair<int, float>
 void PromptPanel::triggerLcoGenerate()
 {
     // The reused GENERATE button's LCO action (also Cmd/Return and XL CC, since all
-    // route through MainPanel::triggerMainGeneration). Stance Off — or no recipe
-    // baked yet, so there is nothing to re-read — authors from the current prompt;
-    // an engaged stance runs one re-prompt STEP (read last recipe → rewrite → bake).
-    // triggerDcoBake / triggerDcoReprompt own the busy-gates and Qwen checks.
+    // route through MainPanel::triggerMainGeneration). Stance Off — or no orchestra
+    // yet, so there is nothing to listen to — authors from the current prompt; an
+    // engaged stance runs one re-prompt STEP (listen → rewrite → bake).
+    // triggerDcoBake / triggerDcoReprompt own the busy-gates and model checks.
+    //
+    // Gated on the ORCHESTRA, not on dcoLastMachineReading_: since the step listens
+    // instead of reading the author's account of its own code, the reading is no
+    // longer what the step needs — and a SNAP recall or a preset restore can load a
+    // perfectly audible orchestra whose stored reading is empty, which used to make
+    // GENERATE silently bake instead of stepping.
+    //
+    // dcoEarFailed_ keeps that from dead-ending. hasCsoundOrchestra() reads the last
+    // REQUESTED text, which is never rolled back on a failed compile, so an orchestra
+    // that cannot be rendered would otherwise route every press into a step that
+    // always fails, with no way back to authoring except turning the stance off.
+    // After one press has SAID the ear failed, the next authors.
     const int stance = static_cast<int>(processorRef.getValueTreeState()
                           .getRawParameterValue(PID::dcoRepromptStance)->load());
-    if (stance != RepromptStance::Off && dcoLastMachineReading_.isNotEmpty())
+    if (stance != RepromptStance::Off && processorRef.hasCsoundOrchestra() && ! dcoEarFailed_)
         triggerDcoReprompt();
     else
         triggerDcoBake();
@@ -2462,6 +2475,7 @@ void PromptPanel::triggerDcoBake()
 
             self->dcoLastMachineReading_ = authored.reading;
             self->dcoLastFlagsLine_ = {};
+            self->dcoEarFailed_ = false;   // a fresh orchestra earns a fresh listen
             if (text != self->dcoLoopLast_)
             {
                 self->dcoLoopLast_ = text;
@@ -2757,13 +2771,33 @@ juce::String PromptPanel::bodyFromOrchestra(const juce::String& orchestra)
 // ──────────────────────────────────────────────────────────────────────────────
 // DCO Re-Prompt step (docs/DCO_REPROMPT_CONCEPT.md)
 // ──────────────────────────────────────────────────────────────────────────────
-// One STEP = one interpret() call under the selected stance, reading the DCO's
-// OWN last bake (dcoLastMachineReading_/dcoLastFlagsLine_, stashed by
-// triggerDcoBake) instead of CLAP tags — "lesen -> deuten -> umformulieren"
-// (the concept doc's fundamental difference from the neural loop: the DCO's
-// interpretation is fully machine-readable before any audio renders, so there
-// is nothing to hear, only to read). Manual STEP only — no auto-loop, no CLAP,
-// no A/B poles (v1, see the concept doc's "was bewusst NICHT kopiert wird").
+// One STEP = listen, then one interpret() call under the selected stance.
+//
+// THE EAR (BJ 2026-07-28, concept doc's Nachtrag of that date). This loop used to
+// read the author's own READING line instead of hearing anything — "lesen ->
+// deuten -> umformulieren". That rested on a self-description which no longer
+// exists: it was written for the retired lexicon router, whose vocabulary was
+// closed and pre-heard, so reading a recipe meant looking a sound up in a list of
+// already-heard things. Authored Csound is open — nobody heard the code before it
+// ran — so the LCO is now in exactly the neural panel's position, and it listens
+// the same way the neural panel does (runSemanticLoopStep): CLAP top-5 timbre
+// tags + spectral words of the sound that came out.
+//
+// CLAP IS ON LOAN. It ranks against a fixed candidate vocabulary and cannot
+// caption freely, so a self-authored texture gets folded back onto a curated tag
+// register — BJ: "if any, clap wäre ungeeignet"; the audio-LLM is the real
+// candidate. Provisional by decision, not by oversight.
+//
+// NOT the self-check. Nothing here judges the sound against the request and
+// nothing corrects the author (T5YNTH_LCO_SELFCHECK stays 0). The description is
+// MATERIAL for a stance the user picked, never a verdict.
+//
+// A step that cannot listen does not step. There is no fallback to the author's
+// READING line: substituting its account of its own code would hand the model a
+// claim under a label that says the instrument was heard. The neural loop bails
+// the same way on an empty render ("nothing to listen to").
+// Manual STEP only — no auto-loop, no A/B poles (v1, see the concept doc's
+// "was bewusst NICHT kopiert wird").
 void PromptPanel::triggerDcoReprompt()
 {
     // Message-thread gates, mirroring triggerDcoBake's gate order/shape. Every
@@ -2809,9 +2843,26 @@ void PromptPanel::triggerDcoReprompt()
         setLcoStatus("Pick a stance first");
         return;
     }
-    if (dcoLastMachineReading_.isEmpty())
+    // The ear needs an orchestra to render, not a reading to quote (see
+    // triggerLcoGenerate's matching gate).
+    if (! processorRef.hasCsoundOrchestra())
     {
         setLcoStatus("Write an instrument first");
+        return;
+    }
+    // A compile of the PREVIOUS orchestra can still be running on the processor's
+    // own thread — publish() clears dcoBaking_ and opens the compile watch in the
+    // same callAsync, so GENERATE becomes clickable exactly when that compile
+    // begins. Both it and the probe take the process-wide Csound lifecycle lock, so
+    // stepping into the window would serialise the probe's own create/compile/start
+    // (~50-165 ms measured) against the engine's, delaying the sound the user is
+    // waiting to hear — and the ear would then be listening to an orchestra the
+    // engine has not finished swapping to. Wait for the window to close. (No GUI
+    // stall either way: the probe runs detached, and the message-thread poll takes
+    // a different mutex.)
+    if (csoundCompileWatching_)
+    {
+        setLcoStatus("Still compiling the instrument");
         return;
     }
 
@@ -2824,9 +2875,45 @@ void PromptPanel::triggerDcoReprompt()
     // docs/DCO_REPROMPT_CONCEPT.md "Ein Feld, keine Historie sichtbar".
     const juce::String prev = dcoLoopLast_.isNotEmpty() ? dcoLoopLast_ : dcoPromptEditor.getText().trim();
     const juce::StringArray recent = dcoLoopRecent_;
-    const juce::String reading = dcoLastMachineReading_;
     const juce::String flags = dcoLastFlagsLine_;
     const juce::String vocab = dcoReferenceVocab_;   // scanner palette (may be empty)
+    // What the ear listens to: the orchestra the panel last requested. Captured
+    // HERE because processorRef is message-thread-only — the background thread
+    // below never touches it (same rule the retired self-check probe obeyed).
+    const juce::String orchestra = processorRef.getCsoundOrchestraText();
+    // TWO RATES, and the whole point is that they differ — the live signal path has
+    // them both too.
+    //
+    // RENDER at the rate the body is WRITTEN for. The engine compiles the authored
+    // text at sampleRate * the LRO oversampling factor (CsoundEngine::prepare) — 4x
+    // by default — and an authored body may derive its own partial count or FM index
+    // from `sr`. Rendering the probe at the bare host rate would not merely alias it
+    // (1x is worse than the 2x this project measured as audibly dirty); it can
+    // produce a DIFFERENT sound. effectiveOversampleFactor is the same policy the
+    // engine reconcile uses, so the factor here is the one actually compiled.
+    //
+    // LISTEN at the rate the user HEARS. Everything the engine renders oversampled
+    // is decimated back to the host rate before it reaches a speaker, and the ear
+    // must be given that same band: the backend resamples for CLAP, but it computes
+    // the spectral words on the native-rate signal against ABSOLUTE Hz thresholds
+    // (centroid 500/1500/3500, low band under 250). Hand it 192 kHz and 24-96 kHz of
+    // content the decimator throws away is folded into the description — measured on
+    // this build: a warm, bass-heavy tone reads "bright, full-bodied", a plain saw's
+    // centroid reads 14158 Hz where the audible signal is 4446 Hz. So the probe is
+    // decimated here, before analyze(), and analyze() is told the host rate.
+    const double hostRate = processorRef.getSampleRate() > 0.0
+                                ? processorRef.getSampleRate() : 48000.0;
+    const int    probeOs   = CsoundEngine::effectiveOversampleFactor(
+                                 hostRate, processorRef.getLroOsFactor());
+    // Clamped HERE with the probe's own ceiling, so listenRate is derived from what
+    // was really rendered rather than from what was asked for: a host above the
+    // ceiling (factor 1, nothing left to halve) would otherwise render clamped and
+    // be labelled with its own rate, and analyze would measure against thresholds
+    // shifted by that ratio. No standard rate reaches this; the arithmetic should
+    // still be true at the one that does.
+    const double probeRate  = juce::jmin(hostRate * (double) probeOs,
+                                         CsoundEngine::kMaxProbeSampleRate);
+    const double listenRate = probeRate / (double) probeOs;
 
     auto pipePtr = processorRef.getPipeInferencePtr();
     if (pipePtr == nullptr)
@@ -2838,16 +2925,109 @@ void PromptPanel::triggerDcoReprompt()
 
     dcoRepromptBusy_ = true;
     if (onLcoBusyChanged) onLcoBusyChanged(true);   // disable the reused GENERATE button
-    setLcoStatus("Rereading the prompt", {}, /*busy=*/true);
+    setLcoStatus("Listening, then rewriting", {}, /*busy=*/true);
 
     // IPC on a detached background thread ONLY — never the message thread (JUCE
     // rule; house pattern: triggerDcoBake / runSemanticLoopStep).
     juce::Component::SafePointer<PromptPanel> safeThis(this);
-    std::thread([safeThis, pipePtr, stanceKey, reading, flags, prev, recent, vocab, device]() mutable
+    std::thread([safeThis, pipePtr, stanceKey, flags, prev, recent, vocab,
+                 orchestra, probeRate, probeOs, listenRate, device]() mutable
     {
+        // ── The ear ──────────────────────────────────────────────────────────
+        // The BARE oscillator: the Csound output alone, no ADSR and no filter.
+        // What is under examination is the OSCILLATOR's reading of the prompt, not
+        // what a patch later does to it (BJ's choice, kept from the retired
+        // self-check probe, as are 220 Hz / 3 s / gate off at 2.5 s). The RATE is
+        // not a default — see probeRate above. Then analyze() exactly as the neural
+        // loop calls it: top-5, default device.
+        //
+        // renderBareOscillator takes the process-wide Csound lifecycle lock for its
+        // own create/compile/start (~50-165 ms measured); the render itself does
+        // not. That lock is shared with every engine prepare()/teardown in the
+        // process, not only this panel's bakes, so the caller's gates thin the
+        // collisions (dcoBaking_, csoundCompileWatching_) without excluding them —
+        // a SNAP recall or a DAW state restore can still take it underneath us.
+        // Waiting is the correct behaviour there; the order is one-way, so it
+        // cannot deadlock.
+        juce::String heardTags, heardSpectral, earError;
+        // Distinguishes "this ORCHESTRA has nothing to hear" from "the EAR was not
+        // reachable" — the two failures deserve opposite answers, see the bail below.
+        bool orchestraUnheard = false;
+        // Rendered at probeRate, handed back at listenRate == probeRate/probeOs:
+        // the probe runs the body at the rate it is written for and then decimates
+        // through the engine's own halfband stages, so what the ear gets is the band
+        // a player hears. A plain interpolator would NOT do — it does not adapt its
+        // kernel to the ratio, and everything above the host Nyquist would fold back
+        // in, which is the very error this exists to prevent.
+        const auto samples = CsoundEngine::renderBareOscillator(
+            orchestra.toStdString(), probeRate, /*freqHz=*/220.0, /*seconds=*/3.0,
+            /*gateOffSeconds=*/2.5, /*decimateBy=*/probeOs);
+        if (samples.empty())
+        {
+            // renderBareOscillator returns empty for a compile error, a broken
+            // contract, a non-finite sample or a render that never left the noise
+            // floor — all of them "this orchestra has no sound to describe", and it
+            // has already logged which. The one to REPLACE, not to wait for.
+            earError = "Could not listen to the instrument";
+            orchestraUnheard = true;
+        }
+        else
+        {
+            juce::AudioBuffer<float> probe (1, (int) samples.size());
+            std::memcpy(probe.getWritePointer(0), samples.data(),
+                        samples.size() * sizeof(float));
+            const auto heard = pipePtr->analyze(probe, listenRate, 5, {});
+            if (heard.success)
+            {
+                heardTags = heard.tags;
+                heardSpectral = heard.spectral;
+            }
+            else
+            {
+                // Surface what actually went wrong — a first STEP on a machine
+                // without CLAP downloads it and can take minutes, and "could not
+                // listen" would read as a broken instrument rather than a wait.
+                earError = heard.errorMessage.isNotEmpty()
+                               ? heard.errorMessage
+                               : juce::String("Could not listen to the instrument");
+            }
+        }
+
+        // NO FALLBACK TO THE AUTHOR'S READING. A step that cannot listen does not
+        // step — exactly as the neural loop bails on an empty render ("nothing to
+        // listen to", runSemanticLoopStep). Substituting the author's account of
+        // its own code would hand the model a claim under a label that says the
+        // instrument was heard, which is the one thing this change exists to stop.
+        if (heardTags.isEmpty() && heardSpectral.isEmpty())
+        {
+            juce::MessageManager::callAsync([safeThis, earError, orchestraUnheard]()
+            {
+                auto* self = safeThis.getComponent();
+                if (self == nullptr) return;
+                self->dcoRepromptBusy_ = false;
+                if (self->onLcoBusyChanged) self->onLcoBusyChanged(false);
+                // Arm the bake route ONLY when the ORCHESTRA is what cannot be
+                // heard: that is a sound the user needs to REPLACE, and every
+                // further press would otherwise re-attempt a step that cannot work.
+                // The next press authors instead, after this message has said why.
+                //
+                // NOT when the EAR was unreachable — a backend that is not up, a
+                // CLAP download still running, an analyze that came back empty.
+                // None of those is a broken instrument, and rerouting GENERATE
+                // would re-author a good orchestra out from under a user who is
+                // only waiting. That case keeps stepping, and keeps reporting what
+                // is missing.
+                self->dcoEarFailed_ = orchestraUnheard;
+                self->setLcoStatus(earError.isNotEmpty()
+                                       ? earError
+                                       : juce::String("Could not listen to the instrument"));
+            });
+            return;
+        }
+
         const juce::String sysp = RepromptStances::stanceSystemPrompt(stanceKey);
-        juce::String userTurn =
-            RepromptStances::buildDcoStanceUserTurn(stanceKey, reading, flags, prev, recent);
+        juce::String userTurn = RepromptStances::buildDcoStanceUserTurn(
+            stanceKey, heardTags, heardSpectral, flags, prev, recent);
         // Ground the rewrite in the acoustic palette (LCO-only; a no-op when the
         // palette is empty), but ONLY for the stances that DESCRIBE the sound.
         // abduction (name a real-world source) and verniedlicher (re-narrate as

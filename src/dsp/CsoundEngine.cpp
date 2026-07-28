@@ -1030,7 +1030,8 @@ std::vector<float> CsoundEngine::renderBareOscillator (const std::string& orches
                                                        double sampleRate,
                                                        double freqHz,
                                                        double seconds,
-                                                       double gateOffSeconds)
+                                                       double gateOffSeconds,
+                                                       int    decimateBy)
 {
     // No library, no render — an empty buffer, which is what every caller here
     // already handles. Checked before the arguments, since nothing below can
@@ -1048,7 +1049,7 @@ std::vector<float> CsoundEngine::renderBareOscillator (const std::string& orches
     // overflow the block count and make reserve() throw out of a detached thread —
     // std::terminate, from a probe whose entire contract is that it cannot damage
     // anything. 60 s is far past any useful probe window.
-    sampleRate = std::min(sampleRate, 192000.0);
+    sampleRate = std::min(sampleRate, kMaxProbeSampleRate);
     seconds    = std::min(seconds, 60.0);
     freqHz     = std::min(freqHz, sampleRate * 0.5);
 
@@ -1173,6 +1174,35 @@ std::vector<float> CsoundEngine::renderBareOscillator (const std::string& orches
     // queues a per-note and an end-of-performance summary), and nothing has read
     // it since the compile check. Failures above already printed what they needed.
     (void) drainMessages(cs);
+
+    // Band-limit and decimate to the rate the CALLER hears, through the very same
+    // halfband stages renderUpTo runs on the live signal (Decimator2x, cascaded at
+    // 4x). A probe rendered at the engine rate is what the authored body must see —
+    // it may derive its partial count or FM index from `sr` — but everything that
+    // lives above Nyquist of the host rate is removed before it reaches a speaker,
+    // and a caller measuring the probe has to be given the same band. Ratio 1 or a
+    // sample count that is not a whole multiple leaves the render untouched.
+    if (decimateBy > 1 && ! mono.empty() && (mono.size() % (size_t) decimateBy) == 0)
+    {
+        Decimator2x d1, d2;
+        std::vector<float> down;
+        down.reserve(mono.size() / (size_t) decimateBy);
+        if (decimateBy == 2)
+        {
+            for (size_t i = 0; i + 1 < mono.size(); i += 2)
+                down.push_back(d1.process(mono[i], mono[i + 1]));
+        }
+        else   // 4: 4x -> 2x -> 1x, exactly renderUpTo's cascade
+        {
+            for (size_t i = 0; i + 3 < mono.size(); i += 4)
+            {
+                const float a = d1.process(mono[i],     mono[i + 1]);
+                const float b = d1.process(mono[i + 2], mono[i + 3]);
+                down.push_back(d2.process(a, b));
+            }
+        }
+        mono.swap(down);
+    }
 
     // Peak-normalise to -12 dBFS. A render that never left the noise floor is
     // returned empty instead: normalising it would manufacture a loud signal out

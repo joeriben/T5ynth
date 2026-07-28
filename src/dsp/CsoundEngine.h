@@ -35,6 +35,13 @@ class CsoundEngine
 public:
     static constexpr int kMaxVoices = 16;   // fixed instrument/channel count, Phase 1
     static constexpr int kKsmps     = 64;
+    /** Ceiling renderBareOscillator clamps its render rate to. Set to the same
+     *  absolute engine-rate cap effectiveOversampleFactor applies, so a probe of a
+     *  legitimately-oversampled orchestra is never silently clamped below the rate
+     *  its body was compiled for. A caller deriving an output rate from the ratio
+     *  must clamp with THIS before dividing, or its arithmetic drifts from the
+     *  render's at any host rate above the ceiling. */
+    static constexpr double kMaxProbeSampleRate = 200000.0;
 
     CsoundEngine();
     ~CsoundEngine();
@@ -146,21 +153,36 @@ public:
      *  learned ear that is level-sensitive. A render whose peak never leaves the
      *  noise floor is returned EMPTY rather than amplified: "the oscillator made
      *  no sound" is a finding, and normalising silence would hide it behind
-     *  amplified numerical dust.
+     *  amplified numerical dust. Both run AFTER any decimation, so with
+     *  decimateBy > 1 they judge the band the caller is given: an orchestra whose
+     *  entire output sits above that band's Nyquist reports as no sound, which for
+     *  a listener is exactly what it is.
      *
-     *  @return interleaved-free mono samples at `sampleRate`; EMPTY on a compile
-     *          error, a contract violation (ksmps/nchnls/MYFLT), a silent render,
-     *          or in a build without Csound. Never throws.
+     *  @param decimateBy  1 (default), 2 or 4. The orchestra is rendered at
+     *          `sampleRate` (clamped to kMaxProbeSampleRate) — an authored body may
+     *          derive its partial count or FM index from `sr`, so it must see the
+     *          rate the engine compiles it at —
+     *          and the result is then band-limited and decimated by this factor
+     *          through the SAME halfband stages renderUpTo runs on the live signal.
+     *          Pass the LRO oversampling factor to get back exactly the band a
+     *          player hears; leave it at 1 to get the raw render. A ratio the render
+     *          length is not a whole multiple of leaves the render untouched.
      *
-     *  DEPRECATED (LCO self-check deactivated, BJ 2026-07-21): this offline probe
-     *  existed only to feed the self-listen / compare loop, which is switched OFF
-     *  (PromptPanel.cpp T5YNTH_LCO_SELFCHECK = 0). No live caller remains.
-     *  Retained, not deleted. */
+     *  @return interleaved-free mono samples at `sampleRate / decimateBy`; EMPTY on
+     *          a compile error, a contract violation (ksmps/nchnls/MYFLT), a silent
+     *          render, or in a build without Csound. Never throws.
+     *
+     *  LIVE AGAIN (BJ 2026-07-28): this offline probe was written for the
+     *  self-listen / compare loop, which stays switched OFF (PromptPanel.cpp
+     *  T5YNTH_LCO_SELFCHECK = 0) — but the LCO Re-Prompt ear now renders through
+     *  it on every STEP (PromptPanel::triggerDcoReprompt). Hearing the sound is
+     *  not judging it: no comparer and no correction pass came back with it. */
     static std::vector<float> renderBareOscillator (const std::string& orchestraText,
                                                     double sampleRate     = 48000.0,
                                                     double freqHz         = 220.0,
                                                     double seconds        = 3.0,
-                                                    double gateOffSeconds = 2.5);
+                                                    double gateOffSeconds = 2.5,
+                                                    int    decimateBy     = 1);
 
 private:
     struct Impl;                 // owns CSOUND*, spout ptr, channel MYFLT* [16][6], FIFO carry
@@ -201,7 +223,7 @@ inline void CsoundEngine::renderUpTo (int) {}
 inline void CsoundEngine::startBlock (int) {}
 inline void CsoundEngine::primeForTakeover (const float*, const float*) {}
 inline std::vector<float> CsoundEngine::renderBareOscillator (const std::string&, double,
-                                                              double, double, double)
+                                                              double, double, double, int)
 {
     // Empty, not silence: callers distinguish "no Csound in this build" from
     // "the orchestra rendered nothing", and both are correctly "nothing to hear".
