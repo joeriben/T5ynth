@@ -103,7 +103,7 @@ private:
 
     // ── Layout rects for paint() ──
     juce::Rectangle<int> engineSwitchBounds, loopSwitchBounds, optSwitchBounds;
-    juce::Rectangle<int> filterTypeSwitchBounds, filterSlopeSwitchBounds, filterAlgSwitchBounds;
+    juce::Rectangle<int> filterSlopeSwitchBounds, filterAlgSwitchBounds;
     int engineCardBottom = 0;
     int modCardBottom = 0;
     juce::Rectangle<int> envTabSwitchBounds, lfoTabSwitchBounds, driftTabSwitchBounds;
@@ -114,8 +114,9 @@ private:
 
     // ── Filter ──
     // Type: OFF LP HP BP — drives filter_type APVTS via hidden ComboBox; the
-    // visible affordance is filterEasyOffBtn + filterEasyTypeBtn below.
-    juce::ComboBox filterTypeHidden;
+    // visible affordance for PID::filterType: one dropdown, OFF LP HP BP.
+    // OFF is a value of the parameter, so bypass and type cannot disagree.
+    juce::ComboBox filterTypeBox;
     // Slope switchbox: 6dB 12dB 18dB 24dB
     static constexpr int kNumSlopeBtns = 4;
     juce::TextButton filterSlopeBtns[kNumSlopeBtns];
@@ -128,20 +129,6 @@ private:
     static constexpr int kNumAlgBtns = 3;
     juce::TextButton filterAlgBtns[kNumAlgBtns];
     juce::ComboBox filterAlgHidden;
-    // Easy-mode-only OFF segment, sits left of the algorithm switchbox so the
-    // filter can be bypassed even though the type switchbox (OFF LP HP BP) is
-    // hidden in Easy. Drives filterTypeHidden → FilterType::Off.
-    juce::TextButton filterEasyOffBtn { "OFF" };
-    // Easy-mode-only filter TYPE toggle: a single button that cycles LP→HP→BP,
-    // sitting right of the slope switch in the cell the 18 dB segment vacates
-    // (Easy sacrifices 18 dB for it). Drives filterTypeHidden among
-    // Lowpass/Highpass/Bandpass; OFF stays on filterEasyOffBtn. The two together
-    // express the full filterType param (Off/LP/HP/BP) without an Advanced-style
-    // switchbox.
-    juce::TextButton filterEasyTypeBtn { "LP" };
-    // 1-based ComboBox id of the last active type, restored when the filter is
-    // re-enabled from bypass (= FilterType::Lowpass + 1). Updated on type change.
-    int lastEasyFilterType_ = 2;
     // Warp style selector (only active when algorithm == Warp)
     juce::ComboBox filterWarpStyleBox;
 

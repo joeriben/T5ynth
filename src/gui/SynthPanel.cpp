@@ -845,20 +845,19 @@ SynthPanel::SynthPanel(T5ynthProcessor& processor)
     setupModTabs(lfoTabBtns, lfoTabLabels, 4002);
     setupModTabs(driftTabBtns, driftTabLabels, 4003);
 
-    // ── Filter type: OFF LP HP BP (APVTS carried by filterTypeHidden; the
-    // visible affordance is filterEasyOffBtn + filterEasyTypeBtn below) ──
+    // ── Filter mode: OFF LP HP BP, one dropdown ──
+    // OFF is a value of this parameter, not a separate switch, so bypass and
+    // type are the same choice and cannot disagree. It replaces the pair of
+    // buttons this used to drive; the cell that pair cost in the slope row is
+    // what gives 18 dB its segment back.
     {
         const juce::StringArray typeLabels { "OFF", "LP", "HP", "BP" };
-        filterTypeHidden.addItemList(typeLabels, 1);
-        filterTypeHidden.onChange = [this] {
-            int id = filterTypeHidden.getSelectedId();
-            // TYPE toggle: remember the last active type so bypass→re-enable
-            // restores it, and label the toggle with the current (or remembered) type.
-            if (id >= FilterType::Lowpass + 1)
-                lastEasyFilterType_ = id;
-            const char* const typeShort[] = { "LP", "HP", "BP" };  // ids 2,3,4
-            const int shown = (id >= FilterType::Lowpass + 1) ? id : lastEasyFilterType_;
-            filterEasyTypeBtn.setButtonText(typeShort[shown - 2]);
+        filterTypeBox.addItemList(typeLabels, 1);
+        filterTypeBox.setColour(juce::ComboBox::backgroundColourId, kSurface);
+        filterTypeBox.setColour(juce::ComboBox::textColourId, juce::Colours::white);
+        filterTypeBox.setColour(juce::ComboBox::outlineColourId, kFilterCol);
+        filterTypeBox.setJustificationType(juce::Justification::centred);
+        filterTypeBox.onChange = [this] {
             updateVisibility();
             // updateVisibility() hides lfoHeader/driftHeader; in the columnar mod
             // view they double as the LFO/DRIFT column header bars and are
@@ -866,6 +865,7 @@ SynthPanel::SynthPanel(T5ynthProcessor& processor)
             // when the filter is toggled. (Mirrors every other onChange in this file.)
             resized();
         };
+        addAndMakeVisible(filterTypeBox);
     }
 
     // ── Filter slope switchbox: 6dB 12dB 18dB 24dB ──
@@ -903,7 +903,7 @@ SynthPanel::SynthPanel(T5ynthProcessor& processor)
             for (int i = 0; i < kNumAlgBtns; ++i)
                 filterAlgBtns[i].setToggleState(i + 1 == id, juce::dontSendNotification);
             updateVisibility();
-            // See filterTypeHidden.onChange: re-run layout so the columnar
+            // See filterTypeBox.onChange: re-run layout so the columnar
             // LFO/DRIFT header bars (re-shown only in layoutModEasy) survive a
             // filter-algorithm change in easy mode.
             resized();
@@ -923,48 +923,12 @@ SynthPanel::SynthPanel(T5ynthProcessor& processor)
                     filterWarpStyleBox.setSelectedId(FilterWarpStyle::SoftClip + 1);
                 // OFF + algorithm buttons form one 4-way switch: picking an
                 // algorithm while bypassed re-enables the filter.
-                if (filterTypeHidden.getSelectedId() == FilterType::Off + 1)
-                    filterTypeHidden.setSelectedId(FilterType::Lowpass + 1);
+                if (filterTypeBox.getSelectedId() == FilterType::Off + 1)
+                    filterTypeBox.setSelectedId(FilterType::Lowpass + 1);
                 filterAlgHidden.setSelectedId(i + 1);
             };
             addAndMakeVisible(filterAlgBtns[i]);
         }
-    }
-
-    // ── Easy-mode filter OFF segment (sits left of the algorithm switchbox) ──
-    {
-        filterEasyOffBtn.setColour(juce::TextButton::buttonColourId,   kSurface);
-        filterEasyOffBtn.setColour(juce::TextButton::buttonOnColourId, kFilterCol);
-        filterEasyOffBtn.setColour(juce::TextButton::textColourOffId,  kDim);
-        filterEasyOffBtn.setColour(juce::TextButton::textColourOnId,   juce::Colours::white);
-        filterEasyOffBtn.setConnectedEdges(juce::Button::ConnectedOnRight);
-        // Toggle state is driven from updateVisibility (reflects filter bypass),
-        // not from clicks — so re-clicking OFF while already off can't desync it.
-        filterEasyOffBtn.onClick = [this] {
-            filterTypeHidden.setSelectedId(FilterType::Off + 1);
-        };
-        addAndMakeVisible(filterEasyOffBtn);
-    }
-
-    // ── Easy-mode filter TYPE toggle (cycles LP→HP→BP, right of the slope row) ──
-    {
-        styleSwitchButton(filterEasyTypeBtn, kFilterCol);
-        // Cycles via onClick — its lit/unlit appearance is driven from
-        // updateVisibility (reflects filter on/off), not from click toggling.
-        filterEasyTypeBtn.setClickingTogglesState(false);
-        filterEasyTypeBtn.setConnectedEdges(0);  // standalone toggle, distinct from the slope group
-        filterEasyTypeBtn.onClick = [this] {
-            const int cur = filterTypeHidden.getSelectedId();   // 1=Off,2=LP,3=HP,4=BP
-            int next;
-            if (cur <= FilterType::Off + 1)                     // bypassed → re-enable last type
-                next = lastEasyFilterType_;
-            else if (cur >= FilterType::Bandpass + 1)           // BP → wrap to LP
-                next = FilterType::Lowpass + 1;
-            else
-                next = cur + 1;                                 // LP→HP, HP→BP
-            filterTypeHidden.setSelectedId(next);
-        };
-        addAndMakeVisible(filterEasyTypeBtn);
     }
 
     // ── Warp style combo: tanh / softclip / ojd / sin / digital / asym ──
@@ -992,14 +956,14 @@ SynthPanel::SynthPanel(T5ynthProcessor& processor)
         addAndMakeVisible(filterEasyWarpBtn);
 
         filterEasyWarpBtn.onTap = [this] {
-            if (filterTypeHidden.getSelectedId() == FilterType::Off + 1)
-                filterTypeHidden.setSelectedId(FilterType::Lowpass + 1);
+            if (filterTypeBox.getSelectedId() == FilterType::Off + 1)
+                filterTypeBox.setSelectedId(FilterType::Lowpass + 1);
             filterAlgHidden.setSelectedId(FilterAlgorithm::Warp + 1);
         };
         filterEasyWarpBtn.onStylePick = [this](int id) {
             filterWarpStyleBox.setSelectedId(id);
-            if (filterTypeHidden.getSelectedId() == FilterType::Off + 1)
-                filterTypeHidden.setSelectedId(FilterType::Lowpass + 1);
+            if (filterTypeBox.getSelectedId() == FilterType::Off + 1)
+                filterTypeBox.setSelectedId(FilterType::Lowpass + 1);
             filterAlgHidden.setSelectedId(FilterAlgorithm::Warp + 1);
         };
     }
@@ -1034,7 +998,7 @@ SynthPanel::SynthPanel(T5ynthProcessor& processor)
     kbdTrackRow->onRightClick   = [this](juce::Point<int> p) { showMidiLearnMenu(processorRef, PID::filterKbdTrack,  p); };
     filterDriveRow->onRightClick = [this](juce::Point<int> p) { showMidiLearnMenu(processorRef, PID::filterDrive,    p); };
 
-    filterTypeA      = std::make_unique<CA>(apvts, PID::filterType,      filterTypeHidden);
+    filterTypeA      = std::make_unique<CA>(apvts, PID::filterType,      filterTypeBox);
     filterSlopeA     = std::make_unique<CA>(apvts, PID::filterSlope,     filterSlopeHidden);
     filterDriveOsA   = std::make_unique<CA>(apvts, PID::filterDriveOs,   filterDriveOsHidden);
     filterAlgA       = std::make_unique<CA>(apvts, PID::filterAlgorithm, filterAlgHidden);
@@ -1408,7 +1372,7 @@ void SynthPanel::updateVisibility()
     // All sections always visible — inactive ones get dimmed via alpha
     constexpr float dimAlpha = 0.3f;
 
-    bool filterOn = (filterTypeHidden.getSelectedId() > 1);  // 1=OFF, 2+=LP/HP/BP
+    bool filterOn = (filterTypeBox.getSelectedId() > 1);  // 1=OFF, 2+=LP/HP/BP
     float filterAlpha = filterOn ? 1.0f : dimAlpha;
     for (int i = 0; i < kNumSlopeBtns; ++i)
     {
@@ -1433,9 +1397,6 @@ void SynthPanel::updateVisibility()
     }
     // TYPE toggle: stays live like the algorithm buttons (so it can re-enable
     // the filter from bypass), lit only while the filter is on. Label set in onChange.
-    filterEasyTypeBtn.setAlpha(1.0f);
-    filterEasyTypeBtn.setEnabled(true);
-    filterEasyTypeBtn.setToggleState(filterOn, juce::dontSendNotification);
 
     // Warp Style dims further (to 0.3× of the already-filter-dim) when the
     // selected algorithm isn't Warp — style only applies to the warp ladder.
@@ -1444,11 +1405,10 @@ void SynthPanel::updateVisibility()
     filterWarpStyleBox.setAlpha(styleAlpha);
     filterWarpStyleBox.setEnabled(filterOn && warpActive);
     filterHeader.setVisible(true);
-    // The 18 dB slope segment is sacrificed so its cell can host the LP/HP/BP
-    // type toggle.
+    // All four slopes are shown: the mode dropdown carries OFF/LP/HP/BP on its
+    // own, so nothing has to borrow a cell from this row any more.
     for (int i = 0; i < kNumSlopeBtns; ++i)
-        filterSlopeBtns[i].setVisible(i != FilterSlope::Slope18);
-    filterEasyTypeBtn.setVisible(true);
+        filterSlopeBtns[i].setVisible(true);
     for (int i = 0; i < kNumAlgBtns; ++i)
         filterAlgBtns[i].setVisible(i != FilterAlgorithm::Warp);
     filterEasyWarpBtn.setVisible(true);
@@ -1458,9 +1418,7 @@ void SynthPanel::updateVisibility()
                                      juce::dontSendNotification);
     filterWarpStyleBox.setVisible(false);
 
-    // OFF segment: visible always, highlighted while bypassed.
-    filterEasyOffBtn.setVisible(true);
-    filterEasyOffBtn.setToggleState(!filterOn, juce::dontSendNotification);
+    filterTypeBox.setVisible(true);
     filterAlgBtns[FilterAlgorithm::SVF].setConnectedEdges(
         juce::Button::ConnectedOnLeft | juce::Button::ConnectedOnRight);
 
@@ -1835,37 +1793,33 @@ void SynthPanel::layoutFilterEasy(juce::Rectangle<int> area, float f, int rowH, 
     filterAlgBtns[FilterAlgorithm::Ladder].setButtonText("Ladder");
     // filterAlgBtns[Warp] is hidden in Easy; WarpHoldBtn occupies its cell.
     {
-        // One 4-way switch: OFF | SVF | Ladder | [WarpHoldBtn], equal cells.
+        // Four equal cells: [mode dropdown] | SVF | Ladder | [WarpHoldBtn]. The
+        // dropdown carries OFF, so the algorithm switch begins at SVF and the
+        // frame is drawn around those three alone.
         auto algRow = area.removeFromTop(rowH);
         const int cellW = algRow.getWidth() / (kNumAlgBtns + 1);
-        filterEasyOffBtn.setBounds(algRow.removeFromLeft(cellW));
+        filterTypeBox.setBounds(algRow.removeFromLeft(cellW).reduced(0, 1));
         filterAlgBtns[FilterAlgorithm::SVF].setBounds(algRow.removeFromLeft(cellW));
         filterAlgBtns[FilterAlgorithm::Ladder].setBounds(algRow.removeFromLeft(cellW));
         filterEasyWarpBtn.setBounds(algRow);           // remaining cell
-        filterAlgSwitchBounds = filterEasyOffBtn.getBounds()
-            .getUnion(filterAlgBtns[FilterAlgorithm::SVF].getBounds())
+        filterAlgSwitchBounds = filterAlgBtns[FilterAlgorithm::SVF].getBounds()
             .getUnion(filterEasyWarpBtn.getBounds());
     }
     area.removeFromTop(rowGap);
     {
-        // Slope is a 3-way switch (6/12/24 — Easy drops the 18 dB segment) across
-        // three of four equal cells; the freed fourth cell, right of 24 dB, hosts
-        // the LP/HP/BP type toggle.
+        // Slope is a 4-way switch across four equal cells: 6 / 12 / 18 / 24. The
+        // 18 dB segment used to be dropped so the LP/HP/BP toggle could stand in
+        // its cell; the mode dropdown carries the type now, so it has it back.
         auto slopeRow = area.removeFromTop(rowH);
-        const int cellW = slopeRow.getWidth() / 4;
-        juce::TextButton* const slope3[] = { &filterSlopeBtns[FilterSlope::Slope6],
-                                             &filterSlopeBtns[FilterSlope::Slope12],
-                                             &filterSlopeBtns[FilterSlope::Slope24] };
+        const int cellW = slopeRow.getWidth() / kNumSlopeBtns;
         filterSlopeSwitchBounds = {};
-        for (auto* b : slope3)
+        for (int i = 0; i < kNumSlopeBtns; ++i)
         {
-            auto cell = slopeRow.removeFromLeft(cellW);
-            b->setBounds(cell);
+            auto cell = (i == kNumSlopeBtns - 1) ? slopeRow : slopeRow.removeFromLeft(cellW);
+            filterSlopeBtns[i].setBounds(cell);
             filterSlopeSwitchBounds = filterSlopeSwitchBounds.isEmpty()
                                           ? cell : filterSlopeSwitchBounds.getUnion(cell);
         }
-        filterEasyTypeBtn.setBounds(slopeRow);   // remaining cell, right of 24 dB
-        filterTypeSwitchBounds = slopeRow;
     }
     area.removeFromTop(rowGap);
 
@@ -2500,7 +2454,6 @@ void SynthPanel::paint(juce::Graphics& g)
 
         paintSwitchBoxBorder(g, filterAlgSwitchBounds);
         paintSwitchBoxBorder(g, filterSlopeSwitchBounds);
-        paintSwitchBoxBorder(g, filterTypeSwitchBounds);   // LP/HP/BP toggle
         paintSwitchBoxBorder(g, envTabSwitchBounds);
         paintSwitchBoxBorder(g, regenSwitchBounds);
     }
