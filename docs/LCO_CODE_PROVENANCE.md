@@ -70,6 +70,23 @@ Absence of a licence is not permission.
 | **Steven Yi, `csound-live-code`** | **MIT**, declared in `package.json` only | GitHub's licence API returns 404 (no LICENSE file) and `livecode.orc` names only its author. MIT is GPLv3-compatible and this is plain orchestra code (`.orc` UDOs), so it is the best-fitting usable source found. The declaration lives in one metadata field — worth an email to get a LICENSE file before relying on it. |
 | **`spell-music/csound-catalog`** | **BSD-3-Clause** | Licence is fine, shape is wrong: it is Haskell that *generates* Csound, not orchestra bodies. |
 
+## The measurement sources the entries are built from
+
+The rule above says a published measurement is a fact and not protected expression, and that
+every entry's `why` carries the measurement it was built from. This table is the other half of
+that: the studies themselves, in one place, so a reader can check an entry against its source
+without reading 32 `why` fields. Nothing here is Csound code — that is the point.
+
+| Entry | Source | What was taken |
+|---|---|---|
+| **`supersaw`** | Adam Szabo, *How to Emulate the Super Saw*, BSc thesis in Media Technology, KTH Royal Institute of Technology, Stockholm 2010. TRITA-CSC-E 2010:131, ISRN-KTH/CSC/E--10/131--SE, ISSN-1653-5715. | A Roland JP-8000 and JP-8080 measured with an FFT analyser and an oscilloscope. Four sets of numbers: the seven detune offsets (table 1), the 11th degree polynomial the detune knob follows (fig 7), the two mix curves — centre linear, sides parabolic, meeting at 0.75 (fig 11), and the pitch-tracking high pass on the first harmonic (fig 14/15). Plus one structural fact: the saws are deliberately NOT band limited, and the fold-back is the sound. The thesis states in its own abstract that no Roland source code or copyrighted technique was used and that the recreation is an emulation built from standard components. |
+| **`plucked_wire`** | `Opcodes/repluck.c` in `csound/csound` (John ffitch 1996, Victor Lazzarini 1998) · Jaffe & Smith, CMJ 7(2), 1983 · Järveläinen & Tolonen, *Perceptual Tolerances for Decay Parameters in Plucked String Synthesis*, JAES 49(11), 2001, 1049–1059 · Karjalainen, Välimäki & Tolonen, CMJ 22(3), 1998. | The loop filter `state = state·refl + y·(1−refl)` and what `refl` therefore is (a one-pole pole, not a per-period damping); the pickup comb `\|sin(nπβ)\|`; and the published tolerance that decay-time variations of 25–40 % are inaudible, which decides what step size a listening test may use at all. |
+
+Reading a measurement out of a paper and writing fresh Csound to it is the practice
+`docs/LCO_CSOUND_SOURCES_AND_LICENCES.md` calls *take physics, not code*. It is also what
+`CLAUDE.md`'s Instrument Authoring rule 1 requires before the first orchestra line: a named
+method AND a source, written down first.
+
 ## Irrelevant regardless of licence: binary opcode plugins
 
 `csound-plugins` (per-collection `risset.json` declares LGPL; `src/else/else.c`

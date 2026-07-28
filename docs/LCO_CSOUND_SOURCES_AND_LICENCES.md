@@ -31,6 +31,10 @@ what this library has to be, for three reasons:
    of 1 : 2 : 3 for a hammer-tuned handpan area, f = (1/2πR)·√(3γP/ρ) for a bubble, Q/(πf)
    for a ring time, f = St·v/d for an aeolian tone — these are facts, and citing where they
    were measured is scholarship, not attribution of code.
+   The studies each entry stands on are listed in one table in
+   `docs/LCO_CODE_PROVENANCE.md`, *The measurement sources the entries are built from* —
+   Szabo's measurement of the Roland JP-8000 for `supersaw`, ffitch and Lazzarini's
+   `repluck.c` plus Järveläinen & Tolonen for `plucked_wire`.
 2. **The bodies here have to satisfy constraints no published collection was written for.**
    Every entry must hold ONE loudness across its whole parameter cube and the whole keyboard
    (§4 of `docs/LCO_CONCEPT.md`), must write into `asig` inside this host's scaffold, and
