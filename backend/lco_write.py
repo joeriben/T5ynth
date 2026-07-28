@@ -470,6 +470,7 @@ HARD RULES
     asigb   = <b's output>                 ; the second timbre, in its own variable
     kmorph  = min(knote / 2.0, 1)          ; 0 -> 1 over 2 s then holds (knote is in scope, seconds since the note began)
     asig    = asiga * (1 - kmorph) + asigb * kmorph
+  The `2.0` is NOT fixed — T is yours, and a SHORT T is how you write a transient. "a short glassy strike, then a pwm square" is `kmorph = min(knote / 0.08, 1)`: a is gone in 80 ms and b stands for the rest of the note. Do not reach for an amplitude envelope to make an end short. The crossfade already holds the loudness — a's energy is replaced by b's, not faded out — an envelope would take the loudness away from the player, and there is no per-end envelope for you to write one into: one note, one envelope, and it is the player's.
   Three ways this silently becomes "no transition at all" — each is WRONG for "a > b", never do them:
     (1) writing `asig` twice (`asig = <a>` … later `asig = <b>`): the second assignment ERASES the first, so only b is heard and everything above it is dead code. This is the most common mistake — a and b MUST meet in one crossfade line, not overwrite each other.
     (2) a static layer (`asig = <a> * kvol1 + <b> * kvol2`): that is a and b at once, forever — a LAYER, not a transition.
@@ -477,6 +478,16 @@ HARD RULES
   AN END OF A MORPH IS A WHOLE INSTRUMENT, NOT A ONE-LINER. Each end keeps every line it needs — including its own moving controls. NEVER freeze a k-rate control to a constant to make an end fit on one line: that silently deletes the very thing the user named. If the user asks for "sine > pulse width modulation" (or "sine > pwm"), b IS pulse-width MODULATION — its duty must go on sweeping after the morph arrives, so b keeps its LFO (`klfo oscili 0.5, 0.5`, `kpw = 0.5 + 0.6 * klfo`, `apw vco2 0.6, kfreq * koct1, 2, kpw`) and you write `asigb = apw - 0.6 * (2 * kpw - 1)`. Writing `vco2 …, 2, 0.5` there is a STATIC pulse wave — a different instrument from the one that was asked for, and the DC-correction line then reads `- 0.6 * (2 * 0.5 - 1)`, which is zero: dead code that proves the modulation was dropped. The same holds for every moving instrument used as an end — a bowed string still breathes, an organ still drifts, a filter sweep still sweeps.
   A REPEATING morph (a loop of a>b) drives kmorph from a free-running `oscili` instead of `min(knote…)`, so it sweeps back and forth forever.
 - "a + b" means two layers sounding at once — the static mix of (2), correct ONLY when the user asked to layer, never as a substitute for a transition. You may layer up to THREE oscillators this way.
+- "a through b" (equivalently "a driven by b", "a modulated by b", "b opening a", "a ring modulated by b", "a shaped by b") is the THIRD relation and it is neither of the two above: one sound ACTS ON the other instead of sounding beside it. Build both in full with their own variables, exactly as in a transition — but b is not ADDED to a, it goes IN as an ARGUMENT of a. The coupled pair is ONE voice and shares `kvol1` and `kfreq * koct1`.
+    <a's OWN lines>                        ; a, built in full
+    asiga   = <a's output>
+    <b's OWN lines>                        ; b, built in full
+    asigb   = <b's output>
+    asig    = asiga * asigb                ; ring modulation: sum and difference only, no carrier
+  or b opening a's filter — `moogladder` takes its cutoff at AUDIO rate, so b can drive it directly:
+    acut    = 200 + 4000 * abs(asigb)
+    asig    moogladder asiga, acut, 0.4
+  Before you drive an argument, check its RATE in the opcode's signature: `foscili`'s FM index is k-rate, so an audio signal cannot BE an index there — only its ratios are `x`. An `a` where the opcode wants `k` does not compile, and the message names the opcode rather than the rate.
 - Layer 1 must be scaled by `kvol1`, layer 2 by `kvol2`, layer 3 by `kvol3`, and each layer's pitch is `kfreq * koct1` / `koct2` / `koct3`. Those are the player's mix and octave knobs — a layer that ignores them cannot be mixed. With one layer, use `kvol1` and `kfreq * koct1`. In an "a > b" transition the two ends share `kvol1` and `kfreq * koct1` (it is one voice, not two layers).
 
 AVAILABLE IN SCOPE
