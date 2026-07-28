@@ -2,130 +2,6 @@
  "lexicon_version": 12,
  "techniques": [
   {
-   "key": "saw",
-   "surface_forms": [
-    "saw",
-    "sawtooth",
-    "saw wave",
-    "säge",
-    "sägezahn",
-    "ramp",
-    "saw tooth"
-   ],
-   "template": {
-    "keyframes": [
-     {
-      "kind": "saw"
-     }
-    ],
-    "motion": [
-     {
-      "to": 0,
-      "dur_frac": 0.0,
-      "curve": "lin"
-     }
-    ],
-    "loop": true,
-    "frames": 256,
-    "motion_rate_hz": 0.25
-   },
-   "priority": 5,
-   "why": "sawtooth wave -- the canonical bright analogue waveform: every harmonic present, decaying 1/h; the raw material of brass-like, string-like and lead sounds",
-   "code": "ivph0   = frac(ivoice * 0.6180339887)   ; per-voice phase\nkvdr0   poscil 0.00245, 0.043 + 0.0037 * ivoice, giSine, ivph0\nkdty0   poscil 0.0042, 0.057     ; age: shape/duty wobble on kpw\nkpw0s0   = 0.02 + kdty0\naao0s0u0  vco2 0.6, (kfreq * koct1) * (1 + kvdr0), 4, kpw0s0, 0   ; wave seg0 imode4 copy 0\nacln0   = aao0s0u0 * 1.000000    ; clean oscillator (pre-drive)\nadrv0   = acln0                     ; drive 0: clean, no saturator stage\nkagw0   oscili 0.0105, 0.7        ; age: amplitude wobble\nasig    = adrv0 * (1 + kagw0)"
-  },
-  {
-   "key": "square",
-   "surface_forms": [
-    "square",
-    "square wave",
-    "rechteck",
-    "rechteckwelle",
-    "squarewave"
-   ],
-   "template": {
-    "keyframes": [
-     {
-      "kind": "square"
-     }
-    ],
-    "motion": [
-     {
-      "to": 0,
-      "dur_frac": 0.0,
-      "curve": "lin"
-     }
-    ],
-    "loop": true,
-    "frames": 256,
-    "motion_rate_hz": 0.25
-   },
-   "priority": 5,
-   "why": "square wave -- odd harmonics only, decaying 1/h: hollow and woody, the clarinet and stopped-organ-pipe family of colour",
-   "code": "ivph0   = frac(ivoice * 0.6180339887)   ; per-voice phase\nkvdr0   poscil 0.00245, 0.043 + 0.0037 * ivoice, giSine, ivph0\nkdty0   poscil 0.0042, 0.057     ; age: shape/duty wobble on kpw\nkpw0s0   = 0.5 + kdty0\naao0s0u0  vco2 0.6, (kfreq * koct1) * (1 + kvdr0), 2, kpw0s0, 0   ; wave seg0 imode2 copy 0\nacln0   = aao0s0u0 * 0.578000    ; clean oscillator (pre-drive)\nadrv0   = acln0                     ; drive 0: clean, no saturator stage\nkagw0   oscili 0.0105, 0.7        ; age: amplitude wobble\nasig    = adrv0 * (1 + kagw0)"
-  },
-  {
-   "key": "pulse",
-   "surface_forms": [
-    "pulse",
-    "puls",
-    "rectangle",
-    "pulse wave",
-    "narrow pulse",
-    "rectangular wave"
-   ],
-   "template": {
-    "keyframes": [
-     {
-      "kind": "pulse",
-      "width": 0.3
-     }
-    ],
-    "motion": [
-     {
-      "to": 0,
-      "dur_frac": 0.0,
-      "curve": "lin"
-     }
-    ],
-    "loop": true,
-    "frames": 256,
-    "motion_rate_hz": 0.25
-   },
-   "priority": 5,
-   "why": "narrow rectangular wave (~10% duty) -- the thin, nasal, reedy end of the analogue waveform axis; oboe- and harpsichord-adjacent thinness",
-   "code": "ivph0   = frac(ivoice * 0.6180339887)   ; per-voice phase\nkvdr0   poscil 0.00245, 0.043 + 0.0037 * ivoice, giSine, ivph0\nkdty0   poscil 0.0042, 0.057     ; age: shape/duty wobble on kpw\nkpw0s0   = 0.1 + kdty0\naao0s0u0  vco2 0.6, (kfreq * koct1) * (1 + kvdr0), 2, kpw0s0, 0   ; wave seg0 imode2 copy 0\nacln0   = aao0s0u0 * 0.578000    ; clean oscillator (pre-drive)\nadrv0   = acln0                     ; drive 0: clean, no saturator stage\nkagw0   oscili 0.0105, 0.7        ; age: amplitude wobble\nasig    = adrv0 * (1 + kagw0)"
-  },
-  {
-   "key": "triangle",
-   "surface_forms": [
-    "triangle",
-    "triangle wave",
-    "dreieck",
-    "dreieckwelle",
-    "dreieckswelle"
-   ],
-   "template": {
-    "keyframes": [
-     {
-      "kind": "triangle"
-     }
-    ],
-    "motion": [
-     {
-      "to": 0,
-      "dur_frac": 0.0,
-      "curve": "lin"
-     }
-    ],
-    "loop": true,
-    "frames": 256,
-    "motion_rate_hz": 0.25
-   },
-   "priority": 5,
-   "why": "triangle wave -- odd harmonics decaying 1/h^2: the softest of the classic analogue waves, nearest to a flute or a soft whistle",
-   "code": "ivph0   = frac(ivoice * 0.6180339887)   ; per-voice phase\nkvdr0   poscil 0.00245, 0.043 + 0.0037 * ivoice, giSine, ivph0\nkdty0   poscil 0.0042, 0.057     ; age: shape/duty wobble on kpw\nkpw0s0   = 0.5 + kdty0\naao0s0u0  vco2 0.6, (kfreq * koct1) * (1 + kvdr0), 4, kpw0s0, 0   ; wave seg0 imode4 copy 0\nacln0   = aao0s0u0 * 1.000000    ; clean oscillator (pre-drive)\nadrv0   = acln0                     ; drive 0: clean, no saturator stage\nkagw0   oscili 0.0105, 0.7        ; age: amplitude wobble\nasig    = adrv0 * (1 + kagw0)"
-  },
-  {
    "key": "sine",
    "surface_forms": [
     "sine",
@@ -2380,19 +2256,42 @@
     "analogue osc",
     "analogue oscillator",
     "analogue synth",
+    "dreieck",
+    "dreieckswelle",
+    "dreieckwelle",
     "duty sweep",
     "juno",
     "minimoog",
+    "narrow pulse",
     "oberheim",
     "prophet",
+    "puls",
     "pulsbreite",
     "pulsbreitenmodulation",
+    "pulse",
+    "pulse wave",
     "pulse width modulation",
     "pulsweite",
     "pulsweitenmodulation",
     "pw",
     "pwm",
+    "ramp",
+    "rechteck",
+    "rechteckwelle",
+    "rectangle",
+    "rectangular wave",
+    "saw",
+    "saw tooth",
+    "saw wave",
+    "sawtooth",
+    "square",
+    "square wave",
+    "squarewave",
     "sub 37",
+    "säge",
+    "sägezahn",
+    "triangle",
+    "triangle wave",
     "vco",
     "vintage synth"
    ],
