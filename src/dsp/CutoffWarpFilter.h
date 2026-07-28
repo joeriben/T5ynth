@@ -1,6 +1,7 @@
 #pragma once
 #include <JuceHeader.h>
 #include <cmath>
+#include "BlockParams.h"   // LadderResoLaw
 
 /**
  * Cutoff-Warp ladder filter.
@@ -75,33 +76,19 @@ public:
         updateCoeffs();
     }
 
-    // This filter has the SAME defect MoogLadderFilter had — a knob linear in
-    // feedback gain over a peak that goes as 1/(1 − k/k_pole), so nothing
-    // happens until the last eighth of the travel — but it does NOT take
-    // LadderResoLaw, because k_pole here is not 4 and is not one number.
-    // Measured (LP 24 dB/oct, 1 kHz, small-signal impulse, peak in dB):
-    //
-    //   r          0.125  0.250  0.375  0.500  0.625  0.750  0.875  0.950
-    //   Tanh        −1.7   −2.1   −1.3   +0.2   +2.6   +6.4  +14.5  +41.8
-    //   SoftClip    +3.3   +3.0   +3.9   +5.6   +8.3  +12.8  +24.7  +92.4
-    //   OJD         −1.1   −1.5   −0.6   +1.0   +3.5   +7.7  +17.3 +100.6
-    //   Sin         +1.3   +1.0   +1.9   +3.6   +6.3  +10.8  +22.3 +108.6
-    //   Digital     −1.9   −2.2   −1.3   +0.3   +2.8   +7.0  +16.6 +108.0
-    //   Asym        −1.9   −2.2   −1.3   +0.3   +2.8   +7.0  +16.8 +103.8
-    //
-    // Every style is already self-oscillating by r = 0.95, at very different
-    // points — so kStyleScale does NOT hold them to a common threshold, and the
-    // §"acceptance matrix" claim below that they all reach the edge at r ≈ 0.95
-    // does not survive measurement. Evening the travel out here needs each
-    // style's own pole, measured by bisection; imposing the Ladder's k_pole = 4
-    // instead drives Sin to +94.9 dB at r = 0.75. That is a separate, measured
-    // piece of work — and one that would also pull the styles onto a common
-    // threshold, which is a change to what the style selector does.
+    // Same law as MoogLadderFilter — the knob travels evenly in dB of peak
+    // height, not in feedback gain — but against THIS style's own pole, because
+    // each saturation curve reaches unity loop gain at a different nominal k
+    // (bisected: Tanh 3.9934 … Sin 3.8536; see LadderResoLaw in BlockParams.h).
+    // The pole is measured in nominal k, before kStyleScale, so the law composes
+    // with that scale rather than fighting it: what gets evened out is where the
+    // travel starts to bite, and each style keeps its own compression above the
+    // knee — that difference IS the style.
     void setResonance(float r)
     {
         if (std::abs(r - lastReso) < 0.001f) return;
         lastReso = juce::jlimit(0.0f, 1.0f, r);
-        k = 4.2f * lastReso;
+        updateFeedback();
     }
 
     void setType(int type)    { currentType  = juce::jlimit(0, 2, type); }
@@ -112,6 +99,10 @@ public:
         currentStyle = juce::jlimit(0, 5, style);
         kStyleScale  = resonanceScaleForStyle(currentStyle);
         kStyleLevel  = levelCompForStyle(currentStyle);
+        // The knob's law is style-dependent, so k does not survive a style
+        // change. setResonance() early-outs on an unchanged knob and would
+        // leave the previous style's feedback standing.
+        updateFeedback();
     }
 
     // Input gain feeds the ZDF loop's style-selected saturations. No output
@@ -177,6 +168,11 @@ public:
     }
 
 private:
+    void updateFeedback()
+    {
+        k = LadderResoLaw::feedback(lastReso, LadderResoLaw::warpPole(currentStyle));
+    }
+
     void updateCoeffs()
     {
         // tan() blows up as we approach Nyquist, so clamp w to just below π/2.

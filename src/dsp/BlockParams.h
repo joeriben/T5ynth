@@ -860,13 +860,13 @@ namespace FxMixLaw {
 
 // ── Ladder resonance law ──────────────────────────────────────────────────────
 //
-// MoogLadderFilter mapped the resonance knob straight onto the feedback gain:
+// Both ladder filters mapped the resonance knob straight onto the feedback gain:
 // k = 4.2·r. That is linear in the wrong quantity. A 4-pole ZDF ladder's peak at
 // cutoff is set by how close the loop gain comes to the pole (Zavalishin §5.2:
-// each stage contributes 1/4 of the loop at ω_c, so |H| ≈ 1/(1 − k/4)), which in
-// dB is
+// each stage contributes 1/4 of the loop at ω_c, so |H| ≈ 1/(1 − k/k_pole)),
+// which in dB is
 //
-//     P(k) = −20·log10(1 − k/4).
+//     P(k) = −20·log10(1 − k/k_pole).
 //
 // P is flat in k until k is nearly 4 and then a cliff. Measured on
 // MoogLadderFilter itself (LP, 24 dB/oct, 1 kHz, small-signal impulse), the old
@@ -879,64 +879,102 @@ namespace FxMixLaw {
 // happens in the last eighth. That is the "weak, not expressive" the filter was
 // reported as. Inverting P for a knob that travels evenly in DECIBELS instead:
 //
-//     k(r) = 4·(1 − 10^(−P_max·r/20)),   P_max = 42 dB.
+//     k(r) = k_pole·(1 − 10^(−P_max·r/20)),   P_max = 42 dB.
 //
-// The last kSelfOscR of the travel is the self-oscillation region, which this
-// law cannot express — k = 4 IS the pole, and 1/(1 − k/4) is infinite there. So
-// above the knee k ramps on to 4.2, the small overshoot that guarantees an
+// The top of the travel is the self-oscillation region, which this law cannot
+// express — k_pole IS the pole, and 1/(1 − k/k_pole) is infinite there. So above
+// the knee k ramps on to k_pole·1.05, the small overshoot that guarantees an
 // audible ring once the per-stage saturation has shaved a little loop gain. The
-// knee sits exactly where the old mapping crossed k = 4 (r = 4/4.2 = 0.952), so
-// the self-oscillating stretch of the knob is unchanged.
+// knee sits exactly where the OLD mapping crossed the pole (r = k_pole/4.2), so
+// the self-oscillating stretch of the knob is unchanged for every filter.
+//
+// k_pole per filter:
+//   • MoogLadderFilter — exactly 4, derived, not fitted (Zavalishin §5.2:
+//     1/|G(jω_c)| = 1/(1/4)). Measured onset lands between r = 0.94 and 0.96,
+//     i.e. k between 3.95 and 4.03, which is the derivation confirmed.
+//   • CutoffWarpFilter — one per saturation style, because each style's curve
+//     has its own slope near zero and kStyleScale only approximately compensates
+//     it. Bisected on the sustained-ring criterion (excite, wait 1 s, require
+//     RMS > 1e-3 over the next second), in NOMINAL k, i.e. what setResonance
+//     writes before kStyleScale — so the law composes with that scale instead of
+//     fighting it. Measured at 110 Hz / 1 kHz / 4 kHz; the spread across cutoff
+//     is under 2 %, so one number per style stands. The values below are the
+//     1 kHz column. Tanh measures 3.9934 against the theoretical 4 — the
+//     method validating itself on the one style whose pole is known.
 //
 // P_max inverts the LINEAR model, while the ladder's per-stage saturation shaves
-// the top of the range — so the delivered peak is not 42 dB but the measured
+// the top of the range — so the delivered peak is not 42 dB but, on the Ladder,
+// the measured
 //
 //     r    0.000  0.125  0.250  0.375  0.500  0.625  0.750  0.875  0.950
 //     dB    +1.6   −0.5   +4.1   +9.4  +14.7  +20.2  +25.5  +30.7  +33.5
 //
 // which is what matters: ~5.3 dB per eighth of travel from 0.25 upward, and the
 // compression is uniform rather than a cliff. Self-oscillation onset is
-// unchanged (between r = 0.94 and 0.96, at 110 Hz as at 1 kHz).
+// unchanged (between r = 0.94 and 0.96, at 110 Hz as at 1 kHz). Each Warp style
+// compresses differently above the knee — that difference IS the style, and is
+// left alone; what is evened out is only where the travel starts to bite.
 //
 // This is the law the SVF has always had: T5ynthFilter maps r onto Q = 0.5·36^r,
-// i.e. −6 + 31·r dB of peak — even in dB across the whole travel. The Ladder was
-// the outlier, not the knob. CutoffWarpFilter has the same defect but does NOT
-// take this law: its pole moves with the saturation style, so it needs its own
-// measurement — see the comment on CutoffWarpFilter::setResonance.
+// i.e. −6 + 31·r dB of peak — even in dB across the whole travel. The two
+// ladders were the outliers, not the knob.
 namespace LadderResoLaw {
     static constexpr float kPeakDbMax = 42.0f;   // dB of peak at the top of the even stretch
-    static constexpr float kSelfOscR  = 4.0f / 4.2f;  // knee: where the OLD map reached k = 4
-    static constexpr float kKMax      = 4.2f;    // feedback at r = 1 (self-oscillation)
-    // Feedback at the knee: 4·(1 − 10^(−42/20)). Written out rather than
-    // recomputed, because feedback() runs per voice per block on the audio
-    // thread and std::pow is not free.
-    static constexpr float kKnee      = 3.96826f;
+    static constexpr float kOldSlope  = 4.2f;    // the retired mapping, k = 4.2·r
+    static constexpr float kOvershoot = 1.05f;   // k at r = 1, relative to the pole
+    // 10^(−42/20), the knee's fraction of the pole. Written out rather than
+    // recomputed: feedback() runs per voice per block on the audio thread.
+    static constexpr float kKneeFrac  = 1.0f - 0.00794328f;
+
+    static constexpr float kMoogPole  = 4.0f;    // derived (Zavalishin §5.2)
+
+    // CutoffWarpFilter, indexed by FilterWarpStyle. Bisected, 1 kHz — see above.
+    static constexpr float kWarpPole[6] = {
+        3.9934f,   // Tanh
+        3.8683f,   // SoftClip
+        3.9176f,   // OJD
+        3.8536f,   // Sin
+        3.9120f,   // Digital
+        3.9086f,   // Asym
+    };
+    inline float warpPole(int style)
+    {
+        return kWarpPole[(style < 0 || style > 5) ? 0 : style];
+    }
+
+    // Where the OLD mapping crossed this pole — the knee, and the start of the
+    // self-oscillating stretch.
+    inline float selfOscR(float kPole) { return kPole / kOldSlope; }
 
     // Feedback gain for a knob position. Even in dB up to the knee, then into
     // self-oscillation.
-    inline float feedback(float r)
+    inline float feedback(float r, float kPole)
     {
         const float c = r < 0.0f ? 0.0f : (r > 1.0f ? 1.0f : r);
-        if (c <= kSelfOscR)
-            return 4.0f * (1.0f - std::pow(10.0f, -kPeakDbMax * (c / kSelfOscR) / 20.0f));
-        const float t = (c - kSelfOscR) / (1.0f - kSelfOscR);
-        return kKnee + t * (kKMax - kKnee);
+        const float rKnee = selfOscR(kPole);
+        if (c <= rKnee)
+            return kPole * (1.0f - std::pow(10.0f, -kPeakDbMax * (c / rKnee) / 20.0f));
+        const float kKnee = kPole * kKneeFrac;
+        const float t     = (c - rKnee) / (1.0f - rKnee);
+        return kKnee + t * (kPole * kOvershoot - kKnee);
     }
 
     // ── Migration (calibration epoch 7) ──
     // Inverse of the above composed with the old k = 4.2·r, so a stored knob
     // position moves to the one that produces the SAME feedback gain — and
-    // therefore the same sound — under the new law. Only meaningful when the
-    // file selected Ladder; neither the SVF's nor the Warp's mapping changed.
-    inline float migrateResonance(float rOld)
+    // therefore the same sound — under the new law. The SVF's r → Q map did not
+    // change, so an SVF preset never comes through here.
+    inline float migrateResonance(float rOld, float kPole)
     {
         if (rOld <= 0.0f)   return 0.0f;
         if (rOld >= 0.999f) return 1.0f;
-        const float kOld = kKMax * rOld;
+        const float kOld  = kOldSlope * rOld;
+        const float rKnee = selfOscR(kPole);
+        const float kKnee = kPole * kKneeFrac;
         if (kOld >= kKnee)   // the old top stretch lands in the new self-osc ramp
-            return kSelfOscR + (1.0f - kSelfOscR) * ((kOld - kKnee) / (kKMax - kKnee));
-        const float p = -20.0f * std::log10(1.0f - kOld / 4.0f);   // dB the old k produced
-        return kSelfOscR * (p / kPeakDbMax);
+            return rKnee + (1.0f - rKnee) * ((kOld - kKnee) / (kPole * kOvershoot - kKnee));
+        const float p = -20.0f * std::log10(1.0f - kOld / kPole);  // dB the old k produced
+        return rKnee * (p / kPeakDbMax);
     }
 }
 

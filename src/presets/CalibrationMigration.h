@@ -79,16 +79,18 @@ namespace Calibration
 //            that keeps an old file's resting level exactly as it was and drops
 //            only the ≤6 dB the old branch could add at full pressure. Stored
 //            negative values keep their meaning and are left untouched.
-//   Epoch 7: Ladder resonance law (2026-07-28). MoogLadderFilter put the knob
-//            straight on the feedback gain (k = 4.2·r), but a 4-pole ZDF
-//            ladder's peak goes as 1/(1 − k/4) — so the first half of the
-//            travel delivered under +1 dB and the last eighth climbed 40. The
-//            knob now travels evenly in dB of peak (LadderResoLaw), which is
-//            the law the SVF has always had (Q = 0.5·36^r). Conditional on the
-//            algorithm: an SVF or Warp preset's resonance is untouched, a
-//            Ladder preset's stored position moves to the one producing the
-//            SAME feedback gain — a closed-form inversion, not a factor. A file
-//            with no algorithm property predates Ladder/Warp and was an SVF.
+//   Epoch 7: Ladder + Warp resonance law (2026-07-28). Both ladder filters put
+//            the knob straight on the feedback gain (k = 4.2·r), but a 4-pole
+//            ZDF ladder's peak goes as 1/(1 − k/k_pole) — so the first half of
+//            the travel delivered under +1 dB and the last eighth climbed 40.
+//            The knob now travels evenly in dB of peak (LadderResoLaw), which
+//            is the law the SVF has always had (Q = 0.5·36^r). Conditional on
+//            the algorithm, and for the Warp on the saturation style too, since
+//            its pole is per style: an SVF preset's resonance is untouched, a
+//            Ladder or Warp preset's stored position moves to the one producing
+//            the SAME feedback gain — a closed-form inversion, not a factor. A
+//            file with no algorithm property predates Ladder/Warp and was an
+//            SVF; one with no style property loaded as Tanh then and now.
 //            NOT covered, and not coverable by a scalar: MODULATION of the
 //            resonance (aftertouch/env/LFO/drift → Resonance). Those amounts
 //            are additive offsets in knob units, so the swing a stored depth
@@ -273,36 +275,41 @@ struct ResoLawRemap
 {
     const char* id;         // resonance parameter whose law changed
     const char* condId;     // sibling algorithm param selecting the affected filter
+    const char* styleId;    // sibling warp-style param (the Warp's pole is per style)
     int         sinceEpoch; // applied when the file's epoch < this
 };
 
 inline const std::array<ResoLawRemap, 1>& resoLawRemaps()
 {
     static const std::array<ResoLawRemap, 1> table = { {
-        { PID::filterResonance, PID::filterAlgorithm, 7 },
+        { PID::filterResonance, PID::filterAlgorithm, PID::filterWarpStyle, 7 },
     } };
     return table;
 }
 
-// The SVF's r → Q map and the Warp's k = 4.2·r both stayed as they were, so
-// their stored values are already correct.
-inline float remapResoValue(float stored, int algIndex)
+// The SVF's r → Q map did not change, so its stored value is already correct.
+// The two ladders invert against their own pole — one number for the Ladder,
+// one per saturation style for the Warp.
+inline float remapResoValue(float stored, int algIndex, int warpStyle)
 {
-    return algIndex == FilterAlgorithm::Ladder
-        ? LadderResoLaw::migrateResonance(stored)
-        : stored;
+    if (algIndex == FilterAlgorithm::Ladder)
+        return LadderResoLaw::migrateResonance(stored, LadderResoLaw::kMoogPole);
+    if (algIndex == FilterAlgorithm::Warp)
+        return LadderResoLaw::migrateResonance(stored, LadderResoLaw::warpPole(warpStyle));
+    return stored;
 }
 
 // .t5p JSON surface for the resonance knob: call with the value the file carried
-// and the algorithm resolved from the same record. A file with no algorithm
-// property predates Ladder/Warp and is loaded as SVF — pass SVF, not "unknown".
-inline float migrateResoScalar(float value, int fromEpoch, int algIndex)
+// and the algorithm + warp style resolved from the same record. A file with no
+// algorithm property predates Ladder/Warp and is loaded as SVF — pass SVF, not
+// "unknown"; likewise a Warp file with no style property is loaded as Tanh.
+inline float migrateResoScalar(float value, int fromEpoch, int algIndex, int warpStyle)
 {
     if (fromEpoch >= kEpoch)
         return value;
     for (const auto& r : resoLawRemaps())
         if (fromEpoch < r.sinceEpoch)
-            return remapResoValue(value, algIndex);
+            return remapResoValue(value, algIndex, warpStyle);
     return value;
 }
 
@@ -459,7 +466,8 @@ inline void migrateValueTree(juce::ValueTree& tree, int fromEpoch)
     }
 
     // Resonance-law remap: only the two ladder algorithms changed law, so the
-    // sibling algorithm param in the SAME tree decides. A tree carrying the
+    // sibling algorithm param in the SAME tree decides — and for the Warp, the
+    // sibling style too, because its pole is per style. A tree carrying the
     // resonance but no algorithm param predates Ladder/Warp — it was an SVF, and
     // the SVF's law is unchanged, so leaving it alone is correct (unlike the mix
     // case above, where an absent type really is unknown).
@@ -468,15 +476,18 @@ inline void migrateValueTree(juce::ValueTree& tree, int fromEpoch)
         if (fromEpoch >= rr.sinceEpoch)
             continue;
 
-        int algIndex = FilterAlgorithm::SVF;
+        int algIndex  = FilterAlgorithm::SVF;
+        int warpStyle = FilterWarpStyle::Tanh;
         for (int i = 0; i < tree.getNumChildren(); ++i)
         {
             auto child = tree.getChild(i);
-            if (child.getProperty("id").toString() == rr.condId && child.hasProperty("value"))
-            {
+            if (! child.hasProperty("value"))
+                continue;
+            const auto id = child.getProperty("id").toString();
+            if (id == rr.condId)
                 algIndex = juce::roundToInt(static_cast<double>(child.getProperty("value")));
-                break;
-            }
+            else if (id == rr.styleId)
+                warpStyle = juce::roundToInt(static_cast<double>(child.getProperty("value")));
         }
 
         for (int i = 0; i < tree.getNumChildren(); ++i)
@@ -485,7 +496,7 @@ inline void migrateValueTree(juce::ValueTree& tree, int fromEpoch)
             if (child.getProperty("id").toString() == rr.id && child.hasProperty("value"))
                 child.setProperty("value",
                                   remapResoValue(static_cast<float>(child.getProperty("value")),
-                                                 algIndex),
+                                                 algIndex, warpStyle),
                                   nullptr);
         }
     }

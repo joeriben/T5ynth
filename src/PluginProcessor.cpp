@@ -7491,15 +7491,19 @@ bool T5ynthProcessor::importJsonPreset(const juce::String& json)
         setParam(parameters, PID::filterCutoff,
                  cutoffNormToHz(static_cast<float>(filt->getProperty("cutoff"))));
         // Filter algorithm: absent in pre-Ladder/Warp presets -> SVF (bit-identical).
-        // Read BEFORE the resonance, because epoch 7 changed the resonance law for
-        // the two ladder algorithms only.
+        // Read BEFORE the resonance, along with the warp style, because epoch 7
+        // changed the resonance law for the two ladder algorithms — and the Warp's
+        // pole is per saturation style.
         const int filtAlgIdx = filt->hasProperty("algorithm")
             ? filterAlgorithmFromString(filt->getProperty("algorithm").toString())
             : FilterAlgorithm::SVF;
+        const int filtWarpStyleIdx = filt->hasProperty("warpStyle")
+            ? filterWarpStyleFromString(filt->getProperty("warpStyle").toString())
+            : FilterWarpStyle::Tanh;
         setParam(parameters, PID::filterResonance,
                  Calibration::migrateResoScalar(
                      static_cast<float>(filt->getProperty("resonance")), fileCalibEpoch,
-                     filtAlgIdx));
+                     filtAlgIdx, filtWarpStyleIdx));
         setParam(parameters, PID::filterMix, static_cast<float>(filt->getProperty("mix")));
         setParam(parameters, PID::filterKbdTrack, static_cast<float>(filt->getProperty("kbdTrack")));
         // Drive: absent in older presets -> treat as 0 dB.
@@ -7511,10 +7515,7 @@ bool T5ynthProcessor::importJsonPreset(const juce::String& json)
                      ? static_cast<float>(filterDriveOsFromString(filt->getProperty("driveOs").toString()))
                      : static_cast<float>(FilterDriveOs::X2));
         setParam(parameters, PID::filterAlgorithm, static_cast<float>(filtAlgIdx));
-        setParam(parameters, PID::filterWarpStyle,
-                 filt->hasProperty("warpStyle")
-                     ? static_cast<float>(filterWarpStyleFromString(filt->getProperty("warpStyle").toString()))
-                     : static_cast<float>(FilterWarpStyle::Tanh));
+        setParam(parameters, PID::filterWarpStyle, static_cast<float>(filtWarpStyleIdx));
     }
 
     // ── Sequencer ──

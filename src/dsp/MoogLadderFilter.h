@@ -93,7 +93,7 @@ public:
     {
         if (std::abs(r - lastReso) < 0.001f) return;
         lastReso = juce::jlimit(0.0f, 1.0f, r);
-        k = LadderResoLaw::feedback(lastReso);
+        k = LadderResoLaw::feedback(lastReso, LadderResoLaw::kMoogPole);
     }
 
     // currentType: 0 = LP, 1 = HP, 2 = BP
