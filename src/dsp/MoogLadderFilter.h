@@ -1,6 +1,7 @@
 #pragma once
 #include <JuceHeader.h>
 #include <cmath>
+#include "BlockParams.h"   // LadderResoLaw
 
 /**
  * Zero-delay-feedback (ZDF / TPT) 4-pole Moog ladder filter.
@@ -81,17 +82,18 @@ public:
         updateCoeffs();
     }
 
-    // Resonance 0..1 → feedback gain k = 4·r. The linear ZDF ladder self-
-    // oscillates at k = 4 (Zavalishin §5.2: 1/|G(jω_c)| = 1/(1/4) = 4); the
-    // tiny overshoot (4.2) guarantees an audible ring at r = 1 once the per-
-    // stage saturation has shaved a little loop gain. Unlike the old delayed-
-    // feedback structure, this threshold is now cutoff-independent — no per-
-    // frequency boost needed.
+    // Resonance 0..1 → feedback gain. The knob travels evenly in DECIBELS of
+    // peak height, not in feedback gain: the ladder self-oscillates at k = 4
+    // (Zavalishin §5.2: 1/|G(jω_c)| = 1/(1/4) = 4), so a knob linear in k spends
+    // its whole first half below +1 dB and its last eighth climbing 40. See
+    // LadderResoLaw in BlockParams.h for the inversion and the measurement.
+    // Unlike the old delayed-feedback structure, the threshold is cutoff-
+    // independent — no per-frequency boost needed.
     void setResonance(float r)
     {
         if (std::abs(r - lastReso) < 0.001f) return;
         lastReso = juce::jlimit(0.0f, 1.0f, r);
-        k = 4.2f * lastReso;
+        k = LadderResoLaw::feedback(lastReso);
     }
 
     // currentType: 0 = LP, 1 = HP, 2 = BP

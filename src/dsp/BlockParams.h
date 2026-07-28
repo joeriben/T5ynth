@@ -858,6 +858,88 @@ namespace FxMixLaw {
     // file tells us nothing, so migrateValueTree leaves the mix alone.
 }
 
+// ── Ladder resonance law ──────────────────────────────────────────────────────
+//
+// MoogLadderFilter mapped the resonance knob straight onto the feedback gain:
+// k = 4.2·r. That is linear in the wrong quantity. A 4-pole ZDF ladder's peak at
+// cutoff is set by how close the loop gain comes to the pole (Zavalishin §5.2:
+// each stage contributes 1/4 of the loop at ω_c, so |H| ≈ 1/(1 − k/4)), which in
+// dB is
+//
+//     P(k) = −20·log10(1 − k/4).
+//
+// P is flat in k until k is nearly 4 and then a cliff. Measured on
+// MoogLadderFilter itself (LP, 24 dB/oct, 1 kHz, small-signal impulse), the old
+// mapping delivered a peak of
+//
+//     r    0.000  0.125  0.250  0.375  0.500  0.625  0.750  0.875  0.950
+//     dB    +1.6   −1.7   −2.1   −1.3   +0.2   +2.6   +6.4  +14.5  +41.8
+//
+// — the first half of the travel does nothing at all and everything audible
+// happens in the last eighth. That is the "weak, not expressive" the filter was
+// reported as. Inverting P for a knob that travels evenly in DECIBELS instead:
+//
+//     k(r) = 4·(1 − 10^(−P_max·r/20)),   P_max = 42 dB.
+//
+// The last kSelfOscR of the travel is the self-oscillation region, which this
+// law cannot express — k = 4 IS the pole, and 1/(1 − k/4) is infinite there. So
+// above the knee k ramps on to 4.2, the small overshoot that guarantees an
+// audible ring once the per-stage saturation has shaved a little loop gain. The
+// knee sits exactly where the old mapping crossed k = 4 (r = 4/4.2 = 0.952), so
+// the self-oscillating stretch of the knob is unchanged.
+//
+// P_max inverts the LINEAR model, while the ladder's per-stage saturation shaves
+// the top of the range — so the delivered peak is not 42 dB but the measured
+//
+//     r    0.000  0.125  0.250  0.375  0.500  0.625  0.750  0.875  0.950
+//     dB    +1.6   −0.5   +4.1   +9.4  +14.7  +20.2  +25.5  +30.7  +33.5
+//
+// which is what matters: ~5.3 dB per eighth of travel from 0.25 upward, and the
+// compression is uniform rather than a cliff. Self-oscillation onset is
+// unchanged (between r = 0.94 and 0.96, at 110 Hz as at 1 kHz).
+//
+// This is the law the SVF has always had: T5ynthFilter maps r onto Q = 0.5·36^r,
+// i.e. −6 + 31·r dB of peak — even in dB across the whole travel. The Ladder was
+// the outlier, not the knob. CutoffWarpFilter has the same defect but does NOT
+// take this law: its pole moves with the saturation style, so it needs its own
+// measurement — see the comment on CutoffWarpFilter::setResonance.
+namespace LadderResoLaw {
+    static constexpr float kPeakDbMax = 42.0f;   // dB of peak at the top of the even stretch
+    static constexpr float kSelfOscR  = 4.0f / 4.2f;  // knee: where the OLD map reached k = 4
+    static constexpr float kKMax      = 4.2f;    // feedback at r = 1 (self-oscillation)
+    // Feedback at the knee: 4·(1 − 10^(−42/20)). Written out rather than
+    // recomputed, because feedback() runs per voice per block on the audio
+    // thread and std::pow is not free.
+    static constexpr float kKnee      = 3.96826f;
+
+    // Feedback gain for a knob position. Even in dB up to the knee, then into
+    // self-oscillation.
+    inline float feedback(float r)
+    {
+        const float c = r < 0.0f ? 0.0f : (r > 1.0f ? 1.0f : r);
+        if (c <= kSelfOscR)
+            return 4.0f * (1.0f - std::pow(10.0f, -kPeakDbMax * (c / kSelfOscR) / 20.0f));
+        const float t = (c - kSelfOscR) / (1.0f - kSelfOscR);
+        return kKnee + t * (kKMax - kKnee);
+    }
+
+    // ── Migration (calibration epoch 7) ──
+    // Inverse of the above composed with the old k = 4.2·r, so a stored knob
+    // position moves to the one that produces the SAME feedback gain — and
+    // therefore the same sound — under the new law. Only meaningful when the
+    // file selected Ladder; neither the SVF's nor the Warp's mapping changed.
+    inline float migrateResonance(float rOld)
+    {
+        if (rOld <= 0.0f)   return 0.0f;
+        if (rOld >= 0.999f) return 1.0f;
+        const float kOld = kKMax * rOld;
+        if (kOld >= kKnee)   // the old top stretch lands in the new self-osc ramp
+            return kSelfOscR + (1.0f - kSelfOscR) * ((kOld - kKnee) / (kKMax - kKnee));
+        const float p = -20.0f * std::log10(1.0f - kOld / 4.0f);   // dB the old k produced
+        return kSelfOscR * (p / kPeakDbMax);
+    }
+}
+
 // ── Noise oscillator type (namespace name avoids clash with the global
 //    `enum class NoiseType` in dsp/NoiseGenerator.h). ──
 namespace NoiseKind {

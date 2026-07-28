@@ -75,6 +75,28 @@ public:
         updateCoeffs();
     }
 
+    // This filter has the SAME defect MoogLadderFilter had — a knob linear in
+    // feedback gain over a peak that goes as 1/(1 − k/k_pole), so nothing
+    // happens until the last eighth of the travel — but it does NOT take
+    // LadderResoLaw, because k_pole here is not 4 and is not one number.
+    // Measured (LP 24 dB/oct, 1 kHz, small-signal impulse, peak in dB):
+    //
+    //   r          0.125  0.250  0.375  0.500  0.625  0.750  0.875  0.950
+    //   Tanh        −1.7   −2.1   −1.3   +0.2   +2.6   +6.4  +14.5  +41.8
+    //   SoftClip    +3.3   +3.0   +3.9   +5.6   +8.3  +12.8  +24.7  +92.4
+    //   OJD         −1.1   −1.5   −0.6   +1.0   +3.5   +7.7  +17.3 +100.6
+    //   Sin         +1.3   +1.0   +1.9   +3.6   +6.3  +10.8  +22.3 +108.6
+    //   Digital     −1.9   −2.2   −1.3   +0.3   +2.8   +7.0  +16.6 +108.0
+    //   Asym        −1.9   −2.2   −1.3   +0.3   +2.8   +7.0  +16.8 +103.8
+    //
+    // Every style is already self-oscillating by r = 0.95, at very different
+    // points — so kStyleScale does NOT hold them to a common threshold, and the
+    // §"acceptance matrix" claim below that they all reach the edge at r ≈ 0.95
+    // does not survive measurement. Evening the travel out here needs each
+    // style's own pole, measured by bisection; imposing the Ladder's k_pole = 4
+    // instead drives Sin to +94.9 dB at r = 0.75. That is a separate, measured
+    // piece of work — and one that would also pull the styles onto a common
+    // threshold, which is a change to what the style selector does.
     void setResonance(float r)
     {
         if (std::abs(r - lastReso) < 0.001f) return;

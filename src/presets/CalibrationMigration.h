@@ -79,7 +79,24 @@ namespace Calibration
 //            that keeps an old file's resting level exactly as it was and drops
 //            only the ≤6 dB the old branch could add at full pressure. Stored
 //            negative values keep their meaning and are left untouched.
-inline constexpr int kEpoch = 6;
+//   Epoch 7: Ladder resonance law (2026-07-28). MoogLadderFilter put the knob
+//            straight on the feedback gain (k = 4.2·r), but a 4-pole ZDF
+//            ladder's peak goes as 1/(1 − k/4) — so the first half of the
+//            travel delivered under +1 dB and the last eighth climbed 40. The
+//            knob now travels evenly in dB of peak (LadderResoLaw), which is
+//            the law the SVF has always had (Q = 0.5·36^r). Conditional on the
+//            algorithm: an SVF or Warp preset's resonance is untouched, a
+//            Ladder preset's stored position moves to the one producing the
+//            SAME feedback gain — a closed-form inversion, not a factor. A file
+//            with no algorithm property predates Ladder/Warp and was an SVF.
+//            NOT covered, and not coverable by a scalar: MODULATION of the
+//            resonance (aftertouch/env/LFO/drift → Resonance). Those amounts
+//            are additive offsets in knob units, so the swing a stored depth
+//            produces depends on where the base sits — an old Ladder preset
+//            keeps its resting resonance exactly, but a modulated sweep over it
+//            covers a different span. Same boundary every law change in this
+//            file has: epoch 5 migrated the FX mix knob, not modulation of it.
+inline constexpr int kEpoch = 7;
 
 struct Rescale
 {
@@ -248,6 +265,47 @@ inline float migrateMixScalar(const char* id, float value, int fromEpoch, int ty
     return value;
 }
 
+// Epoch 7: the filter resonance knob's LAW changed for the Ladder algorithm
+// only. Same shape as MixLawRemap — a closed-form inversion
+// (LadderResoLaw::migrateResonance) conditional on the sibling algorithm param,
+// so there is no factor here.
+struct ResoLawRemap
+{
+    const char* id;         // resonance parameter whose law changed
+    const char* condId;     // sibling algorithm param selecting the affected filter
+    int         sinceEpoch; // applied when the file's epoch < this
+};
+
+inline const std::array<ResoLawRemap, 1>& resoLawRemaps()
+{
+    static const std::array<ResoLawRemap, 1> table = { {
+        { PID::filterResonance, PID::filterAlgorithm, 7 },
+    } };
+    return table;
+}
+
+// The SVF's r → Q map and the Warp's k = 4.2·r both stayed as they were, so
+// their stored values are already correct.
+inline float remapResoValue(float stored, int algIndex)
+{
+    return algIndex == FilterAlgorithm::Ladder
+        ? LadderResoLaw::migrateResonance(stored)
+        : stored;
+}
+
+// .t5p JSON surface for the resonance knob: call with the value the file carried
+// and the algorithm resolved from the same record. A file with no algorithm
+// property predates Ladder/Warp and is loaded as SVF — pass SVF, not "unknown".
+inline float migrateResoScalar(float value, int fromEpoch, int algIndex)
+{
+    if (fromEpoch >= kEpoch)
+        return value;
+    for (const auto& r : resoLawRemaps())
+        if (fromEpoch < r.sinceEpoch)
+            return remapResoValue(value, algIndex);
+    return value;
+}
+
 // Rescale a single stored scalar value for `id`. For load paths that apply
 // values one at a time from non-PID-keyed storage (the .t5p JSON), wrap each
 // stored value with this. Presence-aware BY CONSTRUCTION — it is only ever
@@ -396,6 +454,38 @@ inline void migrateValueTree(juce::ValueTree& tree, int fromEpoch)
                                   remapMixValue(m.id,
                                                 static_cast<float>(child.getProperty("value")),
                                                 typeIndex),
+                                  nullptr);
+        }
+    }
+
+    // Resonance-law remap: only the two ladder algorithms changed law, so the
+    // sibling algorithm param in the SAME tree decides. A tree carrying the
+    // resonance but no algorithm param predates Ladder/Warp — it was an SVF, and
+    // the SVF's law is unchanged, so leaving it alone is correct (unlike the mix
+    // case above, where an absent type really is unknown).
+    for (const auto& rr : resoLawRemaps())
+    {
+        if (fromEpoch >= rr.sinceEpoch)
+            continue;
+
+        int algIndex = FilterAlgorithm::SVF;
+        for (int i = 0; i < tree.getNumChildren(); ++i)
+        {
+            auto child = tree.getChild(i);
+            if (child.getProperty("id").toString() == rr.condId && child.hasProperty("value"))
+            {
+                algIndex = juce::roundToInt(static_cast<double>(child.getProperty("value")));
+                break;
+            }
+        }
+
+        for (int i = 0; i < tree.getNumChildren(); ++i)
+        {
+            auto child = tree.getChild(i);
+            if (child.getProperty("id").toString() == rr.id && child.hasProperty("value"))
+                child.setProperty("value",
+                                  remapResoValue(static_cast<float>(child.getProperty("value")),
+                                                 algIndex),
                                   nullptr);
         }
     }
