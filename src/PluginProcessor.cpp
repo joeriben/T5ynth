@@ -6731,6 +6731,34 @@ bool T5ynthProcessor::onAuthorParamShelf(const juce::String& id)
     return false;
 }
 
+// What the shelf CALLS a control — the panel's own name, not the APVTS one. The
+// APVTS name is what a DAW's automation list shows and is not ours to rename,
+// but every one of the five envelopes reads wrong through it: the amp
+// envelope's stages are plain "Attack"/"Decay"/"Sustain"/"Release", with nothing
+// saying which of five envelopes they belong to, and `modEnv[0]`'s are "Mod1 …"
+// where the panel says ENV2. An author that takes "Mod1 Decay" and a player
+// looking for it under ENV2 would then be talking about different envelopes.
+static juce::String authorShelfName(const char* id, const juce::AudioProcessorParameter& prm)
+{
+    const juce::String plain = prm.getName(64);
+    for (int e = 0; e < PID::kNumEnvs; ++e)
+        for (const char* member : PID::allEnvs[e].all())
+            if (std::strcmp(member, id) == 0)
+            {
+                // createParameterLayout writes "Mod<n> " on every mod-envelope
+                // parameter and "Amp " on most of the amp envelope's — but its
+                // four stage times carry no prefix at all ("Attack"), so both
+                // branches have to be allowed to miss.
+                juce::String stage = plain;
+                if (stage.startsWith("Amp "))
+                    stage = stage.substring(4);
+                else if (stage.startsWith("Mod") && stage.indexOfChar(' ') > 0)
+                    stage = stage.substring(stage.indexOfChar(' ') + 1);
+                return "ENV" + juce::String(e + 1) + " " + stage;
+            }
+    return plain;
+}
+
 juce::var T5ynthProcessor::buildAuthorParamIndex() const
 {
     juce::Array<juce::var> out;
@@ -6741,7 +6769,7 @@ juce::var T5ynthProcessor::buildAuthorParamIndex() const
 
         auto entry = juce::DynamicObject::Ptr(new juce::DynamicObject());
         entry->setProperty("id",   juce::String(id));
-        entry->setProperty("name", prm->getName(64));
+        entry->setProperty("name", authorShelfName(id, *prm));
 
         if (auto* bp = dynamic_cast<juce::AudioParameterBool*>(prm))
         {
