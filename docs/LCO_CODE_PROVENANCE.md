@@ -87,6 +87,11 @@ Reading a measurement out of a paper and writing fresh Csound to it is the pract
 `CLAUDE.md`'s Instrument Authoring rule 1 requires before the first orchestra line: a named
 method AND a source, written down first.
 
+**The lexicon's other half has its own record.** This file covers the instrument BODIES. The 51
+sound words — `bright`, `hollow`, `rich`, `warm` — are equally read by the author model and had
+no source at all; `docs/LCO_TIMBRE_SEMANTICS.md` is the same kind of record for them, built on
+Saitis & Weinzierl's review of timbre semantics, and reads this lexicon against it word by word.
+
 ## Irrelevant regardless of licence: binary opcode plugins
 
 `csound-plugins` (per-collection `risset.json` declares LGPL; `src/else/else.c`
