@@ -3047,7 +3047,7 @@
    ],
    "priority": 8,
    "why": "odd-leaning and capped, a wood-resonance reading",
-   "code": "afrm     reson asig, 600, 240, 2\nasig     = asig + afrm * 0.30       ; formant / mid bump\nasig     tone asig, 1900            ; dark tilt (low-pass)"
+   "code": "afrm     reson asig, 600, 240, 2   ; wood formant, FIXED in Hz -- a body, not a pitch\nasig     = asig + afrm * 0.30       ; formant / mid bump\nasig     tone asig, 1900            ; dark tilt (low-pass)"
   },
   {
    "key": "deep",
@@ -3534,7 +3534,7 @@
    ],
    "priority": 8,
    "why": "targeted upper-mid push distinct from raw brightness",
-   "code": "afrm     reson asig, 1600, 640, 2\nasig     = asig + afrm * 0.45       ; formant / mid bump\nabrt     atone asig, 2200\nasig     = asig + abrt * 0.30       ; bright tilt (add highs)"
+   "code": "afrm     reson asig, 1600, 640, 2  ; brass formant, FIXED in Hz -- a body, not a pitch\nasig     = asig + afrm * 0.45       ; formant / mid bump\nabrt     atone asig, 2200\nasig     = asig + abrt * 0.30       ; bright tilt (add highs)"
   },
   {
    "key": "breathy",
@@ -3657,7 +3657,7 @@
    ],
    "priority": 6,
    "why": "a boosted mid-harmonic band",
-   "code": "afrm     reson asig, 1100, 440, 2\nasig     = asig + afrm * 0.55       ; formant / mid bump"
+   "code": "afrm     reson asig, 1100, 440, 2  ; mid formant, FIXED in Hz -- a body, not a pitch\nasig     = asig + afrm * 0.55       ; formant / mid bump"
   },
   {
    "key": "full",
@@ -3896,7 +3896,7 @@
    ],
    "priority": 6,
    "why": "classic mid-harmonic congestion, capped highs",
-   "code": "afrm     reson asig, 500, 200, 2\nasig     = asig + afrm * 0.45       ; formant / mid bump\nasig     tone asig, 2000            ; dark tilt (low-pass)"
+   "code": "afrm     reson asig, 500, 200, 2   ; box formant, FIXED in Hz -- a body, not a pitch\nasig     = asig + afrm * 0.45       ; formant / mid bump\nasig     tone asig, 2000            ; dark tilt (low-pass)"
   },
   {
    "key": "reedy",
