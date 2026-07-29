@@ -2435,16 +2435,24 @@ void PromptPanel::triggerDcoBake()
                                   .getRawParameterValue(PID::lcoSetsParams)->load() > 0.5f;
     const juce::var synthParams = maySetParams ? processorRef.buildAuthorParamIndex()
                                                : juce::var();
-    std::thread([safeThis, pipePtr, text, bakeSeq, synthParams]() mutable
+    // Carried into the trace so the card can say whether the author was shown
+    // the synth's controls AT ALL. It is the state at this instant that decides
+    // it, and an authoring runs for minutes — reading the switch again at
+    // publish time would report where it stands then, which is a different
+    // question and the one that misled for a day.
+    const bool knobsWereOffered = maySetParams;
+    std::thread([safeThis, pipePtr, text, bakeSeq, synthParams, knobsWereOffered]() mutable
     {
       // Publishing ONE attempt — engine swap, card, Re-Prompt bookkeeping. The
       // first authoring and every correction publish identically (a correction IS
       // the sound now, not a preview), so this is one lambda rather than two
       // copies that could drift apart.
-      auto publish = [safeThis, text] (const PipeInference::CsoundAuthorResult& authored,
-                                       int attempt, bool moreToCome)
+      auto publish = [safeThis, text, knobsWereOffered]
+                     (const PipeInference::CsoundAuthorResult& authored,
+                      int attempt, bool moreToCome)
       {
-        juce::MessageManager::callAsync([safeThis, authored, text, attempt, moreToCome]()
+        juce::MessageManager::callAsync([safeThis, authored, text, attempt, moreToCome,
+                                         knobsWereOffered]()
         {
             auto* self = safeThis.getComponent();
             if (self == nullptr) return;   // panel gone — nothing to write
@@ -2511,6 +2519,29 @@ void PromptPanel::triggerDcoBake()
             // recall, where the station is left out entirely). The library size
             // is the one field a consultation block always carries.
             tr.consultationKnown  = authored.libraryEntryCount > 0;
+            // The synth's own controls. `knobsOffered` is the shelf that ACTUALLY
+            // went out with the request, captured when GENERATE was pressed — not
+            // the switch as it stands now. The two differ exactly in the case
+            // that made this feature look broken: a preset load turned the switch
+            // off, the author was never shown the controls, and nothing on screen
+            // said so. Every SET line the backend read is listed, the refused
+            // ones with the reason it refused them.
+            tr.knobsKnown   = true;
+            tr.knobsOffered = knobsWereOffered;
+            if (auto* arr = authored.settings.getArray())
+                for (const auto& e : *arr)
+                {
+                    const auto name = e.getProperty("name", juce::var()).toString();
+                    const auto val  = e.getProperty("value", juce::var()).toString();
+                    const auto note = e.getProperty("note", juce::var()).toString();
+                    if (static_cast<bool>(e.getProperty("ok", juce::var(false))))
+                        tr.knobsSet.add(name + "  " + val
+                                        + (note.isEmpty() ? juce::String()
+                                                          : "   (" + note + ")"));
+                    else
+                        tr.knobsRefused.add(name + "  " + val + " - "
+                                            + (note.isEmpty() ? juce::String("not set") : note));
+                }
             tr.repairs            = authored.repairs;
             tr.attempts           = authored.attempts;
             self->dcoTraceView.setTrace(std::move(tr));

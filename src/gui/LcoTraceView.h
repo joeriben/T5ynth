@@ -67,6 +67,17 @@ public:
         juce::StringArray namedInstruments, namedAdjectives, namedMotions;
         juce::StringArray openedInstruments, openedAdjectives, openedMotions;
         int libraryEntryCount = 0;
+        // The synth's own controls. `knobsKnown` says an authoring was RECORDED
+        // for this trace at all, exactly as consultationKnown does above — a
+        // recalled preset carries no answer and gets no station. `knobsOffered`
+        // is whether the shelf actually went out with the request, which is a
+        // different question from whether the author used it: the switch is read
+        // when GENERATE is pressed, so an authoring can run with the switch on
+        // screen and still have been sent without it. Silence here was the whole
+        // reason the feature looked broken for a day.
+        bool knobsKnown = false, knobsOffered = false;
+        juce::StringArray knobsSet;      // "Filter Cutoff  400" — what landed
+        juce::StringArray knobsRefused;  // "master_vol - no such control" — and why
         juce::StringArray repairs;      // compiler errors repaired past, first-seen order
         int attempts = 0;               // 1 = compiled on the first pass
         bool valid = false;
@@ -515,6 +526,23 @@ private:
             if (trace_.reading.isNotEmpty()) wrote.add(trace_.reading);
             if (summary_.isNotEmpty())       wrote.add(summary_);
             out.add("WROTE\n" + wrote.joinIntoString("\n"));
+        }
+
+        if (trace_.knobsKnown)
+        {
+            juce::String rubric("KNOBS");
+            if (! trace_.knobsSet.isEmpty())
+                rubric << "  " << trace_.knobsSet.size();
+            juce::StringArray lines;
+            if (! trace_.knobsOffered)
+                lines.add("the switch was off when this was asked for - the author "
+                          "was not shown the synth's controls");
+            else if (trace_.knobsSet.isEmpty())
+                lines.add("offered, and the author took nothing");
+            else
+                lines.addArray(trace_.knobsSet);
+            lines.addArray(trace_.knobsRefused);
+            out.add(rubric + "\n" + lines.joinIntoString("\n"));
         }
 
         if (! trace_.repairs.isEmpty())
@@ -981,6 +1009,44 @@ private:
                                 static_cast<float>(textX()), yy + 3.0f, ww) + 3.0f;
             return yy - y0;
         });
+
+        // ── KNOBS ────────────────────────────────────────────────────────────
+        // What the author did with the synth's own controls, and — the case this
+        // exists for — whether it was ever offered them. All three outcomes are
+        // drawn, because the two silent ones are the ones that look identical
+        // from outside: an authoring that ran with the switch off, and one that
+        // was offered the shelf and took nothing, both leave the patch untouched.
+        // Left out only for a trace that has no answer (a recalled preset).
+        if (trace_.knobsKnown)
+        {
+            const bool took = ! trace_.knobsSet.isEmpty();
+            juce::String rubric("KNOBS");
+            if (took) rubric << "  " << trace_.knobsSet.size();
+            station(took ? kImpulseB : kTextDisabled, rubric, kTextDisabled, took, [&](float ww)
+            {
+                const float y0 = y;
+                float yy = y;
+                if (! trace_.knobsOffered)
+                    yy += paragraph(g, "the switch was off when this was asked for - "
+                                       "the author was not shown the synth's controls",
+                                    fHint, kDim, static_cast<float>(textX()), yy, ww);
+                else if (! took)
+                    yy += paragraph(g, "offered, and the author took nothing",
+                                    fHint, kDim, static_cast<float>(textX()), yy, ww);
+                else
+                    for (const auto& s : trace_.knobsSet)
+                        yy += paragraph(g, s, fHint, kImpulseB,
+                                        static_cast<float>(textX()), yy, ww) + 2.0f;
+                // A refused line is the author asking for something the synth
+                // does not have, or a value it could not read. Shown in the
+                // warning ink next to what did land, so a half-applied authoring
+                // cannot read as a whole one.
+                for (const auto& s : trace_.knobsRefused)
+                    yy += paragraph(g, s, fHint, kWarning,
+                                    static_cast<float>(textX()), yy, ww) + 2.0f;
+                return yy - y0;
+            });
+        }
 
         // ── REPAIRED ─────────────────────────────────────────────────────────
         // Drawn ONLY when the author actually had to be sent back. A first-try
