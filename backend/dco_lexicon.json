@@ -1,5 +1,5 @@
 {
- "lexicon_version": 12,
+ "lexicon_version": 13,
  "techniques": [
   {
    "key": "sine",
@@ -2578,6 +2578,184 @@
     "drive=0.72  (bright: brighter air, the upper modes come up)": "kstr    = 0.475                             ; how far the modes are stretched off whole numbers\nkr2     = 2.00 + 1.60 * kstr\nkr3     = 3.00 + 5.20 * kstr\nkdrv    = 0.72                              ; how bright the air driving the body is\nkcen    = 600 * (11.667 ^ kdrv)\naexc    rand 0.05\nkcut    oscili kcen * 0.35, 0.09, giSine     ; the drive keeps moving, so the body keeps changing\nkcut    = kcen + kcut\naexc    butterlp aexc, kcut\na1      mode aexc, kfreq * koct1, 340        ; three modes, driven CONTINUOUSLY rather than struck:\na2      mode aexc, kfreq * koct1 * kr2, 260  ;   a held note stands, and the host owns the note-off\na3      mode aexc, kfreq * koct1 * kr3, 190\nasig    = (a1 * 0.6 + a2 * 0.3 + a3 * 0.16) * 0.27\nasig    = asig * kvol1",
     "drive=1.0  (hissing: driven by full-band hiss, all modes lit)": "kstr    = 0.475                             ; how far the modes are stretched off whole numbers\nkr2     = 2.00 + 1.60 * kstr\nkr3     = 3.00 + 5.20 * kstr\nkdrv    = 1.0                              ; how bright the air driving the body is\nkcen    = 600 * (11.667 ^ kdrv)\naexc    rand 0.05\nkcut    oscili kcen * 0.35, 0.09, giSine     ; the drive keeps moving, so the body keeps changing\nkcut    = kcen + kcut\naexc    butterlp aexc, kcut\na1      mode aexc, kfreq * koct1, 340        ; three modes, driven CONTINUOUSLY rather than struck:\na2      mode aexc, kfreq * koct1 * kr2, 260  ;   a held note stands, and the host owns the note-off\na3      mode aexc, kfreq * koct1 * kr3, 190\nasig    = (a1 * 0.6 + a2 * 0.3 + a3 * 0.16) * 0.27\nasig    = asig * kvol1"
    }
+  },
+  {
+   "key": "divider_organ",
+   "surface_forms": [
+    "divide-down organ",
+    "divide down organ",
+    "transistor organ",
+    "transistororgel",
+    "combo organ",
+    "string machine",
+    "stringmachine",
+    "streichmaschine",
+    "solina",
+    "string synthesizer",
+    "streichersynthesizer",
+    "electone",
+    "theatre organ",
+    "theaterorgel",
+    "kinura",
+    "tibia",
+    "cinema organ",
+    "farfisa",
+    "vox continental",
+    "elka"
+   ],
+   "priority": 10,
+   "why": "divide-down organ / string machine -- a transistor organ, combo organ, theatre organ or Solina-family string synthesizer: ONE master clock divided by twelve integers, exact binary octaves below, and every stop a footage sum off that same RUNNING chain. No key starts a tone -- a key only opens taps onto tones that were already sounding, which is why its chords lock instead of beating and why the whole instrument shares one tuning. Four mixable stops (`flute` the hollow tibia, `diapason` the bright principal chorus, `reed` the nasal kinura/brass/sax family, `strings` the raw saw bus of a string machine), `age` for how far the chain's integer division strays from equal temperament, and `ensemble` for the three-phase bucket-brigade chorus -- the only thing in the instrument that moves, since the chain itself is rigid.",
+   "params": {
+    "flute": {
+     "range": [
+      0.0,
+      1.0
+     ],
+     "default": 0.7,
+     "note": "the tibia rank: near-sine ranks at 16', 8', 4' and 2', no quint. The hollow, round, woody core of an organ and the closest one gets to a pure tone -- it is what carries a theatre organ's warmth. Raising it does not brighten the sound, it fills it out from below.",
+     "anchors": {
+      "closed": {
+       "value": 0.0,
+       "gloss": "the rank is out; nothing of the tibia is heard"
+      },
+      "soft": {
+       "value": 0.3,
+       "gloss": "a thin round underlay beneath the brighter stops"
+      },
+      "hollow": {
+       "value": 0.7,
+       "gloss": "the woody tibia clearly present, the sound rounded out"
+      },
+      "full": {
+       "value": 1.0,
+       "gloss": "the hollow tibia carries the whole registration"
+      }
+     }
+    },
+    "diapason": {
+     "range": [
+      0.0,
+      1.0
+     ],
+     "default": 0.3,
+     "note": "the principal chorus: every octave footage plus the 5 1/3' quint and the 1 3/5' tierce. The bright, singing, church-organ body. The quint and tierce are what give it a metallic edge that no stack of octaves alone can reach.",
+     "anchors": {
+      "closed": {
+       "value": 0.0,
+       "gloss": "the chorus is out; nothing of the principal is heard"
+      },
+      "blended": {
+       "value": 0.3,
+       "gloss": "an edge of brightness over the flutes"
+      },
+      "singing": {
+       "value": 0.65,
+       "gloss": "the principal chorus carries, bright and vocal"
+      },
+      "full": {
+       "value": 1.0,
+       "gloss": "the full chorus, quint and tierce ringing on top"
+      }
+     }
+    },
+    "reed": {
+     "range": [
+      0.0,
+      1.0
+     ],
+     "default": 0.0,
+     "note": "the kinura / brass / sax family. The fundamental is gone and a formant rides partials 3 to 7 -- that missing fundamental is exactly what makes a reed nasal, snarling and vocal instead of round. It is the loudest and most aggressive of the four stops.",
+     "anchors": {
+      "closed": {
+       "value": 0.0,
+       "gloss": "the reed is out"
+      },
+      "nasal": {
+       "value": 0.45,
+       "gloss": "a pinched, reedy voice cutting through the flues"
+      },
+      "snarling": {
+       "value": 1.0,
+       "gloss": "the full kinura -- hard, buzzing and aggressive"
+      }
+     }
+    },
+    "strings": {
+     "range": [
+      0.0,
+      1.0
+     ],
+     "default": 0.0,
+     "note": "the raw saw bus of a string machine -- Solina, Logan, Elka -- at 8' and 4'. Alone with `ensemble` up it IS a string machine; under the organ stops it adds a thin bright rasp the flue pipes do not have.",
+     "anchors": {
+      "closed": {
+       "value": 0.0,
+       "gloss": "the saw bus is out"
+      },
+      "thin": {
+       "value": 0.35,
+       "gloss": "a faint bright rasp over the organ stops"
+      },
+      "full": {
+       "value": 1.0,
+       "gloss": "the bare saw bus of a string machine"
+      }
+     }
+    },
+    "age": {
+     "range": [
+      0.0,
+      3.0
+     ],
+     "default": 1.0,
+     "note": "how far the divider chain's tuning strays from equal temperament. The chain divides one master clock by twelve INTEGERS, and that rounding leaves every pitch class its own small fixed offset, so chords never lock quite square. 0 is a perfectly tuned chain; 1 is the measured Yamaha D-85; above it the chain is coarser than any that was ever built. It is a FIXED offset per note, not a wobble -- a single note cannot show it, a chord can.",
+     "anchors": {
+      "perfect": {
+       "value": 0.0,
+       "gloss": "an exactly tuned chain; chords lock square"
+      },
+      "vintage": {
+       "value": 1.0,
+       "gloss": "the tuning of a real divide-down organ, faintly unsettled"
+      },
+      "worn": {
+       "value": 1.8,
+       "gloss": "audibly off, the chords beginning to sour"
+      },
+      "broken": {
+       "value": 3.0,
+       "gloss": "a coarser chain than was ever built; the temperament visibly wrong"
+      }
+     }
+    },
+    "ensemble": {
+     "range": [
+      0.0,
+      1.0
+     ],
+     "default": 0.45,
+     "note": "the three-phase bucket-brigade chorus of a string machine: the whole sound through three swept delay lines 120 degrees apart. This is the ONLY thing in the instrument that moves -- the generator chain is rigid by construction. At 0 the tone stands perfectly still, which is a real setting and not a defect.",
+     "anchors": {
+      "still": {
+       "value": 0.0,
+       "gloss": "dead still -- the rigid, frozen tone of a bare divider chain"
+      },
+      "shimmer": {
+       "value": 0.35,
+       "gloss": "a slow gentle swim over the tone"
+      },
+      "swimming": {
+       "value": 0.7,
+       "gloss": "the wide three-phase chorus of a string machine"
+      },
+      "drowning": {
+       "value": 1.0,
+       "gloss": "the chorus at full sweep, the pitch visibly swaying"
+      }
+     }
+    }
+   },
+   "code": "; LOUDNESS: flute\n; LOUDNESS: diapason\n; LOUDNESS: reed\n; LOUDNESS: strings\n; A divide-down organ -- transistor organ, combo organ, string machine. ONE master clock,\n; twelve integer divisors, exact binary octaves, and every stop a footage sum off that same\n; RUNNING chain: the drawbar principle. Nothing here is keyed to the note; a key only opens\n; taps onto tones that were already sounding, which is why chords lock instead of beating.\n; Method: top-octave generator, divisors round(478 / 2^(k/12)) -- the MK50240 set. Measured\n; against a Yamaha D-85 (49 notes, C3-C7): its tuning error depends on the PITCH CLASS alone\n; (0.01 cents spread across octaves) and those divisors reproduce its 12-value pattern to\n; 0.03 cents rms. The stop recipes are that organ's own recovered drawbar levels.\n; FOLLOWS kfreq: yes.   DECAY: none -- it stands for as long as the key is held.\n; It MOVES only through `ensemble`; the chain itself is rigid, and that rigidity is the point.\nkflute    = 0.70  ; flute [0..1]: the tibia rank -- near-sine ranks at 16', 8', 4' and 2', no quint\nkdiapason = 0.30  ; diapason [0..1]: the principal chorus -- octave footages plus the 5 1/3' quint and 1 3/5' tierce\nkreed     = 0.00  ; reed [0..1]: the kinura / brass / sax family -- fundamental gone, a formant riding partials 3-7\nkstrings  = 0.00  ; strings [0..1]: the raw saw bus of a string machine, 8' and 4'\nkage      = 1.00  ; age [0..3]: how far the chain's tuning departs from equal temperament; 1 = the measured D-85\nkensemble = 0.45  ; ensemble [0..1]: the three-phase bucket-brigade chorus of a string machine\n\nkbase   limit kfreq * koct1, 8.0, 12600.0       ; kfreq is 0 before the first note, and\n                                                ;   logbtwo(0) would poison the whole chain\nkny     = sr * 0.45                             ; no voicing corner may pass Nyquist\nkpch    = 12 * logbtwo(kbase / 261.6256) + 120  ; semitones above C, held positive\nkpc     = kpch - 12 * int(kpch / 12)            ; the pitch class this key asks the chain for\nkdiv    = round(478 / pow(2, kpc / 12))         ; the divisor the top-octave chip actually has\nkf      = kbase * pow((478 / kdiv) / pow(2, kpc / 12), kage)\n\na16     vco2 0.5, kf * 0.5, 10        ; 16'   the flip-flops put out SQUARES\na8      vco2 0.5, kf,       10        ; 8'\na53     vco2 0.5, kf * 1.5, 10        ; 5 1/3' quint\na4      vco2 0.5, kf * 2.0, 10        ; 4'\na35     vco2 0.5, kf * 2.5, 10        ; 1 3/5' tierce\na2      vco2 0.5, kf * 4.0, 10        ; 2'\n\naf16    tone a16, limit(kf * 2.25, 20, kny)          ; the tibia is voiced rank by rank, almost to a sine --\naf8     tone a8,  limit(kf * 1.1,  20, kny)          ;   its bass rank brightest, the upper ones nearly pure\naf4     tone a4,  limit(kf * 2.2,  20, kny)\naf2     tone a2,  limit(kf * 4.4,  20, kny)\naflu    = af16 * 1.00 + af8 * 1.12 + af4 * 0.52 + af2 * 0.50\n\nadia    = a16 * 0.94 + a8 * 0.94 + a53 * 0.31 + a4 * 1.00 + a35 * 0.25 + a2 * 0.38\nadia    tone adia, limit(kf * 6.0, 20, kny)          ; the principal is voiced as a chorus, after the sum\n\napul    vco2 0.5, kf * 0.5, 2, 0.10   ; the reed's narrow pulse, off the 16' tap\nkbpc    limit kf * 2.25, 20, kny * 0.8   ; the reed's formant, kept inside the band\nkbpw    limit kf * 2.50, 20, kny * 0.8\nar1     butbp apul, kbpc, kbpw\nared    butbp ar1,  kbpc, kbpw        ; the formant rides the note: partials 3-7 of the 16'\n\nas1     vco2 0.5, kf,       0         ; the string machine's saw bus, 8'\nas2     vco2 0.5, kf * 2.0, 0         ; and 4'\nastr    = as1 * 0.80 + as2 * 0.30\n\nabus    = aflu * kflute * 0.30 + adia * kdiapason * 0.29 + ared * kreed * 1.30 + astr * kstrings * 0.68\n\nksw1    poscil 1.0, 0.62, giSine               ; the bucket brigade's clock, three phases\nksw2    poscil 1.0, 0.62, giSine, 0.3333\nksw3    poscil 1.0, 0.62, giSine, 0.6667\nac1     vdelay3 abus, 6.0 + 3.4 * ksw1 * kensemble, 20.0\nac2     vdelay3 abus, 6.0 + 3.4 * ksw2 * kensemble, 20.0\nac3     vdelay3 abus, 6.0 + 3.4 * ksw3 * kensemble, 20.0\nasig    = abus * (1 - 0.5 * kensemble) + (ac1 + ac2 + ac3) * 0.28 * kensemble"
   }
  ],
  "adjectives": [
