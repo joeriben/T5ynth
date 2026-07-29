@@ -5,11 +5,16 @@ half — the 51 adjectives in `backend/dco_lexicon.json`, `bright`, `hollow`, `r
 the author model reads exactly as it reads the bodies — had no source record at all. This file is
 that record.
 
-**Status.** Two sources, both read in full and evaluated (BJ, 2026-07-29: „Saitis IST
-auszuwerten"). §1 and §2 are what the texts say. §3 holds them against the word stock that
-exists. **§3 states no conclusion about what any word in this instrument should DO** — that is
-`docs/LCO_CONCEPT.md` §3 and BJ's decision, and every observation there is a comparison of texts
-and code, not a proposal.
+**Status.** Three sources, each read in full and evaluated (BJ, 2026-07-29/30). §§1–3 are what the
+texts say. §4 holds them against the word stock that exists. **§4 states no conclusion about what
+any word in this instrument should DO** — that is `docs/LCO_CONCEPT.md` §3 and BJ's decision, and
+every observation there is a comparison of texts and code, not a proposal.
+
+| | source | what it studied | scope here |
+|---|---|---|---|
+| **[1]** | Saitis & Weinzierl 2019 | review; ~60 years of semantic scaling, mostly acoustic instruments | the vocabulary and the published measurement models |
+| **[2]** | Hayes & Saitis 2020 | 30 sound designers acting on a 3-operator FM synth | **FM entries only** (BJ's ruling, §2) |
+| **[3]** | Siedenburg & Saitis 2023 | a language model rating instrument sounds it cannot hear | the bounded reliability of a non-listening author |
 
 ---
 
@@ -198,19 +203,107 @@ left to future analysis."
 
 ---
 
-## 3. The evaluation — the sources held against the 51 words that exist
+## 3. [3] Siedenburg & Saitis (2023), *The language of sounds unheard*
+
+Siedenburg, Kai & Saitis, Charalampos (2023): „The language of sounds unheard: Exploring musical
+timbre semantics of large language models". arXiv:2304.07830v3, 5 May 2023 (equal contribution;
+Dept. of Medical Physics and Acoustics, University of Oldenburg / Centre for Digital Music, QMUL).
+
+The subject is a language model assigning sound semantics to sounds it cannot hear — which is what
+the LRO's author does every time it writes an orchestra. This is the source that says where that is
+reliable and where it is not.
+
+### 3.1 What was actually done
+
+**The human side** is Reymore et al. (2023): 540 online participants rated notes from **eight**
+Western orchestral instruments across three registers (low, medium, high) on **20 verbally
+anchored 5-point scales**, each scale named by up to three words — 1) *deep, thick, heavy*;
+2) *smooth, singing, sweet*; 3) *projecting, commanding, powerful*; 4) *nasal, buzzy, pinched*;
+5) *shrill, harsh, noisy*; 6) *percussive (sharp beginning)*; 7) *pure, clear, clean*;
+8) *brassy, metallic*; 9) *raspy, grainy, gravelly*; 10) *ringing, long decay*;
+11) *sparkling, brilliant, bright*; 12) *airy, breathy*; 13) *resonant, vibrant*; 14) *hollow*;
+15) *woody*; 16) *muted, veiled*; 17) *sustained, even*; 18) *open*; 19) *focused, compact*;
+20) *watery, fluid*. The scales come from interviews and rating tasks about **imagined** typical
+instrument sounds (Reymore & Huron 2020) — auditory imagery, not a listening task, which is why
+they suit a non-listening rater at all.
+
+**The machine side:** the chatbot was asked to rate how well each description applies to the sound
+of a named instrument in a low, mid and high register note, 1–5, answering as a matrix. **Fifty
+ratings per instrument triplet, each collected in a separate conversation** so that each
+conversation counts as one independent „rater" and no rating can be informed by an earlier one
+(four raters discarded for missing values). Probed early and mid February 2023 through the public
+web interface.
+
+Analysis: Pearson correlations of machine against human averages; inter-rater correlations (IRC)
+within each group; exploratory factor analysis (principal axis factoring, oblimin, factor count by
+Horn's parallel analysis) to compare the two latent spaces.
+
+### 3.2 Three results
+
+**(a) Agreement is selective, and strongest exactly where perception is most salient.**
+Twelve of the twenty scales gave positive human–machine correlations with confidence intervals not
+overlapping zero: *deep, nasal, shrill, brassy, raspy, ringing, sparkling, airy, resonant, hollow,
+woody, watery*. The two strongest are *deep, thick, heavy* at **r = .86** [.82, .89] and
+*sparkling, brilliant, bright* at **r = .81** [.72, .87] — which the authors note are the two most
+salient perceptual dimensions of musical sound, **pitch height** and **brightness** (the bright
+scale also showed a marked offset toward higher ratings than humans gave). Two scales came out
+**significantly negative** — the model had them backwards: *percussive (sharp beginning)*
+**r = −.35** [−.50, −.18] and *open* r = −.19 [−.33, −.01]. Six more were indistinguishable from
+zero: *smooth/singing/sweet* (−.04), *projecting/commanding/powerful* (−.07), *pure/clear/clean*
+(.12), *muted/veiled* (−.11), *sustained/even* (.16), *focused/compact* (−.11).
+
+**(b) Its inconsistency is of human magnitude — and its confidence is not evidence.**
+Median inter-rater correlation across scales: **0.26 for the chatbot, 0.20 for humans**, the
+difference only marginal (Wilcoxon z = −1.9, p = .057). A shuffled-stimulus bootstrap put the
+chance baseline at 0.0001 / 0.022, so even the small IRCs are not noise. In both groups the
+standard deviation of the average profile correlated almost perfectly with the median IRC
+(human r = .99, machine r = .98): **a flat average profile means the raters disagreed, not that the
+sounds are alike.** And one scale stands out — ***brassy, metallic*: IRC 0.72 for the chatbot, close
+to zero for humans.** The model was reproducibly, confidently consistent about a scale on which
+humans share no judgement at all.
+
+**(c) Same dimensionality, unrelated configuration.**
+Parallel analysis supported **three factors for both** (82 % of variance human, 70 % machine). But
+correlations between individual human and machine factors ran only |r| = .003 to .38 with intervals
+overlapping zero, and **the overall correlation between the two semantic spaces was
+indistinguishable from chance, r = −.07** [−.17, .25]. Robust agreement on selected scales, no
+correspondence in the shape of the space.
+
+### 3.3 Its own limits, and its scope here
+
+The model is one GPT-3-era chatbot probed in February 2023 through the public interface (default
+sampling temperature 1 against the API's 0.7); the authors call their work „a snapshot into how one
+specific version of CGPT construes sound semantics". **So the numbers belong to that model, not to
+language models in general and not to this project's author.** What generalises is the method —
+separate conversations as independent raters, comparison against a human dataset, and checking
+consistency *and* configuration rather than either alone — and the shape of the finding.
+
+One methodological strength worth keeping: the human data appeared in early 2023 while the model
+was trained on text and code from before Q4 2021, so it **cannot have been memorised** — unlike
+the older datasets in the study they compare themselves to. Two stated weaknesses: many ratings
+were collected per response for efficiency where one per prompt would have matched the human
+design better; and „an insurmountable disparity … humans listened to sounds whereas CGPT was
+simply informed about the instrument name and pitch register."
+
+Their closing move, on Schaeffer's four modes of listening (écouter, ouïr, entendre, comprendre):
+one might add a fifth for what the chatbot does successfully, **„to pretend to understand"** — and
+„the fundamental gap between a listening participant and a non-listening machine remains."
+
+---
+
+## 4. The evaluation — the sources held against the 51 words that exist
 
 Comparisons between what the texts report and what `backend/dco_lexicon.json` contains. None of
 them says what a word should do.
 
-### 3.1 The word stock is one substrate wide
+### 4.1 The word stock is one substrate wide
 
 Sorting the 51 keys by the pole words of [1]'s summary studies: the great majority are
 **luminance** words (`bright`, `dark`, `dull`, `sharp`, `piercing`, `crisp`, `smooth`, `mellow`,
 `gentle`, `round`, `clean`, `flat`, `muddy`, `boxy`, `cold`, `icy`, `airy`, `breathy`,
 `shimmering`, `brassy`, `edgy`, `aggressive`, `harsh`, `washed_out`, `old` …). **Mass** has a
 handful (`full`, `thick`, `fat`, `thin`, `deep`, `rich`, `sparse`). **Texture** — the substrate
-with the physiological mechanism and the published model — has almost nothing; see §3.3.
+with the physiological mechanism and the published model — has almost nothing; see §4.3.
 
 Two glosses place a word on a different substrate than [1]'s factor solutions do: `warm` („dark +
 2nd-harmonic glow"), where Zacharakis et al. put *warm* on the **texture** pole beside soft and
@@ -219,7 +312,7 @@ puts *rich* on **mass** and the correlates in §1.3 point to a low centroid with
 variation rather than to a count of harmonics. The lexicon's own note on `warm` already says „a
 convention, stated, arguable" — this is the source it can be argued against.
 
-### 3.2 One in eight of the words names a material, and [1] warns about exactly that class
+### 4.2 One in eight of the words names a material, and [1] warns about exactly that class
 
 `metallic`, `woody`/`wooden`, `glassy`, `brittle`, `clangorous`, `brassy`, `velvety`, `icy` are
 Wallmark's *sound is material* metaphors. Disley et al. (2006) is the specific caution: listeners
@@ -227,9 +320,10 @@ told the experimenters they used **metallic** and **wooden** to describe the rec
 of the **instrument** rather than a quality of the sound, which is why those scales loaded on a
 component of their own instead of with bright/harsh and warm/rich. For a project whose stated
 position is material rather than imitation (`project_lco_material_not_imitation`), that is the
-finding to have on record: these words carry source identification with them.
+finding to have on record: these words carry source identification with them. [3] §4.10 adds the
+sharpest instance of the same thing.
 
-### 3.3 Texture is the substrate the lexicon does not have, and the near-misses are a different thing
+### 4.3 Texture is the substrate the lexicon does not have, and the near-misses are a different thing
 
 There is no `rough` and no `rauh`, as key or as surface form. `gritty` exists only as a surface
 form of `dirty`. What sits nearest — `dirty`, `distorted`, `raspy`, `growling`, `buzzy`, `harsh` —
@@ -239,7 +333,7 @@ packed closely enough that the cochlea cannot resolve them. Grill (2012) labels 
 sudden loudness changes across broad frequency ranges „coarse and raspy", the one place [1]
 connects a raspy-type word to a mechanism.
 
-### 3.4 Four words name a quality both sources locate in the attack
+### 4.4 Four words name a quality both [1] and [2] locate in the attack
 
 `punchy` („a percussive-reading harmonic push"), `edgy` („a percussive-reading edge"), `crisp` and
 `sharp` (as hardness) sit where [1] puts attack time rather than spectrum, and where [2] measured
@@ -248,9 +342,10 @@ including the attack of the *modulators*, which is a change in how fast the side
 rather than in loudness. In this instrument the synth owns the amplitude envelope and the
 oscillator is a spectrum source (`docs/LCO_CONCEPT.md` §4); [1]'s own definition of attack time is
 spectral („the time needed by spectral components to stabilize"). Where that leaves these four is
-a question for the architecture, not something this file answers.
+a question for the architecture, not something this file answers. [3] adds a caution specific to a
+non-listening author: *percussive* is the scale its model got **most wrong**, and inverted.
 
-### 3.5 The German surface forms assume an equivalence [1] documents failing
+### 4.5 The German surface forms assume an equivalence [1] documents failing
 
 Every key carries German inflections alongside the English. [1] names one hard case: German
 *Schärfe* is a timbre word, English *sharpness* a pitch word — and the lexicon's `sharp` key holds
@@ -259,7 +354,7 @@ apart: `warm` also carries `weich` (soft), and `dark` also carries `dumpf` (muff
 *dull*) while `dull` is a separate key — in von Bismarck's factor solution dull–sharp and
 dark–bright were **different factors**, dull–sharp alone explaining almost half the variance.
 
-### 3.6 The study in [1] whose material most resembles this instrument is Grill (2012)
+### 4.6 The study in [1] whose material most resembles this instrument is Grill (2012)
 
 Everything else in [1] is instrument notes. Grill's stimuli are electroacoustic **textures**, and
 his semantic space adds, to bright–dull / smooth–coarse / soft–raspy / tonal–noisy, a set of
@@ -268,7 +363,7 @@ homogeneous–heterogeneous, uniform–differentiated. In the lexicon that axis 
 which carries an explicit `kind` field (`gesture`, `periodic`, `unsteady`, `wandering`, `none`) —
 not in the adjectives.
 
-### 3.7 The lexicon knows [2]'s first two factors and almost nothing of its last three
+### 4.7 The lexicon knows [2]'s first two factors and almost nothing of its last three
 
 [2]'s 27 descriptors are the closest thing in either source to this instrument's own user
 vocabulary: mined from a synthesis forum, not from orchestration treatises. Of the 27, **16 are
@@ -280,15 +375,13 @@ form (`gritty` → `dirty`), and **ten are absent**: `plucky`, `big`, `clear`, `
 Sorted by [2]'s own factors, the absences are not scattered. The lexicon covers factor 1
 (luminance/texture fused) and factor 2 (mass) well. It is missing **both** words that define
 factor 4, pluckiness (`plucky`, `percussive`); the single word that defines factor 5, rawness
-(`raw`); and half of factor 3, clarity (`clean` is present, `clear` is not). In other words: the
-lexicon has the vocabulary the three-substrate model already predicted, and is thin or empty
-exactly where [2] found dimensions **beyond** it.
+(`raw`); and half of factor 3, clarity (`clean` is present, `clear` is not).
 
 Read the two halves of that with different weight. **Which words synth players use** is a forum
 corpus and holds generally; **that they organise into these five factors** was measured on one FM
 synth and is bounded by §2's scope ruling.
 
-### 3.8 Where [2]'s numbers reach: the FM entries only, and what they find there
+### 4.8 Where [2]'s numbers reach: the FM entries only, and what they find there
 
 Six of the 28 instruments use an FM opcode: `fm`, `fm_bell`, `fm_ep`, `metallic_fm`, and `foscili`
 inside `clarinet` and `theremin`. All of them are **two**-operator — `foscili` is one carrier, one
@@ -322,17 +415,81 @@ offset, which is a pitch-independent beat rate and is deliberate. Any reformulat
 „never hardcode a frequency" rule has to keep that legal — a beat rate belongs to the thing, not to
 the note.
 
-### 3.9 Recorded for a prospective three-operator FM entry
+### 4.9 The lexicon's vocabulary sits where a non-listening model is reliable
 
-Held for the record on BJ's instruction, 2026-07-30. This is the pre-build record the authoring
-rules in `CLAUDE.md` require (method and source in writing before the first orchestra line, nearest
-existing entry named before the new one is written). **It is a record, not an authorisation to
+Mapping [3]'s twenty scales onto the lexicon, split by whether its model agreed with humans:
+
+| [3]'s result | scales | lexicon has a word for |
+|---|---|---|
+| agrees with humans (CI excludes zero) | 12 | **10** — `deep`/`thick`, `nasal`/`buzzy`, `harsh`, `brassy`/`metallic`, `raspy`, `bright`, `airy`/`breathy`, `resonant`/`vibrant`, `hollow`, `woody` |
+| no correlation | 6 | 2 — `smooth`, `clean` |
+| **significantly inverted** (*percussive*, *open*) | 2 | **0** |
+
+The two agreeing scales the lexicon has no word for are *ringing, long decay* — a decay word, and
+the host owns the note-off — and *watery, fluid*, a word class absent entirely.
+
+That is the one place in this record where the existing lexicon comes out ahead rather than short:
+its vocabulary lies overwhelmingly in the region where a language model's sound semantics tracks
+human judgement, and it carries neither of the two words on which [3]'s model was measurably
+backwards.
+
+### 4.10 Confident agreement across samples is not evidence — and it is measured, not asserted
+
+[3]'s *brassy, metallic* scale: inter-rater correlation **0.72** among the chatbot's fifty separate
+conversations, close to **zero** among 540 humans. A non-listening model can be reproducibly,
+confidently unanimous about a word on which people share no judgement whatsoever. Two consequences
+for this project's own practice, both of which it already holds as rules and now has a source for:
+
+- A self-scoring loop cannot be rescued by sampling it more times
+  (`feedback_no_selfmade_perceptual_meters`, `feedback_chained_to_existing_synthesis`).
+- And the scale it happened to be unanimous about is a **material** word — which §4.2 already
+  flags as the class listeners use for the recognised instrument rather than for the sound. The
+  most likely thing that unanimity is about is the instrument's name, not its timbre.
+
+The companion finding cuts the other way and is just as operational: the standard deviation of an
+average profile tracked the median inter-rater correlation at r = .98/.99, so **a flat result means
+the raters disagreed, not that the stimuli were alike**. A null must not be read as „these words do
+not differ".
+
+### 4.11 What [3] settles about the author, and what it does not
+
+The LRO's author writes an orchestra for words it has never heard rendered, which is [3]'s
+situation exactly. What [3] establishes: such a model tracks human semantics on the **most salient**
+dimensions — pitch height and brightness above all — while the **configuration** of its semantic
+space bears no relation to the human one, and its per-sample variability is of human magnitude.
+What [3] does not establish: anything about *this* project's author model. Its subject is one
+GPT-3-era chatbot in February 2023 at temperature 1 (§3.3), and this project's re-prompt ear is
+already an open question with BJ's own ruling on it
+(`project_lco_reprompt_ear_provisional`). Nothing here changes that ruling; it supplies the reason
+the gap is real — „the fundamental gap between a listening participant and a non-listening machine
+remains."
+
+---
+
+## 5. What the record now holds for measurement
+
+Named procedures with sources, in the sense of `feedback_no_selfmade_perceptual_meters`:
+**sharpness** — von Bismarck (1974b) / DIN 45692; **roughness** — Daniel & Weber (1997);
+**brightness** — Marozeau & de Cheveigné (2007); **dynamic strength** — spectral skewness
+(Weinzierl et al. 2018b). Implementations of the first two exist in MOSQITO (Apache-2.0).
+
+**With the caveat that comes from [1] and must travel with them:** these models were designed on
+wideband noise spectra, and [1] twice records them under-performing on tonal material. Adopting
+one here would mean adopting a model outside the class it was fitted on.
+
+---
+
+## 6. Recorded for a prospective three-operator FM entry
+
+Held on BJ's instruction, 2026-07-30. This is the pre-build record the authoring rules in
+`CLAUDE.md` require — method and source in writing before the first orchestra line, nearest
+existing entry named before the new one is written. **It is a record, not an authorisation to
 build.**
 
 **Method and source.** FM as Chowning, John M. (1973): „The Synthesis of Complex Audio Spectra by
 Means of Frequency Modulation", *JAES* 21(7), 526–534 — the source [2] itself cites. Topology:
 three operators, operators 2 and 3 modulating operator 1's phase **in linear combination**
-([2] §Method). Word-to-parameter directions: [2] Fig. 4, Spearman rank correlations over thirty
+([2] §2.1). Word-to-parameter directions: [2] §2.3, Spearman rank correlations over thirty
 experienced sound designers acting on that exact topology.
 
 **Csound realisation, verified against `csound -z1` on this build.** Available: `foscil`/`foscili`
@@ -372,21 +529,6 @@ comes from it. The attempt budget is BJ's to fix and is not set here.
 
 ---
 
-## 4. What the record now holds for measurement
+## 7. Open
 
-Named procedures with sources, in the sense of `feedback_no_selfmade_perceptual_meters`:
-**sharpness** — von Bismarck (1974b) / DIN 45692; **roughness** — Daniel & Weber (1997);
-**brightness** — Marozeau & de Cheveigné (2007); **dynamic strength** — spectral skewness
-(Weinzierl et al. 2018b). Implementations of the first two exist in MOSQITO (Apache-2.0).
-
-**With the caveat that comes from [1] and must travel with them:** these models were designed on
-wideband noise spectra, and [1] twice records them under-performing on tonal material. Adopting
-one here would mean adopting a model outside the class it was fitted on.
-
----
-
-## 5. Open
-
-- What follows from §3, if anything, is BJ's. Nothing in this file is a proposal.
-- A third source is expected („The language of sounds unheard: exploring musical timbre semantics
-  of large language models"), to be entered in the same shape when BJ hands it over.
+What follows from §4, if anything, is BJ's. Nothing in this file is a proposal.
