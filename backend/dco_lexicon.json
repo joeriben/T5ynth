@@ -3084,7 +3084,7 @@
    ],
    "priority": 8,
    "why": "very low-only weight",
-   "code": "albd     tone asig, 220\nasig     = asig + albd * 0.60       ; body / low weight\nasig     tone asig, 900            ; dark tilt (low-pass)"
+   "code": "albd     tone asig, kfreq * koct1   ; the fundament: a RATIO, so the same word at every pitch\nasig     = asig + albd * 0.60       ; body / low weight\nasig     tone asig, 900            ; dark tilt (low-pass)"
   },
   {
    "key": "glassy",
@@ -3264,7 +3264,7 @@
    ],
    "priority": 8,
    "why": "a percussive-reading harmonic push without full brightness",
-   "code": "albd     tone asig, 220\nasig     = asig + albd * 0.25       ; body / low weight\nabrt     atone asig, 2200\nasig     = asig + abrt * 0.40       ; bright tilt (add highs)"
+   "code": "albd     tone asig, kfreq * koct1   ; the fundament: a RATIO, so the same word at every pitch\nasig     = asig + albd * 0.25       ; body / low weight\nabrt     atone asig, 2200\nasig     = asig + abrt * 0.40       ; bright tilt (add highs)"
   },
   {
    "key": "mellow",
@@ -3626,7 +3626,7 @@
    ],
    "priority": 6,
    "why": "low-mid mess with rolled-off highs",
-   "code": "albd     tone asig, 220\nasig     = asig + albd * 0.35       ; body / low weight\nasig     tone asig, 700            ; dark tilt (low-pass)"
+   "code": "albd     tone asig, kfreq * koct1   ; the fundament: a RATIO, so the same word at every pitch\nasig     = asig + albd * 0.35       ; body / low weight\nasig     tone asig, 700            ; dark tilt (low-pass)"
   },
   {
    "key": "resonant",
@@ -3700,7 +3700,7 @@
    ],
    "priority": 6,
    "why": "added low-order weight plus more harmonic room",
-   "code": "albd     tone asig, 220\nasig     = asig + albd * 0.45       ; body / low weight\nabrt     atone asig, 2200\nasig     = asig + abrt * 0.20       ; bright tilt (add highs)"
+   "code": "albd     tone asig, kfreq * koct1   ; the fundament: a RATIO, so the same word at every pitch\nasig     = asig + albd * 0.45       ; body / low weight\nabrt     atone asig, 2200\nasig     = asig + abrt * 0.20       ; bright tilt (add highs)"
   },
   {
    "key": "thick",
@@ -3836,7 +3836,7 @@
    ],
    "priority": 6,
    "why": "a smooth+warm hybrid convention",
-   "code": "albd     tone asig, 220\nasig     = asig + albd * 0.25       ; body / low weight\nasig     tone asig, 2100            ; dark tilt (low-pass)"
+   "code": "albd     tone asig, kfreq * koct1   ; the fundament: a RATIO, so the same word at every pitch\nasig     = asig + albd * 0.25       ; body / low weight\nasig     tone asig, 2100            ; dark tilt (low-pass)"
   },
   {
    "key": "icy",
@@ -3993,7 +3993,7 @@
    ],
    "priority": 6,
    "why": "bright plus a fuller 2nd harmonic",
-   "code": "albd     tone asig, 220\nasig     = asig + albd * 0.20       ; body / low weight\nabrt     atone asig, 2200\nasig     = asig + abrt * 0.50       ; bright tilt (add highs)"
+   "code": "albd     tone asig, kfreq * koct1   ; the fundament: a RATIO, so the same word at every pitch\nasig     = asig + albd * 0.20       ; body / low weight\nabrt     atone asig, 2200\nasig     = asig + abrt * 0.50       ; bright tilt (add highs)"
   },
   {
    "key": "flat",
