@@ -111,6 +111,10 @@ These are user-observable fundamentals, not preferences. They disqualify otherwi
 - **Nothing sound-shaping without an explicit order.**
 - **Test in the built Standalone.** Offline measurement is legitimate for objective facts and never as evidence of sound quality.
 
+**A coincidence worth recording, not a derivation** (Siedenburg & Saitis 2023, arXiv:2304.07830; entered 2026-07-30). Every invariant above is BJ's and predates every research source this project holds. But where they put the oscillator/synth boundary turns out to be where a **non-listening** author is measurably reliable. That study had a language model rate 8 instruments on 20 verbally anchored scales against 540 listeners. Of the **eight** scales it failed to reproduce, **six name things this architecture does not give the oscillator at all**: loudness (*projecting/commanding/powerful*), the amplitude envelope (*percussive/sharp beginning*, *sustained/even*), attenuation (*muted/veiled*), and aperture or space (*open*, *focused/compact*) — and **both** scales it rated *backwards* are in that group (*percussive* r = −.35, *open* r = −.19). The **twelve** it did reproduce are spectral-distribution words, which is what an oscillator here writes.
+
+Read it as a **list to be careful with**, since that is the only use it has: projection and power, attack, steadiness, mutedness, openness. A word from one of those families, proposed for the oscillator or migrating into it, goes to BJ's ear before anything else. Two honest limits on the finding: two of the six null scales are *not* explained by the boundary — *pure/clear/clean* and *smooth/singing/sweet* are spectral words the model still failed on, and they are the lexicon's only two words in that set — and all of these numbers are one chatbot's, in February 2023. Full record and the mapping onto the 51 sound words: `docs/LCO_TIMBRE_SEMANTICS.md` §4.9–§4.11.
+
 ---
 
 ## 5. The first three instruments — the full measurement record
