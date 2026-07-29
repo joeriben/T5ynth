@@ -7065,9 +7065,15 @@ juce::String T5ynthProcessor::exportJsonPreset() const
     // saving a preset with "12 voices / Maqam" would silently reset to
     // the APVTS defaults (8 voices / 12-TET) on reload.
     engine->setProperty("voiceCount", choiceToKey(static_cast<int>(get(PID::voiceCount)), VoiceCount::kEntries));
-    // Whether an authored instrument owns the synth's knobs is part of the
-    // patch's character, so it travels with it.
-    engine->setProperty("lcoSetsParams", get(PID::lcoSetsParams) > 0.5f);
+    // NOT lcoSetsParams (BJ, 2026-07-30). It looked like part of the patch's
+    // character and is not: the sound this file describes is fully in the values
+    // it already carries — the cutoff and the envelope routings an authoring set
+    // are saved like any others, and load back identically whether or not the
+    // switch travels. What the switch decides is the NEXT authoring: whether it
+    // may reach into the player's controls. That is authority over work not yet
+    // done, and a file — least of all one from someone else — does not get to
+    // grant it. It also made the switch unusable as the A/B it is, since every
+    // preset load stamped it back down.
     engine->setProperty("tuning",     choiceToKey(static_cast<int>(get(PID::tuning)),     TuningType::kEntries));
     engine->setProperty("loopMode", choiceToKey(static_cast<int>(get(PID::loopMode)), LoopMode::kEntries));
     engine->setProperty("loopStartFrac", static_cast<double>(masterSampler.getLoopStart()));
@@ -7508,19 +7514,18 @@ bool T5ynthProcessor::importJsonPreset(const juce::String& json)
         if (engine->hasProperty("voiceCount"))
             setParam(parameters, PID::voiceCount,
                      static_cast<float>(choiceFromKey(engine->getProperty("voiceCount").toString(), VoiceCount::kEntries)));
-        // KNOBS is a PERMISSION, not a sound: it says whether the player lets an
-        // authoring reach out to their own controls. A file that says nothing
-        // about it therefore leaves it exactly where the player has it — the
-        // "absent key defaults the parameter" rule that every sound parameter
-        // here follows would make this one a silent REVOCATION, and since not
-        // one shipped preset carries the field (the switch is newer than all of
-        // them), every single preset load would turn it off behind the player's
-        // back. Measured 2026-07-29: BJ switched it on, loaded a preset, and the
-        // next authoring went out without the shelf because the switch had gone
-        // off with nothing on screen saying so.
-        if (engine->hasProperty("lcoSetsParams"))
-            setParam(parameters, PID::lcoSetsParams,
-                     static_cast<bool>(engine->getProperty("lcoSetsParams")) ? 1.0f : 0.0f);
+        // KNOBS (`lcoSetsParams`) is deliberately NOT read, and no longer
+        // written — see the matching note in exportJsonPreset. It is the
+        // player's standing permission for the NEXT authoring, not a property of
+        // this sound, and it stays where they left it no matter what a file
+        // says. Presets written in the few hours the field existed still carry
+        // it; it is ignored. What this replaces, and why it matters: the field
+        // used to be read like every sound parameter, absent-means-default, and
+        // since not one shipped preset carried it (the switch was a day newer
+        // than all of them) every single preset load silently revoked the
+        // permission. Measured 2026-07-29 — BJ switched it on, loaded a preset,
+        // and the next authoring went out with no shelf at all, which is why the
+        // whole feature looked broken.
         if (engine->hasProperty("tuning"))
             setParam(parameters, PID::tuning,
                      static_cast<float>(choiceFromKey(engine->getProperty("tuning").toString(), TuningType::kEntries)));
