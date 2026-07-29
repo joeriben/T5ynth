@@ -2402,6 +2402,37 @@ def _echo_through_null(other_emb, null_emb):
     return 2.0 * null_emb - other_emb
 
 
+def _blend_ab(emb_a, emb_b, alpha):
+    """A/B crossfade at constant drive: historical direction, pole-length.
+
+    The direction is the historical blend, untouched:
+        (0.5 - 0.5a)*A + (0.5 + 0.5a)*B
+    Only the LENGTH is restored, to the poles' own norm interpolated across
+    alpha and clamped outside [-1, 1] — so |alpha| >= 1 stays byte-identical to
+    the extrapolation renorm this replaces (there the reference already was the
+    nearer pole's norm, and at exactly +/-1 the ratio is 1.0).
+
+    Why it must also run INSIDE the poles: two prompt embeddings are nearly
+    orthogonal (measured cos +0.15..+0.38), so their midpoint is ~0.70 of pole
+    length — and length is not decoration here. CFG's unconditional branch is
+    literally zero context (dit.py: null_embed = torch.zeros_like(...), and
+    to_cond_embed is bias-free), so ||cond|| IS the distance from
+    "unconditioned". A short blend is a blend that has drifted back toward the
+    model's prior, i.e. toward its most-trained, most-average region. This path
+    exists to LEAVE that region, so the middle has to point strangely at FULL
+    drive rather than weakly. Length and direction are separable: rescaling
+    leaves cos to both poles unchanged to +/-0.002 while drive goes 0.70 -> 0.92
+    (SAO) and 0.69 -> 0.83 (SA3). Measured with tools/measure_conditioning_drive.py.
+    """
+    blend = (0.5 - 0.5 * alpha) * emb_a + (0.5 + 0.5 * alpha) * emb_b
+    t = max(-1.0, min(1.0, float(alpha)))
+    ref_norm = (0.5 - 0.5 * t) * emb_a.norm() + (0.5 + 0.5 * t) * emb_b.norm()
+    res_norm = blend.norm()
+    if res_norm > 1e-8:
+        blend = blend * (ref_norm / res_norm)
+    return blend
+
+
 def _generate_audioldm2(wrapper, request):
     """Generate audio using AudioLDM2Pipeline with full embedding manipulation.
 
@@ -2517,21 +2548,12 @@ def _generate_audioldm2(wrapper, request):
                     pos_pe_b   = torch.nn.functional.pad(pos_pe_b, (0, 0, 0, pad_b))
                     pos_mask_b = torch.nn.functional.pad(pos_mask_b, (0, pad_b))
 
-        # Alpha interpolation: 0 = midpoint, -1 = pure A, +1 = pure B
-        w_a = 0.5 - 0.5 * alpha
-        w_b = 0.5 + 0.5 * alpha
-        manipulated_pe  = w_a * pos_pe_a  + w_b * pos_pe_b
-        manipulated_gpe = w_a * pos_gpe_a + w_b * pos_gpe_b
+        # Alpha interpolation: 0 = midpoint, -1 = pure A, +1 = pure B.
+        # Constant drive across the whole range (see _blend_ab); each of the two
+        # embeddings AudioLDM2 cross-attends to keeps its own pole reference.
+        manipulated_pe  = _blend_ab(pos_pe_a,  pos_pe_b,  alpha)
+        manipulated_gpe = _blend_ab(pos_gpe_a, pos_gpe_b, alpha)
         pos_mask = (pos_mask_a | pos_mask_b)
-
-        # Renormalize if extrapolating (|alpha| > 1)
-        if alpha < -1.0 or alpha > 1.0:
-            for manip, ref_a, ref_b in [(manipulated_pe, pos_pe_a, pos_pe_b),
-                                         (manipulated_gpe, pos_gpe_a, pos_gpe_b)]:
-                ref_norm = ref_a.norm() if alpha < 0.0 else ref_b.norm()
-                res_norm = manip.norm()
-                if res_norm > 1e-8:
-                    manip.mul_(ref_norm / res_norm)
 
         # Magnitude scaling
         if abs(magnitude - 1.0) > 1e-6:
@@ -2974,16 +2996,13 @@ def _generate_native(pipe, request):
         kombi_payload = None        # (proj_a, proj_late, proj_null, blocks)
         baseline_pooled = None      # set per mode for the GUI explorer feedback
         if injection_mode == "linear":
-            manipulated = (0.5 - 0.5 * alpha) * prompt_emb_a + (0.5 + 0.5 * alpha) * prompt_emb_b
-            if alpha < -1.0 or alpha > 1.0:
-                ref_norm = prompt_emb_a.norm() if alpha < 0.0 else prompt_emb_b.norm()
-                res_norm = manipulated.norm()
-                if res_norm > 1e-8:
-                    manipulated = manipulated * (ref_norm / res_norm)
+            manipulated = _blend_ab(prompt_emb_a, prompt_emb_b, alpha)
             # Inline manipulation chain so baseline_pooled snapshots the
-            # post-axes-pre-DimExplorer state (preserves v1.5.x byte-identity
-            # AND the GUI explorer's "this is what the model sees before
-            # your dim offsets" reference contract).
+            # post-axes-pre-DimExplorer state (the GUI explorer's "this is what
+            # the model sees before your dim offsets" reference contract).
+            # NOT byte-identical to v1.5.x inside |alpha| < 1 any more: the
+            # blend now holds pole drive there (see _blend_ab). |alpha| >= 1
+            # is unchanged.
             manipulated = apply_pre_offsets(manipulated)
             baseline = _mask_pad(manipulated)
             baseline_pooled = _pooled(baseline, combined_mask)
@@ -3001,7 +3020,7 @@ def _generate_native(pipe, request):
             # manipulations so semantic axes / noise / magnitude / dim offsets
             # shape both phases consistently.
             la = late_phase_alpha
-            late_blend = (0.5 - 0.5 * la) * prompt_emb_a + (0.5 + 0.5 * la) * prompt_emb_b
+            late_blend = _blend_ab(prompt_emb_a, prompt_emb_b, la)
             manipulated = apply_all(prompt_emb_a)         # early-phase conditioning
             late_emb_manip = apply_all(late_blend)        # late-phase conditioning
             late_emb_zeroed = _mask_pad(late_emb_manip)
@@ -3039,7 +3058,7 @@ def _generate_native(pipe, request):
             # band still see A (hard mask). Same manipulations applied to
             # both the A path and the late_blend path before projection.
             la = late_phase_alpha
-            late_blend = (0.5 - 0.5 * la) * prompt_emb_a + (0.5 + 0.5 * la) * prompt_emb_b
+            late_blend = _blend_ab(prompt_emb_a, prompt_emb_b, la)
             emb_a_manip = apply_all(prompt_emb_a)
             late_blend_manip = apply_all(late_blend)
             emb_a_masked = _mask_pad(emb_a_manip)
@@ -3476,14 +3495,9 @@ def generate(pipe, request):
         emb_b_pooled = _mean_pool(emb_b, mask_b)
 
         combined_mask = (mask_a | mask_b)
-        # alpha: 0 = midpoint, -1 = pure A, +1 = pure B
-        manipulated = (0.5 - 0.5 * alpha) * emb_a + (0.5 + 0.5 * alpha) * emb_b
-        # Renormalize if extrapolating (|alpha| > 1)
-        if alpha < -1.0 or alpha > 1.0:
-            ref_norm = emb_a.norm() if alpha < 0.0 else emb_b.norm()
-            res_norm = manipulated.norm()
-            if res_norm > 1e-8:
-                manipulated = manipulated * (ref_norm / res_norm)
+        # alpha: 0 = midpoint, -1 = pure A, +1 = pure B; constant drive across
+        # the whole range (see _blend_ab).
+        manipulated = _blend_ab(emb_a, emb_b, alpha)
 
         # Magnitude scaling
         if abs(magnitude - 1.0) > 1e-6:
