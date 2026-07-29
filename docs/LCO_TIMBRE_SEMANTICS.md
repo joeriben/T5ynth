@@ -107,6 +107,34 @@ into four control groups and reports which ones each factor moves (§4.2):
   attack/decay/sustain/release).
 - **Percussiveness up** = shorter envelopes plus more energy in sidebands.
 
+**These qualities are DYNAMIC, and that is the load-bearing fact, not the prohibition on
+filtering.** BJ, 2026-07-29, on this file still reaching for static tilts: *„Du verwechselst
+dynamische sonische Qualitäten mit einem statischen Filter und ‚Rauheit' mit einem langsamen
+unregelmäßigen LFO auf Lautstärke."* It is in [2]'s own numbers. The 17 surviving acoustic
+descriptors reduce to **four principal components, three of them labelled *spectrotemporal***,
+and the top-loading feature of every single one is an **IQR across frames** — a measure of how
+much a frame-wise quantity *varies over the note*, not what its value is:
+
+| | top loadings |
+|---|---|
+| PC1 *spectrotemporal (distribution) & spectral shape* | STFT power kurtosis **IQR 1.00**, skewness **IQR .95** |
+| PC2 *temporal energy variation & spectral slope* | STFT power frame-energy **IQR 1.00**, harmonic frame-energy **IQR .82**, effective duration .80 |
+| PC3 *spectrotemporal (flatness)* | STFT magnitude flatness **IQR 1.00**, power crest **IQR .94** |
+| PC4 *spectrotemporal (crest factor)* | STFT magnitude crest **IQR 1.00** |
+
+Sharpness runs −.58 against PC1 and +.49 against PC3; clarity −.44 against PC3; percussiveness
+and rawness against PC1 and PC3. So what the words track is **how the shape of the spectrum
+moves across the note**. A fixed tilt has no IQR — it is the one thing that cannot carry any of
+this, and 36 of the 51 words are exactly that (below). Movement-by-default was already a platform
+fundamental (`LCO_CONCEPT.md` §4); this says the word layer is where it is violated hardest.
+
+**And roughness is spectral, not level.** The first version of this plan proposed amplitude
+modulation at 15–300 Hz with an asymmetric envelope. That is a wobble on loudness, which the
+synth owns and which reads as tremolo; roughness is partials packed closely enough to interact —
+inharmonic sideband density, control group 2, the same gesture as brightness. The library's one
+moving dirt word does precisely the wrong thing: `dirty`'s `randi 0.45, 11` is a slow irregular
+LFO on how hard the signal is clipped.
+
 **Read that against this platform's invariant and the answer falls out.** Group 1 — the amplitude
 envelope — belongs to the synth here and always will (`LCO_CONCEPT.md` §4). Groups **2, 3 and 4
 belong to the oscillator**: partial spacing, partial energy, and how partial energy moves over
@@ -134,6 +162,26 @@ Counted by classifying each `code` block's opcodes:
 | **the synth's filter AND drive** | **10** |
 | **the synth's DRIVE** — a `tanh` waveshaper (`dirty`, `edgy`, `raspy`) | **3** |
 | partial spacing, partial energy, or the movement of partial energy (groups 2–4 above) | **0** |
+
+### And they are static, which is the defect underneath that one
+
+Counted by looking for any time-varying control in each word's `code`:
+
+- **36 of 51 contain no moving element at all** — `bright`, `dark`, `rich`, `sparse`, `harsh`,
+  `sharp`, `full`, `deep`, `smooth`, `raspy`, `edgy`, `crisp`, `airy`, `shimmering` and 22 more.
+  A fixed cutoff and a fixed gain.
+- **11 of the remaining 15 move only because the word is a copy of `analog_osc`'s body** and
+  inherited its `age` wobbles (`kvdr0`/`kdty0`/`kagw0` at 0.043 / 0.057 / 0.7 Hz). That movement
+  belongs to the instrument, not to the word.
+- **4** (`metallic`, `glassy`, `brittle`, `clangorous`) carry a ring modulator at a fixed
+  inharmonic ratio (`oscili 1, kfreq * 2.37`). It tracks the keyboard; it does not move over the
+  note.
+- **1** (`dirty`) has `randi 0.45, 11` on the drive amount — the slow irregular level wobble
+  named above.
+
+So **not one of the 51 words carries movement that is its own**, while the quantities the
+semantics actually track are all measures of movement. That is the finding; the filter/drive
+prohibition below is a second, independent one.
 
 BJ's ruling on the two he looked at, 2026-07-29: *„das gehört in den analog_osc"* (on `warm`
 carrying a whole `vco2` body) and *„‚rich' und ‚sparse' — ergeben so keinen Sinn. Es gibt Filter
@@ -277,3 +325,5 @@ acoustic instruments** were applied to a **synthesiser**.
 | richness ↔ a LOW spectral centroid (from violin studies) | `rich` is a **mass** word (.69), and shares its factor with `dark` (.51) |
 | „language does not carry the attack; do not spend a build on those words" | *plucky* .99 and *percussive* .78 are the **cleanest factor in the study** — the listening paradigm misses attack, the vocabulary does not |
 | `rich` „measures inert" (centroid moved < 0.1 %) | measured with the one descriptor that does not track this word's factor at all; the verdict is void, not merely imprecise |
+| the words are spectral TILTS to be got right or wrong | every acoustic component that predicts these factors is **spectrotemporal**, and its top loading is an **IQR across frames**. A static tilt cannot carry the quality at all — 36 of 51 words are static (BJ: „Du verwechselst dynamische sonische Qualitäten mit einem statischen Filter") |
+| roughness = amplitude modulation at 15–300 Hz with an asymmetric envelope | that is a slow irregular LFO on loudness, i.e. tremolo, and loudness belongs to the synth. Roughness is inharmonic sideband density — spectral, not level (BJ, same ruling) |
