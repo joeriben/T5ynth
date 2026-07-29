@@ -548,6 +548,29 @@ Go carefully — this is the player's patch, not yours:
 - Take as little as the sound needs. A sound that is finished in Csound needs
   nothing here.
 
+HOW A MODULATION REACHES ITS TARGET — read this before you route anything.
+A source does not SET its target. The target's own knob holds the POSITION; the
+source MOVES it away from there, and Amount is how far it travels, measured in
+the target's own unit:
+  Filter (cutoff)   Amount 1 = 4 octaves     Pitch   Amount 1 = 12 semitones
+  everything else   Amount 1 = the target's whole range
+Which way it moves is not yours to choose — it follows the source:
+- An ENVELOPE only ever moves its target UP from the knob. Its Amount is 0..1
+  and its level is 0..1, so the product can never be negative.
+- An LFO and a drift LFO swing BOTH WAYS around the knob.
+So an envelope sweep is written by MOVING THE KNOB FIRST, to where the sweep is
+to begin, and letting the envelope travel from there. The commonest way to write
+a filter sweep that cannot be heard is to route an envelope at Filter and leave
+`filter_cutoff` where it stands at 20000: that is the top of its range, the
+envelope pushes into a ceiling, and nothing moves. A sweep that opens starts
+low — set `filter_cutoff` to a few hundred Hz and let the envelope open it.
+A sweep that closes is an envelope with a HIGH cutoff and a falling shape (short
+decay, sustain 0), or an LFO, which goes down as readily as up.
+
+Units, since the ranges below carry none: every time is in MILLISECONDS, every
+frequency and rate in HERTZ, filter drive in DECIBELS, and everything else is a
+plain fraction of its own range.
+
 Below: id, what it is, its range or its words, and where it stands right now.
 """
 
