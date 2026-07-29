@@ -11,11 +11,26 @@ GGUF through llama.cpp, the same closure `pipe_inference.py`'s mode=="csound" bu
 renders what comes back, and asks an OBJECTIVE question of the audio: does the duty
 travel over the note?
 
-The signature is odd/even harmonic energy. A pulse's amplitudes go as |sin(pi*n*w)|/n,
-so odd-over-even is a direct read of the duty -- huge at 0.5, collapsing as the width
-moves off it -- while the centroid barely moves under a duty sweep and would read a
-real PWM as inert (see `lco_measure.odd_even_db`). Splitting the note into thirds and
-requiring the reading to TRAVEL is therefore a test of the thing itself, not of colour.
+IT REPORTS, IT DOES NOT JUDGE, and the first version's judgement is why. It split the
+note in thirds and called a span below 3 dB "STANDS", which was wrong three separate
+ways -- an adversarial review measured every one:
+
+  * it failed the lexicon's OWN reference PWM (the `width=moving` block, span 2.8 dB),
+    so the one answer it wants the author to write could never pass;
+  * a third is 1.8 s, so anything above about 1 Hz averages out inside one -- the same
+    body at 1/2/4/8 Hz all read ~1.1 dB, and the `rate` axis it replaced went to 8;
+  * it was reading `age`, not the LFO. With the modulation depth set to ZERO the span
+    came out LARGER (5.1 dB) than at full depth, because `kjit` drifts slowly through
+    the neighbourhood of 0.5, where odd/even is steepest.
+
+And odd/even is the wrong signature for half of what gets asked: a triangle morphing
+into a sawtooth moves the CENTROID and barely touches odd/even at all.
+
+So this prints the numbers and the code the author wrote, and nothing else. The
+project's established movement reading is `centroid_travel_hz` / `centroid_motion_hz`
+from `tools/lco_author_offline.py --measure`, which is also what a change to
+`_SYSTEM_HEAD` is measured with over `tools/lco_morph_corpus.txt`, before AND after.
+The verdict on a sound is BJ's ear.
 
     .venv/bin/python tools/lco_width_e2e.py
     .venv/bin/python tools/lco_width_e2e.py --prompt "a saturated pwm square wave"
@@ -46,15 +61,35 @@ PROMPTS = [
 ]
 
 
+def oe(y, t0, t1, f):
+    """Odd-over-even harmonic energy in ONE window. `lco_measure.odd_even_db` takes no
+    window, so the bounds have to go to `partials` as t0/t1 -- slicing the array and
+    calling it left its default 0.5..3.5 s in place, silently discarding the front of
+    every window and returning nothing at all for a window shorter than 0.5 s."""
+    lin = [10 ** (v / 20.0) for v in M.partials(y, f, n=16, t0=t0, t1=t1)]
+    return round(float(20 * np.log10(max(sum(lin[0::2]), 1e-12)
+                                     / max(sum(lin[1::2]), 1e-12))), 1)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--prompt", action="append")
     ap.add_argument("--freq", type=float, default=FREQ)
+    ap.add_argument("--library",
+                    help="a lco_library.json other than backend/'s -- for running the "
+                         "SAME prompts against an older library, which is the only way "
+                         "to tell an author weakness from a regression I caused. "
+                         "Decoding is greedy, so the comparison is exact.")
     a = ap.parse_args()
 
     if not GGUF.exists():
         raise SystemExit(f"author model not installed: {GGUF}")
 
+    import lco_write
+    if a.library:
+        lco_write.LIBRARY_PATH = Path(a.library).resolve()
+        lco_write._library_cache = None
+        print(f"library: {lco_write.LIBRARY_PATH}")
     from lco_write import build_csound_response
     from pipe_inference import run_gguf_instruct
 
@@ -80,22 +115,19 @@ def main():
             bad += 1
             continue
         y = np.asarray(y)
-        thirds = [round(M.odd_even_db(y[int(t0 * M.SR):int(t1 * M.SR)], a.freq), 1)
-                  for t0, t1 in ((0.3, 2.1), (2.1, 3.9), (3.9, 5.7))]
-        cent = [round(M.centroid(y[int(t0 * M.SR):int(t1 * M.SR)]), 1)
-                for t0, t1 in ((0.3, 2.1), (2.1, 3.9), (3.9, 5.7))]
-        span = max(thirds) - min(thirds)
-        moves = span >= 3.0
-        bad += not moves
-        print(f"  odd/even over the note {thirds}  span {span:.1f} dB   "
-              f"{'MOVES' if moves else 'STANDS'}")
-        print(f"  centroid              {cent}")
-        print(f"  vco2 imodes used: "
-              f"{sorted({l.split(',')[2].strip() for l in body.splitlines() if 'vco2' in l and l.count(',') >= 2})}")
+        m = M.measure(y, a.freq)
+        track = [oe(y, t, t + 0.15, a.freq) for t in np.arange(0.3, DUR - 0.4, 0.1)]
+        print(f"  duty (odd/even, 0.15 s windows): span {max(track) - min(track):>5.1f} dB"
+              f"   min {min(track):>6.1f}  max {max(track):>6.1f}"
+              f"   -- confounded by `age`, read it with the code")
+        print(f"  colour: centroid {m['centroid']}  travel {m.get('centroid_travel_hz')} Hz"
+              f"  motion {m.get('centroid_motion_hz')} Hz  coherence {m.get('motion_coherence')}")
+        print(f"  level:  rms {m['rms_db']} dB  travel {m.get('loudness_travel_db')} dB")
+        print("  ---- the body, verbatim ----")
         for line in body.splitlines():
-            if "vco2" in line or "kpw" in line.lower():
-                print(f"    | {line.rstrip()}")
-    print(f"\n{'FAIL' if bad else 'ok'}: {bad} of the prompts did not move")
+            print(f"    | {line.rstrip()}")
+    print(f"\n{len(a.prompt or PROMPTS) - bad} of {len(a.prompt or PROMPTS)} authored; "
+          "no verdict is offered on the sound (see the module docstring)")
     return 1 if bad else 0
 
 
