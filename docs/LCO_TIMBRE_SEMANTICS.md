@@ -451,18 +451,37 @@ average profile tracked the median inter-rater correlation at r = .98/.99, so **
 the raters disagreed, not that the stimuli were alike**. A null must not be read as „these words do
 not differ".
 
-### 4.11 What [3] settles about the author, and what it does not
+### 4.11 [3] measures a task this instrument does not perform — which is why only part of it carries
 
-The LRO's author writes an orchestra for words it has never heard rendered, which is [3]'s
-situation exactly. What [3] establishes: such a model tracks human semantics on the **most salient**
-dimensions — pitch height and brightness above all — while the **configuration** of its semantic
-space bears no relation to the human one, and its per-sample variability is of human magnitude.
-What [3] does not establish: anything about *this* project's author model. Its subject is one
-GPT-3-era chatbot in February 2023 at temperature 1 (§3.3), and this project's re-prompt ear is
-already an open question with BJ's own ruling on it
-(`project_lco_reprompt_ear_provisional`). Nothing here changes that ruling; it supplies the reason
-the gap is real — „the fundamental gap between a listening participant and a non-listening machine
-remains."
+Read the task, not the headline. [3]'s model was asked *how well a description fits a named
+instrument in a named register* — an association between an instrument's **name** and a descriptor,
+scored against a human average over the same imagined-instrument task. The LRO does the reverse and
+it is not a rating at all: a word arrives, usually with **no instrument named** („a dark growl",
+„rusty machinery", „like wet glass"), and the model must construct a spectrum. Whether the author's
+association between „oboe" and „brassy" matches the average listener's is not a question this
+instrument asks, and „does the model understand sound" is not answerable by correlating it with a
+panel on instrument stereotypes. So the study's own conclusion — Schaeffer's fifth mode, „to pretend
+to understand" — is about its task, not about writing an orchestra.
+
+What survives that mismatch is the **structure of its failures**, and it lands somewhere useful. Of
+the eight scales its model did not track, **six name things that in this instrument are not the
+oscillator's at all**: *projecting, commanding, powerful* (loudness), *percussive (sharp beginning)*
+and *sustained, even* (the amplitude envelope), *muted, veiled* (attenuation), *open* and *focused,
+compact* (aperture and space). Both of the scales it got **inverted** are in that group. The twelve
+it did track are predominantly spectral-distribution words — which is exactly what the oscillator
+owns under `docs/LCO_CONCEPT.md` §4.
+
+The division of labour in this instrument therefore puts the author's reliable half in the
+oscillator and its unreliable half in the synth. That was not designed from this finding — the split
+comes from BJ's platform invariants — but the measurement says the line falls in a good place, and
+it names which words to distrust if one ever migrates across it: aperture, projection, steadiness.
+
+Two honest remainders. The failure set also contains two scales that *are* spectral — *pure, clear,
+clean* and *smooth, singing, sweet* — and the architecture does not explain those away; `smooth` and
+`clean` are the lexicon's only two words in the failure set. And [3]'s numbers belong to one
+GPT-3-era chatbot probed in February 2023 at temperature 1 (§3.3), so nothing here is a measurement
+of this project's author. The re-prompt ear remains the open question it already was, with BJ's own
+ruling on it (`project_lco_reprompt_ear_provisional`).
 
 ---
 
