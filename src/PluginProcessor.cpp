@@ -6617,7 +6617,11 @@ struct LfoPIDs {
     const char* rate; const char* depth; const char* wave;
     const char* target; const char* mode;
     const char* clockMode; const char* clockDivision;
+    constexpr std::array<const char*, 7> all() const
+    { return { rate, depth, wave, target, mode, clockMode, clockDivision }; }
 };
+static_assert(sizeof(LfoPIDs) == 7 * sizeof(const char*),
+              "LfoPIDs gained a field — add it to all().");
 static constexpr LfoPIDs kLfoPIDs[] = {
     { PID::lfo1Rate, PID::lfo1Depth, PID::lfo1Wave, PID::lfo1Target, PID::lfo1Mode,
       PID::lfo1ClockMode, PID::lfo1ClockDivision },
@@ -6626,11 +6630,16 @@ static constexpr LfoPIDs kLfoPIDs[] = {
     { PID::lfo3Rate, PID::lfo3Depth, PID::lfo3Wave, PID::lfo3Target, PID::lfo3Mode,
       PID::lfo3ClockMode, PID::lfo3ClockDivision },
 };
+static constexpr int kNumLfoPIDs = sizeof(kLfoPIDs) / sizeof(kLfoPIDs[0]);
 
 struct DriftPIDs {
     const char* rate; const char* depth; const char* target; const char* wave;
     const char* clockMode; const char* clockDivision;
+    constexpr std::array<const char*, 6> all() const
+    { return { rate, depth, target, wave, clockMode, clockDivision }; }
 };
+static_assert(sizeof(DriftPIDs) == 6 * sizeof(const char*),
+              "DriftPIDs gained a field — add it to all().");
 static constexpr DriftPIDs kDriftPIDs[] = {
     { PID::drift1Rate, PID::drift1Depth, PID::drift1Target, PID::drift1Wave,
       PID::drift1ClockMode, PID::drift1ClockDivision },
@@ -6639,6 +6648,7 @@ static constexpr DriftPIDs kDriftPIDs[] = {
     { PID::drift3Rate, PID::drift3Depth, PID::drift3Target, PID::drift3Wave,
       PID::drift3ClockMode, PID::drift3ClockDivision },
 };
+static constexpr int kNumDriftPIDs = sizeof(kDriftPIDs) / sizeof(kDriftPIDs[0]);
 
 // Helper to safely set a parameter value
 static void setParam(juce::AudioProcessorValueTreeState& p, const juce::String& id, float val) {
@@ -7270,6 +7280,19 @@ bool T5ynthProcessor::importJsonPreset(const juce::String& json)
     }
 
     // ── Modulation ──
+    // What the file carries, so the slots it does NOT carry can be defaulted
+    // below. importJsonPreset does not reset the APVTS first, so anything left
+    // unwritten keeps the PREVIOUSLY loaded patch's routing — a modulation slot
+    // silently driving a preset that never asked for it. The gates below are
+    // outside the "modulation" / "driftLfos" tests on purpose: a file missing
+    // the whole block must clear those slots too, not inherit them.
+    // Per slot, not a count: a file may carry a malformed entry in the middle of
+    // an otherwise good array, and that slot must be defaulted like a missing
+    // one rather than counted as carried.
+    bool envWritten[kNumEnvPIDs] = {};
+    bool lfoWritten[kNumLfoPIDs] = {};
+    bool driftWritten[kNumDriftPIDs] = {};
+    bool fileHasAftertouch = false;
     if (auto* mod = root->getProperty("modulation").getDynamicObject())
     {
         auto* envsArr = mod->getProperty("envs").getArray();
@@ -7278,7 +7301,8 @@ bool T5ynthProcessor::importJsonPreset(const juce::String& json)
             for (int i = 0; i < std::min(kNumEnvPIDs, envsArr->size()); ++i)
             {
                 auto* env = (*envsArr)[i].getDynamicObject();
-                if (!env) continue;
+                if (!env) continue;   // malformed entry: leave it to the fill below
+                envWritten[i] = true;
                 const auto& ep = kEnvPIDs[i];
                 // Resolve the env's target up front: the cutoff-bus migration
                 // rescales a filter-targeted env's amount (target-conditional), and
@@ -7333,28 +7357,16 @@ bool T5ynthProcessor::importJsonPreset(const juce::String& json)
                              static_cast<float>(curveShapeFromString(env->getProperty("releaseCurve").toString())));
                 setParam(parameters, ep.target, static_cast<float>(envTarget));
             }
-
-            // Every envelope the file does NOT carry is written back to its
-            // layout default. A .t5p from before ENV4/5 has three entries, and
-            // importJsonPreset does not reset the APVTS first — so without this
-            // an ENV4 left routed to DCA by the previously loaded patch keeps
-            // modulating every voice of this one, behind its own tab, for the
-            // whole shipped bank. Index 0 is the amp envelope and has different
-            // defaults; a file missing even that is broken, so it is left alone.
-            for (int i = std::max(1, envsArr->size()); i < kNumEnvPIDs; ++i)
-            {
-                for (const char* id : kEnvPIDs[i].all())
-                    setParamToLayoutDefault(parameters, id);
-            }
         }
 
         auto* lfosArr = mod->getProperty("lfos").getArray();
         if (lfosArr)
         {
-            for (int i = 0; i < std::min(3, lfosArr->size()); ++i)
+            for (int i = 0; i < std::min(kNumLfoPIDs, lfosArr->size()); ++i)
             {
                 auto* lfo = (*lfosArr)[i].getDynamicObject();
-                if (!lfo) continue;
+                if (!lfo) continue;   // malformed entry: leave it to the fill below
+                lfoWritten[i] = true;
                 const auto& lp = kLfoPIDs[i];
                 const int lfoTarget = lfoTargetFromString(lfo->getProperty("target").toString());
                 setParam(parameters, lp.rate, static_cast<float>(lfo->getProperty("rate")));
@@ -7382,6 +7394,7 @@ bool T5ynthProcessor::importJsonPreset(const juce::String& json)
         // routing instead of being rejected.
         if (auto* at = mod->getProperty("aftertouch").getDynamicObject())
         {
+            fileHasAftertouch = true;
             // The file's aftertouch block fully determines aftertouch routing:
             // a target the file does NOT mention is set to 0, never left where
             // the previously loaded preset put it. Without that, a target added
@@ -7398,10 +7411,20 @@ bool T5ynthProcessor::importJsonPreset(const juce::String& json)
                                        static_cast<float>(at->getProperty(AftertouchTarget::kEntries[t].key)),
                                        fileCalibEpoch)
                                  : 0.0f);
-            if (! perTarget && at->hasProperty("target"))
+            if (! perTarget)
             {
+                // Legacy single-select: clear every target FIRST, then migrate
+                // the one the file names. Without the clear, a legacy block
+                // (20 of the shipped presets carry target "none") would set
+                // fileHasAftertouch and then write nothing, so the previous
+                // patch's pressure routing would survive the load — exactly
+                // what the per-target branch above exists to prevent.
+                for (int t = AftertouchTarget::LFO1Depth; t < AftertouchTarget::kCount; ++t)
+                    setParam(parameters, kAftertouchAmtPid[t], 0.0f);
+
                 const int t = choiceFromKey(at->getProperty("target").toString(), AftertouchTarget::kEntries);
-                if (t >= AftertouchTarget::LFO1Depth && t <= AftertouchTarget::NoiseLevel)
+                if (at->hasProperty("target")
+                    && t >= AftertouchTarget::LFO1Depth && t <= AftertouchTarget::NoiseLevel)
                     setParam(parameters, kAftertouchAmtPid[t],
                              Calibration::migrateScalar(kAftertouchAmtPid[t],
                                  at->hasProperty("amount") ? static_cast<float>(at->getProperty("amount")) : 0.0f,
@@ -7410,14 +7433,38 @@ bool T5ynthProcessor::importJsonPreset(const juce::String& json)
         }
     }
 
+    // A .t5seq carries only sequencer/arp/generative and is loaded ON TOP of the
+    // live patch — for it, "the file does not carry a modulation slot" means
+    // "not mine to touch", not "clear it". Same reasoning as the two existing
+    // importingSequencePattern gates further down.
+    if (! importingSequencePattern)
+    {
+        // Envelope 0 is the amp envelope and has different defaults; a file
+        // missing even that one is broken, so it is left alone rather than reset.
+        for (int i = 1; i < kNumEnvPIDs; ++i)
+            if (! envWritten[i])
+                for (const char* id : kEnvPIDs[i].all())
+                    setParamToLayoutDefault(parameters, id);
+
+        for (int i = 0; i < kNumLfoPIDs; ++i)
+            if (! lfoWritten[i])
+                for (const char* id : kLfoPIDs[i].all())
+                    setParamToLayoutDefault(parameters, id);
+
+        if (! fileHasAftertouch)
+            for (int t = AftertouchTarget::LFO1Depth; t < AftertouchTarget::kCount; ++t)
+                setParam(parameters, kAftertouchAmtPid[t], 0.0f);
+    }
+
     // ── Drift LFOs ──
     auto* driftArr = root->getProperty("driftLfos").getArray();
     if (driftArr)
     {
-        for (int i = 0; i < std::min(3, driftArr->size()); ++i)
+        for (int i = 0; i < std::min(kNumDriftPIDs, driftArr->size()); ++i)
         {
             auto* d = (*driftArr)[i].getDynamicObject();
-            if (!d) continue;
+            if (!d) continue;   // malformed entry: leave it to the fill below
+            driftWritten[i] = true;
             const auto& dp = kDriftPIDs[i];
             const int driftTarget = driftTargetFromString(d->getProperty("target").toString());
             setParam(parameters, dp.rate, static_cast<float>(d->getProperty("rate")));
@@ -7434,10 +7481,33 @@ bool T5ynthProcessor::importJsonPreset(const juce::String& json)
                 : static_cast<float>(DriftDivision::D2_1));
         }
     }
-    setParam(parameters, PID::driftEnabled, static_cast<bool>(root->getProperty("driftEnabled")) ? 1.0f : 0.0f);
-    setParam(parameters, PID::driftCrossfade, static_cast<float>(root->getProperty("driftCrossfade")));
-    setParam(parameters, PID::driftRegen,
-             static_cast<float>(choiceFromKey(root->getProperty("regenMode").toString(), DriftRegen::kEntries)));
+    if (! importingSequencePattern)
+        for (int i = 0; i < kNumDriftPIDs; ++i)
+            if (! driftWritten[i])
+                for (const char* id : kDriftPIDs[i].all())
+                    setParamToLayoutDefault(parameters, id);
+
+    // Same law for the three loose drift params, and for the same reason: a key
+    // the file does not carry means "layout default", never "the void var's
+    // zero". Regen XFade is the one this actually bit — none of the presets
+    // written before the exporter learned these keys carries driftCrossfade, so
+    // every one of them was landing on 0 ms, and a 0 ms Regen XFade turns the
+    // held-note follow into the hard swap the platform invariant forbids.
+    if (! importingSequencePattern)
+    {
+        auto fromFileOrDefault = [&] (const char* key, const char* pid, auto&& read)
+        {
+            if (root->hasProperty(key)) setParam(parameters, pid, read());
+            else                        setParamToLayoutDefault(parameters, pid);
+        };
+        fromFileOrDefault("driftEnabled", PID::driftEnabled,
+            [&] { return static_cast<bool>(root->getProperty("driftEnabled")) ? 1.0f : 0.0f; });
+        fromFileOrDefault("driftCrossfade", PID::driftCrossfade,
+            [&] { return static_cast<float>(root->getProperty("driftCrossfade")); });
+        fromFileOrDefault("regenMode", PID::driftRegen,
+            [&] { return static_cast<float>(choiceFromKey(root->getProperty("regenMode").toString(),
+                                                          DriftRegen::kEntries)); });
+    }
 
     // ── Wavetable + Noise ──
     if (auto* wt = root->getProperty("wavetable").getDynamicObject())
