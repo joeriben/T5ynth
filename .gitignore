@@ -95,3 +95,8 @@ tools/filter_os_test/out/
 # compiled diagnostic binaries
 tools/filter_os_test/filter_bench
 tools/filter_os_test/filter_os_test
+
+# Compiled tools/*.cpp probes (extensionless Mach-O; the sources are tracked)
+/tools/audition_lro_oversampling
+/tools/csound_orch_check
+/tools/measure_note_latency
