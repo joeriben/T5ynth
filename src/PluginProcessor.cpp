@@ -804,15 +804,20 @@ void T5ynthProcessor::parameterChanged(const juce::String& parameterID, float ne
         triggerAsyncUpdate();
     }
 
-    // The player withdrawing the author's authority. "Off: they stay yours" is a
+    // The player granting or withdrawing the author's authority, and the
+    // oscillator the authored orchestra plays on. "Off: they stay yours" is a
     // promise of the INSTRUMENT, so it is kept here and not in the LRO panel:
     // sited on the button it would hold only while that window happens to be
     // open, and not at all for host automation or a MIDI-learned controller.
-    // Same shape as above — flag + triggerAsyncUpdate, because this can arrive
-    // on the audio thread and the give-back writes parameters.
-    if (parameterID == PID::lcoSetsParams && newValue <= 0.5f)
+    // Both directions, because the switch is an A/B: off hands the knobs back,
+    // on takes them again. Same shape as above — flag + triggerAsyncUpdate,
+    // because this can arrive on the audio thread and reconciling writes
+    // parameters. The flag carries no value: handleAsyncUpdate reads where the
+    // switch and the engine actually stand, so a fast double-flip cannot land
+    // on the wrong one of two queued edges.
+    if (parameterID == PID::lcoSetsParams || parameterID == PID::engineMode)
     {
-        authorReleaseWanted_.store(true, std::memory_order_release);
+        authorReconcileWanted_.store(true, std::memory_order_release);
         triggerAsyncUpdate();
     }
 
@@ -6455,8 +6460,9 @@ void T5ynthProcessor::setStateInformation(const void* data, int sizeInBytes)
     // Sited here rather than at the top of the function on purpose: a state blob
     // that fails the tag check leaves the patch untouched, and forgetting the
     // record there would strand the authored knobs with nothing able to return
-    // them.
-    releaseAuthorSettings();
+    // them. FORGET, not just release: the restored session is a different patch,
+    // so flipping the switch on it must not fetch the previous sound's knobs.
+    forgetAuthorSettings();
     parameters.replaceState(loadedTree);
         // Unnamed for a DAW-session restore; the replay transport names its own
         // (replay_start / replay_end) via stateRestoreMarkerName_.
@@ -6817,6 +6823,34 @@ void T5ynthProcessor::releaseAuthorSettings()
     authorSetParams_.clear();
 }
 
+void T5ynthProcessor::reconcileAuthorSettings()
+{
+    // The knobs are the author's while the player allows it AND its orchestra is
+    // what is sounding. Anything else and they are the player's.
+    //
+    // Both conditions are read here, live, rather than passed in: the two edges
+    // that call this (the switch, the oscillator toggle) can arrive in either
+    // order and more than once before the async update runs, and the state the
+    // controls SHOW is the only one that cannot be stale. Re-applying is
+    // idempotent — applyAuthorSettings releases first — so a redundant call
+    // costs nothing and a missed one cannot leave the patch half-borrowed.
+    const bool allowed = parameters.getRawParameterValue(PID::lcoSetsParams)->load() > 0.5f;
+    const bool sounding = static_cast<int>(paramCache.engineMode->load()) == EngineMode::Csound;
+    if (allowed && sounding)
+        applyAuthorSettings(authorSettings_);   // a no-op while nothing is authored
+    else
+        releaseAuthorSettings();
+}
+
+void T5ynthProcessor::forgetAuthorSettings()
+{
+    // Order matters: give the knobs back to THIS patch first, then drop the
+    // record. Dropping first would strand them at the authored values with
+    // nothing left able to return them.
+    releaseAuthorSettings();
+    authorSettings_ = juce::var();
+}
+
 void T5ynthProcessor::applyAuthorSettings(const juce::var& settings)
 {
     // Deliberately NOT under a BulkParamLoadGuard: that guard suppresses the
@@ -6828,6 +6862,15 @@ void T5ynthProcessor::applyAuthorSettings(const juce::var& settings)
     // otherwise every regeneration would leave its cutoff and its ENV3 routing
     // standing on top of the one before it.
     releaseAuthorSettings();
+
+    // Remembered past the release, so the switch can take these again after
+    // handing them back — that is what makes KNOBS an A/B rather than a
+    // one-way door. Stored BEFORE the early return below: an authoring that
+    // wrote no SET line asked for nothing, and the sound before it must not
+    // keep standing in for it. The guard is for the re-take, which passes this
+    // very member back in.
+    if (&settings != &authorSettings_)
+        authorSettings_ = settings;
 
     auto* arr = settings.getArray();
     if (arr == nullptr) return;
@@ -7418,10 +7461,14 @@ bool T5ynthProcessor::importJsonPreset(const juce::String& json)
     if (auto* engine = root->getProperty("engine").getDynamicObject())
     {
         // A preset is a different patch: what the last authoring borrowed from
-        // the PREVIOUS one is no longer anybody's to give back. Every engine,
-        // not only a Csound one — a neural preset replaces the patch just as
-        // completely.
+        // the PREVIOUS one is no longer anybody's to give back, and flipping the
+        // switch on this patch must not fetch it either. Every engine, not only
+        // a Csound one — a neural preset replaces the patch just as completely.
+        // The record is DROPPED rather than released: the file's own values are
+        // about to be written over every one of these knobs anyway, and putting
+        // the previous patch's values back first would only be a detour.
         authorSetParams_.clear();
+        authorSettings_ = juce::var();
         setParam(parameters, PID::engineMode,
                  static_cast<float>(choiceFromKey(engine->getProperty("mode").toString(), EngineMode::kEntries)));
         // Old .t5p files predate voiceCount / tuning being saved; guard
@@ -8167,10 +8214,10 @@ T5ynthProcessor::CcMapping T5ynthProcessor::getCcMappingCopy(int cc) const
 
 void T5ynthProcessor::handleAsyncUpdate()
 {
-    // The KNOBS switch went off (click, automation or CC): hand back every knob
-    // the last authoring borrowed and still holds.
-    if (authorReleaseWanted_.exchange(false, std::memory_order_acq_rel))
-        releaseAuthorSettings();
+    // The KNOBS switch moved (click, automation or CC), or the oscillator did:
+    // make the patch agree with what the two of them now say.
+    if (authorReconcileWanted_.exchange(false, std::memory_order_acq_rel))
+        reconcileAuthorSettings();
 
     // XL DAW-mode transport buttons: toggle on the message thread (setValueNotifyingHost
     // locks, so it must not run on the audio thread). Consumed before — and independently

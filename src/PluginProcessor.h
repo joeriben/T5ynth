@@ -329,6 +329,21 @@ public:
      *  allows leaves behind otherwise. Message thread. */
     void releaseAuthorSettings();
 
+    /** Make the patch agree with the switch: the last authoring's knobs are on
+     *  it while the switch is on AND its orchestra is the sounding oscillator,
+     *  and off it otherwise. Called from the async update whenever either of
+     *  those two changes, so the switch works as an A/B — off gives the knobs
+     *  back, on takes them again — instead of being a one-way release that only
+     *  the next authoring could undo. Reads the live state rather than trusting
+     *  a value carried in a flag, so a fast double-flip lands where the switch
+     *  actually stands. Message thread. */
+    void reconcileAuthorSettings();
+
+    /** Forget the last authoring's settings outright: a new patch has arrived
+     *  and what the previous one borrowed is nobody's to give back or re-take.
+     *  Message thread. */
+    void forgetAuthorSettings();
+
     /** Was this parameter one the author was offered? "It exists" is a different
      *  question: amp_target exists and is deliberately not on the shelf. */
     static bool onAuthorParamShelf (const juce::String& id);
@@ -594,11 +609,16 @@ private:
     // authoring can hand back the knobs it borrowed. `applied` is what the
     // author put there; a value that no longer matches it means the PLAYER has
     // moved that knob since, and then it is theirs and is left alone.
-    // Set from parameterChanged (any thread) when the KNOBS switch goes off,
-    // consumed on the message thread in handleAsyncUpdate.
-    std::atomic<bool> authorReleaseWanted_ { false };
+    // Set from parameterChanged (any thread) when the KNOBS switch or the engine
+    // mode moves, consumed on the message thread in handleAsyncUpdate.
+    std::atomic<bool> authorReconcileWanted_ { false };
     struct AuthorSetParam { juce::String id; float before = 0.0f; float appliedNorm = 0.0f; };
     std::vector<AuthorSetParam> authorSetParams_;   // message thread only
+    // What the last authoring ASKED for, kept past a release so the switch can
+    // take it again. `authorSetParams_` above cannot serve: it is the record of
+    // what is currently borrowed and is emptied by the give-back, which is
+    // precisely the moment this has to survive. Message thread only.
+    juce::var authorSettings_;
 
     // Csound-authored parametrisation text cached for preset save (see setCsoundParamsText).
     juce::String csoundParamsText_;
