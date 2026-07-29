@@ -3942,7 +3942,8 @@ def main():
                                                      request.get("previous") or "",
                                                      on_thinking=on_thinking,
                                                      on_body=on_body,
-                                                     on_attempt=on_attempt)
+                                                     on_attempt=on_attempt,
+                                                     synth_params=request.get("synth_params"))
                 except Exception as exc:
                     log.error(f"csound authoring failed: {exc}")
                     # The traceback the outer handler would have written. Kept:

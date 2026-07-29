@@ -1335,6 +1335,7 @@ PipeInference::InterpretResult PipeInference::interpret(const juce::String& syst
 PipeInference::CsoundAuthorResult PipeInference::authorCsoundOrchestra(const juce::String& text,
                                                                        const juce::String& correction,
                                                                        const juce::String& previous,
+                                                                       const juce::var& synthParams,
                                                                        std::function<void(int, const juce::String&)> onThinking,
                                                                        std::function<void(int, const juce::String&)> onBody,
                                                                        std::function<void(int, int, const juce::String&)> onAttempt)
@@ -1391,6 +1392,13 @@ PipeInference::CsoundAuthorResult PipeInference::authorCsoundOrchestra(const juc
     // pipe for the rest of the session.
     if (onThinking || onBody || onAttempt)
         json->setProperty("stream", true);
+    // The synth's own knobs, with their current values and their ranges. Sent
+    // ONLY when the player allowed the author to set them — absent means the
+    // author is never told they exist, so it does not spend reasoning on knobs
+    // it may not touch, and an older backend that ignores the field behaves
+    // exactly as it does today.
+    if (auto* shelf = synthParams.getArray(); shelf != nullptr && ! shelf->isEmpty())
+        json->setProperty("synth_params", synthParams);
     addAuthorProviderFields(json);
 
     auto jsonStr = juce::JSON::toString(juce::var(json.get()), true);
@@ -1543,6 +1551,9 @@ PipeInference::CsoundAuthorResult PipeInference::authorCsoundOrchestra(const juc
             result.openedMotions     = toStrings(opened.getProperty("motions", juce::var()));
             result.libraryEntryCount = static_cast<int>(consultation.getProperty("library_size", juce::var(0)));
             result.repairs            = toStrings(parsed.getProperty("repairs", juce::var()));
+            // Only present when the request carried the shelf; a backend that
+            // does not know the field simply omits it and nothing is set.
+            result.settings           = parsed.getProperty("settings", juce::var());
             result.attempts           = static_cast<int>(parsed.getProperty("attempts", juce::var(0)));
 
             result.success    = result.orchestra.isNotEmpty();

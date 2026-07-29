@@ -185,6 +185,15 @@ public:
         // order; empty when it compiled on the first attempt.
         juce::StringArray repairs;
         int attempts = 0;           // how many authoring passes it took (1 = first try)
+
+        // What the author asked to SET on the synth itself — an array of
+        // {id, value, name, note}, value being a number for a continuous
+        // parameter and a choice LABEL for a choice one. Empty unless the
+        // player allowed it (PID::lcoSetsParams); the backend only ever
+        // returns ids from the shelf that was sent with the request, and
+        // `note` carries what it had to correct (a clamped value, an unknown
+        // id) so the panel can say so rather than the value changing silently.
+        juce::var settings;
     };
 
     /** External-API author config: an alternative to the local GGUF for a
@@ -326,6 +335,7 @@ public:
     CsoundAuthorResult authorCsoundOrchestra(const juce::String& text,
                                              const juce::String& correction = {},
                                              const juce::String& previous = {},
+                                             const juce::var& synthParams = {},
                                              std::function<void(int, const juce::String&)> onThinking = {},
                                              std::function<void(int, const juce::String&)> onBody = {},
                                              std::function<void(int, int, const juce::String&)> onAttempt = {});

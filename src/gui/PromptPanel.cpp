@@ -490,6 +490,23 @@ PromptPanel::PromptPanel(T5ynthProcessor& processor)
         dcoRepromptBox.configure("RE-PROMPT", kOscCol, Icon::numIcons);
         addAndMakeVisible(dcoRepromptBox);
         dcoRepromptBox.toBack();
+
+        // BJ 2026-07-29: "das muss ein Schalter im Osc sein. User entscheidet
+        // hier ob der Synth die Parameter ändern darf oder ob sie user-exklusiv
+        // bleiben." Off by default — the knobs are the player's until the player
+        // hands them over.
+        styleSwitchButton(dcoSetsParamsBtn, kOscCol);
+        dcoSetsParamsBtn.setClickingTogglesState(true);
+        dcoSetsParamsBtn.setTooltip("Let an authored instrument set the synth's own controls too: "
+                                    "filter, envelopes, LFOs, drift, aftertouch. It prefers targets "
+                                    "nothing is using. Off: they stay yours.");
+        addAndMakeVisible(dcoSetsParamsBtn);
+        dcoSetsParamsBtnA = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(
+            processorRef.getValueTreeState(), PID::lcoSetsParams, dcoSetsParamsBtn);
+        // No onClick here: "Off: they stay yours" is kept on the PROCESSOR
+        // (parameterChanged -> handleAsyncUpdate), so it also holds for host
+        // automation, for a MIDI-learned controller, and while this window is
+        // closed.
     }
 
     // Model selector — fixed 4 slots, always visible (disabled = gray until model found).
@@ -1096,6 +1113,7 @@ void PromptPanel::resized()
     dcoFlagsLabel.setVisible(!easy);
     dcoStanceBar.setVisible(!easy);
     dcoRepromptBox.setVisible(!easy);
+    dcoSetsParamsBtn.setVisible(!easy);
 
     if (!easy)
     {
@@ -1198,10 +1216,18 @@ void PromptPanel::resized()
             const int barW = juce::jmax(1, content.getWidth() - couplingLikeW - couplingGap);
             dcoStanceBar.setBounds(content.withSizeKeepingCentre(barW, content.getHeight()));
         }
+        // The knob-authority switch, right-aligned in the air above the card —
+        // one compact row out of the tripled gap, which was pure breathing room.
+        area.removeFromBottom(gapLco);
+        {
+            auto row = area.removeFromBottom(compactRowLco);
+            const int w = juce::jmin(row.getWidth(), juce::roundToInt(fLco * 4.6f));
+            dcoSetsParamsBtn.setBounds(row.removeFromRight(w));
+        }
         // Tripled breathing room above the RE-PROMPT card (was a single gapLco,
         // too cramped against the HEARD AS box). The extra space is taken from
         // the HEARD AS editor below, which fills whatever `area` remains.
-        area.removeFromBottom(gapLco * 3);
+        area.removeFromBottom(gapLco * 2);
 
         // dcoFlagsLabel is no longer laid out. Under the write-path it only ever
         // carried the compile state ("compiling..." / the Csound error) — the
@@ -2403,7 +2429,13 @@ void PromptPanel::triggerDcoBake()
     // completion marshals back via SafePointer + callAsync.
     juce::Component::SafePointer<PromptPanel> safeThis(this);
     const unsigned long long bakeSeq = ++dcoBakeSeq_;
-    std::thread([safeThis, pipePtr, text, bakeSeq]() mutable
+    // Read off the APVTS HERE — this is the message thread; the worker below is
+    // not, and juce::var is not something to build off it.
+    const bool maySetParams = processorRef.getValueTreeState()
+                                  .getRawParameterValue(PID::lcoSetsParams)->load() > 0.5f;
+    const juce::var synthParams = maySetParams ? processorRef.buildAuthorParamIndex()
+                                               : juce::var();
+    std::thread([safeThis, pipePtr, text, bakeSeq, synthParams]() mutable
     {
       // Publishing ONE attempt — engine swap, card, Re-Prompt bookkeeping. The
       // first authoring and every correction publish identically (a correction IS
@@ -2521,6 +2553,20 @@ void PromptPanel::triggerDcoBake()
             self->processorRef.setCsoundPrompt(text);   // what was asked for, saved with it
             self->processorRef.setCsoundReading(authored.reading);
             self->processorRef.setCsoundParamsText(authored.paramsText);
+            // The knobs the author asked for, out on the synth itself. Empty
+            // unless the switch was on when this authoring started — and the
+            // switch is read again HERE, so turning it off while an authoring
+            // runs still means "not on my patch".
+            // Same gate as the engine swap above: authoring runs for minutes and
+            // the paradigm toggle stays live, so a user who has moved on to
+            // T5osc must not have their filter and envelopes rewritten under a
+            // neural panel by a sound that is not playing.
+            if (! self->easyMode_
+                && self->processorRef.getValueTreeState()
+                       .getRawParameterValue(PID::lcoSetsParams)->load() > 0.5f)
+                self->processorRef.applyAuthorSettings(authored.settings);
+            // No else: the switch's own transition already handed the knobs
+            // back, wherever it was flipped from.
             self->dcoTraceView.setBody(authored.paramsText);   // the back of the card
 
             // The engine now holds a new, unsaved sound — drop the loaded/
@@ -2573,7 +2619,8 @@ void PromptPanel::triggerDcoBake()
 
         for (int attempt = 0; attempt <= kMaxSelfCorrections; ++attempt)
         {
-            auto authored = pipePtr->authorCsoundOrchestra(text, correction, previousReading);
+            auto authored = pipePtr->authorCsoundOrchestra(text, correction, previousReading,
+                                                           synthParams);
 
             const bool canContinue = authored.success && authored.orchestra.isNotEmpty();
 
@@ -2735,7 +2782,12 @@ void PromptPanel::triggerDcoBake()
                 }
             });
         };
-        auto authored = pipePtr->authorCsoundOrchestra(text, {}, {}, onThinking, onBody, onAttempt);
+        // The synth's own knobs go out with the request ONLY when the player has
+        // allowed the author to set them (PID::lcoSetsParams). With the switch
+        // off the shelf is empty and the author is never told these controls
+        // exist — it writes exactly the orchestra it writes today.
+        auto authored = pipePtr->authorCsoundOrchestra(text, {}, {}, synthParams,
+                                                       onThinking, onBody, onAttempt);
         publish(authored, /*attempt=*/0, /*moreToCome=*/false);
 #endif
     }).detach();

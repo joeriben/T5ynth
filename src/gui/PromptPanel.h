@@ -549,6 +549,12 @@ private:
     // GENERATE button, which drives it: stance Off -> bake, stance engaged ->
     // one re-prompt step.
     ModuleBox dcoRepromptBox;
+    // Whether an authored instrument may also set the synth's own controls
+    // (PID::lcoSetsParams). Sits with the RE-PROMPT card because it governs the
+    // same button: it says what pressing GENERATE is allowed to do. Attachment
+    // declared after the button (reverse destruction order).
+    juce::TextButton dcoSetsParamsBtn { "KNOBS" };
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> dcoSetsParamsBtnA;
     juce::String dcoLastMachineReading_, dcoLastFlagsLine_, dcoLoopLast_;
     // DEPRECATED (self-check deactivated 2026-07-21): the disabled
     // T5YNTH_LCO_SELFCHECK loop was its only writer, so it now stays empty and no

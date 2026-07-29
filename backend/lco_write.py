@@ -524,7 +524,138 @@ You have already reasoned about the sound in the first turn. Do not reason it ou
 """
 
 
-def system_prompt(prompt="", sel=None):
+_PARAMS_HEAD = """
+THE SYNTH'S OWN CONTROLS — the player has allowed you to set them
+Your oscillator sits inside a real instrument: a filter, five envelopes, three
+LFOs, three slow drift LFOs, aftertouch amounts, noise and two effects. For this
+sound you may set them. Use them for what belongs OUT THERE rather than inside
+your body — a filter the words ask for, an envelope that opens something, an LFO
+that moves it. What you build in Csound is still the spectrum; these are the
+instrument around it.
+
+This ADDS one thing to the fence rule above: besides the oscillator body and
+the READING line, the fence may now also carry SET lines. Nothing else changes.
+Write one line per setting, after READING:
+  SET: <id> = <value>
+A BARE number for a range - no unit, no comma, no second number - or one of the
+listed words for a choice. Anything else is refused rather than guessed at. A
+`;` comment after the value is fine. Nothing else changes in how you answer;
+write no SET line at all if the sound does not need one.
+
+Go carefully — this is the player's patch, not yours:
+- An envelope or LFO target that already carries something is THEIRS. Prefer the
+  ones that read `---`, and say what you take.
+- Take as little as the sound needs. A sound that is finished in Csound needs
+  nothing here.
+
+Below: id, what it is, its range or its words, and where it stands right now.
+"""
+
+
+def render_params(params):
+    """The shelf of synth knobs, one line each, exactly as it was handed over.
+
+    Nothing is filtered here and nothing is ranked: the host decides what is on
+    the shelf, this only lays it out. A choice parameter shows its words; a
+    continuous one its measured range."""
+    if not params:
+        return ""
+    out = [_PARAMS_HEAD]
+    for e in params:
+        pid = str(e.get("id", "")).strip()
+        if not pid:
+            continue
+        name = str(e.get("name", "")).strip()
+        if "choices" in e and e["choices"]:
+            span = "[" + " | ".join(str(c) for c in e["choices"]) + "]"
+        else:
+            span = f"{float(e.get('min', 0)):g} .. {float(e.get('max', 0)):g}"
+        now = e.get("value", "")
+        if isinstance(now, (int, float)) and not isinstance(now, bool):
+            now = f"{float(now):g}"
+        out.append(f"  {pid:<28} {name:<26} {span}   now {now}")
+    return "\n".join(out) + "\n"
+
+
+# A bare number and nothing else. No trailing unit: swallowing one turns
+# "1.5 s" into 1.5 ms on a millisecond control, which is in range and therefore
+# invisible. Refusing it is the safe reading, and the shelf shows no units for
+# the author to copy in the first place.
+_NUMBER = re.compile(r"^([-+]?\d+(?:[.,]\d+)?(?:[eE][-+]?\d+)?)$")
+# "off"/"on" written the other ways a model writes them.
+_BOOLWORDS = {"on": "on", "true": "on", "1": "on", "yes": "on", "enabled": "on",
+              "off": "off", "false": "off", "0": "off", "no": "off", "disabled": "off"}
+
+
+def read_settings(raw, params):
+    """The SET lines the author wrote, CHECKED against the shelf it was given.
+
+    Checked, not curated: this decides nothing about what the author should have
+    set. An id that was never on the shelf is dropped, a word that is not one of
+    a choice's own words is dropped, and a number outside a parameter's measured
+    range is clamped into it — each with a note, so the panel can say what was
+    corrected instead of the value quietly differing from what was asked for."""
+    if not params:
+        return []
+    shelf = {str(e.get("id", "")): e for e in params if e.get("id")}
+    out, seen = [], set()
+    for pid, val in _SET.findall(raw or ""):
+        if pid in seen:
+            continue                      # the author wrote it twice; the first stands
+        seen.add(pid)
+        # Everything from a semicolon on is a Csound comment — the one language
+        # this author writes, and the prompt invites it to say what it takes.
+        text = val.split(";", 1)[0].strip().strip('"\'')
+        entry = shelf.get(pid)
+        if entry is None:
+            out.append({"id": pid, "name": pid, "value": text, "ok": False,
+                        "note": "no such control on the synth — not set"})
+            continue
+        choices = entry.get("choices") or []
+        if choices:
+            probe = text.lower()
+            if [str(c).lower() for c in choices] == ["off", "on"]:
+                probe = _BOOLWORDS.get(probe, probe)
+            hit = next((c for c in choices if str(c).lower() == probe), None)
+            if hit is None:
+                out.append({"id": pid, "name": entry.get("name", pid), "value": text,
+                            "ok": False,
+                            "note": "not one of this control's settings — not set"})
+                continue
+            out.append({"id": pid, "name": entry.get("name", pid), "value": hit,
+                        "ok": True, "note": ""})
+            continue
+        # A bare number and nothing else. A unit, a range, two numbers, a word —
+        # all refused rather than squeezed into a number: a guessed value is
+        # worse than none, and an in-range guess is worse still because nothing
+        # about it looks wrong.
+        m = _NUMBER.match(text)
+        if m is None:
+            out.append({"id": pid, "name": entry.get("name", pid), "value": text,
+                        "ok": False, "note": "not a number — not set"})
+            continue
+        digits = m.group(1)
+        # "1,500" is 1500 to half the world and 1.5 to the other half. Refuse it
+        # rather than pick: on a millisecond control the two readings are a
+        # factor of a thousand apart and both land in range.
+        if "," in digits and len(digits.split(",")[1].split("e")[0].split("E")[0]) == 3:
+            out.append({"id": pid, "name": entry.get("name", pid), "value": text,
+                        "ok": False,
+                        "note": "comma could be a decimal point or a thousands "
+                                "separator — write it without one"})
+            continue
+        num = float(digits.replace(",", "."))
+        lo, hi = float(entry.get("min", num)), float(entry.get("max", num))
+        note = ""
+        if num < lo or num > hi:
+            note = f"asked for {num:g}, clamped into {lo:g}..{hi:g}"
+            num = max(lo, min(hi, num))
+        out.append({"id": pid, "name": entry.get("name", pid), "value": num,
+                    "ok": True, "note": note})
+    return out
+
+
+def system_prompt(prompt="", sel=None, params=None):
     """The head plus the library INDEX — what is on the shelf, without the code.
 
     One system prompt for the whole conversation, and it never varies with the
@@ -533,9 +664,10 @@ def system_prompt(prompt="", sel=None):
     opened selection and want the quoted pages inline instead (offline probes,
     the parity tools); the live path does not use it, because the pages arrive
     in their own turn once the author has asked for them."""
+    shelf = render_params(params)
     if sel is not None:
-        return _SYSTEM_HEAD + "\n" + render_library(sel)
-    return _SYSTEM_HEAD + "\n" + render_index()
+        return _SYSTEM_HEAD + "\n" + shelf + "\n" + render_library(sel)
+    return _SYSTEM_HEAD + "\n" + shelf + "\n" + render_index()
 
 
 _REPAIR_HEAD = (
@@ -687,8 +819,15 @@ def _repair_turn(seen_errors):
 
 _STRIP = re.compile(
     r"^\s*(</?Cs\w+|sr\s*=|kr\s*=|ksmps\s*=|nchnls|0dbfs|instr\b|endin\b|"
-    r"ftgen\b|\w+\s+ftgen\b|out\b|outs\b|outch\b|i\s+\d|f\s+\d|e\s*$)",
+    r"ftgen\b|\w+\s+ftgen\b|out\b|outs\b|outch\b|i\s+\d|f\s+\d|e\s*$|"
+    r"SET\s*:)",
     re.IGNORECASE)
+
+# A knob the author asks the SYNTH to set, written inside the fence beside
+# READING. It is not Csound and must never reach the compiler (hence the _STRIP
+# arm above); it is read back out of the raw reply by `read_settings`.
+_SET = re.compile(r"^\s*SET\s*:\s*([A-Za-z0-9_]+)\s*=\s*(.+?)\s*$",
+                  re.IGNORECASE | re.MULTILINE)
 
 # A fence marker on its OWN line. Markers are found individually and never
 # PAIRED: pairing is what mis-binds a stray ``` to the wrong block, and the
@@ -1886,7 +2025,8 @@ def compile_body(body):
 
 
 def build_csound_response(text, llm, correction="", previous="",
-                          on_thinking=None, on_body=None, on_attempt=None):
+                          on_thinking=None, on_body=None, on_attempt=None,
+                          synth_params=None):
     """Prompt -> live Csound orchestra. The REAL pipeline entry
     (pipe_inference mode=="csound" calls this).
 
@@ -1954,7 +2094,11 @@ def build_csound_response(text, llm, correction="", previous="",
     # mit Instrumenten und sonischen Beschreibungen der Parameter in den Prompt.
     # Thinking wird dann nicht-deterministisch entscheiden was im nächsten Zug
     # dem LLM aus der Bibliothek zur Verfügung gestellt wird."
-    sysp = system_prompt()
+    # The synth's own knobs ride in the SAME system prompt as the library,
+    # for the same reason: the author sees the whole shelf once and decides
+    # for itself. Absent unless the player allowed it, in which case the
+    # author is never told these controls exist.
+    sysp = system_prompt(params=synth_params)
     consult_raw, named, consult_thinking = _consult(user_turn, sysp, llm, on_thinking)
     sel = open_entries(named)
     attempts = []
@@ -2044,6 +2188,12 @@ def build_csound_response(text, llm, correction="", previous="",
         if ok:
             return {"ok": True, "orchestra": orchestra,
                     "reading": reading or _fallback_reading(body),
+                    # What the author asked the SYNTH to set, checked against
+                    # the shelf that was sent with the request. Empty list when
+                    # the player did not allow it (no shelf was sent, so the
+                    # author was never told the controls exist) or when the
+                    # author wanted nothing out there.
+                    "settings": read_settings(raw, synth_params),
                     # The panel's transparency surface. Under the write-path the
                     # honest answer to "what did the machine build?" is the code
                     # the model actually wrote -- not a list of keys it picked,

@@ -1,4 +1,5 @@
 #include "PluginProcessor.h"
+#include <cstring>
 #include "PluginEditor.h"
 #include "BinaryData.h"
 #include "UpdateChecker.h"
@@ -803,6 +804,18 @@ void T5ynthProcessor::parameterChanged(const juce::String& parameterID, float ne
         triggerAsyncUpdate();
     }
 
+    // The player withdrawing the author's authority. "Off: they stay yours" is a
+    // promise of the INSTRUMENT, so it is kept here and not in the LRO panel:
+    // sited on the button it would hold only while that window happens to be
+    // open, and not at all for host automation or a MIDI-learned controller.
+    // Same shape as above — flag + triggerAsyncUpdate, because this can arrive
+    // on the audio thread and the give-back writes parameters.
+    if (parameterID == PID::lcoSetsParams && newValue <= 0.5f)
+    {
+        authorReleaseWanted_.store(true, std::memory_order_release);
+        triggerAsyncUpdate();
+    }
+
     // Can run on the audio thread (confirmed: MIDI-CC-Learn-bound params call
     // setValueNotifyingHost from inside processBlock) or the message thread —
     // never assume which. No allocation, no lock beyond the lock-free FIFO.
@@ -1370,6 +1383,10 @@ juce::AudioProcessorValueTreeState::ParameterLayout T5ynthProcessor::createParam
     params.push_back(std::make_unique<juce::AudioParameterChoice>(
         juce::ParameterID{PID::engineMode, 1}, "Engine Mode",
         toChoices(EngineMode::kEntries), 0));
+    // Whether an authored LRO instrument may also set the synth's own knobs.
+    // Default OFF: the knobs are the player's until the player says otherwise.
+    params.push_back(std::make_unique<juce::AudioParameterBool>(
+        juce::ParameterID{PID::lcoSetsParams, 1}, "LRO Sets Synth Params", false));
     params.push_back(std::make_unique<juce::AudioParameterChoice>(
         juce::ParameterID{PID::freezeTexture, 1}, "Granular Texture",
         toChoices(FreezeTexture::kEntries), FreezeTexture::Silk));
@@ -2255,6 +2272,10 @@ void T5ynthProcessor::restoreNeuralEngineMode()
     // spent. Leaving it behind would let a stash written three steps ago
     // override an engine the user has since picked by hand.
     dcoPrevEngineMode_ = -1;
+    // Leaving the LRO for a neural engine: the authored orchestra stops
+    // sounding, so the knobs it borrowed go back. Discarding the record here
+    // instead would strand them with nobody left able to return them.
+    releaseAuthorSettings();
 
     if (!onLanguageMode)
         return;                       // already on a neural engine
@@ -6343,6 +6364,7 @@ void T5ynthProcessor::setStateInformation(const void* data, int sizeInBytes)
         for (int e = 2; e < kNumModEnvs; ++e)          // mod3/mod4 = ENV 4/5
             for (const char* id : PID::modEnv[e].all())
                 patchToLayoutDefault(id);
+        patchToLayoutDefault(PID::lcoSetsParams);
         patchToLayoutDefault(PID::aftertouchAmtEnv4Sustain);
         patchToLayoutDefault(PID::aftertouchAmtEnv5Sustain);
 
@@ -6426,7 +6448,16 @@ void T5ynthProcessor::setStateInformation(const void* data, int sizeInBytes)
         // generates (one setValueNotifyingHost per changed param) — a DAW
         // reopening a saved session is a bulk load exactly like a preset import.
         BulkParamLoadGuard eventLogGuard(*this);
-        parameters.replaceState(loadedTree);
+        // A restored session is a different patch, so the last authoring's borrowed
+    // knobs go back BEFORE the tree lands — free, since replaceState overwrites
+    // everything the loaded tree carries, and it also covers the shelf
+    // parameters an older tree does NOT carry, which replaceState leaves alone.
+    // Sited here rather than at the top of the function on purpose: a state blob
+    // that fails the tag check leaves the patch untouched, and forgetting the
+    // record there would strand the authored knobs with nothing able to return
+    // them.
+    releaseAuthorSettings();
+    parameters.replaceState(loadedTree);
         // Unnamed for a DAW-session restore; the replay transport names its own
         // (replay_start / replay_end) via stateRestoreMarkerName_.
         eventLogGuard.commit(markerName);
@@ -6602,16 +6633,8 @@ static juce::String envVelTimeModeToString(int i)          { return choiceToKey(
 // The save/load table is the amp envelope followed by PID::modEnv verbatim, so
 // the mod envelopes' IDs are written down in exactly one place (BlockParams.h).
 using EnvPIDs = PID::ModEnvIds;
-static constexpr EnvPIDs kEnvPIDs[] = {
-    { PID::ampAttack, PID::ampDecay, PID::ampSustain, PID::ampRelease,
-      PID::ampAmount, PID::ampLoop, PID::ampTarget,
-      PID::ampAttackCurve, PID::ampDecayCurve, PID::ampReleaseCurve,
-      PID::ampAttackVelSens, PID::ampDecayVelSens, PID::ampReleaseVelSens },
-    PID::modEnv[0], PID::modEnv[1], PID::modEnv[2], PID::modEnv[3],
-};
-static constexpr int kNumEnvPIDs = sizeof(kEnvPIDs) / sizeof(kEnvPIDs[0]);
-static_assert(kNumEnvPIDs == 1 + kNumModEnvs,
-              "kEnvPIDs must carry the amp envelope plus every mod envelope.");
+static constexpr const EnvPIDs* kEnvPIDs   = PID::allEnvs;
+static constexpr int            kNumEnvPIDs = PID::kNumEnvs;
 
 struct LfoPIDs {
     const char* rate; const char* depth; const char* wave;
@@ -6662,6 +6685,169 @@ static void setParam(juce::AudioProcessorValueTreeState& p, const juce::String& 
 static void setParamToLayoutDefault(juce::AudioProcessorValueTreeState& p, const juce::String& id) {
     if (auto* param = p.getParameter(id))
         param->setValueNotifyingHost(param->getDefaultValue());
+}
+
+// ── The shelf of synth knobs the LRO author is shown ──
+// BJ 2026-07-29: the author steers the filter (and the envelopes and LFOs) from
+// OUTSIDE — through the synth's own parameters — not with a `tone` baked into
+// the Csound body. This is the shelf that gets handed to it, built from the same
+// id tables the preset loader walks so it cannot fall behind them.
+//
+// Sound-shaping only. Deliberately absent: everything about GENERATION (prompt,
+// seed, duration, model), the engine's IDENTITY (mode, voice count, tuning) —
+// neither is a knob on the instrument — and `amp_target`, which is the player's
+// DCA routing and belongs to them (BJ: the switch decides whether the synth may
+// touch the parameters at all; the DCA is not part of that bargain).
+static const std::vector<const char*>& authorParamShelf()
+{
+    static const std::vector<const char*> shelf = [] {
+        std::vector<const char*> v {
+            PID::filterEnabled, PID::filterType, PID::filterSlope, PID::filterCutoff,
+            PID::filterResonance, PID::filterMix, PID::filterKbdTrack, PID::filterDrive,
+            PID::filterDriveOs, PID::filterAlgorithm, PID::filterWarpStyle,
+            PID::noiseLevel, PID::noiseType,
+            PID::delayType, PID::delayTime, PID::delayFeedback, PID::delayMix,
+            PID::delayDamp, PID::delayClockMode, PID::delayClockDivision,
+            PID::reverbType, PID::reverbMix,
+        };
+        for (int i = 0; i < kNumEnvPIDs; ++i)
+            for (const char* id : kEnvPIDs[i].all())
+                if (std::strcmp(id, PID::ampTarget) != 0)   // the player's DCA routing
+                    v.push_back(id);
+        for (const auto& lp : kLfoPIDs)   for (const char* id : lp.all()) v.push_back(id);
+        for (const auto& dp : kDriftPIDs) for (const char* id : dp.all()) v.push_back(id);
+        v.push_back(PID::driftEnabled);
+        for (int t = AftertouchTarget::LFO1Depth; t < AftertouchTarget::kCount; ++t)
+            v.push_back(kAftertouchAmtPid[t]);
+        return v;
+    }();
+    return shelf;
+}
+
+bool T5ynthProcessor::onAuthorParamShelf(const juce::String& id)
+{
+    for (const char* entry : authorParamShelf())
+        if (id == entry) return true;
+    return false;
+}
+
+juce::var T5ynthProcessor::buildAuthorParamIndex() const
+{
+    juce::Array<juce::var> out;
+    for (const char* id : authorParamShelf())
+    {
+        auto* prm = parameters.getParameter(id);
+        if (prm == nullptr) continue;
+
+        auto entry = juce::DynamicObject::Ptr(new juce::DynamicObject());
+        entry->setProperty("id",   juce::String(id));
+        entry->setProperty("name", prm->getName(64));
+
+        if (auto* bp = dynamic_cast<juce::AudioParameterBool*>(prm))
+        {
+            // A switch, shown as a switch: presented as 0 .. 1 the author has no
+            // way to know it is not a continuous control.
+            juce::Array<juce::var> words; words.add("off"); words.add("on");
+            entry->setProperty("choices", words);
+            entry->setProperty("value", bp->get() ? "on" : "off");
+        }
+        else if (auto* ch = dynamic_cast<juce::AudioParameterChoice*>(prm))
+        {
+            // The author names a choice by the LABEL the player reads on screen,
+            // so what it writes and what the UI shows are the same word.
+            juce::Array<juce::var> labels;
+            for (const auto& c : ch->choices) labels.add(c);
+            entry->setProperty("choices", labels);
+            entry->setProperty("value", ch->getCurrentChoiceName());
+        }
+        else
+        {
+            const auto& r = prm->getNormalisableRange();
+            entry->setProperty("min",   r.start);
+            entry->setProperty("max",   r.end);
+            entry->setProperty("value", prm->convertFrom0to1(prm->getValue()));
+        }
+        out.add(juce::var(entry.get()));
+    }
+    return juce::var(out);
+}
+
+void T5ynthProcessor::releaseAuthorSettings()
+{
+    // Hand back what the last authoring borrowed. A knob whose NORMALISED value
+    // is still exactly what was written there has not been touched since, so it
+    // goes back; one that differs has been moved by the PLAYER and is left
+    // where they left it. Compared normalised on purpose: the value that
+    // survives the parameter's own 0..1 mapping is bit-stable, the denormalised
+    // one it maps back to is not — over a skewed range like the filter cutoff's
+    // two thirds of all values fail to compare equal to themselves, and every
+    // one of those would strand the player's setting for good.
+    for (const auto& prev : authorSetParams_)
+        if (auto* prm = parameters.getParameter(prev.id))
+            if (std::abs(prm->getValue() - prev.appliedNorm) < 1.0e-6f)
+                setParam(parameters, prev.id, prev.before);
+    authorSetParams_.clear();
+}
+
+void T5ynthProcessor::applyAuthorSettings(const juce::var& settings)
+{
+    // Deliberately NOT under a BulkParamLoadGuard: that guard suppresses the
+    // EVENT LOG's parameter events, and an authoring is not recorded there by
+    // anything else — suppressing them would make a .t5evt replay play the
+    // authored sound with the pre-authoring knobs. It buys no atomicity anyway.
+    //
+    // Before the next sound takes anything, the last one gives its knobs back;
+    // otherwise every regeneration would leave its cutoff and its ENV3 routing
+    // standing on top of the one before it.
+    releaseAuthorSettings();
+
+    auto* arr = settings.getArray();
+    if (arr == nullptr) return;
+
+    for (const auto& e : *arr)
+    {
+        // The backend already checked this against the shelf it was handed and
+        // says so. Checked AGAIN here, against the shelf itself, because the
+        // reply crosses a process boundary: a REJECTED line still travels (it
+        // carries the reason, for showing), and "the parameter exists" is not
+        // the same question as "it was on the shelf" — amp_target exists.
+        if (! static_cast<bool>(e.getProperty("ok", juce::var(false)))) continue;
+        const auto id = e.getProperty("id", juce::var()).toString();
+        if (! onAuthorParamShelf(id)) continue;
+        auto* prm = parameters.getParameter(id);
+        if (prm == nullptr || ! e.hasProperty("value")) continue;
+
+        const auto raw = e.getProperty("value", juce::var());
+        float target = 0.0f;
+        if (dynamic_cast<juce::AudioParameterBool*>(prm) != nullptr)
+        {
+            const auto w = raw.toString().trim().toLowerCase();
+            if (w != "on" && w != "off") continue;
+            target = (w == "on") ? 1.0f : 0.0f;
+        }
+        else if (auto* ch = dynamic_cast<juce::AudioParameterChoice*>(prm))
+        {
+            const int idx = ch->choices.indexOf(raw.toString(), /*ignoreCase=*/true);
+            if (idx < 0) continue;      // a label this parameter does not have
+            target = static_cast<float>(idx);
+        }
+        else
+        {
+            // A number, and only a number: a juce::var holding a STRING converts
+            // to a float silently, which is how a value the backend refused
+            // ("0.5-0.7") would land as 0.5 anyway.
+            if (! (raw.isDouble() || raw.isInt() || raw.isInt64())) continue;
+            const auto& r = prm->getNormalisableRange();
+            target = juce::jlimit(r.start, r.end, static_cast<float>(raw));
+        }
+
+        AuthorSetParam rec;
+        rec.id     = id;
+        rec.before = prm->convertFrom0to1(prm->getValue());
+        setParam(parameters, id, target);
+        rec.appliedNorm = prm->getValue();   // read BACK: what actually stands there
+        authorSetParams_.push_back(rec);
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -6777,6 +6963,9 @@ juce::String T5ynthProcessor::exportJsonPreset() const
     // saving a preset with "12 voices / Maqam" would silently reset to
     // the APVTS defaults (8 voices / 12-TET) on reload.
     engine->setProperty("voiceCount", choiceToKey(static_cast<int>(get(PID::voiceCount)), VoiceCount::kEntries));
+    // Whether an authored instrument owns the synth's knobs is part of the
+    // patch's character, so it travels with it.
+    engine->setProperty("lcoSetsParams", get(PID::lcoSetsParams) > 0.5f);
     engine->setProperty("tuning",     choiceToKey(static_cast<int>(get(PID::tuning)),     TuningType::kEntries));
     engine->setProperty("loopMode", choiceToKey(static_cast<int>(get(PID::loopMode)), LoopMode::kEntries));
     engine->setProperty("loopStartFrac", static_cast<double>(masterSampler.getLoopStart()));
@@ -7200,6 +7389,11 @@ bool T5ynthProcessor::importJsonPreset(const juce::String& json)
     // ── Engine ──
     if (auto* engine = root->getProperty("engine").getDynamicObject())
     {
+        // A preset is a different patch: what the last authoring borrowed from
+        // the PREVIOUS one is no longer anybody's to give back. Every engine,
+        // not only a Csound one — a neural preset replaces the patch just as
+        // completely.
+        authorSetParams_.clear();
         setParam(parameters, PID::engineMode,
                  static_cast<float>(choiceFromKey(engine->getProperty("mode").toString(), EngineMode::kEntries)));
         // Old .t5p files predate voiceCount / tuning being saved; guard
@@ -7208,6 +7402,11 @@ bool T5ynthProcessor::importJsonPreset(const juce::String& json)
         if (engine->hasProperty("voiceCount"))
             setParam(parameters, PID::voiceCount,
                      static_cast<float>(choiceFromKey(engine->getProperty("voiceCount").toString(), VoiceCount::kEntries)));
+        if (engine->hasProperty("lcoSetsParams"))
+            setParam(parameters, PID::lcoSetsParams,
+                     static_cast<bool>(engine->getProperty("lcoSetsParams")) ? 1.0f : 0.0f);
+        else
+            setParamToLayoutDefault(parameters, PID::lcoSetsParams);
         if (engine->hasProperty("tuning"))
             setParam(parameters, PID::tuning,
                      static_cast<float>(choiceFromKey(engine->getProperty("tuning").toString(), TuningType::kEntries)));
@@ -7940,6 +8139,11 @@ T5ynthProcessor::CcMapping T5ynthProcessor::getCcMappingCopy(int cc) const
 
 void T5ynthProcessor::handleAsyncUpdate()
 {
+    // The KNOBS switch went off (click, automation or CC): hand back every knob
+    // the last authoring borrowed and still holds.
+    if (authorReleaseWanted_.exchange(false, std::memory_order_acq_rel))
+        releaseAuthorSettings();
+
     // XL DAW-mode transport buttons: toggle on the message thread (setValueNotifyingHost
     // locks, so it must not run on the audio thread). Consumed before — and independently
     // of — CC-Learn. exchange() collapses duplicate requests to a single toggle.

@@ -309,6 +309,30 @@ public:
     // resolved to, straight from backend/lco_write.py's params_text field).
     // Same stash/persistence shape as csoundReading_ above, set by the same
     // completion lambda. Message-thread only.
+    /** The shelf of synth parameters the LRO author is shown when it is allowed
+     *  to set them: id, name, current value, and either the range or the choice
+     *  labels. Sound-shaping knobs only — the filter, the five envelopes, the
+     *  LFOs, the drift LFOs, the aftertouch amounts, noise and the two effects.
+     *  Not the generation parameters, not the engine identity, and not
+     *  amp_target, which is the player's DCA routing. Message thread. */
+    juce::var buildAuthorParamIndex() const;
+
+    /** Apply what the author asked to set: an array of {id, value}, value being
+     *  a number for a continuous parameter and a choice LABEL for a choice one.
+     *  Parameters the PREVIOUS authoring set, and that the user has not moved
+     *  since, are put back first — otherwise every regeneration would stack its
+     *  settings on top of the last one's. Message thread. */
+    void applyAuthorSettings (const juce::var& settings);
+
+    /** Give back every knob the last authoring borrowed and still holds — what
+     *  pressing the switch OFF means, and what an authoring the player no longer
+     *  allows leaves behind otherwise. Message thread. */
+    void releaseAuthorSettings();
+
+    /** Was this parameter one the author was offered? "It exists" is a different
+     *  question: amp_target exists and is deliberately not on the shelf. */
+    static bool onAuthorParamShelf (const juce::String& id);
+
     void setCsoundParamsText(const juce::String& text) { csoundParamsText_ = text; }
     const juce::String& getCsoundParamsText() const { return csoundParamsText_; }
 
@@ -566,6 +590,16 @@ private:
     juce::String csoundPrompt_;
     // Csound-authored reading cached for preset save (see setCsoundReading).
     juce::String csoundReading_;
+    // What the last authoring set, and what stood there before it — so the next
+    // authoring can hand back the knobs it borrowed. `applied` is what the
+    // author put there; a value that no longer matches it means the PLAYER has
+    // moved that knob since, and then it is theirs and is left alone.
+    // Set from parameterChanged (any thread) when the KNOBS switch goes off,
+    // consumed on the message thread in handleAsyncUpdate.
+    std::atomic<bool> authorReleaseWanted_ { false };
+    struct AuthorSetParam { juce::String id; float before = 0.0f; float appliedNorm = 0.0f; };
+    std::vector<AuthorSetParam> authorSetParams_;   // message thread only
+
     // Csound-authored parametrisation text cached for preset save (see setCsoundParamsText).
     juce::String csoundParamsText_;
     SamplePlayer masterSampler;
