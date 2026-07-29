@@ -395,6 +395,11 @@ private:
     /** Check if drift requires auto-regeneration (called from timerCallback). */
     void pollDriftRegen();
 
+    /** LCO twin of pollDriftRegen's stance loop: paces the LCO Re-Prompt off the
+     *  SAME REGENERATE switchbox (drift_regen + its BPM). Called from
+     *  timerCallback; exactly one of the two polls runs per tick (easyMode_). */
+    void pollLcoRepromptCadence();
+
     /** R2c: replay transport — fire the generation the playhead just crossed.
      *  Called from timerCallback; a no-op unless a .t5evt replay is running.
      *  Mirrors pollDriftRegen's shape: the tape never stalls, the regenerated
@@ -777,6 +782,14 @@ private:
     juce::String lastGenPromptA_;
     juce::String lastGenPromptB_;
     double lastRegenTimeMs_ = 0.0; // for beat-based cooldown
+    // Same beat-based cooldown for the LCO Re-Prompt cadence. A SEPARATE clock
+    // from lastRegenTimeMs_ on purpose: the two paradigms never run at once
+    // (easyMode_ picks one), and sharing the timestamp would make switching
+    // panels either skip a slot or fire an unearned step on the first tick.
+    double lastLcoStepTimeMs_ = 0.0;
+    // Cadence-only failure throttle, the twin of lastRegenFailureMs_. Stamped by
+    // triggerDcoReprompt's two failure tails; a manual GENERATE press never reads it.
+    double lastLcoStepFailureMs_ = 0.0;
 
     // ── Semantic self-listening loop state (message-thread only) ──
     // Mirrors clap_llm_loop.py run_llm_loop's per-pole *_glieder chain + anti-stasis

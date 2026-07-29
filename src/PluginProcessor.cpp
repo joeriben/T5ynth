@@ -951,6 +951,7 @@ bool T5ynthProcessor::startReplay(const EventLogReader& reader)
     preReplaySeqRunning_     = parameters.getRawParameterValue(PID::seqRunning)->load();
     preReplayGenSeqRunning_  = parameters.getRawParameterValue(PID::genSeqRunning)->load();
     preReplayRepromptStance_ = parameters.getRawParameterValue(PID::repromptStance)->load();
+    preReplayDcoStance_      = parameters.getRawParameterValue(PID::dcoRepromptStance)->load();
 
     // Build the state off to the side (allocations, string decode) before it is
     // published — nothing here is visible to the audio thread yet.
@@ -1064,6 +1065,7 @@ void T5ynthProcessor::stopReplay()
         restore(PID::seqRunning,      preReplaySeqRunning_);
         restore(PID::genSeqRunning,   preReplayGenSeqRunning_);
         restore(PID::repromptStance,  preReplayRepromptStance_);
+        restore(PID::dcoRepromptStance, preReplayDcoStance_);
     }
 }
 
@@ -6459,6 +6461,12 @@ void T5ynthProcessor::setStateInformation(const void* data, int sizeInBytes)
     // is a deliberate user gesture and DOES restore the stance — see importJsonPreset.)
     // The coupling is a passive mode and is left untouched.
     parameters.getParameter(PID::repromptStance)->setValueNotifyingHost(0.0f);
+    // The LCO stance is now the same kind of driver and gets the same treatment:
+    // since pollLcoRepromptCadence exists, a restored dcoRepromptStance + a non-Manual
+    // REGENERATE re-authors the orchestra unattended on project open, overwriting the
+    // instrument the project was saved with. (It was safe to leave standing only while
+    // the LCO stance was read exclusively by user-initiated presses.)
+    parameters.getParameter(PID::dcoRepromptStance)->setValueNotifyingHost(0.0f);
 
     // Treat the restored seqPreset as not-yet-applied so the next processBlock
     // reloads its canned pattern (the step pattern isn't part of the saved

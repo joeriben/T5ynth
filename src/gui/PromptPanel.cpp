@@ -867,8 +867,11 @@ void PromptPanel::timerCallback()
     // before auto-regen — while a tape runs, its generations own the pipe.
     pollReplayRegen();
 
-    // Auto-regen polling
+    // Auto-regen polling. Two paradigms, one cadence control: pollDriftRegen owns
+    // it in Easy, pollLcoRepromptCadence in Advanced — each early-outs on the
+    // other's mode, so exactly one runs per tick.
     pollDriftRegen();
+    pollLcoRepromptCadence();
 
     // Phase 5 Csound compile-window poll (SPEC_phase4_5_csound_llm_preset.md):
     // a cheap no-op unless triggerDcoBake() opened a window.
@@ -2160,6 +2163,22 @@ void PromptPanel::triggerLcoGenerate()
     // that cannot be rendered would otherwise route every press into a step that
     // always fails, with no way back to authoring except turning the stance off.
     // After one press has SAID the ear failed, the next authors.
+    //
+    // Every MANUAL route lands here — the GENERATE button and XL CC 37 via
+    // MainPanel::triggerMainGeneration, and the prompt editor's Return key directly
+    // — which is why the drop-to-Manual escape hatch sits here and not in MainPanel
+    // (the neural path's copy lives there because triggerMainGeneration IS its only
+    // manual route). Same reason as the neural one: a deliberate press must not be
+    // overwritten by the cadence seconds later. In Manual the loop still advances,
+    // one step per press, via the routing below.
+    //
+    // Unconditional, ahead of the gates the two callees own: a press that lands while
+    // a step is in flight reports "Still …" and does nothing else, and stopping the
+    // loop is exactly what it should still do — otherwise a running cadence could only
+    // be halted at the REGENERATE switchbox, never from the button that started it.
+    if (auto* p = processorRef.getValueTreeState().getParameter(PID::driftRegen))
+        p->setValueNotifyingHost(p->convertTo0to1(static_cast<float>(DriftRegen::Manual)));
+
     const int stance = static_cast<int>(processorRef.getValueTreeState()
                           .getRawParameterValue(PID::dcoRepromptStance)->load());
     if (stance != RepromptStance::Off && processorRef.hasCsoundOrchestra() && ! dcoEarFailed_)
@@ -3018,6 +3037,13 @@ void PromptPanel::triggerDcoReprompt()
                 // only waiting. That case keeps stepping, and keeps reporting what
                 // is missing.
                 self->dcoEarFailed_ = orchestraUnheard;
+                // Throttle the CADENCE only (manual presses stay immediate), mirroring
+                // pollDriftRegen's lastRegenFailureMs_. The unreachable-ear case above
+                // deliberately keeps stepping, so without this an armed cadence would
+                // re-attempt on the very next tick — each attempt taking the
+                // process-wide Csound lifecycle lock for the probe's create/compile/
+                // start, against the live engine, several times a second.
+                self->lastLcoStepFailureMs_ = juce::Time::getMillisecondCounterHiRes();
                 self->setLcoStatus(earError.isNotEmpty()
                                        ? earError
                                        : juce::String("Could not listen to the instrument"));
@@ -3062,10 +3088,12 @@ void PromptPanel::triggerDcoReprompt()
                 const juce::String failMsg = errorMessage.isNotEmpty()
                                                  ? errorMessage
                                                  : juce::String("The rewrite came back empty");
+                self->lastLcoStepFailureMs_ = juce::Time::getMillisecondCounterHiRes();  // see the ear tail
                 self->setLcoStatus(failMsg);
                 return;   // do NOT touch the prompt editor on failure/empty
             }
 
+            self->lastLcoStepFailureMs_ = 0.0;   // a step landed — disarm the throttle
             self->dcoLoopLast_ = cleaned;
             self->dcoLoopRecent_.add(cleaned);
             while (self->dcoLoopRecent_.size() > 3)
@@ -4375,6 +4403,92 @@ void PromptPanel::pollDriftRegen()
     triggerDriftRegeneration(effAlpha, effAxes, genNoise, genMag,
                              effectiveLateMix, effectiveSplitStart, effectiveSplitEnd,
                              loopResynth, false);
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// LCO Re-Prompt cadence (called from timerCallback at 10 Hz)
+// ──────────────────────────────────────────────────────────────────────────────
+// The LCO twin of pollDriftRegen's stance loop. The SAME REGENERATE switchbox
+// (drift_regen + driftRegenBpm) paces both paradigms: the rate control the user
+// already knows works here too, and there is no second cadence control to keep in
+// sync. What the paradigm boundary separates is the STANCE (dcoRepromptStance vs
+// repromptStance) — the clock is shared, deliberately.
+//
+// Fires triggerDcoReprompt(), NOT triggerLcoGenerate(): a cadence step is always
+// "listen → rewrite → bake" (the step's own tail bakes). Without a stance there is
+// nothing to step, and falling through to a bake would re-author the SAME prompt
+// every cycle — replacing a working instrument with another roll of the same dice
+// that the user never asked for.
+void PromptPanel::pollLcoRepromptCadence()
+{
+    // Easy/neural panel: pollDriftRegen owns the cadence there, and its mirror of
+    // this line (`if (!easyMode_) return;`) makes the two mutually exclusive.
+    if (easyMode_) return;
+
+    // A running tape owns the generation pipe — same reason as pollDriftRegen's
+    // identical gate: its logged generations drive the timbre, and a step firing
+    // alongside them would overwrite the sound the replay just faded in.
+    if (processorRef.isReplayActive()) return;
+
+    // The stance is what makes an automatic cadence meaningful at all (see above).
+    const int stance = static_cast<int>(processorRef.getValueTreeState()
+                          .getRawParameterValue(PID::dcoRepromptStance)->load());
+    if (stance == RepromptStance::Off) return;
+
+    // Manual is authoritative here exactly as it is on the neural side: NO auto
+    // stepping, even with a stance engaged. The loop still advances one step per
+    // GENERATE press, since triggerLcoGenerate routes an engaged stance into
+    // triggerDcoReprompt.
+    const int regenMode = processorRef.driftRegenMode.load(std::memory_order_relaxed);
+    if (regenMode == 0) return;
+
+    // Nothing to listen to yet, or the last step found the orchestra unlistenable.
+    // Both are conditions under which triggerLcoGenerate AUTHORS instead of
+    // stepping — and a cadence must not author (see above), so it waits for a
+    // GENERATE press rather than stepping into the same failure every N bars.
+    if (! processorRef.hasCsoundOrchestra() || dcoEarFailed_) return;
+
+    // No language model: triggerDcoReprompt would refuse and write a status. Gate
+    // it here so the cadence stays silent instead of restating that every N bars.
+    if (! llmAvailable_) return;
+
+    // Busy gates, mirroring triggerDcoReprompt's own. It re-checks all of them, but
+    // returning BEFORE the timestamp advances is the point: a step that never ran
+    // must not consume its cadence slot.
+    if (dcoRepromptBusy_ || dcoBaking_ || csoundCompileWatching_) return;
+    if (generating || translatingPrompts_ || loopStepInFlight_) return;
+
+    // Failure throttle, pollDriftRegen's lastRegenFailureMs_ twin: a step whose ear
+    // or rewrite failed leaves no busy flag standing, and the unreachable-ear case is
+    // deliberately NOT latched into dcoEarFailed_ (a backend still starting is a wait,
+    // not a broken instrument) — so in ASAP an armed cadence would otherwise retry at
+    // the 10 Hz timer rate, each retry taking the process-wide Csound lifecycle lock
+    // for the probe against the live engine. 2 s, same figure as the neural side.
+    if (lastLcoStepFailureMs_ > 0.0)
+    {
+        constexpr double FAILURE_COOLDOWN_MS = 2000.0;
+        if ((juce::Time::getMillisecondCounterHiRes() - lastLcoStepFailureMs_) < FAILURE_COOLDOWN_MS)
+            return;
+    }
+
+    // Bar cooldown, identical math to pollDriftRegen's: modes 2-6 = every
+    // 1/2/4/8/16 bars at the REGENERATE BPM, measured from the step's START so a
+    // slow step eats into its own interval rather than adding to it. ASAP (mode 1)
+    // has no cooldown — the busy gates above are its floor, and one LCO step is
+    // seconds of real work (probe render + ear + two model calls + compile), never
+    // the cached replay that ASAP is throttled against on the neural side.
+    if (regenMode >= 2)
+    {
+        static constexpr int beatCounts[] = { 0, 0, 4, 8, 16, 32, 64 }; // man,asap,1/2/4/8/16 bar
+        const int    beats = beatCounts[juce::jlimit(0, 6, regenMode)];
+        const float  bpm   = processorRef.driftRegenBpm.load(std::memory_order_relaxed);
+        const double cooldownMs = (beats * 60000.0) / static_cast<double>(juce::jmax(1.0f, bpm));
+        if ((juce::Time::getMillisecondCounterHiRes() - lastLcoStepTimeMs_) < cooldownMs)
+            return;
+    }
+
+    lastLcoStepTimeMs_ = juce::Time::getMillisecondCounterHiRes();
+    triggerDcoReprompt();
 }
 
 // ──────────────────────────────────────────────────────────────────────────────

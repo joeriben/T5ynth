@@ -1015,6 +1015,7 @@ private:
     float preReplaySeqRunning_      = 0.0f;
     float preReplayGenSeqRunning_   = 0.0f;
     float preReplayRepromptStance_  = 0.0f;
+    float preReplayDcoStance_       = 0.0f;   // the LCO twin; setStateInformation zeroes it too
 
     // Names the preset_loaded marker that setStateInformation's OWN BulkParamLoadGuard
     // emits (it commits unnamed by default). Set immediately before the call, consumed

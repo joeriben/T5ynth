@@ -2378,9 +2378,14 @@ void MainPanel::applyLoadedPreset(const PresetFormat::LoadResult& result, const 
     // setStateInformation's anti-surprise force-Off. importJsonPreset deliberately
     // restores the stance so a DELIBERATE .t5p load (user clicks a preset) reproduces
     // the machine patch; only this passive buffer path nukes it back to Off.
+    // Both stances: the LCO one drives pollLcoRepromptCadence exactly as the neural
+    // one drives pollDriftRegen, so a quit in LRO with a stance engaged and a
+    // non-Manual REGENERATE would otherwise re-author the restored orchestra on the
+    // next launch, unattended, before the user has touched anything.
     if (sourceFile.getFileName() == "_buffer.t5p")
-        if (auto* stanceParam = processorRef.getValueTreeState().getParameter(PID::repromptStance))
-            stanceParam->setValueNotifyingHost(0.0f);
+        for (auto* pid : { PID::repromptStance, PID::dcoRepromptStance })
+            if (auto* stanceParam = processorRef.getValueTreeState().getParameter(pid))
+                stanceParam->setValueNotifyingHost(0.0f);
 
     presetManager.setCurrentPreset(currentPresetFile, restoredName);
 
@@ -3501,6 +3506,10 @@ void MainPanel::triggerMainGeneration()
     // button is reused to author the language oscillator, so route to the LCO action
     // here — one entry point keeps button + shortcut + MIDI in agreement (paradigm
     // boundary, BlockParams.h). triggerLcoGenerate owns its own busy/Qwen gates.
+    // The LCO's own drop-to-Manual escape hatch lives INSIDE triggerLcoGenerate, not
+    // here: the prompt editor's Return key calls it directly (PromptPanel.cpp ~390),
+    // and Cmd/Shift+Return deliberately refuses in Advanced — so this is not the only
+    // manual route on that side, unlike the neural one below.
     if (!oscEasyMode)
     {
         promptPanel.triggerLcoGenerate();
