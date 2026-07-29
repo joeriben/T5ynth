@@ -322,6 +322,54 @@ offset, which is a pitch-independent beat rate and is deliberate. Any reformulat
 „never hardcode a frequency" rule has to keep that legal — a beat rate belongs to the thing, not to
 the note.
 
+### 3.9 Recorded for a prospective three-operator FM entry
+
+Held for the record on BJ's instruction, 2026-07-30. This is the pre-build record the authoring
+rules in `CLAUDE.md` require (method and source in writing before the first orchestra line, nearest
+existing entry named before the new one is written). **It is a record, not an authorisation to
+build.**
+
+**Method and source.** FM as Chowning, John M. (1973): „The Synthesis of Complex Audio Spectra by
+Means of Frequency Modulation", *JAES* 21(7), 526–534 — the source [2] itself cites. Topology:
+three operators, operators 2 and 3 modulating operator 1's phase **in linear combination**
+([2] §Method). Word-to-parameter directions: [2] Fig. 4, Spearman rank correlations over thirty
+experienced sound designers acting on that exact topology.
+
+**Csound realisation, verified against `csound -z1` on this build.** Available: `foscil`/`foscili`
+(one carrier, one modulator), the `cross*` family (`crossfm`, `crossfmi`, `crosspm`, `crosspmi`,
+`crossfmpm`, `crossfmpmi` — two mutually modulating oscillators), and the fixed model algorithms
+(`fmbell`, `fmb3`, `fmmetal`, `fmpercfl`, `fmrhode`, `fmvoice`, `fmwurlie`). **There is no generic
+N-operator opcode**, so two modulators summed into one carrier's phase has to be written out —
+`phasor` on the carrier plus both modulator signals added into a `tablei` read. That it compiles
+and sounds is unverified; nothing here may be claimed until it has been.
+
+**What transfers, because it is spectral and therefore the oscillator's:**
+
+| axis | *bright* | *rough* | *thick* |
+|---|---|---|---|
+| modulator gains (the two indices) | ↑ 0.41 / 0.52\*\*\* | ↑ 0.63 / 0.51\*\*\* | — |
+| modulator tuning ratios | ↑ 0.56 / 0.54\*\*\* | ↑ 0.42 / 0.56\*\*\* | ↓ −0.28\*\* |
+| modulator attacks (how fast the sidebands arrive) | ↓ −0.27\*\* / −0.26\* | ↓ −0.34\*\*\* (op 3) | — |
+
+**What does not transfer, because it is the player's:** carrier attack, sustain and release.
+Consequence: of the three words [2] measured, ***thick* is not realisable on this entry** beyond
+its tuning-ratio component — its signature is the sustain levels, strongest the carrier's
+(0.50\*\*\*).
+
+**The property to declare rather than correct** (authoring rule 2): *bright* and *rough* are not
+separable on FM, because high-frequency energy there cannot rise without inharmonicity rising with
+it. An entry built this way carries *bright*; it does not distinguish *rough* from it. Roughness
+needs a substrate that packs partials close enough to interact.
+
+**The two declarations every entry owes:** it follows `kfreq` by construction (the carrier phasor
+is driven by it). It must **STAND**, not decay — the host owns the note-off — which means the
+index-decay that the existing `fm`/`fm_bell`/`metallic_fm` bodies use for their ring is not the
+model for this one.
+
+**Comparison target, to be rendered before any new orchestra line** (authoring rules 3 and 4): the
+nearest existing entry is **`fm`** — plain two-operator, ratio 2, index 1.5. `nearest_existing.wav`
+comes from it. The attempt budget is BJ's to fix and is not set here.
+
 ---
 
 ## 4. What the record now holds for measurement
