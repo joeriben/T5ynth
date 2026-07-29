@@ -50,6 +50,14 @@ public:
         juce::String seqMode;      // "Off" / "Step" / "Gen" / "Step + Gen"
         juce::String promptA;
         juce::String promptB;
+        /** The prompt that authored an LRO preset's orchestra
+         *  (`engine.csound_prompt`). A separate field because it is a
+         *  separate thing from the neural Impulse pair: promptA/B are the
+         *  T5osc's prompt editors, and an LRO preset carries whatever text
+         *  happened to be sitting in them when it was saved — for the
+         *  library that is a caption written by a sound that isn't this
+         *  one. Empty for an LRO preset saved before this field existed. */
+        juce::String lroPrompt;
         juce::StringArray tags;
         juce::Time modified;
         /** Bank label: "My Presets" for files at the user-dir root, or the
@@ -62,6 +70,31 @@ public:
         int    numChannels = 0;
         int    numSamples  = 0;
         float  inferenceMs = 0.0f;   // 0 → unknown / legacy preset
+
+        bool isLro() const { return engineMode == "LRO"; }
+
+        /** One line of text that says what this preset was asked FOR — the
+         *  list row's subtitle. Follows the engine that sounds: the LRO's
+         *  authoring prompt for a language-oscillator preset, the neural
+         *  Impulse pair for the rest. An LRO preset with no stored prompt
+         *  returns empty and the row shows "—": the file genuinely does not
+         *  know what was asked for, and captioning it with the Impulse text
+         *  would put another sound's words under this one's name. */
+        juce::String displayPrompt() const
+        {
+            if (isLro()) return lroPrompt;
+            return promptA.isNotEmpty() ? promptA : promptB;
+        }
+
+        /** Everything the search box may match inside this preset's prompts.
+         *  Same split, same reason: matching an LRO preset on its leftover
+         *  Impulse text returns files that have nothing to do with the
+         *  needle. */
+        juce::String searchablePrompt() const
+        {
+            if (isLro()) return lroPrompt;
+            return promptA + " " + promptB;
+        }
     };
 
     /** Display label for the user-presets-root pseudo-bank. */
@@ -614,6 +647,153 @@ private:
         return chip;
     }
 
+    /** The "Known tags - click to add" cloud, shared by the Detail card and
+     *  the Save-Drawer.
+     *
+     *  It is a Viewport over a chip flow, and that is the whole point: both
+     *  hosts previously painted the chips straight into a fixed one-to-three
+     *  row box and `break`-ed out of the loop as soon as the next row did not
+     *  fit. Whatever came after was gone — no scrollbar, no "+N more", no
+     *  indication at all — so which tags the user could click was decided by
+     *  the vocabulary's ORDER against a pixel budget. That turned the merge
+     *  order in applyTagVocabulary() into a load-bearing UI decision and made
+     *  every tag past the fold unreachable except by typing it exactly.
+     *
+     *  Here the flow lays out every tag it is given and reports its true
+     *  height; the Viewport scrolls. Nothing is dropped, so no caller has to
+     *  reason about what fits. */
+    class TagCloud : public juce::Component
+    {
+    public:
+        TagCloud()
+        {
+            flow.owner = this;
+            viewport.setViewedComponent(&flow, false);
+            viewport.setScrollBarsShown(true, false);
+            viewport.setScrollBarThickness(kScrollBarW);
+            addAndMakeVisible(viewport);
+        }
+
+        /** Fired with the clicked tag. The host owns what "add" means. */
+        std::function<void(const juce::String&)> onTagPicked;
+
+        /** The full vocabulary, in the order the owner merged it. Order is
+         *  now cosmetic — every entry is reachable either way. */
+        void setVocabulary(std::vector<juce::String> v)
+        {
+            vocabulary = std::move(v);
+            rebuild();
+        }
+        bool hasVocabulary() const noexcept { return ! vocabulary.empty(); }
+
+        /** `excluded` = the tags already on the preset (never offered twice);
+         *  `filterText` = the tag input's prefix autocomplete. */
+        void update(const juce::StringArray& excluded, const juce::String& filterText)
+        {
+            excludedTags = excluded;
+            filter = filterText.trim();
+            rebuild();
+        }
+
+        void paint(juce::Graphics& g) override
+        {
+            g.setColour(kDim);
+            g.setFont(juce::FontOptions(kUiLabelFontMin, juce::Font::bold));
+            g.drawText("Known tags - click to add",
+                       getLocalBounds().removeFromTop(kHeaderH),
+                       juce::Justification::centredLeft, false);
+        }
+
+        void resized() override
+        {
+            auto r = getLocalBounds();
+            r.removeFromTop(kHeaderH + 2);
+            viewport.setBounds(r);
+            rebuild();
+        }
+
+        /** Header + one chip row: below this the component can show nothing
+         *  at all and the host should not reserve space for it. */
+        static constexpr int minimumUsefulHeight() { return kHeaderH + 2 + kRowH; }
+
+    private:
+        static constexpr int kHeaderH = 14;
+        static constexpr int kRowH = 22;
+        static constexpr int kGapX = 4;
+        static constexpr int kGapY = 4;
+        static constexpr int kScrollBarW = 8;
+
+        /** The scrolled content: all matching chips, laid out and hit-tested
+         *  in its own coordinate space so the Viewport's scroll offset needs
+         *  no correction anywhere. */
+        struct Flow : public juce::Component
+        {
+            TagCloud* owner = nullptr;
+            std::vector<std::pair<juce::Rectangle<int>, juce::String>> chips;
+
+            void paint(juce::Graphics& g) override
+            {
+                for (const auto& c : chips)
+                    PresetManagerPanel::paintTagChip(g, c.first.getX(), c.first.getY(),
+                                                     c.second, ChipKind::Suggestion);
+            }
+
+            void mouseUp(const juce::MouseEvent& e) override
+            {
+                // A drag inside the viewport is a scroll gesture, not a pick.
+                if (e.mouseWasDraggedSinceMouseDown()) return;
+                const auto p = e.getPosition();
+                for (const auto& c : chips)
+                    if (c.first.contains(p))
+                    {
+                        // COPY before calling out: the host's handler adds the
+                        // tag and then refreshes the cloud, which clears this
+                        // very vector — a reference into it would dangle mid-
+                        // callback.
+                        const auto picked = c.second;
+                        if (owner != nullptr && owner->onTagPicked)
+                            owner->onTagPicked(picked);
+                        return;
+                    }
+            }
+        };
+
+        void rebuild()
+        {
+            // The scrollbar's width is reserved whether or not it is showing,
+            // so the flow's width — and with it the row breaks and the total
+            // height — never depends on the scrollbar that height decides.
+            const int w = juce::jmax(20, viewport.getWidth() - kScrollBarW);
+            flow.chips.clear();
+            int x = 0, y = 0;
+            for (const auto& t : vocabulary)
+            {
+                if (t.isEmpty() || excludedTags.contains(t, true)) continue;
+                if (filter.isNotEmpty() && ! t.startsWithIgnoreCase(filter)) continue;
+                const int chipW = juce::Font(juce::FontOptions(11.0f)).getStringWidth(t) + 14;
+                // x > 0 keeps a chip wider than the whole row on its own row
+                // instead of pushing an empty one ahead of it.
+                if (x > 0 && x + chipW > w)
+                {
+                    x = 0;
+                    y += kRowH + kGapY;
+                }
+                flow.chips.push_back({ { x, y, chipW, kRowH - 2 }, t });
+                x += chipW + kGapX;
+            }
+            flow.setSize(w, flow.chips.empty() ? 0 : y + kRowH);
+            flow.repaint();
+        }
+
+        // Declared before the Viewport so the Viewport is destroyed first and
+        // can never observe a half-destroyed viewed component.
+        Flow flow;
+        juce::Viewport viewport;
+        std::vector<juce::String> vocabulary;
+        juce::StringArray excludedTags;
+        juce::String filter;
+    };
+
     static void configureEditor(juce::TextEditor& e, const juce::String& placeholder)
     {
         e.setTextToShowWhenEmpty(placeholder, kDimmer);
@@ -750,12 +930,12 @@ private:
      *  is also cached so enterSaveMode() can pass an identical vector to
      *  the SaveDrawer (both clouds must display the same set).
      *
-     *  ORDER MATTERS: the clouds clip after a few rows (silent break in
-     *  paintTagCloud), so whatever comes first is all the user ever sees.
-     *  Tags that are actually in use in the library — the exact set the
-     *  sidebar's TAGS section shows, in the same alphabetical order — go
-     *  first so the cloud is always consistent with the sidebar; the
-     *  canonical starter taxonomy only fills the remaining space. */
+     *  The merged set is sorted alphabetically (case-insensitive) so the
+     *  cloud reads as one predictable list — previously user tags and the
+     *  canonical taxonomy kept their own separate orders (alphabetical,
+     *  then curated-by-category), which read as neither. The clouds still
+     *  clip after a few rows (silent break in paintTagCloud), but which
+     *  tags survive the clip is no longer a function of tag source. */
     void applyTagVocabulary()
     {
         const auto& userTags = sidebar.getTagVocabulary();
@@ -771,6 +951,10 @@ private:
         };
         for (auto& u : userTags)               push(u);
         for (auto& c : canonicalTagVocabulary) push(c);
+        std::sort(merged.begin(), merged.end(), [](const juce::String& a, const juce::String& b)
+        {
+            return a.compareIgnoreCase(b) < 0;
+        });
         mergedTagVocabulary = merged;
         detail.setTagVocabulary(merged);
     }
@@ -846,6 +1030,12 @@ private:
             // its own so the Detail card keeps reporting the id the file
             // actually carries.
             if (isLco) e.sourceLabel = "LRO";
+
+            // The prompt that wrote the orchestra. Lives here, not in
+            // `synth`, because the LRO's prompt editor is not the neural
+            // one — see Entry::lroPrompt. Read for every preset that has
+            // the field; only an LRO preset ever displays it.
+            e.lroPrompt = eng->getProperty("csound_prompt").toString().trim();
         }
 
         // Non-LRO presets never claim the LRO row. `lastModel` — which is what
@@ -982,7 +1172,7 @@ private:
             if (needle.isNotEmpty())
             {
                 const bool nameHit    = e.name.toLowerCase().contains(needle);
-                const bool promptHit  = (e.promptA + " " + e.promptB).toLowerCase().contains(needle);
+                const bool promptHit  = e.searchablePrompt().toLowerCase().contains(needle);
                 if (! nameHit && ! promptHit) continue;
             }
 
@@ -1439,6 +1629,7 @@ private:
                 tags.addIfNotAlreadyThere(t, true);
                 tagInput.setText({}, false);
                 if (onTagsCommitted) onTagsCommitted(tags);
+                refreshCloud();
                 resized();
                 repaint();
             };
@@ -1447,8 +1638,26 @@ private:
             // is at most ~50 chips and we already repaint on every chip
             // change. Doing it here keeps the cloud and input field visually
             // linked without a separate popup component.
-            tagInput.onTextChange = [this] { repaint(); };
+            tagInput.onTextChange = [this] { refreshCloud(); repaint(); };
             addAndMakeVisible(tagInput);
+
+            cloud.onTagPicked = [this] (const juce::String& t)
+            {
+                // Belt-and-braces: in Save mode this card shows the preset
+                // that would be REPLACED, so committing a tag here would
+                // rewrite the wrong file's tags on disk. resized() hides the
+                // cloud in that mode; this guard makes the invariant local.
+                if (! browseActionsVisible || ! entryValid) return;
+                tags.addIfNotAlreadyThere(t, true);
+                // Clear the autocomplete filter so the cloud immediately
+                // shows the next pickable tag rather than a stale prefix.
+                tagInput.setText({}, false);
+                if (onTagsCommitted) onTagsCommitted(tags);
+                refreshCloud();
+                resized();
+                repaint();
+            };
+            addChildComponent(cloud);   // visibility decided in resized()
         }
 
         /** Forward Esc keystrokes from the tag editor to the panel-level
@@ -1463,7 +1672,8 @@ private:
          *  See PresetManagerPanel::applyTagVocabulary() for the merge. */
         void setTagVocabulary(std::vector<juce::String> v)
         {
-            tagVocabulary = std::move(v);
+            cloud.setVocabulary(std::move(v));
+            refreshCloud();
             resized();
             repaint();
         }
@@ -1473,10 +1683,12 @@ private:
             entryValid = false;
             name.clear();
             bank.clear();
-            promptA.clear(); promptB.clear();
+            promptA.clear(); promptB.clear(); lroPrompt.clear();
+            engineMode.clear();
             hasAxes = false;
             sampleRate = 0.0; numChannels = 0; numSamples = 0;
             tags.clear();
+            refreshCloud();
             updateButtonsEnabled();
             resized();
             repaint();
@@ -1490,6 +1702,7 @@ private:
             modified = e.modified;
             promptA = e.promptA;
             promptB = e.promptB;
+            lroPrompt = e.lroPrompt;
             hasAxes = e.hasAxes;
             axes = e.axes;
             sampleRate  = e.sampleRate;
@@ -1503,6 +1716,7 @@ private:
             seqMode     = e.seqMode;
             tags = e.tags;
             cachedPromptW = -1;    // force recompute on next paint
+            refreshCloud();
             updateButtonsEnabled();
             resized();
             repaint();
@@ -1533,12 +1747,12 @@ private:
                 return;
             }
 
-            auto area = getLocalBounds().reduced(12);
+            const auto L = computeCardLayout();
 
             // Title
             g.setColour(juce::Colours::white);
             g.setFont(juce::FontOptions(15.0f, juce::Font::bold));
-            g.drawText(name, area.removeFromTop(20), juce::Justification::centredLeft, true);
+            g.drawText(name, L.title, juce::Justification::centredLeft, true);
 
             // Subline
             g.setColour(kDim);
@@ -1546,8 +1760,7 @@ private:
             g.drawText(bank + (modified.toMilliseconds() > 0
                                  ? juce::String::fromUTF8(" \xc2\xb7 ") + modified.formatted("%Y-%m-%d %H:%M")
                                  : juce::String()),
-                       area.removeFromTop(16), juce::Justification::centredLeft, false);
-            area.removeFromTop(10);
+                       L.subline, juce::Justification::centredLeft, false);
 
             // ── DEVICE row — above MODEL. The audio is reproducible only on the
             //    device it was rendered on (MPS/CUDA/CPU diverge for the same
@@ -1558,7 +1771,7 @@ private:
             const bool deviceMismatch = device.isNotEmpty()
                                      && runtimeDevice.isNotEmpty()
                                      && ! device.equalsIgnoreCase(runtimeDevice);
-            paintMetaRow(g, area.removeFromTop(16), "DEVICE",
+            paintMetaRow(g, L.device, "DEVICE",
                          device.toUpperCase(),
                          deviceMismatch ? kAccent : juce::Colours::white);
 
@@ -1572,111 +1785,48 @@ private:
                 { "AUDIO",  audioInfoString() },
                 { "INFER",  inferenceString() },
             };
-            for (auto& row : metaRows)
-                paintMetaRow(g, area.removeFromTop(16), row.first, row.second);
+            for (size_t i = 0; i < L.meta.size(); ++i)
+                paintMetaRow(g, L.meta[i], metaRows[i].first, metaRows[i].second);
 
-            area.removeFromTop(8);
-
-            // Reserve bottom: action strip + tag-input row + chip area
-            juce::Rectangle<int> tagInputRow;
-            if (browseActionsVisible)
-            {
-                area.removeFromBottom(32);
-                area.removeFromBottom(8);
-                tagInputRow = area.removeFromBottom(24);
-                area.removeFromBottom(6);
-            }
-
-            // Compute impulse-section heights from the actual wrapped text so
-            // there is no leftover gap between IMPULSE A's body and IMPULSE B's
-            // header. Caps prevent extreme prompts from squeezing the tags.
-            // Heights are cached and only recomputed when the available width
-            // changes (TextLayout::createLayout is the most expensive call in
-            // this paint and it dominates the click-to-redraw latency for
-            // libraries with even a handful of presets).
-            const int promptW = area.getWidth() - 6;
-            const int headerH = 14;
-            if (promptW != cachedPromptW)
-            {
-                cachedPromptHeightA = juce::jlimit(14, 80, wrappedTextHeight(promptA, promptW, 12.0f));
-                cachedPromptHeightB = juce::jlimit(14, 80, wrappedTextHeight(promptB, promptW, 12.0f));
-                cachedPromptW = promptW;
-            }
-            const int promptBodyA = cachedPromptHeightA;
-            const int promptBodyB = cachedPromptHeightB;
-
-            const int axesBlockH  = hasAxes ? (headerH + 3 * 16) : 0;
-            const int promptABlock = headerH + promptBodyA + 4;
-            const int promptBBlock = headerH + promptBodyB + 4;
-
-            // Tag chip area gets whatever space is left. Reserve a sane
-            // minimum so chips have somewhere to go even if a preset has
-            // long prompts.
-            const int needed = promptABlock + 6 + promptBBlock + (hasAxes ? 6 + axesBlockH : 0) + 8 + headerH;
-            const int tagsBlockH = juce::jmax(60, area.getHeight() - needed);
-
-            paintSection(g, area.removeFromTop(promptABlock), "IMPULSE A", promptA);
-            area.removeFromTop(6);
-            paintSection(g, area.removeFromTop(promptBBlock), "IMPULSE B", promptB);
+            paintSection(g, L.promptA, L.promptATitle, L.promptABody);
+            if (L.showPromptB)
+                paintSection(g, L.promptB, "IMPULSE B", promptB);
             if (hasAxes)
-            {
-                area.removeFromTop(6);
-                paintAxes(g, area.removeFromTop(axesBlockH));
-            }
-            area.removeFromTop(8);
+                paintAxes(g, L.axes);
 
-            // TAGS section — header + active chips + optional "Known tags"
-            // cloud (canonical + user-seen). The cloud is omitted when no
-            // vocabulary is set, when the available height is too tight,
-            // OR when browse actions are hidden (Save mode): in Save mode
-            // the user is composing a NEW preset in the SaveDrawer below
-            // and any tag-cloud in Detail would silently mutate a
-            // previously-saved file via onTagsCommitted → onTagsChanged →
-            // patchPresetTagsField. SaveDrawer carries its own cloud for
-            // the actual save target.
-            auto tagsRect = area.removeFromTop(juce::jmax(headerH + 4, area.getHeight()));
-            juce::Rectangle<int> cloudRect;
-            if (browseActionsVisible
-                && ! tagVocabulary.empty()
-                && tagsRect.getHeight() > 80)
-            {
-                const int cloudH = juce::jlimit(40, 100, tagsRect.getHeight() / 2);
-                cloudRect = tagsRect.removeFromBottom(cloudH);
-                tagsRect.removeFromBottom(4);
-            }
-            cloudArea = cloudRect;
-            paintTagChips(g, tagsRect);
-            if (! cloudArea.isEmpty())
-                paintTagCloud(g, cloudArea);
-            else
-                cloudChipRects.clear();
-
-            juce::ignoreUnused(tagInputRow, tagsBlockH);
+            paintTagChips(g, L.tags);
+            // The "Known tags" cloud is a child component (see TagCloud) and
+            // paints itself — resized() gave it L.cloud.
         }
 
         void resized() override
         {
             loadBtn.setVisible(browseActionsVisible);
             tagInput.setVisible(browseActionsVisible);
-            if (! browseActionsVisible) return;
 
-            const int actionStripH = 32;
-            const int tagInputW    = juce::jmin(120, getLocalBounds().getWidth() / 3);
-            const int tagInputH    = 24;
-            auto bounds = getLocalBounds().reduced(12);
+            const auto L = computeCardLayout();
+            // Hidden rather than empty-bounded when there is nothing to offer,
+            // no room for it, or no preset selected — paint() draws "No preset
+            // selected" over the whole card in that last case and a live chip
+            // flow on top of it would be a click target for a preset that is
+            // not there.
+            cloud.setVisible(browseActionsVisible && entryValid && ! L.cloud.isEmpty());
+            if (! L.cloud.isEmpty())
+                cloud.setBounds(L.cloud);
+
+            if (! browseActionsVisible) return;
 
             // Action strip at bottom — Load is the only primary action.
             // Delete / Rename live in the right-click context menu so that
             // the destructive action can never be hit by accident from a
             // mis-aimed Load click.
-            auto strip = bounds.removeFromBottom(actionStripH);
-            loadBtn.setBounds(strip);
+            loadBtn.setBounds(L.actionStrip);
 
-            bounds.removeFromBottom(8);
             // The tag chips are painted by paint(); only the input editor
-            // (its own row, full-width) needs Component bounds.
-            auto tagInputRow = bounds.removeFromBottom(tagInputH);
-            tagInput.setBounds(tagInputRow.removeFromRight(tagInputW));
+            // (its own row, right-aligned) needs Component bounds.
+            const int tagInputW = juce::jmin(120, getLocalBounds().getWidth() / 3);
+            auto inputRow = L.tagInputRow;
+            tagInput.setBounds(inputRow.removeFromRight(tagInputW));
         }
 
         /** Toggled by the owner when entering / leaving Save mode. While
@@ -1744,6 +1894,7 @@ private:
             {
                 tags.addIfNotAlreadyThere(tag, true);
                 if (onTagsCommitted) onTagsCommitted(tags);
+                refreshCloud();
                 resized();
             }
             repaint();
@@ -1760,6 +1911,110 @@ private:
         {
             loadBtn.setEnabled(browseActionsVisible && entryValid);
             tagInput.setEnabled(browseActionsVisible && entryValid);
+        }
+
+        /** Push the two things that decide what the cloud may offer: the tags
+         *  already on this preset, and the input field's prefix filter. */
+        void refreshCloud() { cloud.update(tags, tagInput.getText()); }
+
+        /** Every rectangle the card is made of. */
+        struct CardLayout
+        {
+            juce::Rectangle<int> title, subline, device;
+            std::array<juce::Rectangle<int>, 5> meta;
+            juce::Rectangle<int> promptA, promptB, axes, tags, cloud;
+            juce::Rectangle<int> tagInputRow, actionStrip;
+            bool         showPromptB = false;
+            juce::String promptATitle;
+            juce::String promptABody;
+        };
+
+        /** The card's vertical division, computed ONCE for both consumers:
+         *  resized() places the child components into it, paint() draws into
+         *  the same rectangles. It used to live inside paint() alone while
+         *  resized() re-derived the bottom strip on its own — two copies of
+         *  one layout, which is how a component ends up sitting where the
+         *  painter never draws. */
+        CardLayout computeCardLayout()
+        {
+            CardLayout L;
+            auto area = getLocalBounds().reduced(12);
+            L.title   = area.removeFromTop(20);
+            L.subline = area.removeFromTop(16);
+            area.removeFromTop(10);
+            L.device  = area.removeFromTop(16);
+            for (auto& m : L.meta) m = area.removeFromTop(16);
+            area.removeFromTop(8);
+
+            // Reserve bottom: action strip + tag-input row.
+            if (browseActionsVisible)
+            {
+                L.actionStrip = area.removeFromBottom(32);
+                area.removeFromBottom(8);
+                L.tagInputRow = area.removeFromBottom(24);
+                area.removeFromBottom(6);
+            }
+
+            // Impulse-section heights come from the actual wrapped text so
+            // there is no leftover gap between a body and the next header.
+            // Caps prevent extreme prompts from squeezing the tags. Heights
+            // are cached and only recomputed when the available width changes
+            // (TextLayout::createLayout is the most expensive call here and it
+            // dominates click-to-redraw latency).
+            //
+            // WHICH prompt follows the engine that sounds. An LRO preset was
+            // written by its own prompt editor and gets one PROMPT section;
+            // the Impulse pair is the neural panel's and holds whatever was
+            // last typed there, so showing it here captions this sound with
+            // another one's words. A preset saved before the LRO prompt was
+            // persisted has none, and the section says "—" — the file really
+            // does not know what was asked for.
+            const bool lro = (engineMode == "LRO");
+            L.showPromptB  = ! lro;
+            L.promptATitle = lro ? "PROMPT" : "IMPULSE A";
+            L.promptABody  = lro ? lroPrompt : promptA;
+
+            const int promptW = area.getWidth() - 6;
+            const int headerH = 14;
+            if (promptW != cachedPromptW)
+            {
+                cachedPromptHeightA = juce::jlimit(14, 80, wrappedTextHeight(L.promptABody, promptW, 12.0f));
+                cachedPromptHeightB = lro ? 0
+                                          : juce::jlimit(14, 80, wrappedTextHeight(promptB, promptW, 12.0f));
+                cachedPromptW = promptW;
+            }
+
+            L.promptA = area.removeFromTop(headerH + cachedPromptHeightA + 4);
+            if (L.showPromptB)
+            {
+                area.removeFromTop(6);
+                L.promptB = area.removeFromTop(headerH + cachedPromptHeightB + 4);
+            }
+            if (hasAxes)
+            {
+                area.removeFromTop(6);
+                L.axes = area.removeFromTop(headerH + 3 * 16);
+            }
+            area.removeFromTop(8);
+
+            // TAGS section — header + active chips + the "Known tags" cloud.
+            // The cloud is omitted when the vocabulary is empty, when not even
+            // its header plus one chip row fits on top of a row of active
+            // chips, OR when browse actions are hidden (Save mode): there the
+            // card shows the preset that would be REPLACED, and a click in it
+            // would rewrite that file's tags via onTagsCommitted →
+            // onTagsChanged → patchPresetTagsField. The SaveDrawer carries its
+            // own cloud for the actual save target.
+            L.tags = area.removeFromTop(juce::jmax(headerH + 4, area.getHeight()));
+            const int cloudFloor = TagCloud::minimumUsefulHeight();
+            if (browseActionsVisible
+                && cloud.hasVocabulary()
+                && L.tags.getHeight() >= cloudFloor + 26)
+            {
+                L.cloud = L.tags.removeFromBottom(juce::jlimit(cloudFloor, 100, L.tags.getHeight() / 2));
+                L.tags.removeFromBottom(4);
+            }
+            return L;
         }
 
         /** Compact label/value row used by the META block. */
@@ -1902,45 +2157,6 @@ private:
             }
         }
 
-        /** Renders the "Known tags - click to add" suggestion cloud below the
-         *  active set. Mirrors SaveDrawer's pattern: outline-only chips, same
-         *  primitive, filtered by tagInput's prefix when the user is typing.
-         *  Already-selected tags are dropped so the cloud only offers new
-         *  additions (idempotent with the click-to-add path). */
-        void paintTagCloud(juce::Graphics& g, juce::Rectangle<int> r)
-        {
-            cloudChipRects.clear();
-            auto headerRect = r.removeFromTop(14);
-            g.setColour(kDim);
-            g.setFont(juce::FontOptions(kUiLabelFontMin, juce::Font::bold));
-            g.drawText("Known tags - click to add",
-                       headerRect, juce::Justification::centredLeft, false);
-            r.removeFromTop(2);
-
-            const auto filter = tagInput.getText().trim();
-            const int rowH = 22;
-            const int gapX = 4;
-            const int gapY = 4;
-            int cx = r.getX();
-            int cy = r.getY();
-            for (size_t vi = 0; vi < tagVocabulary.size(); ++vi)
-            {
-                const auto& t = tagVocabulary[vi];
-                if (t.isEmpty() || tags.contains(t, true)) continue;
-                if (filter.isNotEmpty() && ! t.startsWithIgnoreCase(filter)) continue;
-                const int chipW = juce::Font(juce::FontOptions(11.0f)).getStringWidth(t) + 14;
-                if (cx + chipW > r.getRight())
-                {
-                    cx = r.getX();
-                    cy += rowH + gapY;
-                    if (cy + rowH > r.getBottom()) break;
-                }
-                const auto chip = paintTagChip(g, cx, cy, t, ChipKind::Suggestion);
-                cloudChipRects.push_back({ chip, (int) vi });
-                cx += chipW + gapX;
-            }
-        }
-
         void mouseDown(const juce::MouseEvent& e) override
         {
             pressedChipIndex = -1;
@@ -1967,6 +2183,7 @@ private:
                     {
                         tags.remove(cr.index);
                         if (onTagsCommitted) onTagsCommitted(tags);
+                        refreshCloud();   // the removed tag is offerable again
                         resized();
                         repaint();
                     }
@@ -1974,34 +2191,8 @@ private:
                     return;
                 }
             }
-
-            // Vocabulary-cloud click: add the suggested tag (case-insensitive,
-            // idempotent). After adding, clear the autocomplete filter so the
-            // cloud immediately shows the next pickable tag rather than
-            // leaving the user with an empty cloud + stale prefix.
-            //
-            // Gated on browseActionsVisible: in Save mode, Detail's cloud is
-            // not painted (see paint()) so cloudChipRects is empty — but a
-            // belt-and-braces guard here keeps any future code path from
-            // accidentally mutating the wrong preset's on-disk tags.
-            if (! browseActionsVisible) return;
-            for (const auto& cc : cloudChipRects)
-            {
-                if (! cc.bounds.contains(p)) continue;
-                // Out-of-range = stale rect from a previous paint frame;
-                // skip rather than abort so a later valid rect still wins.
-                if (cc.index < 0 || cc.index >= (int) tagVocabulary.size()) continue;
-                const auto& tag = tagVocabulary[(size_t) cc.index];
-                if (tag.isNotEmpty())
-                {
-                    tags.addIfNotAlreadyThere(tag, true);
-                    tagInput.setText({}, false);
-                    if (onTagsCommitted) onTagsCommitted(tags);
-                    resized();
-                    repaint();
-                }
-                return;
-            }
+            // Clicks on the "Known tags" cloud never reach here — it is its
+            // own child component and reports picks via cloud.onTagPicked.
         }
 
         void mouseDrag(const juce::MouseEvent& e) override
@@ -2020,7 +2211,7 @@ private:
 
         bool entryValid = false;
         bool hasAxes = false;
-        juce::String name, bank, promptA, promptB;
+        juce::String name, bank, promptA, promptB, lroPrompt;
         juce::String model, sourceLabel, engineMode, seqMode;
         juce::String device;        // device the audio was rendered on; empty = legacy
         juce::String runtimeDevice; // this machine's backend device, for mismatch flag
@@ -2041,9 +2232,6 @@ private:
 
         struct ChipRect { juce::Rectangle<int> bounds; int index; };
         std::vector<ChipRect> chipRects;        // active tags (× to remove)
-        std::vector<ChipRect> cloudChipRects;   // vocabulary suggestions (click to add)
-        juce::Rectangle<int>  cloudArea;
-        std::vector<juce::String> tagVocabulary;
 
         int  pressedChipIndex   = -1;
         bool dragSourceEnabled  = false;
@@ -2056,6 +2244,7 @@ private:
 
         juce::TextButton loadBtn { "Load" };
         juce::TextEditor tagInput;
+        TagCloud         cloud;
     };
     Detail detail;
 
@@ -2132,14 +2321,25 @@ private:
                 tags.addIfNotAlreadyThere(t, true);
                 tagsTouched = true;
                 tagInput.setText({}, false);
+                refreshCloud();
                 resized();
                 repaint();
             };
-            // Autocomplete: typing filters the suggestion cloud by prefix —
-            // see paint() for the actual prefix-match. Cheap full repaint
-            // (the cloud is small) is the simplest correctness story.
-            tagInput.onTextChange = [this] { repaint(); };
+            // Autocomplete: typing filters the suggestion cloud by prefix.
+            tagInput.onTextChange = [this] { refreshCloud(); repaint(); };
             addAndMakeVisible(tagInput);
+
+            cloud.onTagPicked = [this] (const juce::String& t)
+            {
+                tags.addIfNotAlreadyThere(t, true);
+                tagsTouched = true;
+                // Clear the filter so the next pick sees the full remainder.
+                tagInput.setText({}, false);
+                refreshCloud();
+                resized();
+                repaint();
+            };
+            addChildComponent(cloud);   // visibility decided in resized()
 
             configureBtn(saveBtn, kAccent);
             saveBtn.onClick = [this] { commit(); };
@@ -2179,7 +2379,7 @@ private:
                        const juce::String& promptBIn,
                        bool canIncludeInferenceCacheIn)
         {
-            tagVocabulary = vocabulary;
+            cloud.setVocabulary(vocabulary);
             promptA       = promptAIn;
             promptB       = promptBIn;
             includeCacheAvailable = canIncludeInferenceCacheIn;
@@ -2192,6 +2392,7 @@ private:
             // this function).
             tags.clear();
             tagsTouched   = false;
+            refreshCloud();
             existingPathKeys = std::move(pathKeys);
 
             // The auto-title heuristic only fires when the caller has no
@@ -2292,6 +2493,7 @@ private:
             newTags.removeDuplicates(true);
             if (newTags == tags) return;
             tags = std::move(newTags);
+            refreshCloud();
             resized();
             repaint();
         }
@@ -2331,6 +2533,7 @@ private:
             {
                 tags.addIfNotAlreadyThere(tag, true);
                 tagsTouched = true;
+                refreshCloud();
                 resized();
             }
             repaint();
@@ -2372,44 +2575,9 @@ private:
                 x += chipW + gapX;
             }
 
-            // ── Vocabulary cloud (suggestions) ─────────────────────────
-            // Outline-only chips below the active set, same primitive as
-            // the active set so the two read as one chip family. Already-
-            // selected tags are filtered out so the cloud only offers new
-            // additions; clicking adds via the same idempotent path used
-            // by drag-and-drop.
-            cloudChipRects.clear();
-            if (! cloudArea.isEmpty() && ! tagVocabulary.empty())
-            {
-                auto local = cloudArea;
-                auto headerRect = local.removeFromTop(14);
-                g.setColour(kDim);
-                g.setFont(juce::FontOptions(kUiLabelFontMin, juce::Font::bold));
-                g.drawText("Known tags - click to add",
-                           headerRect, juce::Justification::centredLeft, false);
-                local.removeFromTop(2);
-
-                // Prefix filter — see tagInput.onTextChange.
-                const auto filter = tagInput.getText().trim();
-                int cx = local.getX();
-                int cy = local.getY();
-                for (size_t vi = 0; vi < tagVocabulary.size(); ++vi)
-                {
-                    const auto& t = tagVocabulary[vi];
-                    if (t.isEmpty() || tags.contains(t, true)) continue;
-                    if (filter.isNotEmpty() && ! t.startsWithIgnoreCase(filter)) continue;
-                    const int chipW = juce::Font(juce::FontOptions(11.0f)).getStringWidth(t) + 14;
-                    if (cx + chipW > local.getRight())
-                    {
-                        cx = local.getX();
-                        cy += rowH + gapY;
-                        if (cy + rowH > local.getBottom()) break;
-                    }
-                    const auto chip = paintTagChip(g, cx, cy, t, ChipKind::Suggestion);
-                    cloudChipRects.push_back({ chip, (int) vi });
-                    cx += chipW + gapX;
-                }
-            }
+            // The "Known tags" cloud below the active set is a child
+            // component (see TagCloud) and paints itself into the bounds
+            // resized() gave it.
         }
 
         void resized() override
@@ -2453,14 +2621,17 @@ private:
             tagInput.setBounds(tagsRow.removeFromRight(120));
             area.removeFromTop(4);
 
-            // Bottom slice = vocabulary cloud (header + chip flow). Empty
-            // when the user has no saved tags yet, in which case the active
-            // chip area absorbs the space.
-            const int cloudH = tagVocabulary.empty()
-                                   ? 0
-                                   : juce::jlimit(40, 100, area.getHeight() / 2 + 10);
-            cloudArea = (cloudH > 0) ? area.removeFromBottom(cloudH)
-                                     : juce::Rectangle<int>{};
+            // Bottom slice = the "Known tags" cloud (header + scrolling chip
+            // flow). Empty when there is no vocabulary at all, in which case
+            // the active chip area absorbs the space. The slice no longer
+            // decides which tags are reachable — the cloud scrolls.
+            const int cloudH = cloud.hasVocabulary()
+                                   ? juce::jlimit(TagCloud::minimumUsefulHeight(), 100,
+                                                  area.getHeight() / 2 + 10)
+                                   : 0;
+            cloud.setVisible(cloudH > 0);
+            if (cloudH > 0)
+                cloud.setBounds(area.removeFromBottom(cloudH));
             chipArea = area;
         }
 
@@ -2478,37 +2649,22 @@ private:
                     {
                         tags.remove(cr.index);
                         tagsTouched = true;
+                        refreshCloud();   // the removed tag is offerable again
                         resized();
                         repaint();
                     }
                     return;
                 }
             }
-
-            // Vocabulary-cloud click: add the suggested tag (idempotent
-            // case-insensitive — same path as drag-and-drop drop). The
-            // input is cleared so the autocomplete filter resets and the
-            // user sees the remaining suggestions on the next pick.
-            for (const auto& cc : cloudChipRects)
-            {
-                if (! cc.bounds.contains(p)) continue;
-                // Out-of-range = stale rect from a previous paint frame;
-                // skip rather than abort so a later valid rect still wins.
-                if (cc.index < 0 || cc.index >= (int) tagVocabulary.size()) continue;
-                const auto& tag = tagVocabulary[(size_t) cc.index];
-                if (tag.isNotEmpty())
-                {
-                    tags.addIfNotAlreadyThere(tag, true);
-                    tagsTouched = true;
-                    tagInput.setText({}, false);
-                    resized();
-                    repaint();
-                }
-                return;
-            }
+            // Clicks on the "Known tags" cloud never reach here — it is its
+            // own child component and reports picks via cloud.onTagPicked.
         }
 
     private:
+        /** Push the two things that decide what the cloud may offer: the tags
+         *  already staged for this save, and the input's prefix filter. */
+        void refreshCloud() { cloud.update(tags, tagInput.getText()); }
+
         static const juce::String& kRootBankLabel()
         {
             return PresetManagerPanel::kRootUserBank();
@@ -2646,16 +2802,14 @@ private:
         // retargeting (name edits, row clicks) can't clobber hand edits.
         bool                      tagsTouched = false;
         std::set<juce::String>    existingPathKeys;
-        std::vector<juce::String> tagVocabulary;
         juce::String              promptA, promptB;
         bool                      includeCacheAvailable = false;
 
         struct ChipRect { juce::Rectangle<int> bounds; int index; };
         std::vector<ChipRect> chipRects;        // active tags (× to remove)
-        std::vector<ChipRect> cloudChipRects;   // vocabulary suggestions (click to add)
         juce::Rectangle<int>  chipArea;
-        juce::Rectangle<int>  cloudArea;
         bool                  dropHover = false;
+        TagCloud              cloud;
     };
     SaveDrawer saveDrawer;
 
@@ -2719,7 +2873,7 @@ private:
         bounds.removeFromTop(2);
         g.setColour(kDim);
         g.setFont(juce::FontOptions(11.5f));
-        const auto snip = snippet(e.promptA.isNotEmpty() ? e.promptA : e.promptB, 96);
+        const auto snip = snippet(e.displayPrompt(), 96);
         g.drawText(snip.isEmpty() ? juce::String::fromUTF8("\xe2\x80\x94") : snip,
                    bounds.removeFromTop(14), juce::Justification::centredLeft, true);
     }
