@@ -1,0 +1,35 @@
+apre    tone aosc, kfreq * koct1 * 5.0        ; the shaper never sees the whole
+                                              ;   oscillator. Fed a full saw a
+                                              ;   memoryless shaper can only REDRAW it:
+                                              ;   for a ramp input the output waveform
+                                              ;   IS the transfer curve, and a saw
+                                              ;   already carries every harmonic at
+                                              ;   1/n. Measured over the whole bounded
+                                              ;   region of distort1: on the raw saw
+                                              ;   every setting takes every partial
+                                              ;   DOWN at equal loudness. A real
+                                              ;   overdrive's clipper sits behind a
+                                              ;   band limit, and on a synth behind the
+                                              ;   filter -- so this one does too.
+adrv    distort1 apre, 16, 1, 0, -0.4, 2      ; imode 2: the shapes are relative to the
+                                              ;   pregain, and at shape1 = shape2 = 0
+                                              ;   distort1 IS tanh(pregain * x). The
+                                              ;   two shapes are its departure from
+                                              ;   tanh, one per half-wave. tanh is an
+                                              ;   ODD function, so its even part is
+                                              ;   identically zero and it can never put
+                                              ;   an even harmonic into a waveform that
+                                              ;   has none: on the triangle it lifts the
+                                              ;   odd partials and leaves even/odd at
+                                              ;   0.000. kshape2 -0.4 folds the negative
+                                              ;   half differently from the positive
+                                              ;   one, and even/odd goes to 0.255.
+adrv    balance adrv, aosc, 1                 ; ONE bright version, matched to the clean
+                                              ;   one ONCE, then crossfaded -- the
+                                              ;   pattern the host asks for. Balancing a
+                                              ;   MOVING drive instead let the follower
+                                              ;   run inside the waveform period: at
+                                              ;   55 Hz its 10 Hz ripple lands on 110 Hz
+                                              ;   and manufactured 5.5 dB of second
+                                              ;   harmonic that the curve never made.
+adrv    = aosc * (1 - kdrive) + adrv * kdrive

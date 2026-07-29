@@ -1,0 +1,143 @@
+<!doctype html><meta charset=utf-8><title>analog_osc &middot; width: narrow gegen wide</title>
+<style>
+body{font:15px system-ui;margin:0 24px 90px;max-width:820px;color:#222}
+h1{font-size:20px;margin-bottom:4px}
+#now{position:sticky;top:0;background:#fff;padding:12px 0;margin-bottom:6px;
+border-bottom:2px solid #ccc;z-index:20;display:flex;align-items:center;gap:16px}
+#player{width:340px;height:34px} #nowlabel{font-weight:bold;color:#333}
+.note{background:#f6f8fa;border:1px solid #dfe2e5;border-radius:6px;padding:10px 13px;
+font-size:13px;margin:10px 0;line-height:1.6}
+.trial{display:flex;align-items:center;gap:10px;padding:9px 0;
+border-top:0.5px solid #e3e3e3}
+.n{width:26px;color:#888;font-size:13px}
+.clip{cursor:pointer;border:1px solid #bbb;background:#f4f4f4;border-radius:6px;
+padding:9px 16px;font-size:15px;font-weight:bold}
+.clip:hover{background:#e7e7e7} .clip.playing{background:#ffca28;border-color:#f57f17}
+.pick{cursor:pointer;border:1px solid #bbb;background:#fff;border-radius:6px;
+padding:8px 14px;font-size:14px;margin-left:4px}
+.pick.on{background:#1b5e20;color:#fff;border-color:#1b5e20}
+.sp{flex:1}
+button.go{font:14px system-ui;padding:9px 18px;border:1px solid #888;border-radius:6px;
+background:#eee;cursor:pointer;margin-top:18px}
+#out{margin-top:18px;font-size:14px;line-height:1.65}
+.ok{color:#1b5e20;font-weight:bold} .no{color:#b71c1c;font-weight:bold}
+</style>
+<div id='now'><audio id='player' controls preload='auto'></audio>
+<span id='nowlabel'>&mdash; nichts &mdash;</span></div>
+<h1>analog_osc &middot; width: narrow gegen wide</h1>
+<div class='note'><b>analog_osc &middot; width</b> bei 220 Hz. Zw&ouml;lf Durchg&auml;nge. In jedem sind A und B die beiden Kl&auml;nge und X ist einer von beiden &mdash; sag welcher. A und B sind in allen Durchg&auml;ngen dieselben; nur X wechselt.<br>Ein Klick spielt, ein anderer l&ouml;st den laufenden ab, Klick auf den gelben Knopf stoppt. Welche Wahl richtig war, steht erst nach dem zw&ouml;lften Durchgang da.</div>
+<div id='trials'><div class='trial'><span class='n'>1</span>
+<button class='clip' data-t='0' data-src='a.wav'>A</button>
+<button class='clip' data-t='0' data-src='b.wav'>B</button>
+<button class='clip' data-t='0' data-src='a.wav'>X</button>
+<span class='sp'></span>X ist:
+<button class='pick' data-t='0' data-v='A'>A</button>
+<button class='pick' data-t='0' data-v='B'>B</button></div><div class='trial'><span class='n'>2</span>
+<button class='clip' data-t='1' data-src='a.wav'>A</button>
+<button class='clip' data-t='1' data-src='b.wav'>B</button>
+<button class='clip' data-t='1' data-src='b.wav'>X</button>
+<span class='sp'></span>X ist:
+<button class='pick' data-t='1' data-v='A'>A</button>
+<button class='pick' data-t='1' data-v='B'>B</button></div><div class='trial'><span class='n'>3</span>
+<button class='clip' data-t='2' data-src='a.wav'>A</button>
+<button class='clip' data-t='2' data-src='b.wav'>B</button>
+<button class='clip' data-t='2' data-src='b.wav'>X</button>
+<span class='sp'></span>X ist:
+<button class='pick' data-t='2' data-v='A'>A</button>
+<button class='pick' data-t='2' data-v='B'>B</button></div><div class='trial'><span class='n'>4</span>
+<button class='clip' data-t='3' data-src='a.wav'>A</button>
+<button class='clip' data-t='3' data-src='b.wav'>B</button>
+<button class='clip' data-t='3' data-src='a.wav'>X</button>
+<span class='sp'></span>X ist:
+<button class='pick' data-t='3' data-v='A'>A</button>
+<button class='pick' data-t='3' data-v='B'>B</button></div><div class='trial'><span class='n'>5</span>
+<button class='clip' data-t='4' data-src='a.wav'>A</button>
+<button class='clip' data-t='4' data-src='b.wav'>B</button>
+<button class='clip' data-t='4' data-src='a.wav'>X</button>
+<span class='sp'></span>X ist:
+<button class='pick' data-t='4' data-v='A'>A</button>
+<button class='pick' data-t='4' data-v='B'>B</button></div><div class='trial'><span class='n'>6</span>
+<button class='clip' data-t='5' data-src='a.wav'>A</button>
+<button class='clip' data-t='5' data-src='b.wav'>B</button>
+<button class='clip' data-t='5' data-src='b.wav'>X</button>
+<span class='sp'></span>X ist:
+<button class='pick' data-t='5' data-v='A'>A</button>
+<button class='pick' data-t='5' data-v='B'>B</button></div><div class='trial'><span class='n'>7</span>
+<button class='clip' data-t='6' data-src='a.wav'>A</button>
+<button class='clip' data-t='6' data-src='b.wav'>B</button>
+<button class='clip' data-t='6' data-src='b.wav'>X</button>
+<span class='sp'></span>X ist:
+<button class='pick' data-t='6' data-v='A'>A</button>
+<button class='pick' data-t='6' data-v='B'>B</button></div><div class='trial'><span class='n'>8</span>
+<button class='clip' data-t='7' data-src='a.wav'>A</button>
+<button class='clip' data-t='7' data-src='b.wav'>B</button>
+<button class='clip' data-t='7' data-src='b.wav'>X</button>
+<span class='sp'></span>X ist:
+<button class='pick' data-t='7' data-v='A'>A</button>
+<button class='pick' data-t='7' data-v='B'>B</button></div><div class='trial'><span class='n'>9</span>
+<button class='clip' data-t='8' data-src='a.wav'>A</button>
+<button class='clip' data-t='8' data-src='b.wav'>B</button>
+<button class='clip' data-t='8' data-src='a.wav'>X</button>
+<span class='sp'></span>X ist:
+<button class='pick' data-t='8' data-v='A'>A</button>
+<button class='pick' data-t='8' data-v='B'>B</button></div><div class='trial'><span class='n'>10</span>
+<button class='clip' data-t='9' data-src='a.wav'>A</button>
+<button class='clip' data-t='9' data-src='b.wav'>B</button>
+<button class='clip' data-t='9' data-src='b.wav'>X</button>
+<span class='sp'></span>X ist:
+<button class='pick' data-t='9' data-v='A'>A</button>
+<button class='pick' data-t='9' data-v='B'>B</button></div><div class='trial'><span class='n'>11</span>
+<button class='clip' data-t='10' data-src='a.wav'>A</button>
+<button class='clip' data-t='10' data-src='b.wav'>B</button>
+<button class='clip' data-t='10' data-src='a.wav'>X</button>
+<span class='sp'></span>X ist:
+<button class='pick' data-t='10' data-v='A'>A</button>
+<button class='pick' data-t='10' data-v='B'>B</button></div><div class='trial'><span class='n'>12</span>
+<button class='clip' data-t='11' data-src='a.wav'>A</button>
+<button class='clip' data-t='11' data-src='b.wav'>B</button>
+<button class='clip' data-t='11' data-src='a.wav'>X</button>
+<span class='sp'></span>X ist:
+<button class='pick' data-t='11' data-v='A'>A</button>
+<button class='pick' data-t='11' data-v='B'>B</button></div></div>
+<button class='go' id='eval'>Auswerten</button>
+<div id='out'></div>
+<script>
+var KEY=["A", "B", "B", "A", "A", "B", "B", "B", "A", "B", "A", "A"], REVEAL="<h2 style='border:0;font-size:16px'>Was gepr&uuml;ft wurde</h2><p>Die Notiz behauptet: \u201e0.12 and 0.88 sound alike because a pulse and its complement have the same magnitude spectrum.&ldquo; Genau das stand hier auf dem Pr&uuml;fstand.</p><p>A ist <b>narrow</b> (width 0.12), B ist <b>wide</b> (width 0.88). Fest dabei: wave 1</p><p>Gemessen: Spitzenwert 1.032 gegen 1.049, Pegel -9.26 gegen -9.26 dB, spektraler Schwerpunkt 5473 gegen 5586 Hz.</p>", PICK={};
+var P=document.getElementById('player'),L=document.getElementById('nowlabel'),A=null;
+function clr(){if(A){A.classList.remove('playing');A=null;}L.textContent='\u2014 nichts \u2014';}
+document.addEventListener('click',function(ev){
+  var b=ev.target.closest('.clip');
+  if(b){
+    if(b===A){P.pause();P.currentTime=0;clr();return;}
+    if(A)A.classList.remove('playing');
+    A=b;b.classList.add('playing');
+    L.textContent='Durchgang '+(+b.dataset.t+1)+', '+b.textContent.trim();
+    P.src=b.dataset.src;P.play();return;
+  }
+  var p=ev.target.closest('.pick');
+  if(p){
+    PICK[p.dataset.t]=p.dataset.v;
+    document.querySelectorAll('.pick[data-t="'+p.dataset.t+'"]')
+      .forEach(function(q){q.classList.toggle('on',q===p);});
+  }
+});
+P.addEventListener('ended',clr);
+document.getElementById('eval').addEventListener('click',function(){
+  var n=0,right=0,miss=[];
+  for(var i=0;i<KEY.length;i++){
+    var v=PICK[i]; if(!v){miss.push(i+1);continue;}
+    n++; if(v===KEY[i])right++;
+  }
+  if(miss.length){document.getElementById('out').innerHTML=
+    '<p>Noch offen: Durchgang '+miss.join(', ')+'.</p>';return;}
+  var html='<p>'+right+' von '+n+' richtig.</p>';
+  if(right>=10)html+='<p class=ok>Der Unterschied ist h&ouml;rbar. Bei zw&ouml;lf '
+    +'Durchg&auml;ngen tritt das durch Raten in unter 2 % der F&auml;lle ein.</p>';
+  else if(right<=8)html+='<p>Das ist nicht von Raten zu unterscheiden &mdash; die beiden '
+    +'sind f&uuml;r dieses Ohr, an diesem Tag, dasselbe.</p>';
+  else html+='<p>Neun von zw&ouml;lf liegt zwischen den St&uuml;hlen: 7 % unter Raten, '
+    +'also kein Beleg in die eine noch in die andere Richtung.</p>';
+  document.getElementById('out').innerHTML=html+REVEAL;
+  this.disabled=true;
+});
+</script>

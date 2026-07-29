@@ -1,0 +1,93 @@
+<!doctype html><meta charset=utf-8><title>plucked_wire &middot; refl &mdash; treffen die W&ouml;rter?</title>
+<style>
+body{font:15px system-ui;margin:0 24px 90px;max-width:860px;color:#222}
+h1{font-size:20px;margin-bottom:4px} h2{font-size:16px;margin-top:36px;
+border-top:2px solid #ddd;padding-top:12px}
+#now{position:sticky;top:0;background:#fff;padding:12px 0;margin-bottom:6px;
+border-bottom:2px solid #ccc;z-index:20;display:flex;align-items:center;gap:16px}
+#player{width:380px;height:34px} #nowlabel{font-weight:bold;color:#333}
+.note{background:#f6f8fa;border:1px solid #dfe2e5;border-radius:6px;padding:10px 13px;
+font-size:13px;margin:10px 0;line-height:1.6}
+.row{display:flex;align-items:center;gap:14px;margin:12px 0}
+.clip{cursor:pointer;border:1px solid #bbb;background:#f4f4f4;border-radius:6px;
+padding:14px 26px;font-size:18px;font-weight:bold;min-width:34px}
+.clip:hover{background:#e7e7e7}
+.clip.playing{background:#ffca28;border-color:#f57f17}
+select{font:15px system-ui;padding:7px 9px;border:1px solid #bbb;border-radius:6px;
+min-width:190px}
+textarea{font:15px system-ui;padding:9px;width:100%;box-sizing:border-box;height:80px;
+border:1px solid #bbb;border-radius:6px}
+button.go{font:14px system-ui;padding:9px 18px;border:1px solid #888;border-radius:6px;
+background:#eee;cursor:pointer;margin-top:16px}
+#out{margin-top:18px;font-size:14px;line-height:1.65}
+.ok{color:#1b5e20;font-weight:bold} .no{color:#b71c1c;font-weight:bold}
+table{border-collapse:collapse;margin-top:10px;font-size:13px}
+th,td{border:1px solid #ccc;padding:5px 9px;text-align:right}
+th{background:#fafafa;font-weight:500} td:first-child,th:first-child{text-align:left}
+code{background:#f3f3f3;padding:1px 4px;border-radius:3px}
+</style>
+<div id='now'><audio id='player' controls preload='auto'></audio>
+<span id='nowlabel'>&mdash; nichts &mdash;</span></div>
+<h1>plucked_wire &middot; refl &mdash; treffen die W&ouml;rter?</h1>
+<div class='note'><b>plucked_wire &middot; refl</b> bei 220 Hz. 3 Kl&auml;nge, das sind die 3 Anker, die der Eintrag f&uuml;r diesen Regler deklariert &mdash; nicht ein gleichm&auml;&szlig;iger Durchlauf, denn das Modell liest Anker.<br>Auf dem Pr&uuml;fstand stehen die W&ouml;rter, nicht der Regler: erreicht jedes Wort den Klang, den es benennt? Der Anschlag ist bei allen gleich laut (Spitzenwert 0.644), die Lautst&auml;rke kann die Zuordnung also nicht verraten.</div>
+<h2>Durchgang 1</h2>
+<div class='note'>Ordne jedem Klang das Wort zu, das der Eintrag daf&uuml;r vorsieht.
+Ein Klick spielt, ein anderer Klang l&ouml;st den laufenden ab, Klick auf den gelben Knopf
+stoppt. Jedes Wort geh&ouml;rt zu genau einem Klang.</div>
+<div class='row'><button class='clip' data-src='C.wav'>C</button><select id='s0C'><option value=''>&mdash; Wort w&auml;hlen &mdash;</option><option>dry</option><option>plucked</option><option>ringing</option></select></div><div class='row'><button class='clip' data-src='B.wav'>B</button><select id='s0B'><option value=''>&mdash; Wort w&auml;hlen &mdash;</option><option>dry</option><option>plucked</option><option>ringing</option></select></div><div class='row'><button class='clip' data-src='A.wav'>A</button><select id='s0A'><option value=''>&mdash; Wort w&auml;hlen &mdash;</option><option>dry</option><option>plucked</option><option>ringing</option></select></div>
+<h2>Durchgang 2</h2>
+<div class='note'>Ordne jedem Klang das Wort zu, das der Eintrag daf&uuml;r vorsieht.
+Ein Klick spielt, ein anderer Klang l&ouml;st den laufenden ab, Klick auf den gelben Knopf
+stoppt. Jedes Wort geh&ouml;rt zu genau einem Klang.</div>
+<div class='row'><button class='clip' data-src='B.wav'>B</button><select id='s1B'><option value=''>&mdash; Wort w&auml;hlen &mdash;</option><option>dry</option><option>plucked</option><option>ringing</option></select></div><div class='row'><button class='clip' data-src='A.wav'>A</button><select id='s1A'><option value=''>&mdash; Wort w&auml;hlen &mdash;</option><option>dry</option><option>plucked</option><option>ringing</option></select></div><div class='row'><button class='clip' data-src='C.wav'>C</button><select id='s1C'><option value=''>&mdash; Wort w&auml;hlen &mdash;</option><option>dry</option><option>plucked</option><option>ringing</option></select></div>
+
+<h2>Fehlt ein Wort?</h2>
+<div class='note'>Was &auml;ndert sich, das keines dieser W&ouml;rter abdeckt? Was hier
+steht, wird Text im Eintrag &mdash; also in eigenen Worten. Ein Eindruck, f&uuml;r den der
+Eintrag keinen Namen hat, ist einer, den das schreibende Modell nie anfordern kann.</div>
+<textarea id='missing' autocomplete='off'></textarea>
+<button class='go' id='eval'>Auswerten</button>
+<div id='out'></div>
+<div class='note' style='margin-top:28px'><b>Was dieser Aufbau nicht kann.</b> Ein
+H&ouml;rer liefert H&ouml;rbarkeit, Richtung und die eigene Konsistenz. Eine Aussage
+&uuml;ber H&ouml;rer im Allgemeinen liefert er nicht, und sie wird auch nicht behauptet.</div>
+<script>
+var KEY=[{"C": "ringing", "A": "plucked", "B": "dry"}, {"C": "ringing", "A": "plucked", "B": "dry"}], REVEAL="<h2 style='border:0'>Was der Eintrag und der Quelltext sagen</h2><p><b>Quelltext:</b> <code>Opcodes/repluck.c</code> (ffitch 1996 / Lazzarini 1998): <code>krefl</code> ist der Pol eines Einpol-Tiefpasses in der Schleife, <code>state = state&middot;refl + y&middot;(1&minus;refl)</code> &mdash; kein D&auml;mpfungsfaktor pro Periode. Ein Tiefpass in der R&uuml;ckkopplung &auml;ndert notwendig auch die Farbe; L&auml;nge und Farbe h&auml;ngen an demselben Regler, und der Eintrag nennt nur die L&auml;nge. Modellklasse: Jaffe &amp; Smith, CMJ 7(2), 1983.</p><p><b>Die Anker, wie sie heute im Eintrag stehen</b>, mit dem, was daran gemessen ist &mdash; Abklingzeit bis 20 dB unter dem Anschlag und der spektrale Schwerpunkt am Anfang und im weiteren Verlauf der Note:</p><table><tr><th>Klang</th><th>Wort</th><th>refl</th><th>Abklingzeit</th><th>Schwerpunkt Anfang</th><th>Schwerpunkt sp&auml;t</th></tr><tr><td>C</td><td>ringing</td><td>0.7</td><td>2.05 s</td><td>266 Hz</td><td>226 Hz</td></tr><tr><td>A</td><td>plucked</td><td>0.78</td><td>1.10 s</td><td>249 Hz</td><td>219 Hz</td></tr><tr><td>B</td><td>dry</td><td>0.85</td><td>0.53 s</td><td>231 Hz</td><td>215 Hz</td></tr></table><p><b>ringing</b> &mdash; left to ring: below 300 Hz it never stops inside the note</p><p><b>plucked</b> &mdash; an ordinary pluck, ringing but clearly dying</p><p><b>dry</b> &mdash; short and dry, and already a few cents flat</p><p>Welche dieser Zahlen den Eindruck tr&auml;gt, sagt keine von ihnen. Deshalb entscheidet die Zuordnung oben und nicht die Tabelle.</p>";
+var P=document.getElementById('player'),L=document.getElementById('nowlabel'),A=null;
+function clr(){if(A){A.classList.remove('playing');A=null;}L.textContent='\u2014 nichts \u2014';}
+document.addEventListener('click',function(e){
+  var b=e.target.closest('.clip'); if(!b) return;
+  if(b===A){P.pause();P.currentTime=0;clr();return;}
+  if(A)A.classList.remove('playing');
+  A=b;b.classList.add('playing');L.textContent='Klang '+b.textContent.trim();
+  P.src=b.getAttribute('data-src');P.play();
+});
+P.addEventListener('ended',clr);
+document.getElementById('eval').addEventListener('click',function(){
+  var html='',bad=0,dup=0;
+  for(var r=0;r<KEY.length;r++){
+    var picked={},seen={},line=[];
+    for(var k in KEY[r]){
+      var v=document.getElementById('s'+r+k).value;
+      picked[k]=v; if(v){ if(seen[v])dup++; seen[v]=1; }
+    }
+    for(var k in KEY[r]){
+      var right=picked[k]===KEY[r][k];
+      if(!right)bad++;
+      line.push(k+' &rarr; '+(picked[k]||'&mdash;')
+        +(right?' <span class=ok>&check;</span>'
+                :' <span class=no>&ne; '+KEY[r][k]+'</span>'));
+    }
+    html+='<p><b>Durchgang '+(r+1)+':</b> '+line.join(' &middot; ')+'</p>';
+  }
+  if(dup)html+='<p class=no>Ein Wort mehrfach vergeben &mdash; jedes Wort geh&ouml;rt zu genau einem Klang.</p>';
+  if(bad===0)html+='<p class=ok>Alle W&ouml;rter treffen ihren Klang, in beiden '
+    +'Durchg&auml;ngen. Die Anker halten &mdash; der Eintrag sagt dem Modell, was es h&ouml;rt.</p>';
+  else html+='<p class=no>'+bad+(bad===1?' Zuordnung weicht':' Zuordnungen weichen')+' ab. Jede davon ist '
+    +'ein Wort, das seinen Klang nicht erreicht; im Eintrag steht danach deins.</p>';
+  var m=document.getElementById('missing').value.trim();
+  if(m)html+='<p><b>Fehlendes Wort:</b> &bdquo;'+m.replace(/</g,'&lt;')+'&ldquo;</p>';
+  document.getElementById('out').innerHTML=html+REVEAL;
+  this.disabled=true;
+});
+</script>
