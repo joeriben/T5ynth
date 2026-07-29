@@ -16,12 +16,17 @@ These are his words, and they outrank everything else in this file.
 |---|---|
 | *„das gehört in den analog_osc"* (on `warm` carrying a whole `vco2` body) | a sound word must not be an instrument |
 | *„‚rich' und ‚sparse' — ergeben so keinen Sinn. Es gibt Filter und drive im Synth"* | filter and drive belong to the player |
-| **„DU WIRST DEM SYNTH NICHT EINEN EINFACHEN FILTER WEGNEHMEN HIER"** | a sound word is NEVER a filter — not a gentle one, not one „honestly labelled" as spending the user's filter. This was offered here as one of three options and struck out. A platform invariant does not go on a menu. |
+| **„DU WIRST DEM SYNTH NICHT EINEN EINFACHEN FILTER WEGNEHMEN HIER"**, precisified the same day: **„ein Wort ist nie ein einfacher statischer Filter, wie er durch den synth/user selbst eingestellt werden könnte"** | the test is not „does this code contain a filter opcode" — it is **„could the player produce this by turning their own knobs?"** If yes, the word must not carry it: that spends the user's filter and hands it back as a preset. So this is not a ban on spectral shaping as such. Offering „a word stays a filter and is labelled honestly" as one of three live options was the error (§5.3) — a platform invariant does not go on a menu. |
 | **„Du verwechselst dynamische sonische Qualitäten mit einem statischen Filter und ‚Rauheit' mit einem langsamen unregelmäßigen LFO auf Lautstärke"** | the qualities these words name are **dynamic and spectral**. A static tilt cannot be one. Roughness is not a level wobble — that is tremolo, and level belongs to the synth. |
 | **„wir REDEN HIER NICHT ÜBER FM"** | this library is 28 instruments — waveguides, modal banks, `vco2`, `streson`, noise beds, additive stacks — of which FM is four entries. No FM parameterisation (modulator tuning / volume / envelope, „sidebands") may be imposed on it. |
 | on the Hayes & Saitis PDF he attached: **„für danach"** | **PARKED.** It was read anyway (§5). Treat it as unread until BJ opens it. |
 | on the four-point plan he was shown: „1. ok. 2. Lizenz ok? 3. unverständlich. 4. klingt plausibel, erst nach Vorlage" | point 1 has since been withdrawn as wrong in kind (§4); the licence question is answered (§3); point 4 needs a Vorlage before anything is changed |
 | on the rendered listening set: **„alles müll. wirklich alles"** | see §5, item 5 — the test reproduced the defect it was meant to expose |
+
+**The operative test, from the third and fourth rulings together:** *could the player have dialled
+this in on the synth?* A first-order tilt at a fixed corner, a fixed drive amount, a level wobble —
+yes, and therefore not a word. The word's job is the part the knobs cannot reach, and that part is
+dynamic and spectral: which partials exist, how strongly, and how that changes over the note.
 
 **And the answer that was already in the tree before any of this reading.** `LCO_CONCEPT.md` §3,
 dictated by BJ: *„What is shared is the vocabulary, not the parameter list. `gritty`, `dirty`,
@@ -47,6 +52,11 @@ synthesiser. The lexicon does not implement this.
 | the synth's filter AND drive | **10** |
 | the synth's DRIVE (a `tanh` waveshaper) — `dirty`, `edgy`, `raspy` | **3** |
 | changes which partials are there, how strong, or how that moves | **0** |
+
+Read this against the operative test in §1, not as „a filter opcode appears". The 35 filter rows
+are `tone`/`atone` at a fixed corner on the finished signal — a first-order tilt at one cutoff,
+which is exactly what the player's own knob does; the 13 drive rows are `tanh` at a fixed gain.
+Every one of them is reachable from the front panel, and none of them is reachable any other way.
 
 **Whether a word moves at all:**
 
@@ -128,13 +138,13 @@ sound was changed at any point.**
 
 ## 4. What is open, and what must NOT be done
 
-**Open, and BJ's to answer:** what a sound word is allowed to *be*, given that filter and drive
-belong to the synth and that the quality named is dynamic and spectral. `LCO_CONCEPT.md` §3
-already answers it in principle — a shared vocabulary, realised through each instrument's own
-parameters — and the lexicon does not implement it. Two shapes are consistent with §3 and are
-not exclusive: a word moves an existing instrument's own parameter and carries no code of its
-own; or a word carries generation code that no synth control can produce. **Nothing should be
-built before he answers.**
+**Open, and BJ's to answer:** what a sound word is allowed to *be*. The boundary is settled — it
+may not be anything the player could dial in — and `LCO_CONCEPT.md` §3 answers it in principle:
+a shared vocabulary, realised through each instrument's own parameters. What is unsettled is the
+form inside that boundary. Two shapes fit and are not exclusive: a word moves an existing
+instrument's own parameter over the note and carries no code of its own; or a word carries
+generation code — which partials exist and how they change — that no front-panel control can
+produce. The lexicon implements neither. **Nothing should be built before he answers.**
 
 **Do not:**
 
