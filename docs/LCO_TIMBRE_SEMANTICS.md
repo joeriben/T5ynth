@@ -548,6 +548,106 @@ comes from it. The attempt budget is BJ's to fix and is not set here.
 
 ---
 
-## 7. Open
+## 7. Every research contribution this project leans on
+
+Recorded on BJ's instruction, 2026-07-30, so that no rule, measurement or planned entry rests on a
+source a reader cannot find. Two tiers, and the difference between them is load-bearing: **A** was
+read here in full; **B** was not, and its citation is as given in A. A number taken from tier B is a
+number taken on A's authority.
+
+This file covers the sound words and what follows from them. The instrument **bodies** have their own
+record in `docs/LCO_CODE_PROVENANCE.md` (Szabo 2010 for `supersaw`; ffitch/Lazzarini, Jaffe & Smith
+1983, Järveläinen & Tolonen 2001, Karjalainen et al. 1998 for `plucked_wire`) and are not repeated
+here.
+
+### 7.A Read in full
+
+| | contribution | used for |
+|---|---|---|
+| **[1]** | Saitis, Charalampos & Weinzierl, Stefan (2019): „The Semantics of Timbre". In: Siedenburg, Saitis, McAdams, Popper & Fay (eds.), *Timbre: Acoustics, Perception, and Cognition*, Springer Handbook of Auditory Research 69, Cham: Springer, 119–149. DOI 10.1007/978-3-030-14832-4_5 | §§1, 4.1–4.6; the named measurement models in §5; item D of `docs/plans/PLAN_lco_pitch_rule_and_sound_words.md` |
+| **[2]** | Hayes, Ben & Saitis, Charalampos (2020): „There's more to timbre than musical instruments: semantic dimensions of FM sounds". *Proceedings of the 2nd International Conference on Timbre (Timbre 2020)*, 3–4 September 2020, Thessaloniki. Code: `github.com/ben-hayes/fm-synth-study` | §§2, 4.7–4.8, 6; `docs/plans/PLAN_lco_fm3op_instrument.md` in full. **FM entries only** (BJ's ruling, §2) |
+| **[3]** | Siedenburg, Kai & Saitis, Charalampos (2023): „The language of sounds unheard: Exploring musical timbre semantics of large language models". arXiv:2304.07830v3, 5 May 2023 | §§3, 4.9–4.11; `docs/plans/PLAN_lco_rule_refinement_llm_semantics.md` in full |
+
+### 7.B Reached through them, and not read here
+
+The method source for the planned FM entry, cited by [2]:
+
+- **Chowning, John M. (1973):** „The Synthesis of Complex Audio Spectra by Means of Frequency
+  Modulation". *Journal of the Audio Engineering Society* 21(7), 526–534. — The named published
+  method required by `CLAUDE.md` §Instrument Authoring rule 1 for
+  `docs/plans/PLAN_lco_fm3op_instrument.md`.
+
+The four measurement models §5 names, all via [1] §5.4.1:
+
+- **von Bismarck, Gottfried (1974a):** „Timbre of steady sounds: A factorial investigation of its
+  verbal attributes". *Acustica* 30, 146–159. — the origin of the verbal-attribute scaling this whole
+  vocabulary descends from.
+- **von Bismarck, Gottfried (1974b):** „Sharpness as an attribute of the timbre of steady sounds".
+  *Acustica* 30, 159–172. — the sharpness model, standardised as **DIN 45692** (2009) and
+  implemented in **Fastl, Hugo & Zwicker, Eberhard (2007):** *Psychoacoustics: Facts and Models*,
+  3rd ed., Berlin: Springer.
+- **Daniel, Peter & Weber, Reinhard (1997):** „Psychoacoustical roughness: Implementation of an
+  optimized model". *Acta Acustica* 83, 113–123. — the roughness model; the only substrate in [1]
+  for which this library has no mechanism at all (§4.3).
+- **Marozeau, Jeremy & de Cheveigné, Alain (2007):** „The effect of fundamental frequency on the
+  brightness dimension of timbre". *JASA* 121(1), 383–387. — brightness.
+- **Weinzierl, Stefan et al. (2018b):** *JASA* 144, 1347–1355. — spectral skewness as the correlate
+  of dynamic strength.
+- **Pressnitzer, Daniel & McAdams, Stephen (1999):** *JASA* 105, 2773–2782. — phase effects in
+  roughness; why roughness is not a spectral measure.
+
+The limits that must travel with those models, and the studies that establish them (both via [1]):
+
+- **Nykänen, Arne et al. (2009):** *Acta Acustica* 95, 539–549.
+- **Almeida, André et al. (2017):** *Attention, Perception & Psychophysics* 79(7), 1892–1896.
+  — together: the models were fitted on wideband noise and under-perform on tonal material, which is
+  what this instrument produces (§5).
+
+The semantic-dimension results §4 is held against, via [1]:
+
+- **Zacharakis, Asterios, Pastiadis, Konstantinos & Reiss, Joshua D. (2014):** *Music Perception*
+  31(4), 339–358 — the luminance / texture / mass triple this file's §1.2 uses; and **(2015):**
+  *Music Perception* 32, 394–412 — the finding that sustained vs impulsive is *not* captured by
+  semantic attributes, which is why §4.4 treats the four attack words as a separate problem.
+- **Kendall, Roger A. & Carterette, Edward C. (1993a/b):** *Music Perception* 10, 445–468 and
+  469–501.
+- **Osgood, Charles E. (1952):** „The nature and measurement of meaning". *Psychological Bulletin*
+  49(3), 197–237 — the semantic-differential method every study above uses.
+
+The qualitative sources §4 uses to classify the existing word stock, via [1]:
+
+- **Wallmark, Zachary (2014,** diss.**; 2018,** *Psychology of Music***)** — the three conceptual
+  metaphors (*instruments are voices*, *sound is material*, *noise is friction*) that §4.2 sorts the
+  material words by.
+- **Porcello, Thomas (2004):** *Social Studies of Science* 34(5) — how studio professionals actually
+  talk about sound.
+- **Disley, Alastair, Howard, David & Hunt, Andy (2006):** „Timbral description of musical
+  instruments". *ICMPC9* — the caution §4.2 rests on: listeners say *metallic* / *wooden* for the
+  material of the instrument they recognise, not for the sound.
+- **Schaeffer, Pierre (1966):** *Traité des objets musicaux*, Paris: Seuil (Eng. *Treatise on Musical
+  Objects*, 2017) and **Smalley, Denis (1997):** „Spectromorphology: explaining sound-shapes".
+  *Organised Sound* 2(2), 107–126 — the source-free vocabularies; and Schaeffer's four listening
+  modes, to which [3] proposes a fifth.
+- **Grill, Thomas (2012):** dissertation, Graz — perceptually organised electroacoustic textures; the
+  study in [1] whose material most resembles this instrument, and the one that adds
+  time-organisation dimensions (§4.6).
+- **Bensa, Julien et al. (2005)** — phantom partials and hollowness. **Brent, William (2010,**
+  diss.**)** and **Bell, Adam (2015,** diss.**)** — percussive timbre and the attack.
+
+The human reference data and the statistical criterion [3] depends on:
+
+- **Reymore, Lindsey & Huron, David (2020):** „Using auditory imagery tasks to map the cognitive
+  linguistic dimensions of musical instrument timbre". *Psychomusicology* 30(3), 124–144 — the 20
+  verbally anchored scales, and the fact that they came from an **auditory-imagery** task.
+- **Reymore, Lindsey et al. (2023):** *Music Perception* — the 540-participant dataset.
+- **Horn, John L. (1965):** „A rationale and test for the number of factors in factor analysis".
+  *Psychometrika* 30, 179–185 — the parallel-analysis criterion that fixes the factor count in both
+  [2] and [3].
+- **Marjieh, Raja et al. (2023):** arXiv:2302.01308 — cited by [3] as the adjacent work on language
+  models and perceptual data.
+
+---
+
+## 8. Open
 
 What follows from §4, if anything, is BJ's. Nothing in this file is a proposal.

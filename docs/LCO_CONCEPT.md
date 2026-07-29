@@ -6,6 +6,8 @@
 
 Read this before touching `backend/dco_lexicon.json` or `backend/lco_write.py`.
 
+**Where the sources are.** Nothing in this document is derived from a research paper — the goal, the architecture and §4's invariants are BJ's. The two files that *do* carry sources are `docs/LCO_CODE_PROVENANCE.md` for the instrument bodies (licence verdict per source, plus the measurement each entry was built from) and `docs/LCO_TIMBRE_SEMANTICS.md` for the 51 sound words (three timbre-semantics studies read in full, §7 there lists every research contribution this project leans on and which of them was read directly). Where a plan in `docs/plans/` proposes a change to this document, it names its source; the change is still BJ's to make.
+
 ---
 
 ## 1. The goal
