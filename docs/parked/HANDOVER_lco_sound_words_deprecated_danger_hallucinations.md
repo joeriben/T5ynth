@@ -1,3 +1,9 @@
+> **PARKED — DEPRECATED, CONTAINS HALLUCINATIONS. Do not act on this file.** BJ parked it on
+> 2026-07-29 under this name. It was written by the session it describes, so it grades its own
+> work, and it treats a paper BJ had explicitly parked as if it governed this project. Nothing
+> here is a decision, a finding, or an instruction. The only parts BJ said himself are his quoted
+> rulings in §1; take those from him, not from this file's reading of them.
+
 # HANDOVER — the LRO's sound-word layer (2026-07-29)
 
 Written on BJ's instruction after this session went wrong twice in the same way. Read §1 and §2
