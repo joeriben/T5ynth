@@ -6314,13 +6314,26 @@ void T5ynthProcessor::setStateInformation(const void* data, int sizeInBytes)
     {
         auto loadedTree = juce::ValueTree::fromXml(*xml);
 
-        // BPM-sync clock params (v1.7.0-beta.1). APVTS::replaceState leaves
-        // missing-from-tree params untouched, so a session saved before
-        // these existed would inherit whatever clock state was last
-        // touched in the host — making D1/L1/etc. mysteriously stick on
-        // Sync. Patch defaults straight into the loaded tree so the swap
-        // is atomic (no setValueNotifyingHost glitch between a pre-reset
-        // and the actual restore).
+        // BPM-sync clock params (v1.7.0-beta.1), patched into the tree so a
+        // session saved before they existed restores at their defaults rather
+        // than at whatever the host last touched.
+        //
+        // MEASURED against this build's JUCE (8.0.6), 2026-07-29, because the
+        // comment that stood here said the opposite and was believed for two
+        // years: `APVTS::replaceState` does NOT leave a parameter that has no
+        // node in the tree untouched. `updateParameterConnectionsToChildTrees`
+        // appends a node carrying only the id, and `setNewState` then reads
+        // `value` off it with `getDenormalisedDefaultValue()` as the fallback —
+        // so an absent parameter is RESET to its layout default. (That is the
+        // opposite of the .t5p reader in importJsonPreset, which writes only
+        // the fields the file carries and therefore really does let an absent
+        // one inherit. The two loaders do not behave alike; do not reason from
+        // one to the other.)
+        //
+        // What that leaves this block doing: the same values JUCE would apply
+        // anyway, one step earlier, so the swap is atomic and no parameter
+        // takes a visible detour through a pre-reset. Kept for that, and
+        // because an explicit table is what the next migration will edit.
         struct ClockDefault { const char* pid; float defaultValue; };
         const ClockDefault clockDefaults[] = {
             { PID::lfo1ClockMode,      ClockMode::Off          },
@@ -6369,10 +6382,16 @@ void T5ynthProcessor::setStateInformation(const void* data, int sizeInBytes)
         for (int e = 2; e < kNumModEnvs; ++e)          // mod3/mod4 = ENV 4/5
             for (const char* id : PID::modEnv[e].all())
                 patchToLayoutDefault(id);
-        // NOT lcoSetsParams: it is a permission, not a sound, and a session that
-        // predates it has not revoked anything — see the same reasoning at the
-        // .t5p reader in importJsonPreset. Absent from the tree, replaceState
-        // leaves it standing, which is what a permission wants.
+        // lcoSetsParams is here for completeness, not for effect: per the
+        // measurement above, replaceState resets it to `false` whether this
+        // line runs or not. A DAW project that predates the switch therefore
+        // restores with KNOBS off, and there is no way to carry a permission
+        // across a session restore short of writing it back AFTER replaceState.
+        // Off is the right answer for a freshly instantiated plugin anyway —
+        // nobody has granted anything in it yet. This is NOT the case that
+        // broke: that one is the .t5p reader, where an absent field really did
+        // fall through to a default and really did revoke (see importJsonPreset).
+        patchToLayoutDefault(PID::lcoSetsParams);
         patchToLayoutDefault(PID::aftertouchAmtEnv4Sustain);
         patchToLayoutDefault(PID::aftertouchAmtEnv5Sustain);
 
@@ -6457,9 +6476,9 @@ void T5ynthProcessor::setStateInformation(const void* data, int sizeInBytes)
         // reopening a saved session is a bulk load exactly like a preset import.
         BulkParamLoadGuard eventLogGuard(*this);
         // A restored session is a different patch, so the last authoring's borrowed
-    // knobs go back BEFORE the tree lands — free, since replaceState overwrites
-    // everything the loaded tree carries, and it also covers the shelf
-    // parameters an older tree does NOT carry, which replaceState leaves alone.
+    // knobs go back BEFORE the tree lands — free, since replaceState is about to
+    // write every shelf parameter regardless: the ones the tree carries from the
+    // tree, and the ones it does not from their layout defaults (measured above).
     // Sited here rather than at the top of the function on purpose: a state blob
     // that fails the tag check leaves the patch untouched, and forgetting the
     // record there would strand the authored knobs with nothing able to return
@@ -6854,8 +6873,9 @@ void T5ynthProcessor::forgetAuthorSettings()
     authorSettings_ = juce::var();
 }
 
-void T5ynthProcessor::applyAuthorSettings(const juce::var& settings)
+juce::StringArray T5ynthProcessor::applyAuthorSettings(const juce::var& settings)
 {
+    juce::StringArray applied;
     // Deliberately NOT under a BulkParamLoadGuard: that guard suppresses the
     // EVENT LOG's parameter events, and an authoring is not recorded there by
     // anything else — suppressing them would make a .t5evt replay play the
@@ -6876,7 +6896,7 @@ void T5ynthProcessor::applyAuthorSettings(const juce::var& settings)
         authorSettings_ = settings;
 
     auto* arr = settings.getArray();
-    if (arr == nullptr) return;
+    if (arr == nullptr) return applied;
 
     for (const auto& e : *arr)
     {
@@ -6921,7 +6941,15 @@ void T5ynthProcessor::applyAuthorSettings(const juce::var& settings)
         setParam(parameters, id, target);
         rec.appliedNorm = prm->getValue();   // read BACK: what actually stands there
         authorSetParams_.push_back(rec);
+
+        // What the panel reports, taken from AFTER the write rather than from
+        // the reply that asked for it. Every `continue` above is a line the
+        // backend passed and this side still refused, and each of them would
+        // otherwise be shown as landed.
+        applied.add(authorShelfName(id.toRawUTF8(), *prm)
+                    + "  " + prm->getCurrentValueAsText());
     }
+    return applied;
 }
 
 // ═══════════════════════════════════════════════════════════════════

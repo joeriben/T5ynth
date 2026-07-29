@@ -146,6 +146,26 @@ public:
         relayout();
     }
 
+    /** What became of the synth's own controls in this authoring. Separate from
+     *  setTrace because the answer is not known when the trace is: the trace is
+     *  shown as soon as the reply lands, and whether the knobs actually moved is
+     *  decided a few lines later by the apply — which refuses lines the backend
+     *  passed, and does not run at all if the switch went off meanwhile.
+     *
+     *  @param offered  the shelf really went out with the request. Captured when
+     *                  GENERATE was pressed, NOT re-read here: the switch decides
+     *                  at the trigger and an authoring runs for minutes.
+     *  @param set      one line per control that actually moved, read back off it.
+     *  @param refused  everything that did not, each with its reason. */
+    void setKnobs(bool offered, juce::StringArray set, juce::StringArray refused)
+    {
+        trace_.knobsKnown   = true;
+        trace_.knobsOffered = offered;
+        trace_.knobsSet     = std::move(set);
+        trace_.knobsRefused = std::move(refused);
+        relayout();
+    }
+
     /** Dim single-line state, shown INSTEAD of the trace — "authoring...",
      *  "prompt is empty", an authoring failure. Replacing the trace is the
      *  point: the previous trace describes a sound that is being superseded or
@@ -1022,7 +1042,11 @@ private:
             const bool took = ! trace_.knobsSet.isEmpty();
             juce::String rubric("KNOBS");
             if (took) rubric << "  " << trace_.knobsSet.size();
-            station(took ? kImpulseB : kTextDisabled, rubric, kTextDisabled, took, [&](float ww)
+            // hasNext is TRUE unconditionally: RUNNING always follows, and this
+            // argument draws the rail hairline down to it, not the station's own
+            // emphasis. (It was `took`, which broke the rail for exactly the two
+            // silent outcomes this station exists to show.)
+            station(took ? kImpulseB : kTextDisabled, rubric, kTextDisabled, true, [&](float ww)
             {
                 const float y0 = y;
                 float yy = y;

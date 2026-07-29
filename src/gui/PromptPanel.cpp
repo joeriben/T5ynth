@@ -2519,29 +2519,9 @@ void PromptPanel::triggerDcoBake()
             // recall, where the station is left out entirely). The library size
             // is the one field a consultation block always carries.
             tr.consultationKnown  = authored.libraryEntryCount > 0;
-            // The synth's own controls. `knobsOffered` is the shelf that ACTUALLY
-            // went out with the request, captured when GENERATE was pressed — not
-            // the switch as it stands now. The two differ exactly in the case
-            // that made this feature look broken: a preset load turned the switch
-            // off, the author was never shown the controls, and nothing on screen
-            // said so. Every SET line the backend read is listed, the refused
-            // ones with the reason it refused them.
-            tr.knobsKnown   = true;
-            tr.knobsOffered = knobsWereOffered;
-            if (auto* arr = authored.settings.getArray())
-                for (const auto& e : *arr)
-                {
-                    const auto name = e.getProperty("name", juce::var()).toString();
-                    const auto val  = e.getProperty("value", juce::var()).toString();
-                    const auto note = e.getProperty("note", juce::var()).toString();
-                    if (static_cast<bool>(e.getProperty("ok", juce::var(false))))
-                        tr.knobsSet.add(name + "  " + val
-                                        + (note.isEmpty() ? juce::String()
-                                                          : "   (" + note + ")"));
-                    else
-                        tr.knobsRefused.add(name + "  " + val + " - "
-                                            + (note.isEmpty() ? juce::String("not set") : note));
-                }
+            // The KNOBS station is NOT filled here: what the author asked for and
+            // what actually landed are two different lists, and only the second
+            // one is worth showing. It is set below, from the return of the apply.
             tr.repairs            = authored.repairs;
             tr.attempts           = authored.attempts;
             self->dcoTraceView.setTrace(std::move(tr));
@@ -2592,12 +2572,43 @@ void PromptPanel::triggerDcoBake()
             // the paradigm toggle stays live, so a user who has moved on to
             // T5osc must not have their filter and envelopes rewritten under a
             // neural panel by a sound that is not playing.
-            if (! self->easyMode_
-                && self->processorRef.getValueTreeState()
-                       .getRawParameterValue(PID::lcoSetsParams)->load() > 0.5f)
-                self->processorRef.applyAuthorSettings(authored.settings);
+            const bool mayApply = ! self->easyMode_
+                               && self->processorRef.getValueTreeState()
+                                      .getRawParameterValue(PID::lcoSetsParams)->load() > 0.5f;
+            juce::StringArray landed;
+            if (mayApply)
+                landed = self->processorRef.applyAuthorSettings(authored.settings);
             // No else: the switch's own transition already handed the knobs
             // back, wherever it was flipped from.
+
+            // The KNOBS station, told the truth rather than the request. `landed`
+            // comes back from the apply and is read off the parameters
+            // afterwards, so a line the backend passed and this side then refused
+            // cannot be reported as set. Everything that did NOT land is listed
+            // as refused, with the reason — including the whole request when the
+            // switch was withdrawn while the authoring ran, which is otherwise
+            // indistinguishable from an author that asked for nothing.
+            {
+                juce::StringArray refused;
+                if (auto* arr = authored.settings.getArray())
+                    for (const auto& e : *arr)
+                    {
+                        if (static_cast<bool>(e.getProperty("ok", juce::var(false))))
+                            continue;
+                        const auto name = e.getProperty("name", juce::var()).toString();
+                        const auto val  = e.getProperty("value", juce::var()).toString();
+                        const auto note = e.getProperty("note", juce::var()).toString();
+                        refused.add(name + "  " + val + " - "
+                                    + (note.isEmpty() ? juce::String("not set") : note));
+                    }
+                if (! mayApply && knobsWereOffered)
+                    refused.insert(0, self->easyMode_
+                        ? "the oscillator was switched away while this was being written "
+                          "- nothing was set"
+                        : "the switch went off while this was being written "
+                          "- nothing was set");
+                self->dcoTraceView.setKnobs(knobsWereOffered, landed, refused);
+            }
             self->dcoTraceView.setBody(authored.paramsText);   // the back of the card
 
             // The engine now holds a new, unsaved sound — drop the loaded/

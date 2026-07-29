@@ -321,8 +321,14 @@ public:
      *  a number for a continuous parameter and a choice LABEL for a choice one.
      *  Parameters the PREVIOUS authoring set, and that the user has not moved
      *  since, are put back first — otherwise every regeneration would stack its
-     *  settings on top of the last one's. Message thread. */
-    void applyAuthorSettings (const juce::var& settings);
+     *  settings on top of the last one's. Message thread.
+     *
+     *  Returns one "Name  value" line per knob that ACTUALLY moved, read back
+     *  off the parameter afterwards. This side refuses lines the backend passed
+     *  (an id that was never on the shelf, a choice label this build does not
+     *  have, a value that is not a number), so the reply is not a record of what
+     *  landed and anything reporting to the player has to use this instead. */
+    juce::StringArray applyAuthorSettings (const juce::var& settings);
 
     /** Give back every knob the last authoring borrowed and still holds — what
      *  pressing the switch OFF means, and what an authoring the player no longer
