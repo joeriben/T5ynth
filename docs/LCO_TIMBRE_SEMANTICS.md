@@ -122,6 +122,13 @@ Not a review and **not a rating study**. Its subject is what experienced sound d
 synthesiser* when a word is the instruction — which makes it the one source here whose
 experimental act is the same act the LRO performs.
 
+**Scope, ruled by BJ 2026-07-29: this source can only concern FM instruments.** Everything it
+measured was measured on one three-operator FM synth, and the authors themselves leave open whether
+their own extra factors are „an inherent property of the synthesiser". So its findings apply to
+this library's FM entries and to nothing else in it. Two things are not substrate-bound and are
+therefore the exception: the **word list** (§2.1 — a forum corpus, not an FM artefact) and the
+**method** (a word is an instruction, and what it changes is the datum).
+
 ### 2.1 What was actually done
 
 Thirty participants (of forty; ten excluded on age or language), mean age 28.7, range 21–55, all
@@ -277,16 +284,43 @@ factor 4, pluckiness (`plucky`, `percussive`); the single word that defines fact
 lexicon has the vocabulary the three-substrate model already predicted, and is thin or empty
 exactly where [2] found dimensions **beyond** it.
 
-### 3.8 [2] is the reason its own parameter numbers must not be carried over
+Read the two halves of that with different weight. **Which words synth players use** is a forum
+corpus and holds generally; **that they organise into these five factors** was measured on one FM
+synth and is bounded by §2's scope ruling.
 
-The strongest single result in [2] — that *bright* and *rough* produce nearly the same parameter
-deltas — the authors explain as a property of **FM**: you cannot raise high-frequency energy by
-modulator gain or tuning without also raising inharmonicity. That is a statement about a
-substrate, not about the words. This library is 28 instruments — waveguides, modal banks, `vco2`,
-`streson`, noise beds, additive stacks — of which FM is a small part, and on a modal bank or a
-bowed string there is no modulator gain, no tuning ratio and no sideband to speak of. So [2]'s
-usable content here is its **dimensional structure** (§3.7) and its **method** (a word is an
-instruction, and what it changes is the datum), not its numbers.
+### 3.8 Where [2]'s numbers reach: the FM entries only, and what they find there
+
+Six of the 28 instruments use an FM opcode: `fm`, `fm_bell`, `fm_ep`, `metallic_fm`, and `foscili`
+inside `clarinet` and `theremin`. All of them are **two**-operator — `foscili` is one carrier, one
+modulator, one index — each of the three bell-family bodies doubled into a detuned pair for the
+doublet. Their steerable parameters are `index`, `ring`, `detune`.
+
+- `index` **is** the paper's modulator gain, and the mapping is directly usable: raise it for
+  *bright* (0.41/0.52\*\*\*) and harder for *rough* (0.63/0.51\*\*\*).
+- The paper's **other** strong axis, the modulator **tuning ratio** — the single largest correlate
+  for *bright* (0.56/0.54\*\*\*) and joint-largest for *rough* (0.42/0.56\*\*\*) — is **hardcoded**
+  in every one of these bodies: 2.0 in `fm`, 1.41 in `fm_bell`, 2.41 in `metallic_fm`. It has no
+  parameter. What the designers reached for hardest has no knob here.
+- **For a three-operator entry the topology matches exactly** (operators 2 and 3 modulating
+  operator 1's phase in linear combination), so the paper's mapping transfers without
+  reinterpretation: two gains, two tuning ratios, two modulator attacks. The library has no such
+  entry.
+- **What does not cross the platform boundary:** carrier attack, sustain and release are the
+  player's envelope. *thick*'s entire signature is sustain level (carrier 0.50\*\*\*), so of the
+  three words measured, *thick* lies largely outside the oscillator; only its negative
+  tuning-ratio correlate (−0.28\*\*) is inside it. The modulators' attacks are inside it, because
+  they set how fast the sidebands arrive rather than how loud the note gets.
+- **The warning it gives before anything is built:** on FM, *bright* and *rough* are nearly the
+  same move, and the authors say why. An FM entry can carry *bright* faithfully; it will not
+  separate *rough* from it by these means. Per the authoring rules that is a property to declare,
+  not something to correct with a fitted number — and it says where roughness would have to come
+  from instead: partials close enough together to interact, which a modal bank or a detuned
+  partial stack produces directly and FM sidebands do not.
+
+One cross-check while reading these bodies: each carries its doublet as a fixed **+1.1 to +1.3 Hz**
+offset, which is a pitch-independent beat rate and is deliberate. Any reformulation of the
+„never hardcode a frequency" rule has to keep that legal — a beat rate belongs to the thing, not to
+the note.
 
 ---
 
