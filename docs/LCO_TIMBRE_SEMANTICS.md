@@ -543,8 +543,9 @@ index-decay that the existing `fm`/`fm_bell`/`metallic_fm` bodies use for their 
 model for this one.
 
 **Comparison target, to be rendered before any new orchestra line** (authoring rules 3 and 4): the
-nearest existing entry is **`fm`** — plain two-operator, ratio 2, index 1.5. `nearest_existing.wav`
-comes from it. The attempt budget is BJ's to fix and is not set here.
+nearest existing entry is **`fm`** — one carrier, one modulator; its `why` describes the body as
+„ratio 2, index 1.5", while its `index` parameter runs 0–1 and defaults to 0.2, which is what
+`nearest_existing.wav` is rendered at. The attempt budget is BJ's to fix and is not set here.
 
 ---
 

@@ -8,8 +8,11 @@ the pre-build record this plan executes.
 **Why this entry rather than any other.** [2] is the only research contribution in the project's
 possession that measures **what experienced people actually change on a synthesiser when a word is
 the instruction** — thirty sound designers, three words, one topology. That topology is a
-three-operator FM instrument, and the library has none: all six of its FM bodies are two-operator
-`foscili`. The entry exists to make a sourced word-to-parameter mapping reachable at all. It is not
+three-operator FM instrument, and **no entry in the library sums two modulators into one carrier's
+phase**: the six bodies that use FM are a `foscili` pair (`fm`, `fm_bell`, `metallic_fm`), a stack of
+such pairs (`fm_ep`), or one pair inside a larger body (`clarinet`, `theremin`) — every one of them a
+carrier with a single modulator. The entry exists to make a sourced word-to-parameter mapping
+reachable at all. It is not
 an FM electric piano and does not reach for FM where a physical model would cover the body, so it
 sits inside `CLAUDE.md` §Instrument Authoring rule 6 rather than against it.
 
@@ -32,9 +35,10 @@ mapping may be used.
 
 `CLAUDE.md` rule 4 is an order reversal, not a preference, so it is step zero.
 
-0. **Render `nearest_existing.wav` from the existing `fm` entry** (plain two-operator, ratio 2,
-   index 1.5) at one pitch, one length, one loudness, and put it on disk. Name it in the folder.
-   Only then may an orchestra line of the new entry be written.
+0. **Render `nearest_existing.wav` from the existing `fm` entry** at **its own default** — `index`
+   0.2 on its 0–1 scale (the entry's `why` describes the body as „ratio 2, index 1.5", which is the
+   Csound-side ratio and peak, not the parameter value) — at one pitch, one length, one loudness, and
+   put it on disk. Name it in the folder. Only then may an orchestra line of the new entry be written.
 1. **Verify the mechanism compiles at all.** There is no generic N-operator opcode on this build —
    verified against `csound -z1`: `foscil`/`foscili` are one carrier and one modulator, the `cross*`
    family is two mutually modulating oscillators, and the `fm*` family are fixed algorithms. Two
