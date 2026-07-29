@@ -1069,12 +1069,12 @@
   {
    "key": "woody",
    "why": "odd-leaning and capped, a wood-resonance reading",
-   "code": "afrm     reson asig, 600, 240, 2\nasig     = asig + afrm * 0.30       ; formant / mid bump\nasig     tone asig, 1900            ; dark tilt (low-pass)"
+   "code": "afrm     reson asig, 600, 240, 2   ; wood formant, FIXED in Hz -- a body, not a pitch\nasig     = asig + afrm * 0.30       ; formant / mid bump\nasig     tone asig, 1900            ; dark tilt (low-pass)"
   },
   {
    "key": "deep",
    "why": "very low-only weight",
-   "code": "albd     tone asig, 220\nasig     = asig + albd * 0.60       ; body / low weight\nasig     tone asig, 900            ; dark tilt (low-pass)"
+   "code": "albd     tone asig, kfreq * koct1   ; the fundament: a RATIO, so the same word at every pitch\nasig     = asig + albd * 0.60       ; body / low weight\nasig     tone asig, 900            ; dark tilt (low-pass)"
   },
   {
    "key": "glassy",
@@ -1099,7 +1099,7 @@
   {
    "key": "punchy",
    "why": "a percussive-reading harmonic push without full brightness",
-   "code": "albd     tone asig, 220\nasig     = asig + albd * 0.25       ; body / low weight\nabrt     atone asig, 2200\nasig     = asig + abrt * 0.40       ; bright tilt (add highs)"
+   "code": "albd     tone asig, kfreq * koct1   ; the fundament: a RATIO, so the same word at every pitch\nasig     = asig + albd * 0.25       ; body / low weight\nabrt     atone asig, 2200\nasig     = asig + abrt * 0.40       ; bright tilt (add highs)"
   },
   {
    "key": "mellow",
@@ -1144,7 +1144,7 @@
   {
    "key": "brassy",
    "why": "targeted upper-mid push distinct from raw brightness",
-   "code": "afrm     reson asig, 1600, 640, 2\nasig     = asig + afrm * 0.45       ; formant / mid bump\nabrt     atone asig, 2200\nasig     = asig + abrt * 0.30       ; bright tilt (add highs)"
+   "code": "afrm     reson asig, 1600, 640, 2  ; brass formant, FIXED in Hz -- a body, not a pitch\nasig     = asig + afrm * 0.45       ; formant / mid bump\nabrt     atone asig, 2200\nasig     = asig + abrt * 0.30       ; bright tilt (add highs)"
   },
   {
    "key": "breathy",
@@ -1159,17 +1159,17 @@
   {
    "key": "muddy",
    "why": "low-mid mess with rolled-off highs",
-   "code": "albd     tone asig, 220\nasig     = asig + albd * 0.35       ; body / low weight\nasig     tone asig, 700            ; dark tilt (low-pass)"
+   "code": "albd     tone asig, kfreq * koct1   ; the fundament: a RATIO, so the same word at every pitch\nasig     = asig + albd * 0.35       ; body / low weight\nasig     tone asig, 700            ; dark tilt (low-pass)"
   },
   {
    "key": "resonant",
    "why": "a boosted mid-harmonic band",
-   "code": "afrm     reson asig, 1100, 440, 2\nasig     = asig + afrm * 0.55       ; formant / mid bump"
+   "code": "afrm     reson asig, 1100, 440, 2  ; mid formant, FIXED in Hz -- a body, not a pitch\nasig     = asig + afrm * 0.55       ; formant / mid bump"
   },
   {
    "key": "full",
    "why": "added low-order weight plus more harmonic room",
-   "code": "albd     tone asig, 220\nasig     = asig + albd * 0.45       ; body / low weight\nabrt     atone asig, 2200\nasig     = asig + abrt * 0.20       ; bright tilt (add highs)"
+   "code": "albd     tone asig, kfreq * koct1   ; the fundament: a RATIO, so the same word at every pitch\nasig     = asig + albd * 0.45       ; body / low weight\nabrt     atone asig, 2200\nasig     = asig + abrt * 0.20       ; bright tilt (add highs)"
   },
   {
    "key": "thick",
@@ -1189,7 +1189,7 @@
   {
    "key": "velvety",
    "why": "a smooth+warm hybrid convention",
-   "code": "albd     tone asig, 220\nasig     = asig + albd * 0.25       ; body / low weight\nasig     tone asig, 2100            ; dark tilt (low-pass)"
+   "code": "albd     tone asig, kfreq * koct1   ; the fundament: a RATIO, so the same word at every pitch\nasig     = asig + albd * 0.25       ; body / low weight\nasig     tone asig, 2100            ; dark tilt (low-pass)"
   },
   {
    "key": "icy",
@@ -1199,7 +1199,7 @@
   {
    "key": "boxy",
    "why": "classic mid-harmonic congestion, capped highs",
-   "code": "afrm     reson asig, 500, 200, 2\nasig     = asig + afrm * 0.45       ; formant / mid bump\nasig     tone asig, 2000            ; dark tilt (low-pass)"
+   "code": "afrm     reson asig, 500, 200, 2   ; box formant, FIXED in Hz -- a body, not a pitch\nasig     = asig + afrm * 0.45       ; formant / mid bump\nasig     tone asig, 2000            ; dark tilt (low-pass)"
   },
   {
    "key": "reedy",
@@ -1214,7 +1214,7 @@
   {
    "key": "vibrant",
    "why": "bright plus a fuller 2nd harmonic",
-   "code": "albd     tone asig, 220\nasig     = asig + albd * 0.20       ; body / low weight\nabrt     atone asig, 2200\nasig     = asig + abrt * 0.50       ; bright tilt (add highs)"
+   "code": "albd     tone asig, kfreq * koct1   ; the fundament: a RATIO, so the same word at every pitch\nasig     = asig + albd * 0.20       ; body / low weight\nabrt     atone asig, 2200\nasig     = asig + abrt * 0.50       ; bright tilt (add highs)"
   },
   {
    "key": "flat",
@@ -1368,7 +1368,7 @@
   },
   {
    "key": "shimmer",
-   "why": "a glinting in the TOP of the spectrum: the high partials catch the light and let it go again, irregularly. Only the top moves -- the body of the tone stands still. This form re-weights partials that are ALREADY there, so it needs a tone with a bright tail; on a mellow FM tone there is nothing above the highpass to glint with.",
+   "why": "a glinting in the TOP of the spectrum: the high partials catch the light and let it go again, irregularly. Only the top moves -- the body of the tone stands still. This form re-weights partials that are ALREADY there, so it needs a tone with a bright tail; on a mellow FM tone there is nothing above the highpass to glint with. The corner is the 8th harmonic, not a fixed frequency, so \"the top\" means the same thing at every pitch -- and the glint therefore THINS toward the top of the keyboard, where the band above the 8th harmonic is nearly empty. That is the physics of the word, not a defect: high notes have less top left to glint with.",
    "kind": "unsteady",
    "moves": "colour",
    "alt": {
@@ -1376,7 +1376,7 @@
     "code": "kg      randi  0.45, 9.0, ivoice        ; irregular glints, never a steady beat\nasig    foscili 0.5, kfreq * koct1, 1, 2, 3.0 + kg * 3.0, giSine\n                                        ; the index itself glints: the\n                                        ; sidebands come and go. foscili\n                                        ; holds its own level, so nothing\n                                        ; has to hold it afterwards."
    },
    "rate_hz": 9.0,
-   "code": "ivph    = frac(ivoice * 0.6180339887)   ; each voice moves on its own -- a chord\n                                        ; must not move in lockstep\nahi     butterhp asig, 2200             ; the top of the spectrum, on its own\nabri    = asig + ahi * 1.2              ; a fixed GLINTING copy of the tone ...\nabri    balance abri, asig, 1           ; ... matched to the clean level ONCE\nkg      randi  0.5, 9.0, ivoice         ; irregular glints, never a steady beat\nkpos    = 0.5 + kg\nasig    = asig * (1 - kpos) + abri * kpos   ; so this can only move COLOUR"
+   "code": "ivph    = frac(ivoice * 0.6180339887)   ; each voice moves on its own -- a chord\n                                        ; must not move in lockstep\nkglt    = min(kfreq * koct1 * 8, sr * 0.45) ; \"the top\" is a RATIO: the 8th harmonic up,\n                                        ; clamped to the band. 2200 Hz was this corner\n                                        ; at C#4 and the 2nd harmonic at 880 Hz.\nahi     butterhp asig, kglt             ; the top of the spectrum, on its own\nabri    = asig + ahi * 1.2              ; a fixed GLINTING copy of the tone ...\nabri    balance abri, asig, 1           ; ... matched to the clean level ONCE\nkg      randi  0.5, 9.0, ivoice         ; irregular glints, never a steady beat\nkpos    = 0.5 + kg\nasig    = asig * (1 - kpos) + abri * kpos   ; so this can only move COLOUR"
   },
   {
    "key": "settle",
