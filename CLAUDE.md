@@ -60,6 +60,23 @@ These are user-observable fundamentals — the instrument's flow concept, not so
 
 When a commit touches a guardian path (voice/buffer distribution, engine data flow, modulation routing), call out any behavior change in the commit body and verify the relevant invariant still holds (audition + adversarial review).
 
+## The T5 Oscillator's Existence Purpose (BLOCKING — never argue against it, never "repair" it)
+
+BJ, 2026-07-29, after an assistant inverted it inside a single answer: **"Der komplette Punkt dieses T5-Oszillators ist es, in Bereiche zu kommen, die nicht trainiert wurden und nicht gesehen wurden und nicht gelernt wurden."**
+
+The prompt/embedding path exists to produce **conditioning that no text can produce**. The A↔B slider (range ±2, so most of its travel is extrapolation *past* both prompts), `_echo_through_null` (2·null − A is an anti-prompt, textually unreachable by construction), `magnitude` (to 5.0), `noise_sigma`, `dimension_offsets`, `semantic_axes` — all of it is one programme. Out-of-distribution is the product, not the risk.
+
+**The inversion this forbids** — it happened, and it reads as diligence: calling a construction "off-manifold", "out-of-distribution", "a chimera", "the encoder never saw two stitched sequences", "not what the model expects" — treating THAT as the defect, and then offering a well-behaved, in-distribution construction (concatenated prompts, one text field, a grammatical sentence, a tamer injection mode) as the FIX. Every one of those phrases describes the target. On this path, each is a category error, not a finding.
+
+**Objective tripwire, because the prose above depends on self-recognition and self-recognition is exactly what failed.** The direction of a change here is measurable, so measure it instead of judging it — `tools/measure_conditioning_drive.py`, both engines, CPU, under a minute:
+
+- **Drive** = ‖proj(cond)‖ over the real tokens. CFG's unconditional branch is *literally* zero context (`null_embed = torch.zeros_like(cross_attn_cond)`, dit.py:445/518) and `to_cond_embed` is bias-free, so this norm IS the distance from "unconditioned". Falling drive = falling toward the model's prior = toward the most-trained, most-average region it owns. **That** is the regression direction — not unfamiliarity.
+- **Direction** = cos to each pole prompt, same projected tensor.
+- Before proposing any change on this path, state both numbers. A change that lowers drive without changing direction is a loss whatever else it fixes. A change that alters direction while holding drive is the instrument working. (Measured example: the shipped `linear` midpoint sits at 0.69–0.73 of pole drive; norm-preserved it reaches 0.83–0.92 with cos to both poles unchanged to ±0.002.)
+- The only real boundary is **collapse**, not unfamiliarity: the point where the DiT stops producing structure at all — documented and paid for once (zeroing SA3's learned padding → ~10.76 Hz buzz). "The model has not seen this" is never that boundary.
+
+**Tame constructions may be ADDED, never substituted.** Concatenated A+B token blocks, score-level composition (Composable Diffusion), in-distribution phrasing are legitimate as their own clearly-labelled injection modes next to `linear` / `delta` / `late_step` / `layer_split` / `kombi*`. Proposing one as the *repair* of an unseen construction is the inversion above. Linear stays the centre (see the A/B-equality design); the others extend it.
+
 ## Migration & Substrate Discipline (BLOCKING — a "port X to Y" task is never a licence to rebuild X smaller)
 
 Born from a real, expensive regression (2026-07-17): told to move the existing rich DCO/LCO **lexicon** (which already knew pwm, morph chains, dirty/overdriven, moving/evolving, inharmonic partials) onto a live **Csound** oscillator, the implementation instead **deleted the lexicon and built a from-scratch 12-word static-partial replacement**. Result: "pwm square wave" rendered as "bright square_stack 8' +vibrato" (a static Fourier square + a fake pitch vibrato — not PWM at all); dirty/overdriven/moving/morphing all silently gone. Two days of ear-testing missed it because every test prompt was a *static* timbre. The order was "switch it to Csound", not "destroy it".
