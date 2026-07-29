@@ -6369,7 +6369,10 @@ void T5ynthProcessor::setStateInformation(const void* data, int sizeInBytes)
         for (int e = 2; e < kNumModEnvs; ++e)          // mod3/mod4 = ENV 4/5
             for (const char* id : PID::modEnv[e].all())
                 patchToLayoutDefault(id);
-        patchToLayoutDefault(PID::lcoSetsParams);
+        // NOT lcoSetsParams: it is a permission, not a sound, and a session that
+        // predates it has not revoked anything — see the same reasoning at the
+        // .t5p reader in importJsonPreset. Absent from the tree, replaceState
+        // leaves it standing, which is what a permission wants.
         patchToLayoutDefault(PID::aftertouchAmtEnv4Sustain);
         patchToLayoutDefault(PID::aftertouchAmtEnv5Sustain);
 
@@ -7477,11 +7480,19 @@ bool T5ynthProcessor::importJsonPreset(const juce::String& json)
         if (engine->hasProperty("voiceCount"))
             setParam(parameters, PID::voiceCount,
                      static_cast<float>(choiceFromKey(engine->getProperty("voiceCount").toString(), VoiceCount::kEntries)));
+        // KNOBS is a PERMISSION, not a sound: it says whether the player lets an
+        // authoring reach out to their own controls. A file that says nothing
+        // about it therefore leaves it exactly where the player has it — the
+        // "absent key defaults the parameter" rule that every sound parameter
+        // here follows would make this one a silent REVOCATION, and since not
+        // one shipped preset carries the field (the switch is newer than all of
+        // them), every single preset load would turn it off behind the player's
+        // back. Measured 2026-07-29: BJ switched it on, loaded a preset, and the
+        // next authoring went out without the shelf because the switch had gone
+        // off with nothing on screen saying so.
         if (engine->hasProperty("lcoSetsParams"))
             setParam(parameters, PID::lcoSetsParams,
                      static_cast<bool>(engine->getProperty("lcoSetsParams")) ? 1.0f : 0.0f);
-        else
-            setParamToLayoutDefault(parameters, PID::lcoSetsParams);
         if (engine->hasProperty("tuning"))
             setParam(parameters, PID::tuning,
                      static_cast<float>(choiceFromKey(engine->getProperty("tuning").toString(), TuningType::kEntries)));
