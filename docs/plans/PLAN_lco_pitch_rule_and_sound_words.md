@@ -1,8 +1,21 @@
 # PLAN — the pitch rule's intent, and the five changes that follow
 
-**Status: confirmed by BJ 2026-07-29 („ok. behalte das so."), not yet executed.** Five changes, one
-commit each. This file is the plan's record in the repository; it was previously only in the session
-work-order file. Nothing here is new — it is the plan as BJ left it, including what he struck.
+**Status: EXECUTED 2026-07-30.** Confirmed by BJ 2026-07-29 („ok. behalte das so."); five changes,
+one commit each, plus a library rebuild because the file the author reads is generated from the
+lexicon and `--check` reported it out of step. Nothing here was new — it is the plan as BJ left it,
+including what he struck.
+
+| item | commit | what landed |
+|---|---|---|
+| A | `7b7e6254` | `backend/lco_write.py` `_SYSTEM_HEAD` + `docs/LCO_CONCEPT.md` §4: one rule became three |
+| B | `64f9f5dd` | `shimmer`'s corner is the 8th harmonic, clamped to the band; the cost at the top of the range is declared in the entry |
+| C | `a143262d` | the four `reson` formants are marked FIXED. Comment only |
+| D | `c7fab0b7` | attack-is-spectral, next to the amplitude-envelope rule |
+| E | `d5686e1b` | the six fundaments are a ratio to `kfreq`. Measured: the fixed 220 Hz gave +3.93 dB on the fundamental at 55 Hz and +0.45 dB at 880 Hz; the ratio gives +2.52…+2.58 dB at every pitch |
+| — | `5a0883b1` | `backend/lco_library.json` rebuilt, twelve lines |
+
+**Not done, and still open:** everything under „Open, with BJ's own valuation" below. Nothing in the
+struck list was touched.
 
 **Source.** The one observation that starts it is BJ's own, on reading the author's HARD RULE:
 

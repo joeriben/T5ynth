@@ -1,8 +1,17 @@
 # PLAN — what the third study refines in this project's rules
 
-**Status: plan. Proposed wordings only, nothing applied.** `CLAUDE.md` and `docs/LCO_CONCEPT.md` are
-BJ's documents; this file states exactly what would change, where, and on what evidence, so the
-decision is his and takes one reading. Written 2026-07-30 on his instruction.
+**Status: APPLIED 2026-07-30, on BJ's instruction to execute the plans.** The four wordings below went
+in as written, one commit each; the diagnostic in Proposal 5 is still deliberately unbuilt.
+
+| proposal | commit | where |
+|---|---|---|
+| 1 — a flat measurement is not an absent effect | `25ed8449` | `docs/LCO_CONCEPT.md` §7, new item 10 |
+| 2 — N runs of one judgement are one judgement | `a698c5ac` | `CLAUDE.md`, Instrument Authoring rule 3 |
+| 3 — the frozen corpus gets an external reason | `77b98cbd` | `CLAUDE.md`, §Migration parity clause |
+| 4 — the boundary coincidence, as a note | `628853aa` | `docs/LCO_CONCEPT.md` §4 |
+
+Written 2026-07-30 on his instruction. What the file said when it was only a proposal is kept below,
+because the evidence for each wording is the part worth re-reading, not the wording.
 
 ## The one framing that decides what this source may touch
 
