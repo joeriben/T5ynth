@@ -90,6 +90,59 @@ And two limits the chapter names against itself, both of which land on this proj
 
 ---
 
+## First, what the words are MADE of — BJ's ruling, 2026-07-29, and the count behind it
+
+Before any question about what a word should *mean*, there is a question about whether it
+belongs in an oscillator at all. BJ put it in two sentences, on `warm` carrying a whole
+`vco2` body and on the pair `rich`/`sparse`:
+
+> „das gehört in den analog_osc"
+>
+> „‚rich' und ‚sparse' — ergeben so keinen Sinn. Es gibt Filter und drive im Synth"
+
+Counted over all 51 words by classifying each `code` block's opcodes, this is not two entries:
+
+| What the word's code actually is | how many |
+|---|---|
+| **a whole instrument body** — a generator reading `kfreq` (`brittle`, `clangorous`, `distorted`, `fat`, `glassy`, `hollow`, `metallic`, `nasal`, `old`, `reedy`, `thick`, `thin`, `warm`) | **13** |
+| **the synth's FILTER** — `tone`/`atone` on the finished signal | **25** |
+| **the synth's filter AND drive** | **10** |
+| **the synth's DRIVE** — a `tanh` waveshaper (`dirty`, `edgy`, `raspy`) | **3** |
+| changes how the spectrum is GENERATED, as a word rather than as an instrument | **0** |
+
+So 38 of 51 words spend the player's own filter and drive, and 13 do not modify a sound at all —
+they replace it. That is the invariant BJ has stated before in his own terms — *„ansonsten
+greift sich der Osc selbst immer mehr vom Synth, und damit auch von den
+User-Konfigurationsmöglichkeiten"* (`docs/plans/HANDOVER_LCO.md` §6 item 4) — and it is the
+oscillator-is-a-spectrum-source invariant of `LCO_CONCEPT.md` §4, failing 51 times in the layer
+nobody audited.
+
+**This is §8's diagnosis, still standing after §8 was declared answered.** `LCO_CONCEPT.md` §8
+recorded exactly this shape — „`_ADJ_MAP` applies `gritty`/`dirty`/`airy` as bounded DSP
+operations on the **mixed** signal — a waveshaper hung on the end" — and §9 item 5 marked it
+ANSWERED on 2026-07-22, because the model now writes the code instead of a Python post-mix stage.
+The *wiring* was fixed. The **material** was not: the exemplars the author reads are still
+filters and waveshapers hung on the end, so what the author writes is shaped by examples that
+embody the defect the architecture change was supposed to remove.
+
+**Rendered, so it is audible and not only countable** (`tools/lco_listening/words_are_filter_and_drive/`,
+plain saw carrier, 110 and 220 Hz, level-matched; power-weighted audible centroid):
+
+| word | centroid @110 Hz | @220 Hz | what happens |
+|---|---|---|---|
+| carrier (plain saw) | 391.6 | 696.8 | — |
+| `rich` | 386.8 | 692.5 | **inert** — a 2200 Hz highpass added back at 0.30 moves the colour by under 0.1 % |
+| `sparse` | 229.3 | 386.4 | a lowpass, −41 % / −45 % |
+| `raspy` | 328.0 | 587.4 | **darker**, not edgier |
+| `dirty` | 317.8 | 570.2 | darker |
+| `distorted` | 210.6 | 408.2 | a different signal entirely — its code replaces the carrier |
+
+Two things fall out that no reading of the glosses would have produced. `rich` and `sparse` are
+not a pair: one is a strong lowpass, the other does nothing measurable. And all three dirt words
+make a sawtooth **darker** — which is the correct physics of soft clipping on a saw, already
+measured on this project (`LCO_CONCEPT.md` §5: „drive on a saw or narrow pulse makes it rounder
+and darker"), and the opposite of what their glosses promise.
+
 ## This lexicon, read against it
 
 All 51 words checked against `backend/dco_lexicon.json` (`lexicon_version` 12, 28 instruments,
@@ -177,14 +230,35 @@ reference is a cure for the first only. So, explicitly:
 Ordered so that nothing later depends on a decision that has not been made yet. Phase 0 is this
 file.
 
+**What the literature is FOR, after the audit above.** Not „which adjective is defined wrongly" —
+that framing survived one day. The correlates are statements about the *signal*, and the signal
+here is made by a generator, so each correlate names a **generation parameter a word should
+move**: brightness is the harmonic rolloff of the source (`gbuzz`'s `kmul`, a duty cycle, an FM
+index), not a lowpass; hollowness is odd-harmonic content, i.e. a waveform choice, which is why
+`hollow` is one of the thirteen that got the mechanism right and the packaging wrong; richness is
+strong low-order partials plus movement over the note; roughness is amplitude modulation of the
+generator's own parameter. That is BJ's founding sentence read literally — *„LLM übersetzt
+natural language Adjektive und Metaphern in diese Instrumentkategorie und innerhalb dieser die
+Parameter"* — the words were always supposed to move the instrument's parameters, and instead
+they became post-effects.
+
 **1 — One word, the one that is missing: a roughness mechanism.** The unit of work is ONE
 instrument-or-word, not a sweep of the vocabulary. Method and source written down first, as rule
 1 requires: amplitude modulation in the 15–300 Hz band within a critical band (Helmholtz 1877 →
 Fastl & Zwicker 2007 → Daniel & Weber 1997 → Vassilakis & Kendall 2010), with Pressnitzer &
 McAdams' asymmetry — abrupt rise, slow decay — as the envelope shape rather than a symmetric LFO.
-Comparison first, code second (rule 4): render `dirty` and `raspy`, the two nearest existing
-words, before writing a line of the new one. Sound-shaping, so **BJ's order gates the start, and
-his ear gates the end.**
+
+**And it must not be a waveshaper**, which is what the audit adds to this item: `raspy`, `dirty`
+and `edgy` are the synth's drive, so a fourth `tanh` at a fourth gain would be the same category
+error with a better citation. Roughness is modulation *of the generator's own parameter* — an
+index, a duty cycle, a detune — at 15–300 Hz, which is exactly why it is the one word on the list
+the audit does not condemn in advance: there is no synth control that produces it, so it has a
+right to live in the oscillator.
+
+Comparison first, code second (rule 4): done — `tools/lco_listening/words_are_filter_and_drive/`
+holds the plain carrier against `raspy`, `dirty` and `distorted` at two registers, level-matched,
+which is what the library offers today when a prompt asks for something rough. Sound-shaping, so
+**BJ's order gates the start, and his ear gates the end.**
 
 **2 — The meter, tools-only, from a published implementation.** MOSQITO 1.2.1 (PyPI, Apache-2.0,
 depends only on numpy/scipy/pyuff) implements DIN 45692 sharpness — von Bismarck's model,
@@ -196,9 +270,19 @@ untouched. Calibrated before it is believed, in this repo's own way — known-an
 ≈1 asper, which is the definition of the unit), then bodies. Purpose: a falsifier for word
 claims, wired into the same place `lco_axis_probe` already asks its questions.
 
-**3 — The two contradicted glosses, one at a time, to BJ.** `rich` first (it is reached for far
-more often), `warm` second (its own gloss already asked the question). Each is a sound change:
-nearest-existing rendered first, A/B on disk, his ear decides, drop it if it does not win.
+**3 — SUPERSEDED by the audit above, 2026-07-29.** This item used to read „the two contradicted
+glosses, `rich` and `warm`, one at a time". The audit says the defect is not in those two lines:
+38 words are the synth's filter and drive and 13 are instruments, so redefining a gloss would
+leave the category error in place and only make it better worded. What replaces it is one
+question for BJ, and it is a question rather than a work order — **what is a sound word allowed
+to be, once filter and drive belong to the synth?** Three answers are on the table and they are
+not exclusive: a word moves an existing instrument's own parameter (`analog_osc.drive`, a duty
+cycle, an FM index) and carries no code of its own; a word carries generation code that no synth
+control can produce (an odd-harmonic spectrum, a modulated index — the thirteen instrument
+bodies are this, wrongly packaged); or a word stays a filter and is labelled honestly as spending
+the user's filter. Until that is settled, the only act on `rich`/`sparse` that needs no answer is
+the small one: `rich` measures **inert** — under 0.1 % of colour — which is a defect under all
+three.
 
 **4 — The index, through the gate that already exists.** Grouping the 51 words by the three
 substrates instead of listing them flat is an index change, and open item 6 of
