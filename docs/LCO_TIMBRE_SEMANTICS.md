@@ -206,14 +206,28 @@ only the first.
 
 ## The plan that follows
 
-**1 — The question that gates everything else, and it is BJ's.** What is a sound word allowed to
-be, once filter and drive belong to the synth? [2] narrows it usefully: the three control groups
-that carry the semantics and that the oscillator legitimately owns are **partial spacing, partial
-energy, and the movement of partial energy over the note**. Three shapes are consistent with
-that, and they are not exclusive — a word moves an existing instrument's own parameter and
-carries no code; a word carries generation code no synth control can produce; a word stays a
-filter and is labelled honestly as spending the user's filter. Nothing below is worth building
-before this is answered.
+**0 — NOT NEGOTIABLE, and it was on a list of options in the previous version of this file until
+BJ struck it out (2026-07-29): „DU WIRST DEM SYNTH NICHT EINEN EINFACHEN FILTER WEGNEHMEN HIER."**
+A sound word is never a filter. Not a well-behaved one, not a gentle one, not one that is
+„labelled honestly as spending the user's filter" — that phrasing stood here as a third live
+option and had no business being offered. The synth has a filter and it belongs to the player;
+an oscillator that filters has already spent it before the player reaches the knob. The same
+holds for drive. This is `LCO_CONCEPT.md` §4 („the oscillator is a SPECTRUM SOURCE") and BJ's
+standing objection in `docs/plans/HANDOVER_LCO.md` §6 item 4 („ansonsten greift sich der Osc
+selbst immer mehr vom Synth, und damit auch von den User-Konfigurationsmöglichkeiten"), and it
+is a prohibition, not a consideration to weigh.
+
+It also voids the way the 38 filter/drive words were described here. `rich` is not „inert" and
+`sparse` is not „a strong lowpass at −41 %": those are readings of *how well* the oscillator does
+the synth's job, and there is no well. Neither is repairable by changing its cutoff, its gain or
+its wording.
+
+**1 — The question that remains, and it is BJ's.** What is a sound word allowed to *be*? [2]
+narrows it usefully: the three control groups that carry the semantics and that the oscillator
+legitimately owns are **partial spacing, partial energy, and the movement of partial energy over
+the note**. Two shapes are consistent with that and they are not exclusive — a word moves an
+existing instrument's own parameter and carries no code of its own; or a word carries generation
+code that no synth control can produce. Nothing below is worth building before this is answered.
 
 **2 — No roughness word. That item is withdrawn.** The first version of this plan proposed
 building one as amplitude modulation at 15–300 Hz. In this substrate roughness is not a modulator
