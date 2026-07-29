@@ -86,26 +86,22 @@ factors.** So for synthesised sounds there is no centroid, no inharmonicity figu
 fundamental frequency that predicts *rich / thick / big / deep*. Any rule of the form „mass = low
 f0 + inharmonicity" is an acoustic-instrument finding and does not survive the move to a synth.
 
-## What [2] establishes — how the words are MADE
+## What does NOT transfer from [2]: its parameters
 
-This is the part the first version of this file did not have. The paper divides the synthesiser
-into four control groups and reports which ones each factor moves (§4.2):
+**This project is not an FM synthesiser** (BJ, 2026-07-29: „wir REDEN HIER NICHT ÜBER FM"). The
+library is 28 instruments — waveguides, modal banks, `vco2`, `streson`, noise beds, additive
+stacks — of which FM is four entries. [2]'s operational half is stated in modulator tuning
+ratios, modulator volumes and modulator envelopes, and **none of that vocabulary exists outside
+FM**: a modal bank has mode ratios, Q and an exciter; a waveguide has bow pressure, position and
+reflection; `vco2` has a duty cycle. There is no general sideband layer to map onto.
 
-| control group | what it is | on an FM operator |
-|---|---|---|
-| 1 | **amplitude temporal evolution** | carrier ADSR |
-| 2 | **spacing between sideband frequencies** | modulator tuning ratio |
-| 3 | **sideband energy distribution** | modulator volume / index |
-| 4 | **sideband energy temporal evolution** | modulator ADSR |
-
-- **Sharpness up** = faster amplitude envelope (↓ carrier attack, ↓ release) · **wider sideband
-  spacing** (↑ modulator tuning) · **more energy in the sidebands** (↑ modulator volume) ·
-  **shorter sideband-energy envelope** (↓ modulator attack).
-- **Mass up** = slower amplitude envelope with more sustain (↑ carrier decay/sustain/release) ·
-  **narrower sideband spacing** (↓ modulator tuning) · **no change to sideband energy
-  distribution** · **slower sideband-energy envelopes with more sustain** (↑ modulator
-  attack/decay/sustain/release).
-- **Percussiveness up** = shorter envelopes plus more energy in sidebands.
+The paper says so about itself, in the sentence this file walked past twice: *„it is crucial to
+be mindful that these observations cannot be assumed to generalise beyond the timbral domain of
+our experimental FM synthesiser."* And it flags its own headline finding as possibly an artefact
+— the fusion of luminance and texture in F1 *„could be a direct result of the chosen method of
+synthesis"*, because in FM you cannot add high-frequency energy without adding inharmonicity.
+So the factor structure above is evidence, not law, and the parameter recipe is FM's own and
+stops at FM's edge.
 
 **These qualities are DYNAMIC, and that is the load-bearing fact, not the prohibition on
 filtering.** BJ, 2026-07-29, on this file still reaching for static tilts: *„Du verwechselst
@@ -131,18 +127,23 @@ fundamental (`LCO_CONCEPT.md` §4); this says the word layer is where it is viol
 **And roughness is spectral, not level.** The first version of this plan proposed amplitude
 modulation at 15–300 Hz with an asymmetric envelope. That is a wobble on loudness, which the
 synth owns and which reads as tremolo; roughness is partials packed closely enough to interact —
-inharmonic sideband density, control group 2, the same gesture as brightness. The library's one
+partials packed closely enough to interact, on whatever generator is in play. The library's one
 moving dirt word does precisely the wrong thing: `dirty`'s `randi 0.45, 11` is a slow irregular
 LFO on how hard the signal is clipped.
 
-**Read that against this platform's invariant and the answer falls out.** Group 1 — the amplitude
-envelope — belongs to the synth here and always will (`LCO_CONCEPT.md` §4). Groups **2, 3 and 4
-belong to the oscillator**: partial spacing, partial energy, and how partial energy moves over
-the note. Those three are generation, not filtering, and they are enough to reach sharpness,
-mass and percussiveness without touching the player's envelope. Group 4 in particular — a
-spectral envelope with no amplitude envelope — is what movement-by-default has been asking for
-all along, and the mechanism already shipped: a short `T` in `min(knote / T, 1)` makes a
-transient out of a morph without an envelope (commit `269e1b85`).
+**What survives the substrate change is small, and it is not a recipe.** Two things only. A sound
+word names a quality that is **dynamic and spectral** — which partials are there, how strong they
+are, and how that changes across the note — and never the loudness, which is the player's.
+Roughness in particular is partials packed closely enough to interact, on any generator; the
+15–300 Hz figure describes the beat rate that results, not a modulator to install.
+
+**Which parameter realises a word is per instrument, and this project settled that before any of
+this reading.** `LCO_CONCEPT.md` §3, dictated: *„What is shared is the vocabulary, not the
+parameter list. `gritty`, `dirty`, `airy` must mean something in every instrument — but each
+instrument decides which of its OWN parameters that word moves."* That is the answer the FM
+detour was groping for, and it was already written down. A word is a shared name for a dynamic
+spectral quality; it is not a code block, not a filter, and not a parameterisation borrowed from
+somebody else's synthesiser.
 
 ---
 
@@ -161,7 +162,7 @@ Counted by classifying each `code` block's opcodes:
 | **the synth's FILTER** — `tone`/`atone` on the finished signal | **25** |
 | **the synth's filter AND drive** | **10** |
 | **the synth's DRIVE** — a `tanh` waveshaper (`dirty`, `edgy`, `raspy`) | **3** |
-| partial spacing, partial energy, or the movement of partial energy (groups 2–4 above) | **0** |
+| which partials are there, how strong they are, or how that changes across the note | **0** |
 
 ### And they are static, which is the defect underneath that one
 
@@ -187,7 +188,7 @@ BJ's ruling on the two he looked at, 2026-07-29: *„das gehört in den analog_o
 carrying a whole `vco2` body) and *„‚rich' und ‚sparse' — ergeben so keinen Sinn. Es gibt Filter
 und drive im Synth"*. The count says that is the whole layer, not two entries: 38 of 51 spend the
 player's own filter and drive, 13 replace the sound instead of shaping it, and none reaches the
-three control groups that actually carry the semantics.
+quality the words actually name — a spectrum that moves.
 
 This is `LCO_CONCEPT.md` §8's own diagnosis — „`_ADJ_MAP` applies `gritty`/`dirty`/`airy` as
 bounded DSP operations on the **mixed** signal — a waveshaper hung on the end" — which §9 item 5
@@ -200,8 +201,8 @@ change removed.
 
 - **`rich`.** Lexicon: „many harmonics, deliberately the inverse of sparse", implemented as a
   2200 Hz highpass added back plus a `tanh`. Measured: `rich` is a **mass** word (.69) — big,
-  thick, deep — and mass is made by *narrower* partial spacing and slower sideband-energy
-  envelopes. Adding highs is the sharpness axis, i.e. the other factor. Its declared opposite
+  thick, deep — a different axis from brightness, whichever generator is producing it. Adding
+  highs is the sharpness axis, i.e. the other factor. Its declared opposite
   `sparse` does not exist in the synth vocabulary at all; the measured opposite of thick is
   **`thin`** (−.70 on the same factor).
 - **`warm`.** Lexicon: a whole `vco2` body with a `tanh` drive, glossed as an arguable
@@ -210,7 +211,7 @@ change removed.
 - **`rough`, `gritty`, `harsh`, `raspy`, `dirty`.** These are not a separate „texture mechanism"
   the library is missing. `rough` (.42) and `gritty` (.48) load on the **same factor as `bright`
   and `sharp`**, and are made by the same controls: wider partial spacing and more partial
-  energy, i.e. inharmonic sidebands. The library already owns that mechanism — the inharmonic
+  energy, i.e. denser and less harmonic partials. The library already owns that mechanism — the inharmonic
   pushes in `metallic`, `glassy`, `clangorous`, `brittle`, and the FM family's index and detune
   axes. What it does not own is the recognition that these are one axis, and it implements three
   of them (`raspy`, `dirty`, `edgy`) as a `tanh` waveshaper, which is the synth's drive.
@@ -220,8 +221,8 @@ change removed.
   it as an absence. It is a dimension.
 - **`plucky` / `percussive` / `raw`.** Absent from the lexicon entirely, and two of them are the
   cleanest factor in the whole study (plucky .99). On this platform they are reachable **without
-  an envelope**, through the sideband-energy envelope — group 4 — which is exactly what
-  `269e1b85` made writable.
+  an envelope**, by letting the SPECTRUM have the transient instead of the level — which is
+  exactly what a short `T` in `min(knote / T, 1)` does (`269e1b85`).
 - **`analog`, `old`, `washed_out`.** Outside both studies by construction: they name a device, an
   era, a medium, not a percept. In Porcello's taxonomy ([1] p. 123) that is *association*, whose
   anchor is the machine — so they are checked against the machine (a VCO's real instability, a
@@ -271,15 +272,14 @@ the synth's job, and there is no well. Neither is repairable by changing its cut
 its wording.
 
 **1 — The question that remains, and it is BJ's.** What is a sound word allowed to *be*? [2]
-narrows it usefully: the three control groups that carry the semantics and that the oscillator
-legitimately owns are **partial spacing, partial energy, and the movement of partial energy over
-the note**. Two shapes are consistent with that and they are not exclusive — a word moves an
+narrows it only in kind, not in mechanism — the quality is **dynamic and spectral**, and which
+parameter of which instrument realises it is per instrument (`LCO_CONCEPT.md` §3). Two shapes are consistent with that and they are not exclusive — a word moves an
 existing instrument's own parameter and carries no code of its own; or a word carries generation
 code that no synth control can produce. Nothing below is worth building before this is answered.
 
 **2 — No roughness word. That item is withdrawn.** The first version of this plan proposed
 building one as amplitude modulation at 15–300 Hz. In this substrate roughness is not a modulator
-on a parameter — it is inharmonic sideband density, the same gesture as brightness, and the
+on a parameter — it is partials close enough to interact, the same gesture as brightness, and the
 library already has it. Building a fourth `tanh` under a better citation would have been the same
 category error with a footnote.
 
@@ -320,10 +320,11 @@ acoustic instruments** were applied to a **synthesiser**.
 |---|---|
 | Three semantic substrates: luminance, texture, mass | **Five** for synthesised sounds, and the first is luminance and texture **fused** |
 | brightness ↔ spectral centroid | F1 correlates with spectrotemporal distribution/shape (−.58) and flatness (+.49); no single centroid |
-| roughness ↔ envelope fluctuation 15–300 Hz in a critical band; „the library has no roughness at all" | roughness rides on the **same factor and the same controls** as brightness — inharmonic sidebands, which the library has |
+| roughness ↔ envelope fluctuation 15–300 Hz in a critical band; „the library has no roughness at all" | roughness is partials close enough to interact — the library has that mechanism in its inharmonic entries |
 | mass ↑ with inharmonicity and centroid fluctuation, ↓ with f0 | mass correlates with **none** of the four acoustic components, and **F0 has no influence on any factor** |
 | richness ↔ a LOW spectral centroid (from violin studies) | `rich` is a **mass** word (.69), and shares its factor with `dark` (.51) |
 | „language does not carry the attack; do not spend a build on those words" | *plucky* .99 and *percussive* .78 are the **cleanest factor in the study** — the listening paradigm misses attack, the vocabulary does not |
 | `rich` „measures inert" (centroid moved < 0.1 %) | measured with the one descriptor that does not track this word's factor at all; the verdict is void, not merely imprecise |
 | the words are spectral TILTS to be got right or wrong | every acoustic component that predicts these factors is **spectrotemporal**, and its top loading is an **IQR across frames**. A static tilt cannot carry the quality at all — 36 of 51 words are static (BJ: „Du verwechselst dynamische sonische Qualitäten mit einem statischen Filter") |
-| roughness = amplitude modulation at 15–300 Hz with an asymmetric envelope | that is a slow irregular LFO on loudness, i.e. tremolo, and loudness belongs to the synth. Roughness is inharmonic sideband density — spectral, not level (BJ, same ruling) |
+| roughness = amplitude modulation at 15–300 Hz with an asymmetric envelope | that is a slow irregular LFO on loudness, i.e. tremolo, and loudness belongs to the synth. Roughness is spectral: partials close enough to interact (BJ, same ruling) |
+| the operational answer is [2]'s four control groups (modulator tuning / volume / envelope) | that is FM's parameterisation and this is not an FM synth (BJ: „wir REDEN HIER NICHT ÜBER FM"). The paper says the same about itself, and flags its own headline finding as possibly an artefact of FM |
