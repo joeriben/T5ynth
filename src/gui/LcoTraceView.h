@@ -367,9 +367,17 @@ public:
     // Plain left press only. A right press is what a context menu wants — and
     // step 3 puts a text field on the back, which will want one — and on macOS
     // ctrl+left arrives as a right press, so both would otherwise turn the card
-    // over instead.
+    // over instead. That context menu now exists (BJ 2026-07-29: the whole view
+    // was painted, never selectable, so there was no way to get a prompt, an
+    // error or the Csound itself out of it): a right press offers "Copy", which
+    // puts whichever side is up on the clipboard as plain text.
     void mouseDown(const juce::MouseEvent& e) override
     {
+        if (e.mods.isPopupMenu())
+        {
+            showCopyMenu(e.getScreenPosition());
+            return;
+        }
         if (e.mods.isLeftButtonDown() && ! e.mods.isAnyModifierKeyDown())
             startTimer(kHoldMs);
     }
@@ -414,6 +422,125 @@ private:
         relayout();
         if (onFlip)
             onFlip(showBack_);
+    }
+
+    /** Right-click: "Copy" the side currently up, as plain text. One item, not
+     *  a menu of stations — the view has no text selection (it is painted, not
+     *  laid out in real components), so there is no "copy this part" to offer,
+     *  only "copy what's on screen". Anchored at the cursor, not the view's
+     *  bounds, matching every other context menu in this codebase. */
+    void showCopyMenu(juce::Point<int> screenPos)
+    {
+        const juce::String text = showBack_ ? backText() : frontText();
+        juce::PopupMenu m;
+        m.addItem(1, showBack_ ? "Copy Csound" : "Copy trace", text.isNotEmpty());
+        const juce::Rectangle<int> targetArea(screenPos.x, screenPos.y, 1, 1);
+        m.showMenuAsync(juce::PopupMenu::Options().withTargetScreenArea(targetArea),
+            [text](int result)
+            {
+                if (result == 1)
+                    juce::SystemClipboard::copyTextToClipboard(text);
+            });
+    }
+
+    /** The back of the card, as plain text: the authored Csound, verbatim —
+     *  preceded by the compiler's complaint when renderBody() is showing one
+     *  above it. Without this, "Copy Csound" right after a failed compile
+     *  would copy the code and silently drop the error the user is looking
+     *  at, which is exactly the case this menu exists for. */
+    juce::String backText() const
+    {
+        juce::String s;
+        if (compile_ == CompileState::Error && compileDetail_.isNotEmpty())
+            s << compileDetail_ << "\n\n";
+        s << body_;
+        return s;
+    }
+
+    /** The front of the card, as plain text — one paragraph per station, in
+     *  the same order render() draws them, so the copy reads exactly like the
+     *  screen it came from. Mirrors render()'s own station content rather than
+     *  calling it, because render() draws (dots, hairlines, chip boxes); this
+     *  only needs the words inside each station. */
+    juce::String frontText() const
+    {
+        if (! trace_.valid)
+        {
+            juce::String s = status_.isNotEmpty() ? status_ : placeholder_;
+            if (live_.isNotEmpty())
+                s << "\n\nTHINKING\n" << live_;
+            if (liveBody_.isNotEmpty())
+                s << "\n\nWRITING\n" << liveBody_;
+            return s;
+        }
+
+        juce::StringArray out;
+
+        if (trace_.prompt.isNotEmpty())
+            out.add("HEARD\n" + trace_.prompt);
+
+        if (trace_.consultationKnown)
+        {
+            juce::StringArray named;
+            named.addArray(trace_.namedInstruments);
+            named.addArray(trace_.namedAdjectives);
+            named.addArray(trace_.namedMotions);
+            const int openedCount = trace_.openedInstruments.size()
+                                  + trace_.openedAdjectives.size()
+                                  + trace_.openedMotions.size();
+            const bool wholeLibrary = trace_.libraryEntryCount > 0
+                                   && openedCount >= trace_.libraryEntryCount;
+
+            juce::String opened("OPENED\n");
+            opened << (named.isEmpty() ? juce::String("the author named no entry")
+                                       : named.joinIntoString(", "));
+            juce::String note;
+            if (wholeLibrary)
+                note << "the whole library was opened";
+            else if (trace_.libraryEntryCount > 0)
+                note << openedCount << " of " << trace_.libraryEntryCount << " entries opened";
+            if (trace_.namedMotions.isEmpty())
+                note << (note.isEmpty() ? "" : " \xc2\xb7 ") << "no movement asked for";
+            if (note.isNotEmpty())
+                opened << "\n" << note;
+            out.add(opened);
+        }
+
+        if (trace_.thinking.isNotEmpty())
+            out.add("THOUGHT\n" + trace_.thinking);
+
+        {
+            juce::StringArray wrote;
+            if (trace_.model.isNotEmpty())   wrote.add(trace_.model);
+            if (trace_.reading.isNotEmpty()) wrote.add(trace_.reading);
+            if (summary_.isNotEmpty())       wrote.add(summary_);
+            out.add("WROTE\n" + wrote.joinIntoString("\n"));
+        }
+
+        if (! trace_.repairs.isEmpty())
+        {
+            juce::String rubric("REPAIRED");
+            if (trace_.attempts > 1)
+                rubric << "  " << trace_.attempts << " attempts";
+            out.add(rubric + "\n" + trace_.repairs.joinIntoString("\n"));
+        }
+
+        {
+            juce::String text("compile not observed");
+            switch (compile_)
+            {
+                case CompileState::Compiling: text = "compiling...";  break;
+                case CompileState::Ok:        text = "compiled";      break;
+                case CompileState::Error:
+                    text = compileDetail_.isNotEmpty() ? compileDetail_
+                                                       : juce::String("the orchestra did not compile");
+                    break;
+                case CompileState::Unknown:   break;
+            }
+            out.add("RUNNING\n" + text);
+        }
+
+        return out.joinIntoString("\n\n");
     }
 
 public:
