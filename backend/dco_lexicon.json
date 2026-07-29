@@ -4463,12 +4463,12 @@
    ],
    "category": "texture",
    "priority": 8,
-   "why": "a glinting in the TOP of the spectrum: the high partials catch the light and let it go again, irregularly. Only the top moves -- the body of the tone stands still. This form re-weights partials that are ALREADY there, so it needs a tone with a bright tail; on a mellow FM tone there is nothing above the highpass to glint with.",
+   "why": "a glinting in the TOP of the spectrum: the high partials catch the light and let it go again, irregularly. Only the top moves -- the body of the tone stands still. This form re-weights partials that are ALREADY there, so it needs a tone with a bright tail; on a mellow FM tone there is nothing above the highpass to glint with. The corner is the 8th harmonic, not a fixed frequency, so \"the top\" means the same thing at every pitch -- and the glint therefore THINS toward the top of the keyboard, where the band above the 8th harmonic is nearly empty. That is the physics of the word, not a defect: high notes have less top left to glint with.",
    "texture": {
     "n_cycles": 3,
     "depth": 0.5
    },
-   "code": "ivph    = frac(ivoice * 0.6180339887)   ; each voice moves on its own -- a chord\n                                        ; must not move in lockstep\nahi     butterhp asig, 2200             ; the top of the spectrum, on its own\nabri    = asig + ahi * 1.2              ; a fixed GLINTING copy of the tone ...\nabri    balance abri, asig, 1           ; ... matched to the clean level ONCE\nkg      randi  0.5, 9.0, ivoice         ; irregular glints, never a steady beat\nkpos    = 0.5 + kg\nasig    = asig * (1 - kpos) + abri * kpos   ; so this can only move COLOUR",
+   "code": "ivph    = frac(ivoice * 0.6180339887)   ; each voice moves on its own -- a chord\n                                        ; must not move in lockstep\nkglt    = min(kfreq * koct1 * 8, sr * 0.45) ; \"the top\" is a RATIO: the 8th harmonic up,\n                                        ; clamped to the band. 2200 Hz was this corner\n                                        ; at C#4 and the 2nd harmonic at 880 Hz.\nahi     butterhp asig, kglt             ; the top of the spectrum, on its own\nabri    = asig + ahi * 1.2              ; a fixed GLINTING copy of the tone ...\nabri    balance abri, asig, 1           ; ... matched to the clean level ONCE\nkg      randi  0.5, 9.0, ivoice         ; irregular glints, never a steady beat\nkpos    = 0.5 + kg\nasig    = asig * (1 - kpos) + abri * kpos   ; so this can only move COLOUR",
    "kind": "unsteady",
    "motion_rate_hz": 9.0,
    "moves": "colour",
