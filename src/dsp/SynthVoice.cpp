@@ -36,15 +36,14 @@ float aftertouchDrive(const BlockParams& p, int target, float pressure)
 }
 
 float computeEffectiveLfoDepth(const BlockParams& p, int target, float baseDepth,
-                               float ampEnvVal, float mod1EnvVal, float mod2EnvVal)
+                               float ampEnvVal, const float* modEnvVals)
 {
     float depth = baseDepth;
     if (p.ampTarget == target)
         depth = applyNormalizedOffset(depth, ampEnvVal);
-    if (p.mod1Target == target)
-        depth = applyNormalizedOffset(depth, mod1EnvVal);
-    if (p.mod2Target == target)
-        depth = applyNormalizedOffset(depth, mod2EnvVal);
+    for (int m = 0; m < kNumModEnvs; ++m)
+        if (p.modEnv[m].target == target)
+            depth = applyNormalizedOffset(depth, modEnvVals[m]);
     return depth;
 }
 
@@ -69,11 +68,11 @@ float applyAftertouchDcaGain(const BlockParams& p, float gain, float pressure)
                         + aftertouchDrive(p, AftertouchTarget::DCA, pressure));
 }
 
-float computeDcaGain(const BlockParams& p, float ampEnvVal, float mod1EnvVal, float mod2EnvVal)
+float computeDcaGain(const BlockParams& p, float ampEnvVal, const float* modEnvVals)
 {
     float vca = (p.ampTarget == EnvTarget::DCA) ? ampEnvVal : 1.0f;
-    if (p.mod1Target == EnvTarget::DCA) vca *= (1.0f + mod1EnvVal);
-    if (p.mod2Target == EnvTarget::DCA) vca *= (1.0f + mod2EnvVal);
+    for (int m = 0; m < kNumModEnvs; ++m)
+        if (p.modEnv[m].target == EnvTarget::DCA) vca *= (1.0f + modEnvVals[m]);
     return std::max(0.0f, vca);
 }
 
@@ -97,7 +96,7 @@ float computeVelocityTimedMs(float baseMs, float velSense, float velocity)
 // Global velocity → envelope note-on PEAK. velAmt ∈ [0..1]: 0 = velocity-
 // independent (peak 1.0), 1 = peak tracks velocity 1:1. Linear blend — the
 // synth's long-standing default (== the old per-env sustain_vel_sens at 1.0).
-// Applied to ALL three envelope peaks, so velocity scales each env's depth on
+// Applied to ALL envelope peaks, so velocity scales each env's depth on
 // whatever it targets: DCA loudness, filter cutoff, pitch, scan, noise…
 float velPeakScale(float velAmt, float velocity)
 {
@@ -117,8 +116,7 @@ void SynthVoice::prepare(double sampleRate, int samplesPerBlock)
     freezeEngine.prepare(sampleRate, samplesPerBlock);
     noise.prepare(sampleRate);
     ampEnv.prepare(sampleRate);
-    modEnv1.prepare(sampleRate);
-    modEnv2.prepare(sampleRate);
+    for (auto& e : modEnvs) e.prepare(sampleRate);
     perVoiceLfo1.prepare(sampleRate);
     perVoiceLfo2.prepare(sampleRate);
     perVoiceLfo3.prepare(sampleRate);
@@ -164,8 +162,7 @@ void SynthVoice::reset()
     sampler.reset();
     freezeEngine.reset();
     ampEnv.reset();
-    modEnv1.reset();
-    modEnv2.reset();
+    for (auto& e : modEnvs) e.reset();
     filter.reset();
     filterLadder.reset();
     filterWarp.reset();
@@ -181,8 +178,7 @@ void SynthVoice::reset()
     currentNote = -1;
     aftertouch_ = 0.0f;
     lastAmpEnvLevel = 0.0f;
-    lastMod1Val_ = 0.0f;
-    lastMod2Val_ = 0.0f;
+    for (auto& v : lastModVal_) v = 0.0f;
     lastModulatedCutoff_ = 20000.0f;
     lastModulatedResonance_ = 0.0f;
     lastModulatedScan_ = 0.0f;
@@ -238,8 +234,7 @@ void SynthVoice::noteOn(int note, float velocity, bool legato)
         // velSens shapes only the A/D/R times.
         const float peak = velPeakScale(velAmt_, velocity);
         ampEnv.noteOn(peak);
-        modEnv1.noteOn(peak);
-        modEnv2.noteOn(peak);
+        for (auto& e : modEnvs) e.noteOn(peak);
         // Fresh note starts at neutral MPE timbre until its first CC74 arrives;
         // legato (held finger sliding to a new note) keeps the current timbre.
         timbre_ = kTimbreNeutral;
@@ -278,8 +273,7 @@ void SynthVoice::noteOff()
     noteHeld = false;
     applyVelocityTimedEnvelopeTimes();
     ampEnv.noteOff();
-    modEnv1.noteOff();
-    modEnv2.noteOff();
+    for (auto& e : modEnvs) e.noteOff();
 }
 
 void SynthVoice::glideToNote(int note, float glideMs)
@@ -332,7 +326,7 @@ void SynthVoice::glideToNote(int note, float glideMs)
 }
 
 float SynthVoice::pitchBusSemitones(const BlockParams& p,
-                                    float ampEnvVal, float mod1EnvVal, float mod2EnvVal,
+                                    float ampEnvVal, const float* modEnvVals,
                                     float lfo1Val, float lfo2Val, float lfo3Val) const
 {
     // Every source contributes a NORMALIZED semitone-fraction; the caller
@@ -341,8 +335,8 @@ float SynthVoice::pitchBusSemitones(const BlockParams& p,
     // its depths in hand and should not pay to resolve them twice.
     float semis = p.driftPitchOffset;
     if (p.ampTarget  == EnvTarget::Pitch) semis += ampEnvVal;
-    if (p.mod1Target == EnvTarget::Pitch) semis += mod1EnvVal;
-    if (p.mod2Target == EnvTarget::Pitch) semis += mod2EnvVal;
+    for (int m = 0; m < kNumModEnvs; ++m)
+        if (p.modEnv[m].target == EnvTarget::Pitch) semis += modEnvVals[m];
     if (p.lfo1Target == LfoTarget::Pitch) semis += lfo1Val;
     if (p.lfo2Target == LfoTarget::Pitch) semis += lfo2Val;
     if (p.lfo3Target == LfoTarget::Pitch) semis += lfo3Val;
@@ -376,8 +370,8 @@ float SynthVoice::pitchBusReachSemitones(const BlockParams& p) const
     // landing on different paths for no reason a player could hear or predict.
     float bus = std::abs(p.driftPitchReach);
     if (p.ampTarget  == EnvTarget::Pitch) bus += 1.0f;
-    if (p.mod1Target == EnvTarget::Pitch) bus += 1.0f;
-    if (p.mod2Target == EnvTarget::Pitch) bus += 1.0f;
+    for (int m = 0; m < kNumModEnvs; ++m)
+        if (p.modEnv[m].target == EnvTarget::Pitch) bus += 1.0f;
     if (p.lfo1Target == LfoTarget::Pitch) bus += std::abs(p.lfo1Depth);
     if (p.lfo2Target == LfoTarget::Pitch) bus += std::abs(p.lfo2Depth);
     if (p.lfo3Target == LfoTarget::Pitch) bus += std::abs(p.lfo3Depth);
@@ -401,14 +395,14 @@ float SynthVoice::pitchBusRatioFromRawLfo(const BlockParams& p,
     // carries is the whole point.
     const float d1 = applyAftertouchTarget(p, AftertouchTarget::LFO1Depth,
         computeEffectiveLfoDepth(p, EnvTarget::LFO1Depth, p.lfo1Depth,
-                                 lastAmpEnvLevel, lastMod1Val_, lastMod2Val_), aftertouch_);
+                                 lastAmpEnvLevel, lastModVal_), aftertouch_);
     const float d2 = applyAftertouchTarget(p, AftertouchTarget::LFO2Depth,
         computeEffectiveLfoDepth(p, EnvTarget::LFO2Depth, p.lfo2Depth,
-                                 lastAmpEnvLevel, lastMod1Val_, lastMod2Val_), aftertouch_);
+                                 lastAmpEnvLevel, lastModVal_), aftertouch_);
     const float d3 = applyAftertouchTarget(p, AftertouchTarget::LFO3Depth,
         computeEffectiveLfoDepth(p, EnvTarget::LFO3Depth, p.lfo3Depth,
-                                 lastAmpEnvLevel, lastMod1Val_, lastMod2Val_), aftertouch_);
-    const float semis = pitchBusSemitones(p, lastAmpEnvLevel, lastMod1Val_, lastMod2Val_,
+                                 lastAmpEnvLevel, lastModVal_), aftertouch_);
+    const float semis = pitchBusSemitones(p, lastAmpEnvLevel, lastModVal_,
                                           lfo1Raw * d1, lfo2Raw * d2, lfo3Raw * d3);
     // Clamped like the freeze path's own pitch ratio: a full-scale bus is +-1
     // octave, but several sources summing can exceed that, and the orchestra's
@@ -464,49 +458,32 @@ void SynthVoice::configureForBlock(const BlockParams& p)
     ampEnv.setDecayCurve(static_cast<CurveShape>(p.ampDecayCurve));
     ampEnv.setReleaseCurve(static_cast<CurveShape>(p.ampReleaseCurve));
 
-    mod1AttackBaseMs_ = p.mod1Attack;
-    mod1DecayBaseMs_ = p.mod1Decay;
-    mod1ReleaseBaseMs_ = p.mod1Release;
-    mod1AttackVelSens_ = p.mod1AttackVelSens;
-    mod1DecayVelSens_ = p.mod1DecayVelSens;
-    mod1ReleaseVelSens_ = p.mod1ReleaseVelSens;
-    if (p.mod1Loop)
+    for (int m = 0; m < kNumModEnvs; ++m)
     {
-        modEnv1.setSustain(kLoopHoldLevel);
-        modEnv1.setHoldMs(loopHoldMs(p.mod1Sustain));
+        const auto& mp = p.modEnv[m];
+        auto& env = modEnvs[m];
+        modAttackBaseMs_[m]     = mp.attack;
+        modDecayBaseMs_[m]      = mp.decay;
+        modReleaseBaseMs_[m]    = mp.release;
+        modAttackVelSens_[m]    = mp.attackVelSens;
+        modDecayVelSens_[m]     = mp.decayVelSens;
+        modReleaseVelSens_[m]   = mp.releaseVelSens;
+        if (mp.loop)
+        {
+            env.setSustain(kLoopHoldLevel);
+            env.setHoldMs(loopHoldMs(mp.sustain));
+        }
+        else
+        {
+            env.setSustain(applyAftertouchTarget(p, AftertouchTarget::modEnvSustain(m),
+                                                 mp.sustain, aftertouch_));
+            env.setHoldMs(0.0f);
+        }
+        env.setLooping(mp.loop);
+        env.setAttackCurve(static_cast<CurveShape>(mp.attackCurve));
+        env.setDecayCurve(static_cast<CurveShape>(mp.decayCurve));
+        env.setReleaseCurve(static_cast<CurveShape>(mp.releaseCurve));
     }
-    else
-    {
-        modEnv1.setSustain(applyAftertouchTarget(p, AftertouchTarget::Env2Sustain,
-                                                 p.mod1Sustain, aftertouch_));
-        modEnv1.setHoldMs(0.0f);
-    }
-    modEnv1.setLooping(p.mod1Loop);
-    modEnv1.setAttackCurve(static_cast<CurveShape>(p.mod1AttackCurve));
-    modEnv1.setDecayCurve(static_cast<CurveShape>(p.mod1DecayCurve));
-    modEnv1.setReleaseCurve(static_cast<CurveShape>(p.mod1ReleaseCurve));
-
-    mod2AttackBaseMs_ = p.mod2Attack;
-    mod2DecayBaseMs_ = p.mod2Decay;
-    mod2ReleaseBaseMs_ = p.mod2Release;
-    mod2AttackVelSens_ = p.mod2AttackVelSens;
-    mod2DecayVelSens_ = p.mod2DecayVelSens;
-    mod2ReleaseVelSens_ = p.mod2ReleaseVelSens;
-    if (p.mod2Loop)
-    {
-        modEnv2.setSustain(kLoopHoldLevel);
-        modEnv2.setHoldMs(loopHoldMs(p.mod2Sustain));
-    }
-    else
-    {
-        modEnv2.setSustain(applyAftertouchTarget(p, AftertouchTarget::Env3Sustain,
-                                                 p.mod2Sustain, aftertouch_));
-        modEnv2.setHoldMs(0.0f);
-    }
-    modEnv2.setLooping(p.mod2Loop);
-    modEnv2.setAttackCurve(static_cast<CurveShape>(p.mod2AttackCurve));
-    modEnv2.setDecayCurve(static_cast<CurveShape>(p.mod2DecayCurve));
-    modEnv2.setReleaseCurve(static_cast<CurveShape>(p.mod2ReleaseCurve));
 
     applyVelocityTimedEnvelopeTimes();
 
@@ -521,13 +498,38 @@ void SynthVoice::applyVelocityTimedEnvelopeTimes()
     ampEnv.setDecay(computeVelocityTimedMs(ampDecayBaseMs_, ampDecayVelSens_, currentVelocity));
     ampEnv.setRelease(computeVelocityTimedMs(ampReleaseBaseMs_, ampReleaseVelSens_, currentVelocity));
 
-    modEnv1.setAttack(computeVelocityTimedMs(mod1AttackBaseMs_, mod1AttackVelSens_, currentVelocity));
-    modEnv1.setDecay(computeVelocityTimedMs(mod1DecayBaseMs_, mod1DecayVelSens_, currentVelocity));
-    modEnv1.setRelease(computeVelocityTimedMs(mod1ReleaseBaseMs_, mod1ReleaseVelSens_, currentVelocity));
+    for (int m = 0; m < kNumModEnvs; ++m)
+    {
+        modEnvs[m].setAttack(computeVelocityTimedMs(modAttackBaseMs_[m], modAttackVelSens_[m], currentVelocity));
+        modEnvs[m].setDecay(computeVelocityTimedMs(modDecayBaseMs_[m], modDecayVelSens_[m], currentVelocity));
+        modEnvs[m].setRelease(computeVelocityTimedMs(modReleaseBaseMs_[m], modReleaseVelSens_[m], currentVelocity));
+    }
+}
 
-    modEnv2.setAttack(computeVelocityTimedMs(mod2AttackBaseMs_, mod2AttackVelSens_, currentVelocity));
-    modEnv2.setDecay(computeVelocityTimedMs(mod2DecayBaseMs_, mod2DecayVelSens_, currentVelocity));
-    modEnv2.setRelease(computeVelocityTimedMs(mod2ReleaseBaseMs_, mod2ReleaseVelSens_, currentVelocity));
+bool SynthVoice::modEnvStateMatches(const PreStretchNormState& st, const BlockParams& p)
+{
+    auto nearlyEqual = [] (float a, float b) { return std::abs(a - b) < 1.0e-5f; };
+
+    for (int m = 0; m < kNumModEnvs; ++m)
+    {
+        const auto& a = st.modEnv[m];
+        const auto& b = p.modEnv[m];
+        if (a.target != b.target
+            || a.loop != b.loop
+            || a.attackCurve != b.attackCurve
+            || a.decayCurve != b.decayCurve
+            || a.releaseCurve != b.releaseCurve
+            || !nearlyEqual(a.attack, b.attack)
+            || !nearlyEqual(a.decay, b.decay)
+            || !nearlyEqual(a.sustain, b.sustain)
+            || !nearlyEqual(a.release, b.release)
+            || !nearlyEqual(a.amount, b.amount)
+            || !nearlyEqual(a.attackVelSens, b.attackVelSens)
+            || !nearlyEqual(a.decayVelSens, b.decayVelSens)
+            || !nearlyEqual(a.releaseVelSens, b.releaseVelSens))
+            return false;
+    }
+    return true;
 }
 
 bool SynthVoice::preStretchNormStateMatches(const BlockParams& p) const
@@ -550,32 +552,7 @@ bool SynthVoice::preStretchNormStateMatches(const BlockParams& p) const
         && nearlyEqual(preStretchNormState_.ampAttackVelSens, p.ampAttackVelSens)
         && nearlyEqual(preStretchNormState_.ampDecayVelSens, p.ampDecayVelSens)
         && nearlyEqual(preStretchNormState_.ampReleaseVelSens, p.ampReleaseVelSens)
-        && preStretchNormState_.mod1Target == p.mod1Target
-        && nearlyEqual(preStretchNormState_.mod1Attack, p.mod1Attack)
-        && nearlyEqual(preStretchNormState_.mod1Decay, p.mod1Decay)
-        && nearlyEqual(preStretchNormState_.mod1Sustain, p.mod1Sustain)
-        && nearlyEqual(preStretchNormState_.mod1Release, p.mod1Release)
-        && nearlyEqual(preStretchNormState_.mod1Amount, p.mod1Amount)
-        && preStretchNormState_.mod1Loop == p.mod1Loop
-        && preStretchNormState_.mod1AttackCurve == p.mod1AttackCurve
-        && preStretchNormState_.mod1DecayCurve == p.mod1DecayCurve
-        && preStretchNormState_.mod1ReleaseCurve == p.mod1ReleaseCurve
-        && nearlyEqual(preStretchNormState_.mod1AttackVelSens, p.mod1AttackVelSens)
-        && nearlyEqual(preStretchNormState_.mod1DecayVelSens, p.mod1DecayVelSens)
-        && nearlyEqual(preStretchNormState_.mod1ReleaseVelSens, p.mod1ReleaseVelSens)
-        && preStretchNormState_.mod2Target == p.mod2Target
-        && nearlyEqual(preStretchNormState_.mod2Attack, p.mod2Attack)
-        && nearlyEqual(preStretchNormState_.mod2Decay, p.mod2Decay)
-        && nearlyEqual(preStretchNormState_.mod2Sustain, p.mod2Sustain)
-        && nearlyEqual(preStretchNormState_.mod2Release, p.mod2Release)
-        && nearlyEqual(preStretchNormState_.mod2Amount, p.mod2Amount)
-        && preStretchNormState_.mod2Loop == p.mod2Loop
-        && preStretchNormState_.mod2AttackCurve == p.mod2AttackCurve
-        && preStretchNormState_.mod2DecayCurve == p.mod2DecayCurve
-        && preStretchNormState_.mod2ReleaseCurve == p.mod2ReleaseCurve
-        && nearlyEqual(preStretchNormState_.mod2AttackVelSens, p.mod2AttackVelSens)
-        && nearlyEqual(preStretchNormState_.mod2DecayVelSens, p.mod2DecayVelSens)
-        && nearlyEqual(preStretchNormState_.mod2ReleaseVelSens, p.mod2ReleaseVelSens)
+        && modEnvStateMatches(preStretchNormState_, p)
         && nearlyEqual(preStretchNormState_.velocity, currentVelocity)
         && nearlyEqual(preStretchNormState_.velAmt, velAmt_)
         && nearlyEqual(preStretchNormState_.startPos, sampler.getStartPos())
@@ -616,20 +593,22 @@ void SynthVoice::updateSamplerPreStretchNorm(const BlockParams& p)
     const float ampAttackMs = computeVelocityTimedMs(p.ampAttack, p.ampAttackVelSens, currentVelocity);
     const float ampDecayMs = computeVelocityTimedMs(p.ampDecay, p.ampDecayVelSens, currentVelocity);
     const float ampReleaseMs = computeVelocityTimedMs(p.ampRelease, p.ampReleaseVelSens, currentVelocity);
-    const float mod1AttackMs = computeVelocityTimedMs(p.mod1Attack, p.mod1AttackVelSens, currentVelocity);
-    const float mod1DecayMs = computeVelocityTimedMs(p.mod1Decay, p.mod1DecayVelSens, currentVelocity);
-    const float mod1ReleaseMs = computeVelocityTimedMs(p.mod1Release, p.mod1ReleaseVelSens, currentVelocity);
-    const float mod2AttackMs = computeVelocityTimedMs(p.mod2Attack, p.mod2AttackVelSens, currentVelocity);
-    const float mod2DecayMs = computeVelocityTimedMs(p.mod2Decay, p.mod2DecayVelSens, currentVelocity);
-    const float mod2ReleaseMs = computeVelocityTimedMs(p.mod2Release, p.mod2ReleaseVelSens, currentVelocity);
+    float modAttackMs[kNumModEnvs], modDecayMs[kNumModEnvs], modReleaseMs[kNumModEnvs];
+    for (int m = 0; m < kNumModEnvs; ++m)
+    {
+        const auto& mp = p.modEnv[m];
+        modAttackMs[m]  = computeVelocityTimedMs(mp.attack,  mp.attackVelSens,  currentVelocity);
+        modDecayMs[m]   = computeVelocityTimedMs(mp.decay,   mp.decayVelSens,   currentVelocity);
+        modReleaseMs[m] = computeVelocityTimedMs(mp.release, mp.releaseVelSens, currentVelocity);
+    }
 
     float analysisMs = (p.ampTarget == EnvTarget::DCA)
         ? envWindowMs(ampAttackMs, ampDecayMs, ampReleaseMs, p.ampLoop)
         : 0.0f;
-    if (p.mod1Target == EnvTarget::DCA)
-        analysisMs = std::max(analysisMs, envWindowMs(mod1AttackMs, mod1DecayMs, mod1ReleaseMs, p.mod1Loop));
-    if (p.mod2Target == EnvTarget::DCA)
-        analysisMs = std::max(analysisMs, envWindowMs(mod2AttackMs, mod2DecayMs, mod2ReleaseMs, p.mod2Loop));
+    for (int m = 0; m < kNumModEnvs; ++m)
+        if (p.modEnv[m].target == EnvTarget::DCA)
+            analysisMs = std::max(analysisMs, envWindowMs(modAttackMs[m], modDecayMs[m],
+                                                          modReleaseMs[m], p.modEnv[m].loop));
 
     int analysisSamples = std::max(referencePathSamples,
         static_cast<int>(std::ceil(sr * analysisMs * 0.001)));
@@ -638,11 +617,9 @@ void SynthVoice::updateSamplerPreStretchNorm(const BlockParams& p)
     std::vector<float> dcaCurve(static_cast<size_t>(analysisSamples), 0.0f);
 
     ADSREnvelope ampRef;
-    ADSREnvelope mod1Ref;
-    ADSREnvelope mod2Ref;
+    ADSREnvelope modRef[kNumModEnvs];
     ampRef.prepare(sr);
-    mod1Ref.prepare(sr);
-    mod2Ref.prepare(sr);
+    for (auto& e : modRef) e.prepare(sr);
 
     ampRef.setAttack(ampAttackMs);
     ampRef.setDecay(ampDecayMs);
@@ -653,39 +630,34 @@ void SynthVoice::updateSamplerPreStretchNorm(const BlockParams& p)
     ampRef.setDecayCurve(static_cast<CurveShape>(p.ampDecayCurve));
     ampRef.setReleaseCurve(static_cast<CurveShape>(p.ampReleaseCurve));
 
-    mod1Ref.setAttack(mod1AttackMs);
-    mod1Ref.setDecay(mod1DecayMs);
-    mod1Ref.setSustain(p.mod1Sustain);
-    mod1Ref.setRelease(mod1ReleaseMs);
-    mod1Ref.setLooping(p.mod1Loop);
-    mod1Ref.setAttackCurve(static_cast<CurveShape>(p.mod1AttackCurve));
-    mod1Ref.setDecayCurve(static_cast<CurveShape>(p.mod1DecayCurve));
-    mod1Ref.setReleaseCurve(static_cast<CurveShape>(p.mod1ReleaseCurve));
-
-    mod2Ref.setAttack(mod2AttackMs);
-    mod2Ref.setDecay(mod2DecayMs);
-    mod2Ref.setSustain(p.mod2Sustain);
-    mod2Ref.setRelease(mod2ReleaseMs);
-    mod2Ref.setLooping(p.mod2Loop);
-    mod2Ref.setAttackCurve(static_cast<CurveShape>(p.mod2AttackCurve));
-    mod2Ref.setDecayCurve(static_cast<CurveShape>(p.mod2DecayCurve));
-    mod2Ref.setReleaseCurve(static_cast<CurveShape>(p.mod2ReleaseCurve));
+    for (int m = 0; m < kNumModEnvs; ++m)
+    {
+        const auto& mp = p.modEnv[m];
+        modRef[m].setAttack(modAttackMs[m]);
+        modRef[m].setDecay(modDecayMs[m]);
+        modRef[m].setSustain(mp.sustain);
+        modRef[m].setRelease(modReleaseMs[m]);
+        modRef[m].setLooping(mp.loop);
+        modRef[m].setAttackCurve(static_cast<CurveShape>(mp.attackCurve));
+        modRef[m].setDecayCurve(static_cast<CurveShape>(mp.decayCurve));
+        modRef[m].setReleaseCurve(static_cast<CurveShape>(mp.releaseCurve));
+    }
 
     // Mirror the live envelopes (peak == velPeakScale) so the sampler pre-stretch
     // normalization analyses the same DCA curve playback will produce; otherwise
     // soft notes would be double-attenuated. Cache keys on currentVelocity + velAmt_.
     const float refPeak = velPeakScale(velAmt_, currentVelocity);
     ampRef.noteOn(refPeak);
-    mod1Ref.noteOn(refPeak);
-    mod2Ref.noteOn(refPeak);
+    for (auto& e : modRef) e.noteOn(refPeak);
 
     for (int i = 0; i < analysisSamples; ++i)
     {
         const float ampEnvVal = ampRef.processSample() * p.ampAmount;
-        const float mod1EnvVal = mod1Ref.processSample() * p.mod1Amount;
-        const float mod2EnvVal = mod2Ref.processSample() * p.mod2Amount;
+        float modEnvVals[kNumModEnvs];
+        for (int m = 0; m < kNumModEnvs; ++m)
+            modEnvVals[m] = modRef[m].processSample() * p.modEnv[m].amount;
 
-        dcaCurve[static_cast<size_t>(i)] = computeDcaGain(p, ampEnvVal, mod1EnvVal, mod2EnvVal);
+        dcaCurve[static_cast<size_t>(i)] = computeDcaGain(p, ampEnvVal, modEnvVals);
     }
 
     float analysisPeak = 0.0f;
@@ -718,32 +690,24 @@ void SynthVoice::updateSamplerPreStretchNorm(const BlockParams& p)
     preStretchNormState_.ampAttackVelSens = p.ampAttackVelSens;
     preStretchNormState_.ampDecayVelSens = p.ampDecayVelSens;
     preStretchNormState_.ampReleaseVelSens = p.ampReleaseVelSens;
-    preStretchNormState_.mod1Target = p.mod1Target;
-    preStretchNormState_.mod1Attack = p.mod1Attack;
-    preStretchNormState_.mod1Decay = p.mod1Decay;
-    preStretchNormState_.mod1Sustain = p.mod1Sustain;
-    preStretchNormState_.mod1Release = p.mod1Release;
-    preStretchNormState_.mod1Amount = p.mod1Amount;
-    preStretchNormState_.mod1Loop = p.mod1Loop;
-    preStretchNormState_.mod1AttackCurve = p.mod1AttackCurve;
-    preStretchNormState_.mod1DecayCurve = p.mod1DecayCurve;
-    preStretchNormState_.mod1ReleaseCurve = p.mod1ReleaseCurve;
-    preStretchNormState_.mod1AttackVelSens = p.mod1AttackVelSens;
-    preStretchNormState_.mod1DecayVelSens = p.mod1DecayVelSens;
-    preStretchNormState_.mod1ReleaseVelSens = p.mod1ReleaseVelSens;
-    preStretchNormState_.mod2Target = p.mod2Target;
-    preStretchNormState_.mod2Attack = p.mod2Attack;
-    preStretchNormState_.mod2Decay = p.mod2Decay;
-    preStretchNormState_.mod2Sustain = p.mod2Sustain;
-    preStretchNormState_.mod2Release = p.mod2Release;
-    preStretchNormState_.mod2Amount = p.mod2Amount;
-    preStretchNormState_.mod2Loop = p.mod2Loop;
-    preStretchNormState_.mod2AttackCurve = p.mod2AttackCurve;
-    preStretchNormState_.mod2DecayCurve = p.mod2DecayCurve;
-    preStretchNormState_.mod2ReleaseCurve = p.mod2ReleaseCurve;
-    preStretchNormState_.mod2AttackVelSens = p.mod2AttackVelSens;
-    preStretchNormState_.mod2DecayVelSens = p.mod2DecayVelSens;
-    preStretchNormState_.mod2ReleaseVelSens = p.mod2ReleaseVelSens;
+    for (int m = 0; m < kNumModEnvs; ++m)
+    {
+        const auto& mp = p.modEnv[m];
+        auto& st = preStretchNormState_.modEnv[m];
+        st.target         = mp.target;
+        st.attack         = mp.attack;
+        st.decay          = mp.decay;
+        st.sustain        = mp.sustain;
+        st.release        = mp.release;
+        st.amount         = mp.amount;
+        st.loop           = mp.loop;
+        st.attackCurve    = mp.attackCurve;
+        st.decayCurve     = mp.decayCurve;
+        st.releaseCurve   = mp.releaseCurve;
+        st.attackVelSens  = mp.attackVelSens;
+        st.decayVelSens   = mp.decayVelSens;
+        st.releaseVelSens = mp.releaseVelSens;
+    }
     preStretchNormState_.velocity = currentVelocity;
     preStretchNormState_.velAmt = velAmt_;
     preStretchNormState_.startPos = sampler.getStartPos();
@@ -823,19 +787,19 @@ void SynthVoice::renderBlock(float* output, float* outputRight, const BlockParam
         int mid = numSamples / 2;
         const float lfo1Depth = applyAftertouchTarget(p, AftertouchTarget::LFO1Depth,
             computeEffectiveLfoDepth(p, EnvTarget::LFO1Depth, p.lfo1Depth,
-                                     lastAmpEnvLevel, lastMod1Val_, lastMod2Val_), aftertouch_);
+                                     lastAmpEnvLevel, lastModVal_), aftertouch_);
         const float lfo2Depth = applyAftertouchTarget(p, AftertouchTarget::LFO2Depth,
             computeEffectiveLfoDepth(p, EnvTarget::LFO2Depth, p.lfo2Depth,
-                                     lastAmpEnvLevel, lastMod1Val_, lastMod2Val_), aftertouch_);
+                                     lastAmpEnvLevel, lastModVal_), aftertouch_);
         const float lfo3Depth = applyAftertouchTarget(p, AftertouchTarget::LFO3Depth,
             computeEffectiveLfoDepth(p, EnvTarget::LFO3Depth, p.lfo3Depth,
-                                     lastAmpEnvLevel, lastMod1Val_, lastMod2Val_), aftertouch_);
+                                     lastAmpEnvLevel, lastModVal_), aftertouch_);
         // ── Pitch modulation bus ──────────────────────────────────────
         // One full-scale (ModCalib::kPitchModSemitones) applied once as an
         // equal-tempered ratio. See SynthVoice::pitchBusSemitones for why the
         // sum itself lives in one place.
         const float pitchSemis = pitchBusSemitones(
-            p, lastAmpEnvLevel, lastMod1Val_, lastMod2Val_,
+            p, lastAmpEnvLevel, lastModVal_,
             lfo1Buf[mid] * lfo1Depth, lfo2Buf[mid] * lfo2Depth, lfo3Buf[mid] * lfo3Depth);
         sampler.setPitchModulation(effectivePitchRatio
             * std::pow(2.0f, pitchSemis * ModCalib::kPitchModSemitones / 12.0f));
@@ -887,13 +851,13 @@ void SynthVoice::renderBlock(float* output, float* outputRight, const BlockParam
             int midIdx = pos + subBlockLen / 2;
             const float lfo1Depth = applyAftertouchTarget(p, AftertouchTarget::LFO1Depth,
                 computeEffectiveLfoDepth(p, EnvTarget::LFO1Depth, p.lfo1Depth,
-                                         lastAmpEnvLevel, lastMod1Val_, lastMod2Val_), aftertouch_);
+                                         lastAmpEnvLevel, lastModVal_), aftertouch_);
             const float lfo2Depth = applyAftertouchTarget(p, AftertouchTarget::LFO2Depth,
                 computeEffectiveLfoDepth(p, EnvTarget::LFO2Depth, p.lfo2Depth,
-                                         lastAmpEnvLevel, lastMod1Val_, lastMod2Val_), aftertouch_);
+                                         lastAmpEnvLevel, lastModVal_), aftertouch_);
             const float lfo3Depth = applyAftertouchTarget(p, AftertouchTarget::LFO3Depth,
                 computeEffectiveLfoDepth(p, EnvTarget::LFO3Depth, p.lfo3Depth,
-                                         lastAmpEnvLevel, lastMod1Val_, lastMod2Val_), aftertouch_);
+                                         lastAmpEnvLevel, lastModVal_), aftertouch_);
             float lfo1Mid = lfo1Buf[midIdx] * lfo1Depth;
             float lfo2Mid = lfo2Buf[midIdx] * lfo2Depth;
             float lfo3Mid = lfo3Buf[midIdx] * lfo3Depth;
@@ -925,8 +889,8 @@ void SynthVoice::renderBlock(float* output, float* outputRight, const BlockParam
             //   timbre→ bipolar Y around neutral, 0 when no MPE timbre data
             float cutoffOctaves = 0.0f;
             if (p.ampTarget  == EnvTarget::Filter) cutoffOctaves += lastAmpEnvLevel;
-            if (p.mod1Target == EnvTarget::Filter) cutoffOctaves += lastMod1Val_;
-            if (p.mod2Target == EnvTarget::Filter) cutoffOctaves += lastMod2Val_;
+            for (int m = 0; m < kNumModEnvs; ++m)
+                if (p.modEnv[m].target == EnvTarget::Filter) cutoffOctaves += lastModVal_[m];
             if (p.lfo1Target == LfoTarget::Filter) cutoffOctaves += lfo1Mid;
             if (p.lfo2Target == LfoTarget::Filter) cutoffOctaves += lfo2Mid;
             if (p.lfo3Target == LfoTarget::Filter) cutoffOctaves += lfo3Mid;
@@ -1008,21 +972,22 @@ void SynthVoice::renderBlock(float* output, float* outputRight, const BlockParam
         for (int i = pos; i < subBlockEnd; ++i)
         {
             float ampEnvVal = ampEnv.processSample() * p.ampAmount;
-            float mod1EnvVal = modEnv1.processSample() * p.mod1Amount;
-            float mod2EnvVal = modEnv2.processSample() * p.mod2Amount;
+            float modEnvVals[kNumModEnvs];
+            for (int m = 0; m < kNumModEnvs; ++m)
+                modEnvVals[m] = modEnvs[m].processSample() * p.modEnv[m].amount;
             lastAmpEnvLevel = ampEnvVal;
-            lastMod1Val_ = mod1EnvVal;
-            lastMod2Val_ = mod2EnvVal;
+            for (int m = 0; m < kNumModEnvs; ++m)
+                lastModVal_[m] = modEnvVals[m];
 
             const float lfo1Depth = applyAftertouchTarget(p, AftertouchTarget::LFO1Depth,
                 computeEffectiveLfoDepth(p, EnvTarget::LFO1Depth, p.lfo1Depth,
-                                         ampEnvVal, mod1EnvVal, mod2EnvVal), aftertouch_);
+                                         ampEnvVal, modEnvVals), aftertouch_);
             const float lfo2Depth = applyAftertouchTarget(p, AftertouchTarget::LFO2Depth,
                 computeEffectiveLfoDepth(p, EnvTarget::LFO2Depth, p.lfo2Depth,
-                                         ampEnvVal, mod1EnvVal, mod2EnvVal), aftertouch_);
+                                         ampEnvVal, modEnvVals), aftertouch_);
             const float lfo3Depth = applyAftertouchTarget(p, AftertouchTarget::LFO3Depth,
                 computeEffectiveLfoDepth(p, EnvTarget::LFO3Depth, p.lfo3Depth,
-                                         ampEnvVal, mod1EnvVal, mod2EnvVal), aftertouch_);
+                                         ampEnvVal, modEnvVals), aftertouch_);
             float lfo1Val = lfo1Buf[i] * lfo1Depth;
             float lfo2Val = lfo2Buf[i] * lfo2Depth;
             float lfo3Val = lfo3Buf[i] * lfo3Depth;
@@ -1039,15 +1004,15 @@ void SynthVoice::renderBlock(float* output, float* outputRight, const BlockParam
             else if (freezeMode)
             {
                 const float pitchSemis = pitchBusSemitones(
-                    p, ampEnvVal, mod1EnvVal, mod2EnvVal, lfo1Val, lfo2Val, lfo3Val);
+                    p, ampEnvVal, modEnvVals, lfo1Val, lfo2Val, lfo3Val);
                 freezeEngine.setPitchModulation(effectivePitchRatio
                     * juce::jlimit(0.0625f, 16.0f,
                                    std::pow(2.0f, pitchSemis * ModCalib::kPitchModSemitones / 12.0f)));
 
                 float scanMod = p.baseScan + p.driftScanOffset;
                 if (p.ampTarget == EnvTarget::Scan) scanMod += ampEnvVal;
-                if (p.mod1Target == EnvTarget::Scan) scanMod += mod1EnvVal;
-                if (p.mod2Target == EnvTarget::Scan) scanMod += mod2EnvVal;
+                for (int m = 0; m < kNumModEnvs; ++m)
+                    if (p.modEnv[m].target == EnvTarget::Scan) scanMod += modEnvVals[m];
                 if (p.lfo1Target == LfoTarget::Scan) scanMod += lfo1Val;
                 if (p.lfo2Target == LfoTarget::Scan) scanMod += lfo2Val;
                 if (p.lfo3Target == LfoTarget::Scan) scanMod += lfo3Val;
@@ -1065,15 +1030,15 @@ void SynthVoice::renderBlock(float* output, float* outputRight, const BlockParam
             {
                 // Wavetable: per-sample pitch/scan modulation.
                 const float pitchSemis = pitchBusSemitones(
-                    p, ampEnvVal, mod1EnvVal, mod2EnvVal, lfo1Val, lfo2Val, lfo3Val);
+                    p, ampEnvVal, modEnvVals, lfo1Val, lfo2Val, lfo3Val);
                 const float wtTargetFreq = blockBaseFreqWavetable * effectivePitchRatio
                     * std::pow(2.0f, pitchSemis * ModCalib::kPitchModSemitones / 12.0f);
 
                 float scanBase = p.wtAutoScan ? 0.0f : p.baseScan;
                 float scanMod = scanBase + p.driftScanOffset;
                 if (p.ampTarget == EnvTarget::Scan) scanMod += ampEnvVal;
-                if (p.mod1Target == EnvTarget::Scan) scanMod += mod1EnvVal;
-                if (p.mod2Target == EnvTarget::Scan) scanMod += mod2EnvVal;
+                for (int m = 0; m < kNumModEnvs; ++m)
+                    if (p.modEnv[m].target == EnvTarget::Scan) scanMod += modEnvVals[m];
                 if (p.lfo1Target == LfoTarget::Scan) scanMod += lfo1Val;
                 if (p.lfo2Target == LfoTarget::Scan) scanMod += lfo2Val;
                 if (p.lfo3Target == LfoTarget::Scan) scanMod += lfo3Val;
@@ -1115,8 +1080,8 @@ void SynthVoice::renderBlock(float* output, float* outputRight, const BlockParam
             // Mix noise oscillator (goes through drive + filter + VCA with the main signal)
             float noiseLevel = p.noiseLevel;
             if (p.ampTarget == EnvTarget::NoiseLevel) noiseLevel += ampEnvVal;
-            if (p.mod1Target == EnvTarget::NoiseLevel) noiseLevel += mod1EnvVal;
-            if (p.mod2Target == EnvTarget::NoiseLevel) noiseLevel += mod2EnvVal;
+            for (int m = 0; m < kNumModEnvs; ++m)
+                if (p.modEnv[m].target == EnvTarget::NoiseLevel) noiseLevel += modEnvVals[m];
             if (p.lfo1Target == LfoTarget::NoiseLevel) noiseLevel += lfo1Val;
             if (p.lfo2Target == LfoTarget::NoiseLevel) noiseLevel += lfo2Val;
             if (p.lfo3Target == LfoTarget::NoiseLevel) noiseLevel += lfo3Val;
@@ -1132,7 +1097,7 @@ void SynthVoice::renderBlock(float* output, float* outputRight, const BlockParam
             }
 
             // Cache VCA for phase D; raw audio goes to output[i] / outputRBuf untouched.
-            float vca = computeDcaGain(p, ampEnvVal, mod1EnvVal, mod2EnvVal);
+            float vca = computeDcaGain(p, ampEnvVal, modEnvVals);
             vca = applyAftertouchDcaGain(p, vca, aftertouch_);
 
             output[i] = sample;

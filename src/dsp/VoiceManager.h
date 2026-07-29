@@ -75,8 +75,7 @@ public:
     // ── Per-block rendering ──
     struct VoiceOutput {
         float lastAmpVal = 0.0f;
-        float lastMod1Val = 0.0f;
-        float lastMod2Val = 0.0f;
+        float lastModVal[kNumModEnvs] = {};   // ENV 2..5, in panel order
         float lastModulatedCutoff = 20000.0f;
         float lastModulatedResonance = 0.0f;
         float lastModulatedScan = 0.0f;

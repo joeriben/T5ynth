@@ -723,8 +723,8 @@ VoiceManager::VoiceOutput VoiceManager::renderBlock(
     {
         auto& nv = voices[static_cast<size_t>(newestIdx)];
         out.lastAmpVal = nv.getAmpEnvLevel();
-        out.lastMod1Val = nv.getLastMod1Val();
-        out.lastMod2Val = nv.getLastMod2Val();
+        const float* mv = nv.getLastModVals();
+        for (int m = 0; m < kNumModEnvs; ++m) out.lastModVal[m] = mv[m];
         out.lastModulatedCutoff = nv.getLastModulatedCutoff();
         out.lastModulatedResonance = nv.getLastModulatedResonance();
         out.lastModulatedScan = nv.getLastModulatedScan();

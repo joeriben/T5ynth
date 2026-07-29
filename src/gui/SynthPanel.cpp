@@ -816,9 +816,13 @@ SynthPanel::SynthPanel(T5ynthProcessor& processor)
 
     auto setupModTabs = [this](std::array<juce::TextButton, kNumModTabs>& tabs,
                                const char* const* labels,
-                               int radioGroup)
+                               int radioGroup,
+                               int count)
     {
-        for (int i = 0; i < kNumModTabs; ++i)
+        // LFO and Drift have three tabs, ENV has five; the arrays are all sized
+        // for the larger so they can share this helper. Reading `labels` past
+        // `count` would run off the end of a 3-element literal.
+        for (int i = 0; i < count; ++i)
         {
             auto& btn = tabs[static_cast<size_t>(i)];
             btn.setButtonText(labels[i]);
@@ -838,12 +842,12 @@ SynthPanel::SynthPanel(T5ynthProcessor& processor)
             addAndMakeVisible(btn);
         }
     };
-    const char* const envTabLabels[] = { "ENV1", "ENV2", "ENV3" };
+    const char* const envTabLabels[] = { "ENV1", "ENV2", "ENV3", "ENV4", "ENV5" };
     const char* const lfoTabLabels[] = { "LFO 1", "LFO 2", "LFO 3" };
     const char* const driftTabLabels[] = { "Drift 1", "Drift 2", "Drift 3" };
-    setupModTabs(envTabBtns, envTabLabels, 4001);
-    setupModTabs(lfoTabBtns, lfoTabLabels, 4002);
-    setupModTabs(driftTabBtns, driftTabLabels, 4003);
+    setupModTabs(envTabBtns, envTabLabels, 4001, kNumModTabs);
+    setupModTabs(lfoTabBtns, lfoTabLabels, 4002, kNumLfoTabs);
+    setupModTabs(driftTabBtns, driftTabLabels, 4003, kNumLfoTabs);
 
     // ── Filter mode: OFF LP HP BP, one dropdown ──
     // OFF is a value of this parameter, not a separate switch, so bypass and
@@ -1040,14 +1044,15 @@ SynthPanel::SynthPanel(T5ynthProcessor& processor)
             PID::ampAttackCurve, PID::ampDecayCurve, PID::ampReleaseCurve,
             PID::ampAttackVelSens, PID::ampDecayVelSens, PID::ampReleaseVelSens,
             PID::ampAmount,  PID::ampLoop,  apvts);
-    initEnv(mod1Env, "ENV 2", 1, PID::mod1Attack, PID::mod1Decay, PID::mod1Sustain, PID::mod1Release,
-            PID::mod1AttackCurve, PID::mod1DecayCurve, PID::mod1ReleaseCurve,
-            PID::mod1AttackVelSens, PID::mod1DecayVelSens, PID::mod1ReleaseVelSens,
-            PID::mod1Amount, PID::mod1Loop, apvts);
-    initEnv(mod2Env, "ENV 3", 1, PID::mod2Attack, PID::mod2Decay, PID::mod2Sustain, PID::mod2Release,
-            PID::mod2AttackCurve, PID::mod2DecayCurve, PID::mod2ReleaseCurve,
-            PID::mod2AttackVelSens, PID::mod2DecayVelSens, PID::mod2ReleaseVelSens,
-            PID::mod2Amount, PID::mod2Loop, apvts);
+    for (int i = 0; i < kNumModEnvs; ++i)
+    {
+        const auto& id = PID::modEnv[i];
+        initEnv(modEnvSections[i], "ENV " + juce::String(i + 2), 1,
+                id.attack, id.decay, id.sustain, id.release,
+                id.attackCurve, id.decayCurve, id.releaseCurve,
+                id.attackVelSens, id.decayVelSens, id.releaseVelSens,
+                id.amount, id.loop, apvts);
+    }
 
     // ── LFOs ──
     initLfo(lfo1, "LFO 1",
@@ -1060,14 +1065,14 @@ SynthPanel::SynthPanel(T5ynthProcessor& processor)
             PID::lfo3Rate, PID::lfo3Depth, PID::lfo3Wave, PID::lfo3Mode,
             PID::lfo3ClockMode, PID::lfo3ClockDivision, apvts);
 
-    // ── Easy-panel AT module: 12 bipolar drag-fill bars (one per target) ──
+    // ── Easy-panel AT module: one bipolar drag-fill bar per target ──
     {
         struct AtBar { const char* pid; const char* label; };
         // Order follows the canonical EnvTarget order (BlockParams.h): voice
         // destinations first (DCA, Filter=Cutoff+Reso, Scan, Pitch, Noise), then
         // the mod-source levels (LFO depths, then env sustains). "Amt" matches the
         // LFO module's own depth label in the easy panel.
-        static const AtBar atBars[12] = {
+        static const AtBar atBars[] = {
             { PID::aftertouchAmtDca,         "DCA"      },
             { PID::aftertouchAmtCutoff,      "Cutoff"   },
             { PID::aftertouchAmtResonance,   "Reso"     },
@@ -1080,8 +1085,13 @@ SynthPanel::SynthPanel(T5ynthProcessor& processor)
             { PID::aftertouchAmtEnv1Sustain, "ENV1 Sus" },
             { PID::aftertouchAmtEnv2Sustain, "ENV2 Sus" },
             { PID::aftertouchAmtEnv3Sustain, "ENV3 Sus" },
+            { PID::aftertouchAmtEnv4Sustain, "ENV4 Sus" },
+            { PID::aftertouchAmtEnv5Sustain, "ENV5 Sus" },
         };
-        for (int i = 0; i < 12; ++i)
+        static constexpr int kNumAtBars = sizeof(atBars) / sizeof(atBars[0]);
+        static_assert(kNumAtBars == AftertouchTarget::kCount - 1,
+                      "Every aftertouch target but None needs a bar here.");
+        for (int i = 0; i < kNumAtBars; ++i)
         {
             const char* pid = atBars[i].pid;
             auto bar = std::make_unique<AftertouchBar>();
@@ -1155,8 +1165,9 @@ SynthPanel::SynthPanel(T5ynthProcessor& processor)
     // Deferred APVTS attachments for target ComboBoxes
     // (must come after initialized=true so onChange → updateVisibility works)
     ampTargetA = std::make_unique<CA>(apvts, PID::ampTarget, ampEnv.targetBox);
-    mod1TargetA = std::make_unique<CA>(apvts, PID::mod1Target, mod1Env.targetBox);
-    mod2TargetA = std::make_unique<CA>(apvts, PID::mod2Target, mod2Env.targetBox);
+    for (int i = 0; i < kNumModEnvs; ++i)
+        modTargetA[i] = std::make_unique<CA>(apvts, PID::modEnv[i].target,
+                                             modEnvSections[i].targetBox);
     lfo1TargetA = std::make_unique<CA>(apvts, PID::lfo1Target, lfo1.targetBox);
     lfo2TargetA = std::make_unique<CA>(apvts, PID::lfo2Target, lfo2.targetBox);
     lfo3TargetA = std::make_unique<CA>(apvts, PID::lfo3Target, lfo3.targetBox);
@@ -1192,6 +1203,8 @@ void SynthPanel::followModParamToTab(const juce::String& paramId)
     if      (isEnvAdsr("amp_"))             { group = 0; index = 0; }
     else if (isEnvAdsr("mod1_"))            { group = 0; index = 1; }
     else if (isEnvAdsr("mod2_"))            { group = 0; index = 2; }
+    else if (isEnvAdsr("mod3_"))            { group = 0; index = 3; }
+    else if (isEnvAdsr("mod4_"))            { group = 0; index = 4; }
     else if (paramId.startsWith("lfo1_"))   { group = 1; index = 0; }
     else if (paramId.startsWith("lfo2_"))   { group = 1; index = 1; }
     else if (paramId.startsWith("lfo3_"))   { group = 1; index = 2; }
@@ -1493,7 +1506,8 @@ void SynthPanel::updateVisibility()
     // None) — inactive envs read as inactive at a glance. Alpha is orthogonal
     // to syncGroup's colour/toggle setup, so it survives.
     {
-        EnvSection* envs[kNumModTabs] = { &ampEnv, &mod1Env, &mod2Env };
+        EnvSection* envs[kNumModTabs] = { &ampEnv, &modEnvSections[0], &modEnvSections[1],
+                                          &modEnvSections[2], &modEnvSections[3] };
         for (int i = 0; i < kNumModTabs; ++i)
             envTabBtns[static_cast<size_t>(i)].setAlpha(
                 envs[i]->targetBox.getSelectedId() != 1 ? 1.0f : dimAlpha);
@@ -1553,8 +1567,8 @@ void SynthPanel::updateVisibility()
             if (vb) vb->setVisible(selected);
     };
     setEnvControlsVisible(ampEnv,  activeEnvTab == 0);
-    setEnvControlsVisible(mod1Env, activeEnvTab == 1);
-    setEnvControlsVisible(mod2Env, activeEnvTab == 2);
+    for (int i = 0; i < kNumModEnvs; ++i)
+        setEnvControlsVisible(modEnvSections[i], activeEnvTab == i + 1);
 
     auto setLfoControlsVisible = [](LfoSection& lfo)
     {
@@ -1616,13 +1630,6 @@ void SynthPanel::updateVisibility()
 
 void SynthPanel::selectFirstActiveModTabs()
 {
-    auto pickEnv = [](const EnvSection& a, const EnvSection& b, const EnvSection& c)
-    {
-        if (a.targetBox.getSelectedId() > 1) return 0;
-        if (b.targetBox.getSelectedId() > 1) return 1;
-        if (c.targetBox.getSelectedId() > 1) return 2;
-        return 0;
-    };
     auto pickLfo = [](const LfoSection& a, const LfoSection& b, const LfoSection& c)
     {
         if (a.targetBox.getSelectedId() > 1) return 0;
@@ -1638,7 +1645,10 @@ void SynthPanel::selectFirstActiveModTabs()
         return 0;
     };
 
-    activeEnvTab = pickEnv(ampEnv, mod1Env, mod2Env);
+    activeEnvTab = 0;
+    if (ampEnv.targetBox.getSelectedId() <= 1)
+        for (int i = 0; i < kNumModEnvs; ++i)
+            if (modEnvSections[i].targetBox.getSelectedId() > 1) { activeEnvTab = i + 1; break; }
     activeLfoTab = pickLfo(lfo1, lfo2, lfo3);
     activeDriftTab = pickDrift(drift1, drift2, drift3);
 }
@@ -1647,15 +1657,16 @@ void SynthPanel::syncModTabButtons()
 {
     auto syncGroup = [](std::array<juce::TextButton, kNumModTabs>& tabs,
                         int activeIndex,
-                        juce::Colour accent)
+                        juce::Colour accent,
+                        int count)
     {
-        for (int i = 0; i < kNumModTabs; ++i)
+        for (int i = 0; i < count; ++i)
         {
             auto& btn = tabs[static_cast<size_t>(i)];
             const bool active = i == activeIndex;
             int edges = 0;
             if (i > 0) edges |= juce::Button::ConnectedOnLeft;
-            if (i < kNumModTabs - 1) edges |= juce::Button::ConnectedOnRight;
+            if (i < count - 1) edges |= juce::Button::ConnectedOnRight;
             btn.setConnectedEdges(edges);
             btn.setToggleState(active, juce::dontSendNotification);
             // Selected-tab text follows the unified switchbox rule: dark ink on
@@ -1670,9 +1681,9 @@ void SynthPanel::syncModTabButtons()
         }
     };
 
-    syncGroup(envTabBtns, activeEnvTab, kModCol);
-    syncGroup(lfoTabBtns, activeLfoTab, kLfoCol);
-    syncGroup(driftTabBtns, activeDriftTab, kDriftCol);
+    syncGroup(envTabBtns, activeEnvTab, kModCol, kNumModTabs);
+    syncGroup(lfoTabBtns, activeLfoTab, kLfoCol, kNumLfoTabs);
+    syncGroup(driftTabBtns, activeDriftTab, kDriftCol, kNumLfoTabs);
 }
 
 float SynthPanel::fs() const
@@ -1704,7 +1715,8 @@ static int choiceBoxWidthFor(const ChoiceEntry (&entries)[N], float f, int fallb
 // ──────────────────────────────────────────────────────────────────────────────
 // Layout helpers
 // ──────────────────────────────────────────────────────────────────────────────
-static void layoutModTabStrip(std::array<juce::TextButton, 3>& tabs,
+template <size_t N>
+static void layoutModTabStrip(std::array<juce::TextButton, N>& tabs,
                                juce::Rectangle<int> area,
                                juce::Rectangle<int>& switchBounds)
 {
@@ -2059,7 +2071,7 @@ void SynthPanel::layoutAftertouchEasy(juce::Rectangle<int> area)
     if (n <= 0 || area.isEmpty())
         return;
 
-    // 12 equal stacked bars; each paints its own kBorder edge so neighbours
+    // Equal stacked bars; each paints its own kBorder edge so neighbours
     // share a 1px divider (no gap). Last bar absorbs the rounding remainder.
     const int barH = juce::jmax(1, area.getHeight() / n);
     for (int i = 0; i < n; ++i)
@@ -2149,7 +2161,8 @@ void SynthPanel::layoutModEasy(juce::Rectangle<int>& area, juce::Rectangle<int> 
 {
     juce::ignoreUnused(headerH);
 
-    auto* env = activeEnvTab == 1 ? &mod1Env : (activeEnvTab == 2 ? &mod2Env : &ampEnv);
+    auto* env = (activeEnvTab >= 1 && activeEnvTab <= kNumModEnvs)
+                  ? &modEnvSections[activeEnvTab - 1] : &ampEnv;
 
     const int tabH = rowH;
     const int blockGap = juce::jmax(7, juce::roundToInt(f * 0.65f));

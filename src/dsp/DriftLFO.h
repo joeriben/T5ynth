@@ -39,6 +39,8 @@ public:
         TgtEnv1Amt,    // 15
         TgtEnv2Amt,    // 16
         TgtEnv3Amt,    // 17
+        TgtEnv4Amt,    // 18
+        TgtEnv5Amt,    // 19
         NumTargets
     };
 

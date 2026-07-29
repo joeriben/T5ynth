@@ -73,8 +73,7 @@ public:
     static constexpr int SUB_BLOCK_SIZE = 32;
 
     // Mod value accessors (for VoiceManager to capture after renderBlock)
-    float getLastMod1Val() const { return lastMod1Val_; }
-    float getLastMod2Val() const { return lastMod2Val_; }
+    const float* getLastModVals() const { return lastModVal_; }   // [kNumModEnvs]
     float getLastModulatedCutoff() const { return lastModulatedCutoff_; }
     float getLastModulatedResonance() const { return lastModulatedResonance_; }
     float getLastModulatedScan() const { return lastModulatedScan_; }
@@ -99,7 +98,7 @@ public:
     // missing -- vibrato worked on wavetable/sampler/freeze and was silently
     // dropped on the LCO. Three hand-kept copies is how that happens again.
     float pitchBusSemitones(const BlockParams& p,
-                            float ampEnvVal, float mod1EnvVal, float mod2EnvVal,
+                            float ampEnvVal, const float* modEnvVals,
                             float lfo1Val, float lfo2Val, float lfo3Val) const;
 
     // The widest |bus| the same sum can reach with every routed source at full
@@ -133,8 +132,7 @@ public:
     SamplePlayer& getSampler() { return sampler; }
     FreezeTextureEngine& getFreezeEngine() { return freezeEngine; }
     ADSREnvelope& getAmpEnvelope() { return ampEnv; }
-    ADSREnvelope& getModEnvelope1() { return modEnv1; }
-    ADSREnvelope& getModEnvelope2() { return modEnv2; }
+    ADSREnvelope& getModEnvelope(int i) { return modEnvs[i]; }
     T5ynthFilter& getFilter() { return filter; }
     LFO& getPerVoiceLfo1() { return perVoiceLfo1; }
     LFO& getPerVoiceLfo2() { return perVoiceLfo2; }
@@ -173,8 +171,7 @@ private:
     SamplePlayer sampler;
     FreezeTextureEngine freezeEngine;
     ADSREnvelope ampEnv;
-    ADSREnvelope modEnv1;
-    ADSREnvelope modEnv2;
+    ADSREnvelope modEnvs[kNumModEnvs];
     LFO perVoiceLfo1; // used when LFO mode == Trigger
     LFO perVoiceLfo2;
     LFO perVoiceLfo3;
@@ -244,22 +241,15 @@ private:
     float ampAttackVelSens_ = 0.0f;
     float ampDecayVelSens_ = 0.0f;
     float ampReleaseVelSens_ = 0.0f;
-    float mod1AttackBaseMs_ = 0.0f;
-    float mod1DecayBaseMs_ = 0.0f;
-    float mod1ReleaseBaseMs_ = 0.0f;
-    float mod1AttackVelSens_ = 0.0f;
-    float mod1DecayVelSens_ = 0.0f;
-    float mod1ReleaseVelSens_ = 0.0f;
-    float mod2AttackBaseMs_ = 0.0f;
-    float mod2DecayBaseMs_ = 0.0f;
-    float mod2ReleaseBaseMs_ = 0.0f;
-    float mod2AttackVelSens_ = 0.0f;
-    float mod2DecayVelSens_ = 0.0f;
-    float mod2ReleaseVelSens_ = 0.0f;
+    float modAttackBaseMs_[kNumModEnvs] = {};
+    float modDecayBaseMs_[kNumModEnvs] = {};
+    float modReleaseBaseMs_[kNumModEnvs] = {};
+    float modAttackVelSens_[kNumModEnvs] = {};
+    float modDecayVelSens_[kNumModEnvs] = {};
+    float modReleaseVelSens_[kNumModEnvs] = {};
 
     // Cached mod values from last renderBlock (for VoiceManager capture)
-    float lastMod1Val_ = 0.0f;
-    float lastMod2Val_ = 0.0f;
+    float lastModVal_[kNumModEnvs] = {};
     float lastModulatedCutoff_ = 20000.0f;
     float lastModulatedResonance_ = 0.0f;
     float lastModulatedScan_ = 0.0f;
@@ -285,33 +275,25 @@ private:
         float ampDecayVelSens = -2.0f;
         float ampReleaseVelSens = -2.0f;
 
-        int mod1Target = EnvTarget::None;
-        float mod1Attack = -1.0f;
-        float mod1Decay = -1.0f;
-        float mod1Sustain = -1.0f;
-        float mod1Release = -1.0f;
-        float mod1Amount = -1.0f;
-        bool mod1Loop = false;
-        int mod1AttackCurve = -1;
-        int mod1DecayCurve = -1;
-        int mod1ReleaseCurve = -1;
-        float mod1AttackVelSens = -2.0f;
-        float mod1DecayVelSens = -2.0f;
-        float mod1ReleaseVelSens = -2.0f;
-
-        int mod2Target = EnvTarget::None;
-        float mod2Attack = -1.0f;
-        float mod2Decay = -1.0f;
-        float mod2Sustain = -1.0f;
-        float mod2Release = -1.0f;
-        float mod2Amount = -1.0f;
-        bool mod2Loop = false;
-        int mod2AttackCurve = -1;
-        int mod2DecayCurve = -1;
-        int mod2ReleaseCurve = -1;
-        float mod2AttackVelSens = -2.0f;
-        float mod2DecayVelSens = -2.0f;
-        float mod2ReleaseVelSens = -2.0f;
+        // Sentinels, not defaults: every field starts at a value no real
+        // parameter can hold, so the first comparison always reports "changed".
+        struct ModEnvState
+        {
+            int   target = EnvTarget::None;
+            float attack = -1.0f;
+            float decay = -1.0f;
+            float sustain = -1.0f;
+            float release = -1.0f;
+            float amount = -1.0f;
+            bool  loop = false;
+            int   attackCurve = -1;
+            int   decayCurve = -1;
+            int   releaseCurve = -1;
+            float attackVelSens = -2.0f;
+            float decayVelSens = -2.0f;
+            float releaseVelSens = -2.0f;
+        };
+        ModEnvState modEnv[kNumModEnvs];
 
         float velocity = -1.0f;
         float velAmt = -1.0f;
@@ -326,6 +308,7 @@ private:
 
     void updateSamplerPreStretchNorm(const BlockParams& p);
     bool preStretchNormStateMatches(const BlockParams& p) const;
+    static bool modEnvStateMatches(const PreStretchNormState& st, const BlockParams& p);
     void applyVelocityTimedEnvelopeTimes();
     void applyRestartFadeStereo(float& L, float& R);
 

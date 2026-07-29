@@ -61,6 +61,14 @@ const char* const kMainSnapshotParamIds[] = {
     PID::mod2Amount, PID::mod2Loop, PID::mod2Target,
     PID::mod2AttackCurve, PID::mod2DecayCurve, PID::mod2ReleaseCurve,
     PID::mod2AttackVelSens, PID::mod2DecayVelSens, PID::mod2ReleaseVelSens,
+    PID::mod3Attack, PID::mod3Decay, PID::mod3Sustain, PID::mod3Release,
+    PID::mod3Amount, PID::mod3Loop, PID::mod3Target,
+    PID::mod3AttackCurve, PID::mod3DecayCurve, PID::mod3ReleaseCurve,
+    PID::mod3AttackVelSens, PID::mod3DecayVelSens, PID::mod3ReleaseVelSens,
+    PID::mod4Attack, PID::mod4Decay, PID::mod4Sustain, PID::mod4Release,
+    PID::mod4Amount, PID::mod4Loop, PID::mod4Target,
+    PID::mod4AttackCurve, PID::mod4DecayCurve, PID::mod4ReleaseCurve,
+    PID::mod4AttackVelSens, PID::mod4DecayVelSens, PID::mod4ReleaseVelSens,
     PID::lfo1Rate, PID::lfo1Depth, PID::lfo1Wave, PID::lfo1Target, PID::lfo1Mode,
     PID::lfo1ClockMode, PID::lfo1ClockDivision,
     PID::lfo2Rate, PID::lfo2Depth, PID::lfo2Wave, PID::lfo2Target, PID::lfo2Mode,
@@ -71,6 +79,7 @@ const char* const kMainSnapshotParamIds[] = {
     PID::aftertouchAmtEnv1Sustain, PID::aftertouchAmtEnv2Sustain, PID::aftertouchAmtEnv3Sustain,
     PID::aftertouchAmtCutoff, PID::aftertouchAmtResonance, PID::aftertouchAmtScan,
     PID::aftertouchAmtDca, PID::aftertouchAmtPitch, PID::aftertouchAmtNoiseLevel,
+    PID::aftertouchAmtEnv4Sustain, PID::aftertouchAmtEnv5Sustain,
     PID::driftEnabled, PID::driftRegen, PID::driftCrossfade,
     PID::drift1Rate, PID::drift1Depth, PID::drift1Target, PID::drift1Wave,
     PID::drift1ClockMode, PID::drift1ClockDivision,
@@ -135,10 +144,19 @@ void restoreParameterFromState(juce::AudioProcessorValueTreeState& apvts,
                                const juce::ValueTree& state,
                                const char* id)
 {
+    auto* param = apvts.getParameter(id);
+    if (param == nullptr)
+        return;
+
+    // A parameter the stored slot does not carry is restored to its DEFAULT, not
+    // left where the previous recall put it. A slot written before a parameter
+    // existed otherwise leaks that parameter across recalls — the same failure
+    // the BPM-clock defaults in PluginProcessor::setStateInformation exist to
+    // prevent, and the one ENV4/5 would hit against every older snapshot.
     float value = 0.0f;
-    if (findParameterValue(state, id, value))
-        if (auto* param = apvts.getParameter(id))
-            param->setValueNotifyingHost(param->convertTo0to1(value));
+    param->setValueNotifyingHost(findParameterValue(state, id, value)
+                                     ? param->convertTo0to1(value)
+                                     : param->getDefaultValue());
 }
 
 juce::File getUiSettingsFile()
@@ -3084,8 +3102,13 @@ void MainPanel::restoreMainSnapshot(const MainSnapshot& snapshot)
         return;
 
     auto& apvts = processorRef.getValueTreeState();
-    for (auto* id : kMainSnapshotParamIds)
-        restoreParameterFromState(apvts, snapshot.parameters, id);
+    // Guard as restoreLcoSnapshot does: an invalid tree is indistinguishable
+    // from "every id absent", and restoreParameterFromState now defaults on
+    // absence — without this, a slot saved without a parameter tree would
+    // factory-reset the live patch instead of leaving it alone.
+    if (snapshot.parameters.isValid())
+        for (auto* id : kMainSnapshotParamIds)
+            restoreParameterFromState(apvts, snapshot.parameters, id);
 
     promptPanel.loadPresetData(snapshot.promptA, snapshot.promptB,
                                snapshot.seed, snapshot.randomSeed,

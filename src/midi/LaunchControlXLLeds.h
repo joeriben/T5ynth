@@ -170,6 +170,10 @@ struct LaunchControlXLLeds
     //
     // Physical row N drives module group N — matching the easy-panel tab order
     // ENV1/2/3 = amp/mod1/mod2 (SynthPanel initEnv). Rows 2 and 3 were swapped.
+    //
+    // ENV4/5 (mod3/mod4, added 2026-07-29) have NO default binding, and cannot:
+    // the controller has three knob rows and all three are spoken for. They stay
+    // reachable through MIDI learn like every other unbound parameter.
     static constexpr lcxl3_detail::Binding kPage1[] = {
         // Faders — Generation | Filter | FX | Vol  (CC 5-12)
         { "gen_alpha",         5, kColorGen, 1.0f, 0.0f }, { "resynth_amount", 6, kColorGen },

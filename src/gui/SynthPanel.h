@@ -5,13 +5,14 @@
 #include "GuiHelpers.h"
 #include "AftertouchBar.h"
 #include "VelocityBar.h"
+#include "../dsp/BlockParams.h"   // kNumModEnvs, PID, AftertouchTarget
 
 class T5ynthProcessor;
 
 /**
  * Column 2 (55%): ENGINE + FILTER + MODULATION
  * Contains: engine mode, waveform, loop controls, scan, filter,
- *           3 envelopes, 2 LFOs, drift, explore button.
+ *           5 envelopes, 3 LFOs, drift, explore button.
  * ALL controls are compact linear slider rows — zero rotary knobs.
  */
 class SynthPanel : public juce::Component, private juce::Timer
@@ -178,11 +179,16 @@ private:
         // parameters. Declared LAST so it is destroyed FIRST.
         std::unique_ptr<AdsrGraph> graph;
     };
-    EnvSection ampEnv, mod1Env, mod2Env;
-    static constexpr int kNumModTabs = 3;
+    EnvSection ampEnv;
+    EnvSection modEnvSections[kNumModEnvs];   // ENV 2..5
+    static constexpr int kNumModTabs = 1 + kNumModEnvs;   // ENV 1..5; LFO/Drift use the first 3
     static constexpr int kNumWaveBtns = 6;  // sine/tri/saw/sq/s&h/saw-down (mirrors LfoWave + DriftWave)
     static constexpr int kNumLfoModeBtns = 2;
-    std::array<juce::TextButton, kNumModTabs> envTabBtns, lfoTabBtns, driftTabBtns;
+    std::array<juce::TextButton, kNumModTabs> envTabBtns;
+    // LFO and Drift still have three each — they share the tab-strip helper,
+    // so their arrays are sized alike and only the first kNumLfoTabs are used.
+    static constexpr int kNumLfoTabs = 3;
+    std::array<juce::TextButton, kNumModTabs> lfoTabBtns, driftTabBtns;
     int activeEnvTab = 0;
     int activeLfoTab = 0;
     int activeDriftTab = 0;
@@ -223,8 +229,15 @@ private:
     // order 1..12) + column header. Bars declared BEFORE their attachments so
     // the attachments destruct first (JUCE reverse-destruction-order rule).
     juce::Label aftertouchHeader;
-    std::array<std::unique_ptr<AftertouchBar>, 12> aftertouchBars;
-    std::array<std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment>, 12> aftertouchBarA;
+    // One bar per aftertouch target except None — AftertouchTarget::kCount - 1.
+    std::array<std::unique_ptr<AftertouchBar>, AftertouchTarget::kCount - 1> aftertouchBars;
+    // Must track aftertouchBars exactly — the two grow together in one loop, and
+    // a shorter attachment array writes unique_ptrs over whatever member follows.
+    std::array<std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment>,
+               AftertouchTarget::kCount - 1> aftertouchBarA;
+    static_assert(std::tuple_size<decltype(aftertouchBarA)>::value
+                      == std::tuple_size<decltype(aftertouchBars)>::value,
+                  "aftertouchBarA and aftertouchBars must be the same length.");
 
     // ── Drift ──
     //   Same dual-control pattern as LFO, minus the F/T mode (Drift has
@@ -272,7 +285,8 @@ private:
     std::unique_ptr<SA> crossfadeRegenA;
 
     // ENV/LFO target attachments (routed in processBlock)
-    std::unique_ptr<CA> ampTargetA, mod1TargetA, mod2TargetA, lfo1TargetA, lfo2TargetA, lfo3TargetA;
+    std::unique_ptr<CA> ampTargetA, lfo1TargetA, lfo2TargetA, lfo3TargetA;
+    std::unique_ptr<CA> modTargetA[kNumModEnvs];
 
     void initEnv(EnvSection& env, const juce::String& name, int defaultTarget,
                  const juce::String& aId, const juce::String& dId,

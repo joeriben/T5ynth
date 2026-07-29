@@ -1,6 +1,7 @@
 #pragma once
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 
 // ── Choice-parameter single-source-of-truth tables ──
@@ -33,6 +34,12 @@ struct ChoiceEntry {
     const char* key;
     const char* label;
 };
+
+/** How many MOD envelopes there are — ENV 2..5 on the panel. ENV 1 is the amp
+    envelope, which owns the VCA and keeps its own named parameters throughout.
+    Everything else about a mod envelope is indexed by this, so a sixth one is
+    this constant plus its parameter IDs. */
+static constexpr int kNumModEnvs = 4;
 
 // ── APVTS parameter-ID constants ──
 // Every parameter has its canonical ID here; use PID::xxx everywhere
@@ -84,6 +91,73 @@ namespace PID {
     static constexpr const char* mod2AttackVelSens = "mod2_attack_vel_sens";
     static constexpr const char* mod2DecayVelSens  = "mod2_decay_vel_sens";
     static constexpr const char* mod2ReleaseVelSens= "mod2_release_vel_sens";
+    static constexpr const char* mod3Attack       = "mod3_attack";
+    static constexpr const char* mod3Decay        = "mod3_decay";
+    static constexpr const char* mod3Sustain      = "mod3_sustain";
+    static constexpr const char* mod3Release      = "mod3_release";
+    static constexpr const char* mod3Amount       = "mod3_amount";
+    static constexpr const char* mod3Loop         = "mod3_loop";
+    static constexpr const char* mod3Target       = "mod3_target";
+    static constexpr const char* mod3AttackCurve  = "mod3_attack_curve";
+    static constexpr const char* mod3DecayCurve   = "mod3_decay_curve";
+    static constexpr const char* mod3ReleaseCurve = "mod3_release_curve";
+    static constexpr const char* mod3AttackVelSens = "mod3_attack_vel_sens";
+    static constexpr const char* mod3DecayVelSens  = "mod3_decay_vel_sens";
+    static constexpr const char* mod3ReleaseVelSens= "mod3_release_vel_sens";
+    static constexpr const char* mod4Attack       = "mod4_attack";
+    static constexpr const char* mod4Decay        = "mod4_decay";
+    static constexpr const char* mod4Sustain      = "mod4_sustain";
+    static constexpr const char* mod4Release      = "mod4_release";
+    static constexpr const char* mod4Amount       = "mod4_amount";
+    static constexpr const char* mod4Loop         = "mod4_loop";
+    static constexpr const char* mod4Target       = "mod4_target";
+    static constexpr const char* mod4AttackCurve  = "mod4_attack_curve";
+    static constexpr const char* mod4DecayCurve   = "mod4_decay_curve";
+    static constexpr const char* mod4ReleaseCurve = "mod4_release_curve";
+    static constexpr const char* mod4AttackVelSens = "mod4_attack_vel_sens";
+    static constexpr const char* mod4DecayVelSens  = "mod4_decay_vel_sens";
+    static constexpr const char* mod4ReleaseVelSens= "mod4_release_vel_sens";
+
+    // The four mod envelopes as one indexable table — ENV 2..5 on the panel.
+    // The individual constants above stay: APVTS creation, the preset writer and
+    // the LED map name them one at a time, and only the block-rate read and the
+    // per-voice DSP want the index. Both halves refer to the same string, so a
+    // typo cannot make them disagree.
+    struct ModEnvIds {
+        const char* attack;        const char* decay;
+        const char* sustain;       const char* release;
+        const char* amount;        const char* loop;
+        const char* target;        const char* attackCurve;
+        const char* decayCurve;    const char* releaseCurve;
+        const char* attackVelSens; const char* decayVelSens;
+        const char* releaseVelSens;
+
+        // Every id of this envelope in one place, so anything that has to walk
+        // a whole envelope (preset defaulting, copy/paste) cannot fall behind
+        // the struct when a field is added.
+        constexpr std::array<const char*, 13> all() const
+        {
+            return { attack, decay, sustain, release, amount, loop, target,
+                     attackCurve, decayCurve, releaseCurve,
+                     attackVelSens, decayVelSens, releaseVelSens };
+        }
+    };
+    static constexpr ModEnvIds modEnv[] = {
+        { mod1Attack, mod1Decay, mod1Sustain, mod1Release, mod1Amount, mod1Loop,
+          mod1Target, mod1AttackCurve, mod1DecayCurve, mod1ReleaseCurve,
+          mod1AttackVelSens, mod1DecayVelSens, mod1ReleaseVelSens },
+        { mod2Attack, mod2Decay, mod2Sustain, mod2Release, mod2Amount, mod2Loop,
+          mod2Target, mod2AttackCurve, mod2DecayCurve, mod2ReleaseCurve,
+          mod2AttackVelSens, mod2DecayVelSens, mod2ReleaseVelSens },
+        { mod3Attack, mod3Decay, mod3Sustain, mod3Release, mod3Amount, mod3Loop,
+          mod3Target, mod3AttackCurve, mod3DecayCurve, mod3ReleaseCurve,
+          mod3AttackVelSens, mod3DecayVelSens, mod3ReleaseVelSens },
+        { mod4Attack, mod4Decay, mod4Sustain, mod4Release, mod4Amount, mod4Loop,
+          mod4Target, mod4AttackCurve, mod4DecayCurve, mod4ReleaseCurve,
+          mod4AttackVelSens, mod4DecayVelSens, mod4ReleaseVelSens }
+    };
+    static_assert(sizeof(modEnv) / sizeof(modEnv[0]) == kNumModEnvs,
+                  "PID::modEnv table and kNumModEnvs are out of sync.");
     static constexpr const char* lfo1Rate         = "lfo1_rate";
     static constexpr const char* lfo1Depth        = "lfo1_depth";
     static constexpr const char* lfo1Wave         = "lfo1_wave";
@@ -110,6 +184,8 @@ namespace PID {
     static constexpr const char* aftertouchAmtEnv1Sustain = "aftertouch_amt_env1_sustain";
     static constexpr const char* aftertouchAmtEnv2Sustain = "aftertouch_amt_env2_sustain";
     static constexpr const char* aftertouchAmtEnv3Sustain = "aftertouch_amt_env3_sustain";
+    static constexpr const char* aftertouchAmtEnv4Sustain = "aftertouch_amt_env4_sustain";
+    static constexpr const char* aftertouchAmtEnv5Sustain = "aftertouch_amt_env5_sustain";
     static constexpr const char* aftertouchAmtCutoff      = "aftertouch_amt_cutoff";
     static constexpr const char* aftertouchAmtResonance   = "aftertouch_amt_resonance";
     static constexpr const char* aftertouchAmtScan        = "aftertouch_amt_scan";
@@ -380,7 +456,14 @@ namespace LfoTarget {
         Env3Amt = 11,
         Drift1Depth = 12,
         Drift2Depth = 13,
-        Drift3Depth = 14
+        Drift3Depth = 14,
+        // ENV 4/5 are APPENDED, not inserted next to ENV1-3, because a DAW
+        // session stores this choice as its INDEX (APVTS state), not as the
+        // string id a .t5p carries — inserting would silently turn every saved
+        // "Drift1 Amt" into something else. The dropdown reads out of order; a
+        // session saved before they existed still restores what it meant.
+        Env4Amt = 15,
+        Env5Amt = 16
     };
     static constexpr ChoiceEntry kEntries[] = {
         { "none",       "---"       },
@@ -397,11 +480,25 @@ namespace LfoTarget {
         { "env3_amt",   "ENV3 Amt"  },
         { "drift1_depth","Drift1 Amt" },
         { "drift2_depth","Drift2 Amt" },
-        { "drift3_depth","Drift3 Amt" }
+        { "drift3_depth","Drift3 Amt" },
+        { "env4_amt",   "ENV4 Amt"  },
+        { "env5_amt",   "ENV5 Amt"  }
     };
     static constexpr int kCount = sizeof(kEntries) / sizeof(kEntries[0]);
-    static_assert(Drift3Depth + 1 == kCount,
+    static_assert(Env5Amt + 1 == kCount,
                   "LfoTarget enum and kEntries are out of sync.");
+
+    /** The target that drives mod envelope `i`'s Amt — i.e. ENV (i+2), because
+        ENV1 is the amp envelope. NOT `Env2Amt + i`: ENV4/5 had to be appended
+        after the drift depths to keep DAW sessions readable, so the run is
+        broken and this table is the only safe way across it. */
+    inline constexpr int modEnvAmt (int i)
+    {
+        constexpr int t[] = { Env2Amt, Env3Amt, Env4Amt, Env5Amt };
+        return t[i];
+    }
+    static_assert(kNumModEnvs == 4,
+                  "LfoTarget::modEnvAmt lists 4 entries — add one per new mod envelope.");
 }
 
 // ── MIDI aftertouch performance targets ──
@@ -424,7 +521,12 @@ namespace AftertouchTarget {
         Scan = 9,
         DCA = 10,
         Pitch = 11,
-        NoiseLevel = 12
+        NoiseLevel = 12,
+        // Appended for the same reason as LfoTarget::Env4Amt above: a DAW
+        // session stores the choice INDEX, so inserting these beside ENV1-3
+        // would re-point every saved Cutoff/Resonance/Scan/DCA/Pitch setting.
+        Env4Sustain = 13,
+        Env5Sustain = 14
     };
     static constexpr ChoiceEntry kEntries[] = {
         { "none",         "---"          },
@@ -439,11 +541,24 @@ namespace AftertouchTarget {
         { "scan",         "Scan"         },
         { "dca",          "DCA"          },
         { "pitch",        "Pitch"        },
-        { "noise_level",  "Noise"        }
+        { "noise_level",  "Noise"        },
+        { "env4_sustain", "ENV4 Sustain" },
+        { "env5_sustain", "ENV5 Sustain" }
     };
     static constexpr int kCount = sizeof(kEntries) / sizeof(kEntries[0]);
-    static_assert(NoiseLevel + 1 == kCount,
+    static_assert(Env5Sustain + 1 == kCount,
                   "AftertouchTarget enum and kEntries are out of sync.");
+
+    /** The target that holds mod envelope `i`'s sustain — ENV (i+2), because ENV1
+        is the amp envelope. A table for the same reason as LfoTarget::modEnvAmt:
+        ENV4/5 sit after the non-envelope targets, so the run is broken. */
+    inline constexpr int modEnvSustain (int i)
+    {
+        constexpr int t[] = { Env2Sustain, Env3Sustain, Env4Sustain, Env5Sustain };
+        return t[i];
+    }
+    static_assert(kNumModEnvs == 4,
+                  "modEnvSustain lists 4 entries — add one per new mod envelope.");
 }
 
 // ── Drift LFO targets ──
@@ -472,7 +587,9 @@ namespace DriftTarget {
         ReverbMix = 14,
         Env1Amt = 15,
         Env2Amt = 16,
-        Env3Amt = 17
+        Env3Amt = 17,
+        Env4Amt = 18,
+        Env5Amt = 19
     };
     static constexpr ChoiceEntry kEntries[] = {
         { "none",       "---"        },
@@ -492,10 +609,12 @@ namespace DriftTarget {
         { "reverb_mix", "Rev Mix"    },
         { "env1_amt",   "ENV1 Amt"   },
         { "env2_amt",   "ENV2 Amt"   },
-        { "env3_amt",   "ENV3 Amt"   }
+        { "env3_amt",   "ENV3 Amt"   },
+        { "env4_amt",   "ENV4 Amt"   },
+        { "env5_amt",   "ENV5 Amt"   }
     };
     static constexpr int kCount = sizeof(kEntries) / sizeof(kEntries[0]);
-    static_assert(Env3Amt + 1 == kCount,
+    static_assert(Env5Amt + 1 == kCount,
                   "DriftTarget enum and kEntries are out of sync.");
 }
 
@@ -1630,6 +1749,24 @@ namespace SeqPreset {
 }
 
 /**
+ * One MOD envelope's block-rate parameters — ENV 2..5 on the panel.
+ *
+ * The amp envelope (ENV 1) is deliberately NOT one of these: it owns the VCA,
+ * its Amt defaults to full rather than zero, and `computeDcaGain` treats it
+ * separately. Giving it the same struct would invite a loop that silently
+ * folded the VCA in with the modulators.
+ */
+struct ModEnvParams
+{
+    float attack = 0.0f, decay = 0.0f, sustain = 1.0f, release = 0.0f;
+    float amount = 0.0f;
+    float attackVelSens = 0.0f, decayVelSens = 0.0f, releaseVelSens = 0.0f;
+    int   target = 0;                                   // EnvTarget::None
+    int   attackCurve = 2, decayCurve = 2, releaseCurve = 4;  // CurveShape indices
+    bool  loop = false;
+};
+
+/**
  * Snapshot of all block-rate parameters, read once per processBlock from APVTS.
  * Passed to SynthVoice(s) to avoid per-voice atomic reads.
  */
@@ -1651,21 +1788,10 @@ struct BlockParams
     int   ampAttackCurve = 2, ampDecayCurve = 2, ampReleaseCurve = 4; // CurveShape indices
     bool  ampLoop = false;
 
-    // Mod envelope 1
-    float mod1Attack = 0.0f, mod1Decay = 0.0f, mod1Sustain = 1.0f, mod1Release = 0.0f;
-    float mod1Amount = 0.0f;
-    float mod1AttackVelSens = 0.0f, mod1DecayVelSens = 0.0f, mod1ReleaseVelSens = 0.0f;
-    int   mod1Target = 0; // EnvTarget::None
-    int   mod1AttackCurve = 2, mod1DecayCurve = 2, mod1ReleaseCurve = 4;
-    bool  mod1Loop = false;
-
-    // Mod envelope 2
-    float mod2Attack = 0.0f, mod2Decay = 0.0f, mod2Sustain = 1.0f, mod2Release = 0.0f;
-    float mod2Amount = 0.0f;
-    float mod2AttackVelSens = 0.0f, mod2DecayVelSens = 0.0f, mod2ReleaseVelSens = 0.0f;
-    int   mod2Target = 0; // EnvTarget::None
-    int   mod2AttackCurve = 2, mod2DecayCurve = 2, mod2ReleaseCurve = 4;
-    bool  mod2Loop = false;
+    // Mod envelopes — ENV 2..5 on the panel, `modEnv[0]` is ENV 2. They were
+    // written out one at a time (mod1*, mod2*) until 2026-07-29; the fourth and
+    // fifth are what made that untenable.
+    ModEnvParams modEnv[kNumModEnvs];
 
     // LFOs (global rates/depths for cross-mod, targets for routing).
     // `lfoNTrigMode` flips per-voice rendering to its own retriggered LFO

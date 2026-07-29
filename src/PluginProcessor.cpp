@@ -72,7 +72,20 @@ const char* const kAftertouchAmtPid[AftertouchTarget::kCount] = {
     PID::aftertouchAmtDca,                // DCA
     PID::aftertouchAmtPitch,              // Pitch
     PID::aftertouchAmtNoiseLevel,         // NoiseLevel
+    PID::aftertouchAmtEnv4Sustain,        // Env4Sustain
+    PID::aftertouchAmtEnv5Sustain,        // Env5Sustain
 };
+
+/** Does any MOD envelope — ENV 2..5 — point at this target?
+    Deliberately does NOT ask the amp envelope: some of the idle-gate predicates
+    below include amp and some do not, and folding it in here would quietly
+    change which of them fire. Ask `p.ampTarget` alongside where it belongs. */
+static bool anyModEnvTargets (const BlockParams& p, int target)
+{
+    for (int i = 0; i < kNumModEnvs; ++i)
+        if (p.modEnv[i].target == target) return true;
+    return false;
+}
 
 float snapGenerationMagnitude(float rangeStart, float rangeEnd, float value)
 {
@@ -1364,33 +1377,24 @@ juce::AudioProcessorValueTreeState::ParameterLayout T5ynthProcessor::createParam
         juce::ParameterID{PID::freezeStereo, 1}, "Granular Stereo",
         juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.25f));
 
-    // Mod Envelope 1 (A=0, D=2500ms, S=10%, R=4000ms, Amt=100%)
-    params.push_back(std::make_unique<juce::AudioParameterFloat>(
-        juce::ParameterID{PID::mod1Attack, 1}, "Mod1 Attack",
-        juce::NormalisableRange<float>(0.0f, 5000.0f, 0.1f, 0.3f), 0.0f));
-    params.push_back(std::make_unique<juce::AudioParameterFloat>(
-        juce::ParameterID{PID::mod1Decay, 1}, "Mod1 Decay",
-        juce::NormalisableRange<float>(0.0f, 5000.0f, 0.1f, 0.3f), 2500.0f));
-    params.push_back(std::make_unique<juce::AudioParameterFloat>(
-        juce::ParameterID{PID::mod1Sustain, 1}, "Mod1 Sustain",
-        juce::NormalisableRange<float>(0.0f, 1.0f), 0.1f));
-    params.push_back(std::make_unique<juce::AudioParameterFloat>(
-        juce::ParameterID{PID::mod1Release, 1}, "Mod1 Release",
-        juce::NormalisableRange<float>(0.0f, 10000.0f, 0.1f, 0.3f), 4000.0f));
-
-    // Mod Envelope 2 (A=0, D=2500ms, S=10%, R=4000ms, Amt=100%)
-    params.push_back(std::make_unique<juce::AudioParameterFloat>(
-        juce::ParameterID{PID::mod2Attack, 1}, "Mod2 Attack",
-        juce::NormalisableRange<float>(0.0f, 5000.0f, 0.1f, 0.3f), 0.0f));
-    params.push_back(std::make_unique<juce::AudioParameterFloat>(
-        juce::ParameterID{PID::mod2Decay, 1}, "Mod2 Decay",
-        juce::NormalisableRange<float>(0.0f, 5000.0f, 0.1f, 0.3f), 2500.0f));
-    params.push_back(std::make_unique<juce::AudioParameterFloat>(
-        juce::ParameterID{PID::mod2Sustain, 1}, "Mod2 Sustain",
-        juce::NormalisableRange<float>(0.0f, 1.0f), 0.1f));
-    params.push_back(std::make_unique<juce::AudioParameterFloat>(
-        juce::ParameterID{PID::mod2Release, 1}, "Mod2 Release",
-        juce::NormalisableRange<float>(0.0f, 10000.0f, 0.1f, 0.3f), 4000.0f));
+    // Mod envelopes ENV 2..5 (A=0, D=2500ms, S=10%, R=4000ms, Amt=0)
+    for (int i = 0; i < kNumModEnvs; ++i)
+    {
+        const auto& id = PID::modEnv[i];
+        const juce::String n = "Mod" + juce::String(i + 1) + " ";
+        params.push_back(std::make_unique<juce::AudioParameterFloat>(
+            juce::ParameterID{id.attack, 1}, n + "Attack",
+            juce::NormalisableRange<float>(0.0f, 5000.0f, 0.1f, 0.3f), 0.0f));
+        params.push_back(std::make_unique<juce::AudioParameterFloat>(
+            juce::ParameterID{id.decay, 1}, n + "Decay",
+            juce::NormalisableRange<float>(0.0f, 5000.0f, 0.1f, 0.3f), 2500.0f));
+        params.push_back(std::make_unique<juce::AudioParameterFloat>(
+            juce::ParameterID{id.sustain, 1}, n + "Sustain",
+            juce::NormalisableRange<float>(0.0f, 1.0f), 0.1f));
+        params.push_back(std::make_unique<juce::AudioParameterFloat>(
+            juce::ParameterID{id.release, 1}, n + "Release",
+            juce::NormalisableRange<float>(0.0f, 10000.0f, 0.1f, 0.3f), 4000.0f));
+    }
 
     // LFO 1 (reference defaults: rate=2.0, depth=0, sine)
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
@@ -1425,7 +1429,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout T5ynthProcessor::createParam
         juce::ParameterID{PID::lfo3Wave, 1}, "LFO3 Wave",
         toChoices(LfoWave::kEntries), 0));
 
-    // MIDI aftertouch performance routing: 12 per-target bipolar amounts
+    // MIDI aftertouch performance routing: one bipolar amount per target
     // (-1..+1, default 0 = off). Each AT target owns its signed depth; the UI
     // binds to these per-target floats.
     {
@@ -1443,6 +1447,8 @@ juce::AudioProcessorValueTreeState::ParameterLayout T5ynthProcessor::createParam
             { PID::aftertouchAmtDca,         "AT DCA"          },
             { PID::aftertouchAmtPitch,       "AT Pitch"        },
             { PID::aftertouchAmtNoiseLevel,  "AT Noise"        },
+            { PID::aftertouchAmtEnv4Sustain, "AT ENV4 Sustain" },
+            { PID::aftertouchAmtEnv5Sustain, "AT ENV5 Sustain" },
         };
         // Honest linear bipolar amount, 0.01 step (two decimals). The DSP
         // full-scales are now musical (AT→Cutoff feeds the shared cutoff bus at
@@ -1515,12 +1521,11 @@ juce::AudioProcessorValueTreeState::ParameterLayout T5ynthProcessor::createParam
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{PID::ampAmount, 1}, "Amp Amount",
         juce::NormalisableRange<float>(0.0f, 1.0f), 1.0f));
-    params.push_back(std::make_unique<juce::AudioParameterFloat>(
-        juce::ParameterID{PID::mod1Amount, 1}, "Mod1 Amount",
-        juce::NormalisableRange<float>(0.0f, 1.0f), 1.0f));
-    params.push_back(std::make_unique<juce::AudioParameterFloat>(
-        juce::ParameterID{PID::mod2Amount, 1}, "Mod2 Amount",
-        juce::NormalisableRange<float>(0.0f, 1.0f), 1.0f));
+    for (int i = 0; i < kNumModEnvs; ++i)
+        params.push_back(std::make_unique<juce::AudioParameterFloat>(
+            juce::ParameterID{PID::modEnv[i].amount, 1},
+            "Mod" + juce::String(i + 1) + " Amount",
+            juce::NormalisableRange<float>(0.0f, 1.0f), 1.0f));
 
     // Global velocity amount: how strongly note velocity scales EVERY envelope's
     // peak — i.e. the env's depth on whatever it targets (DCA loudness, filter,
@@ -1541,20 +1546,22 @@ juce::AudioProcessorValueTreeState::ParameterLayout T5ynthProcessor::createParam
     addVelSens(PID::ampAttackVelSens,  "Amp Attack Vel Sens",  0.0f);
     addVelSens(PID::ampDecayVelSens,   "Amp Decay Vel Sens",   0.0f);
     addVelSens(PID::ampReleaseVelSens, "Amp Release Vel Sens", 0.0f);
-    addVelSens(PID::mod1AttackVelSens,  "Mod1 Attack Vel Sens",  0.0f);
-    addVelSens(PID::mod1DecayVelSens,   "Mod1 Decay Vel Sens",   0.0f);
-    addVelSens(PID::mod1ReleaseVelSens, "Mod1 Release Vel Sens", 0.0f);
-    addVelSens(PID::mod2AttackVelSens,  "Mod2 Attack Vel Sens",  0.0f);
-    addVelSens(PID::mod2DecayVelSens,   "Mod2 Decay Vel Sens",   0.0f);
-    addVelSens(PID::mod2ReleaseVelSens, "Mod2 Release Vel Sens", 0.0f);
+    for (int i = 0; i < kNumModEnvs; ++i)
+    {
+        const auto& id = PID::modEnv[i];
+        const juce::String n = "Mod" + juce::String(i + 1) + " ";
+        addVelSens(id.attackVelSens,  n + "Attack Vel Sens",  0.0f);
+        addVelSens(id.decayVelSens,   n + "Decay Vel Sens",   0.0f);
+        addVelSens(id.releaseVelSens, n + "Release Vel Sens", 0.0f);
+    }
 
     // ENV Loop (per envelope)
     params.push_back(std::make_unique<juce::AudioParameterBool>(
         juce::ParameterID{PID::ampLoop, 1}, "Amp Loop", false));
-    params.push_back(std::make_unique<juce::AudioParameterBool>(
-        juce::ParameterID{PID::mod1Loop, 1}, "Mod1 Loop", false));
-    params.push_back(std::make_unique<juce::AudioParameterBool>(
-        juce::ParameterID{PID::mod2Loop, 1}, "Mod2 Loop", false));
+    for (int i = 0; i < kNumModEnvs; ++i)
+        params.push_back(std::make_unique<juce::AudioParameterBool>(
+            juce::ParameterID{PID::modEnv[i].loop, 1},
+            "Mod" + juce::String(i + 1) + " Loop", false));
 
     // ENV Curve shapes (0=Log, 1=SLog, 2=Lin, 3=SExp, 4=Exp)  —  A/D default Lin(2), R default Exp(4)
     const juce::StringArray curveChoices = toChoices(EnvCurve::kEntries);
@@ -1564,18 +1571,17 @@ juce::AudioProcessorValueTreeState::ParameterLayout T5ynthProcessor::createParam
         juce::ParameterID{PID::ampDecayCurve, 2},   "Amp Decay Curve",   curveChoices, 2));
     params.push_back(std::make_unique<juce::AudioParameterChoice>(
         juce::ParameterID{PID::ampReleaseCurve, 2}, "Amp Release Curve", curveChoices, 4));
-    params.push_back(std::make_unique<juce::AudioParameterChoice>(
-        juce::ParameterID{PID::mod1AttackCurve, 2},  "Mod1 Attack Curve",  curveChoices, 2));
-    params.push_back(std::make_unique<juce::AudioParameterChoice>(
-        juce::ParameterID{PID::mod1DecayCurve, 2},   "Mod1 Decay Curve",   curveChoices, 2));
-    params.push_back(std::make_unique<juce::AudioParameterChoice>(
-        juce::ParameterID{PID::mod1ReleaseCurve, 2}, "Mod1 Release Curve", curveChoices, 4));
-    params.push_back(std::make_unique<juce::AudioParameterChoice>(
-        juce::ParameterID{PID::mod2AttackCurve, 2},  "Mod2 Attack Curve",  curveChoices, 2));
-    params.push_back(std::make_unique<juce::AudioParameterChoice>(
-        juce::ParameterID{PID::mod2DecayCurve, 2},   "Mod2 Decay Curve",   curveChoices, 2));
-    params.push_back(std::make_unique<juce::AudioParameterChoice>(
-        juce::ParameterID{PID::mod2ReleaseCurve, 2}, "Mod2 Release Curve", curveChoices, 4));
+    for (int i = 0; i < kNumModEnvs; ++i)
+    {
+        const auto& id = PID::modEnv[i];
+        const juce::String n = "Mod" + juce::String(i + 1) + " ";
+        params.push_back(std::make_unique<juce::AudioParameterChoice>(
+            juce::ParameterID{id.attackCurve, 2},  n + "Attack Curve",  curveChoices, 2));
+        params.push_back(std::make_unique<juce::AudioParameterChoice>(
+            juce::ParameterID{id.decayCurve, 2},   n + "Decay Curve",   curveChoices, 2));
+        params.push_back(std::make_unique<juce::AudioParameterChoice>(
+            juce::ParameterID{id.releaseCurve, 2}, n + "Release Curve", curveChoices, 4));
+    }
 
     // ENV / LFO target choice lists — the single source of truth lives in
     // src/dsp/BlockParams.h (EnvTarget::kEntries / LfoTarget::kEntries). The
@@ -1585,10 +1591,10 @@ juce::AudioProcessorValueTreeState::ParameterLayout T5ynthProcessor::createParam
     for (const auto& e : EnvTarget::kEntries) envTargetChoices.add(e.label);
     params.push_back(std::make_unique<juce::AudioParameterChoice>(
         juce::ParameterID{PID::ampTarget, 1}, "Amp Target", envTargetChoices, EnvTarget::DCA));
-    params.push_back(std::make_unique<juce::AudioParameterChoice>(
-        juce::ParameterID{PID::mod1Target, 1}, "Mod1 Target", envTargetChoices, 0));
-    params.push_back(std::make_unique<juce::AudioParameterChoice>(
-        juce::ParameterID{PID::mod2Target, 1}, "Mod2 Target", envTargetChoices, 0));
+    for (int i = 0; i < kNumModEnvs; ++i)
+        params.push_back(std::make_unique<juce::AudioParameterChoice>(
+            juce::ParameterID{PID::modEnv[i].target, 1},
+            "Mod" + juce::String(i + 1) + " Target", envTargetChoices, 0));
 
     juce::StringArray lfoTargetChoices;
     for (const auto& e : LfoTarget::kEntries) lfoTargetChoices.add(e.label);
@@ -3311,33 +3317,25 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
     bp.ampDecayVelSens   = paramCache.ampDecayVelSens->load();
     bp.ampReleaseVelSens = paramCache.ampReleaseVelSens->load();
 
-    bp.mod1Attack  = paramCache.mod1Attack->load();
-    bp.mod1Decay   = paramCache.mod1Decay->load();
-    bp.mod1Sustain = paramCache.mod1Sustain->load();
-    bp.mod1Release = paramCache.mod1Release->load();
-    bp.mod1Amount  = paramCache.mod1Amount->load();
-    bp.mod1Target  = static_cast<int>(paramCache.mod1Target->load());
-    bp.mod1Loop    = paramCache.mod1Loop->load() > 0.5f;
-    bp.mod1AttackCurve  = static_cast<int>(paramCache.mod1AttackCurve->load());
-    bp.mod1DecayCurve   = static_cast<int>(paramCache.mod1DecayCurve->load());
-    bp.mod1ReleaseCurve = static_cast<int>(paramCache.mod1ReleaseCurve->load());
-    bp.mod1AttackVelSens  = paramCache.mod1AttackVelSens->load();
-    bp.mod1DecayVelSens   = paramCache.mod1DecayVelSens->load();
-    bp.mod1ReleaseVelSens = paramCache.mod1ReleaseVelSens->load();
+    for (int i = 0; i < kNumModEnvs; ++i)
+    {
+        const auto& src = paramCache.modEnv[i];
+        auto& dst = bp.modEnv[i];
+        dst.attack  = src.attack->load();
+        dst.decay   = src.decay->load();
+        dst.sustain = src.sustain->load();
+        dst.release = src.release->load();
+        dst.amount  = src.amount->load();
+        dst.target  = static_cast<int>(src.target->load());
+        dst.loop    = src.loop->load() > 0.5f;
+        dst.attackCurve  = static_cast<int>(src.attackCurve->load());
+        dst.decayCurve   = static_cast<int>(src.decayCurve->load());
+        dst.releaseCurve = static_cast<int>(src.releaseCurve->load());
+        dst.attackVelSens  = src.attackVelSens->load();
+        dst.decayVelSens   = src.decayVelSens->load();
+        dst.releaseVelSens = src.releaseVelSens->load();
+    }
 
-    bp.mod2Attack  = paramCache.mod2Attack->load();
-    bp.mod2Decay   = paramCache.mod2Decay->load();
-    bp.mod2Sustain = paramCache.mod2Sustain->load();
-    bp.mod2Release = paramCache.mod2Release->load();
-    bp.mod2Amount  = paramCache.mod2Amount->load();
-    bp.mod2Target  = static_cast<int>(paramCache.mod2Target->load());
-    bp.mod2Loop    = paramCache.mod2Loop->load() > 0.5f;
-    bp.mod2AttackCurve  = static_cast<int>(paramCache.mod2AttackCurve->load());
-    bp.mod2DecayCurve   = static_cast<int>(paramCache.mod2DecayCurve->load());
-    bp.mod2ReleaseCurve = static_cast<int>(paramCache.mod2ReleaseCurve->load());
-    bp.mod2AttackVelSens  = paramCache.mod2AttackVelSens->load();
-    bp.mod2DecayVelSens   = paramCache.mod2DecayVelSens->load();
-    bp.mod2ReleaseVelSens = paramCache.mod2ReleaseVelSens->load();
 
     // LFOs (global) — Clock-Sync override: when ClockMode::Sync, the rate
     // displayed on the slider is replaced by the sync-derived rate. We store
@@ -3402,6 +3400,8 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
         setAmt(paramCache.aftertouchAmtDca,         AftertouchTarget::DCA);
         setAmt(paramCache.aftertouchAmtPitch,       AftertouchTarget::Pitch);
         setAmt(paramCache.aftertouchAmtNoiseLevel,  AftertouchTarget::NoiseLevel);
+        setAmt(paramCache.aftertouchAmtEnv4Sustain, AftertouchTarget::Env4Sustain);
+        setAmt(paramCache.aftertouchAmtEnv5Sustain, AftertouchTarget::Env5Sustain);
     }
 
     // Filter
@@ -3488,8 +3488,12 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
 
     // Drift → envelope amounts (additive, clamped to 0–1)
     bp.ampAmount  = juce::jlimit(0.0f, 1.0f, bp.ampAmount  + driftLfo.getOffsetForTarget(DriftLFO::TgtEnv1Amt));
-    bp.mod1Amount = juce::jlimit(0.0f, 1.0f, bp.mod1Amount + driftLfo.getOffsetForTarget(DriftLFO::TgtEnv2Amt));
-    bp.mod2Amount = juce::jlimit(0.0f, 1.0f, bp.mod2Amount + driftLfo.getOffsetForTarget(DriftLFO::TgtEnv3Amt));
+    // Drift's ENV n Amt targets are 1-based over ALL FIVE envelopes: ENV1 is the
+    // amp envelope, so modEnv[i] is ENV (i+2) and its drift target is
+    // TgtEnv2Amt + i.
+    for (int i = 0; i < kNumModEnvs; ++i)
+        bp.modEnv[i].amount = juce::jlimit(0.0f, 1.0f, bp.modEnv[i].amount
+            + driftLfo.getOffsetForTarget(static_cast<DriftLFO::Target>(DriftLFO::TgtEnv2Amt + i)));
 
     // Give noteOn/noteOff access to the current envelope/modulation block state.
     voiceManager.setBlockParams(bp);
@@ -4286,15 +4290,16 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
             float l1End = (numSamples > 0 ? lfo1Buf[numSamples - 1] : 0.0f) * baseLfo1Depth;
             float l2End = (numSamples > 0 ? lfo2Buf[numSamples - 1] : 0.0f) * baseLfo2Depth;
             float l3End = (numSamples > 0 ? lfo3Buf[numSamples - 1] : 0.0f) * baseLfo3Depth;
-            if (bp.lfo1Target == LfoTarget::Env1Amt) bp.ampAmount  = applyNormalizedOffset(bp.ampAmount,  l1End);
-            if (bp.lfo1Target == LfoTarget::Env2Amt) bp.mod1Amount = applyNormalizedOffset(bp.mod1Amount, l1End);
-            if (bp.lfo1Target == LfoTarget::Env3Amt) bp.mod2Amount = applyNormalizedOffset(bp.mod2Amount, l1End);
-            if (bp.lfo2Target == LfoTarget::Env1Amt) bp.ampAmount  = applyNormalizedOffset(bp.ampAmount,  l2End);
-            if (bp.lfo2Target == LfoTarget::Env2Amt) bp.mod1Amount = applyNormalizedOffset(bp.mod1Amount, l2End);
-            if (bp.lfo2Target == LfoTarget::Env3Amt) bp.mod2Amount = applyNormalizedOffset(bp.mod2Amount, l2End);
-            if (bp.lfo3Target == LfoTarget::Env1Amt) bp.ampAmount  = applyNormalizedOffset(bp.ampAmount,  l3End);
-            if (bp.lfo3Target == LfoTarget::Env2Amt) bp.mod1Amount = applyNormalizedOffset(bp.mod1Amount, l3End);
-            if (bp.lfo3Target == LfoTarget::Env3Amt) bp.mod2Amount = applyNormalizedOffset(bp.mod2Amount, l3End);
+            const int   lfoTgt[3] = { bp.lfo1Target, bp.lfo2Target, bp.lfo3Target };
+            const float lfoEnd[3] = { l1End, l2End, l3End };
+            for (int l = 0; l < 3; ++l)
+            {
+                if (lfoTgt[l] == LfoTarget::Env1Amt)
+                    bp.ampAmount = applyNormalizedOffset(bp.ampAmount, lfoEnd[l]);
+                for (int i = 0; i < kNumModEnvs; ++i)
+                    if (lfoTgt[l] == LfoTarget::modEnvAmt(i))
+                        bp.modEnv[i].amount = applyNormalizedOffset(bp.modEnv[i].amount, lfoEnd[l]);
+            }
         }
 
         // Scan → P1 modulation offset (Sampler mode only: retrigger uses it).
@@ -4883,20 +4888,25 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
 
         // Capture last LFO values for block-rate modulation + ghost display
         float lastAmpVal = voiceOut.lastAmpVal;
-        float lastMod1Val = voiceOut.lastMod1Val;
-        float lastMod2Val = voiceOut.lastMod2Val;
+        // Every envelope as one list, amp first and then ENV 2..5, so each target
+        // question below is asked once instead of once per envelope. An envelope
+        // has exactly one target, so at most one arm of each group fires per
+        // entry and the accumulation order across envelopes is unchanged.
+        struct EnvSrc { int target; float value; };
+        EnvSrc envSrc[1 + kNumModEnvs];
+        envSrc[0] = { bp.ampTarget, lastAmpVal };
+        for (int i = 0; i < kNumModEnvs; ++i)
+            envSrc[1 + i] = { bp.modEnv[i].target, voiceOut.lastModVal[i] };
+
         float effectiveLfo1Depth = baseLfo1Depth;
         float effectiveLfo2Depth = baseLfo2Depth;
         float effectiveLfo3Depth = baseLfo3Depth;
-        if (bp.ampTarget == EnvTarget::LFO1Depth) effectiveLfo1Depth = applyNormalizedOffset(effectiveLfo1Depth, lastAmpVal);
-        if (bp.mod1Target == EnvTarget::LFO1Depth) effectiveLfo1Depth = applyNormalizedOffset(effectiveLfo1Depth, lastMod1Val);
-        if (bp.mod2Target == EnvTarget::LFO1Depth) effectiveLfo1Depth = applyNormalizedOffset(effectiveLfo1Depth, lastMod2Val);
-        if (bp.ampTarget == EnvTarget::LFO2Depth) effectiveLfo2Depth = applyNormalizedOffset(effectiveLfo2Depth, lastAmpVal);
-        if (bp.mod1Target == EnvTarget::LFO2Depth) effectiveLfo2Depth = applyNormalizedOffset(effectiveLfo2Depth, lastMod1Val);
-        if (bp.mod2Target == EnvTarget::LFO2Depth) effectiveLfo2Depth = applyNormalizedOffset(effectiveLfo2Depth, lastMod2Val);
-        if (bp.ampTarget == EnvTarget::LFO3Depth) effectiveLfo3Depth = applyNormalizedOffset(effectiveLfo3Depth, lastAmpVal);
-        if (bp.mod1Target == EnvTarget::LFO3Depth) effectiveLfo3Depth = applyNormalizedOffset(effectiveLfo3Depth, lastMod1Val);
-        if (bp.mod2Target == EnvTarget::LFO3Depth) effectiveLfo3Depth = applyNormalizedOffset(effectiveLfo3Depth, lastMod2Val);
+        for (const auto& e : envSrc)
+        {
+            if (e.target == EnvTarget::LFO1Depth) effectiveLfo1Depth = applyNormalizedOffset(effectiveLfo1Depth, e.value);
+            if (e.target == EnvTarget::LFO2Depth) effectiveLfo2Depth = applyNormalizedOffset(effectiveLfo2Depth, e.value);
+            if (e.target == EnvTarget::LFO3Depth) effectiveLfo3Depth = applyNormalizedOffset(effectiveLfo3Depth, e.value);
+        }
         float rawLastLfo1Val = numSamples > 0 ? lfo1Buf[numSamples - 1] : 0.0f;
         float rawLastLfo2Val = numSamples > 0 ? lfo2Buf[numSamples - 1] : 0.0f;
         float rawLastLfo3Val = numSamples > 0 ? lfo3Buf[numSamples - 1] : 0.0f;
@@ -4911,38 +4921,25 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
 
         // ── Accumulate block-rate modulation for delay/reverb ─────────────────
         // (Pitch modulation is handled per-sample in SynthVoice::renderBlock)
-        if (bp.ampTarget == EnvTarget::DelayTime)   modDelayTime += lastAmpVal;
-        if (bp.ampTarget == EnvTarget::DelayFB)     modDelayFb += lastAmpVal;
-        if (bp.ampTarget == EnvTarget::DelayMix)    modDelayMix += lastAmpVal;
-        if (bp.ampTarget == EnvTarget::ReverbMix)   modReverbMix += lastAmpVal;
-        if (bp.mod1Target == EnvTarget::DelayTime)  modDelayTime += lastMod1Val;
-        if (bp.mod1Target == EnvTarget::DelayFB)    modDelayFb += lastMod1Val;
-        if (bp.mod1Target == EnvTarget::DelayMix)   modDelayMix += lastMod1Val;
-        if (bp.mod1Target == EnvTarget::ReverbMix)  modReverbMix += lastMod1Val;
-        if (bp.mod2Target == EnvTarget::DelayTime)  modDelayTime += lastMod2Val;
-        if (bp.mod2Target == EnvTarget::DelayFB)    modDelayFb += lastMod2Val;
-        if (bp.mod2Target == EnvTarget::DelayMix)   modDelayMix += lastMod2Val;
-        if (bp.mod2Target == EnvTarget::ReverbMix)  modReverbMix += lastMod2Val;
+        for (const auto& e : envSrc)
+        {
+            if (e.target == EnvTarget::DelayTime)  modDelayTime += e.value;
+            if (e.target == EnvTarget::DelayFB)    modDelayFb   += e.value;
+            if (e.target == EnvTarget::DelayMix)   modDelayMix  += e.value;
+            if (e.target == EnvTarget::ReverbMix)  modReverbMix += e.value;
+        }
 
-        // Env → LFO modulation
-        if (bp.ampTarget == EnvTarget::LFO1Rate)    lfo1.setRate(baseLfo1Rate * (1.0f + lastAmpVal));
-        if (bp.ampTarget == EnvTarget::LFO1Depth)   effectiveLfo1Depth = applyNormalizedOffset(effectiveLfo1Depth, lastAmpVal);
-        if (bp.ampTarget == EnvTarget::LFO2Rate)    lfo2.setRate(baseLfo2Rate * (1.0f + lastAmpVal));
-        if (bp.ampTarget == EnvTarget::LFO2Depth)   effectiveLfo2Depth = applyNormalizedOffset(effectiveLfo2Depth, lastAmpVal);
-        if (bp.ampTarget == EnvTarget::LFO3Rate)    lfo3.setRate(baseLfo3Rate * (1.0f + lastAmpVal));
-        if (bp.ampTarget == EnvTarget::LFO3Depth)   effectiveLfo3Depth = applyNormalizedOffset(effectiveLfo3Depth, lastAmpVal);
-        if (bp.mod1Target == EnvTarget::LFO1Rate)   lfo1.setRate(baseLfo1Rate * (1.0f + lastMod1Val));
-        if (bp.mod1Target == EnvTarget::LFO1Depth)  effectiveLfo1Depth = applyNormalizedOffset(effectiveLfo1Depth, lastMod1Val);
-        if (bp.mod1Target == EnvTarget::LFO2Rate)   lfo2.setRate(baseLfo2Rate * (1.0f + lastMod1Val));
-        if (bp.mod1Target == EnvTarget::LFO2Depth)  effectiveLfo2Depth = applyNormalizedOffset(effectiveLfo2Depth, lastMod1Val);
-        if (bp.mod1Target == EnvTarget::LFO3Rate)   lfo3.setRate(baseLfo3Rate * (1.0f + lastMod1Val));
-        if (bp.mod1Target == EnvTarget::LFO3Depth)  effectiveLfo3Depth = applyNormalizedOffset(effectiveLfo3Depth, lastMod1Val);
-        if (bp.mod2Target == EnvTarget::LFO1Rate)   lfo1.setRate(baseLfo1Rate * (1.0f + lastMod2Val));
-        if (bp.mod2Target == EnvTarget::LFO1Depth)  effectiveLfo1Depth = applyNormalizedOffset(effectiveLfo1Depth, lastMod2Val);
-        if (bp.mod2Target == EnvTarget::LFO2Rate)   lfo2.setRate(baseLfo2Rate * (1.0f + lastMod2Val));
-        if (bp.mod2Target == EnvTarget::LFO2Depth)  effectiveLfo2Depth = applyNormalizedOffset(effectiveLfo2Depth, lastMod2Val);
-        if (bp.mod2Target == EnvTarget::LFO3Rate)   lfo3.setRate(baseLfo3Rate * (1.0f + lastMod2Val));
-        if (bp.mod2Target == EnvTarget::LFO3Depth)  effectiveLfo3Depth = applyNormalizedOffset(effectiveLfo3Depth, lastMod2Val);
+        // Env → LFO modulation. The Depth arms repeat the ones above; that
+        // double application is how this has always behaved and is left alone.
+        for (const auto& e : envSrc)
+        {
+            if (e.target == EnvTarget::LFO1Rate)   lfo1.setRate(baseLfo1Rate * (1.0f + e.value));
+            if (e.target == EnvTarget::LFO1Depth)  effectiveLfo1Depth = applyNormalizedOffset(effectiveLfo1Depth, e.value);
+            if (e.target == EnvTarget::LFO2Rate)   lfo2.setRate(baseLfo2Rate * (1.0f + e.value));
+            if (e.target == EnvTarget::LFO2Depth)  effectiveLfo2Depth = applyNormalizedOffset(effectiveLfo2Depth, e.value);
+            if (e.target == EnvTarget::LFO3Rate)   lfo3.setRate(baseLfo3Rate * (1.0f + e.value));
+            if (e.target == EnvTarget::LFO3Depth)  effectiveLfo3Depth = applyNormalizedOffset(effectiveLfo3Depth, e.value);
+        }
         if (bp.lfo1Target == LfoTarget::DelayTime)  modDelayTime += lastLfo1Val;
         if (bp.lfo1Target == LfoTarget::DelayFB)    modDelayFb += lastLfo1Val;
         if (bp.lfo1Target == LfoTarget::DelayMix)   modDelayMix += lastLfo1Val;
@@ -5157,7 +5154,7 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
             bool lfoModFilter = bp.lfo1Target == LfoTarget::Filter || bp.lfo2Target == LfoTarget::Filter
                                 || bp.lfo3Target == LfoTarget::Filter;
             bool envModFilter = (bp.ampTarget == EnvTarget::Filter
-                                 || bp.mod1Target == EnvTarget::Filter || bp.mod2Target == EnvTarget::Filter
+                                 || anyModEnvTargets(bp, EnvTarget::Filter)
                                  || bp.kbdTrack > 0.0f) && hasVoices;
             bool aftertouchModFilter = bp.filterEnabled
                                     && bp.aftertouchTargetAmt[AftertouchTarget::Cutoff] != 0.0f && hasVoices;
@@ -5199,7 +5196,7 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
             bool lfoModScan = bp.lfo1Target == LfoTarget::Scan || bp.lfo2Target == LfoTarget::Scan
                               || bp.lfo3Target == LfoTarget::Scan;
             bool envModScan = bp.ampTarget == EnvTarget::Scan
-                           || bp.mod1Target == EnvTarget::Scan || bp.mod2Target == EnvTarget::Scan;
+                           || anyModEnvTargets(bp, EnvTarget::Scan);
             bool driftModScan = std::abs(bp.driftScanOffset) > 0.001f && hasVoices;
             bool scanDrivenEngineActive = (bp.engineIsWavetable || bp.engineIsFreeze) && hasVoices;
 
@@ -5230,7 +5227,7 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
             bool lfoModNoise = bp.lfo1Target == LfoTarget::NoiseLevel || bp.lfo2Target == LfoTarget::NoiseLevel
                                || bp.lfo3Target == LfoTarget::NoiseLevel;
             bool envModNoise = bp.ampTarget == EnvTarget::NoiseLevel
-                            || bp.mod1Target == EnvTarget::NoiseLevel || bp.mod2Target == EnvTarget::NoiseLevel;
+                            || anyModEnvTargets(bp, EnvTarget::NoiseLevel);
 
             if (hasVoices && (lfoModNoise || envModNoise))
             {
@@ -5256,36 +5253,36 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
         if (!skipSynthesis)
         {
             bool lfo1RateMod  = bp.ampTarget == EnvTarget::LFO1Rate
-                              || bp.mod1Target == EnvTarget::LFO1Rate  || bp.mod2Target == EnvTarget::LFO1Rate;
+                              || anyModEnvTargets(bp, EnvTarget::LFO1Rate);
             bool lfo1DepthMod = bp.ampTarget == EnvTarget::LFO1Depth
-                              || bp.mod1Target == EnvTarget::LFO1Depth || bp.mod2Target == EnvTarget::LFO1Depth;
+                              || anyModEnvTargets(bp, EnvTarget::LFO1Depth);
             modulatedValues.lfo1Rate.store(lfo1RateMod ? lfo1.getRate() : NO_GHOST, std::memory_order_relaxed);
             float ghostLfo1Depth = bp.lfo1Depth;
             if (bp.ampTarget == EnvTarget::LFO1Depth) ghostLfo1Depth = applyNormalizedOffset(ghostLfo1Depth, voiceOut.lastAmpVal);
-            if (bp.mod1Target == EnvTarget::LFO1Depth) ghostLfo1Depth = applyNormalizedOffset(ghostLfo1Depth, voiceOut.lastMod1Val);
-            if (bp.mod2Target == EnvTarget::LFO1Depth) ghostLfo1Depth = applyNormalizedOffset(ghostLfo1Depth, voiceOut.lastMod2Val);
+            for (int i = 0; i < kNumModEnvs; ++i)
+                if (bp.modEnv[i].target == EnvTarget::LFO1Depth) ghostLfo1Depth = applyNormalizedOffset(ghostLfo1Depth, voiceOut.lastModVal[i]);
             modulatedValues.lfo1Depth.store(lfo1DepthMod ? ghostLfo1Depth : NO_GHOST, std::memory_order_relaxed);
 
             bool lfo2RateMod  = bp.ampTarget == EnvTarget::LFO2Rate
-                              || bp.mod1Target == EnvTarget::LFO2Rate  || bp.mod2Target == EnvTarget::LFO2Rate;
+                              || anyModEnvTargets(bp, EnvTarget::LFO2Rate);
             bool lfo2DepthMod = bp.ampTarget == EnvTarget::LFO2Depth
-                              || bp.mod1Target == EnvTarget::LFO2Depth || bp.mod2Target == EnvTarget::LFO2Depth;
+                              || anyModEnvTargets(bp, EnvTarget::LFO2Depth);
             modulatedValues.lfo2Rate.store(lfo2RateMod ? lfo2.getRate() : NO_GHOST, std::memory_order_relaxed);
             float ghostLfo2Depth = bp.lfo2Depth;
             if (bp.ampTarget == EnvTarget::LFO2Depth) ghostLfo2Depth = applyNormalizedOffset(ghostLfo2Depth, voiceOut.lastAmpVal);
-            if (bp.mod1Target == EnvTarget::LFO2Depth) ghostLfo2Depth = applyNormalizedOffset(ghostLfo2Depth, voiceOut.lastMod1Val);
-            if (bp.mod2Target == EnvTarget::LFO2Depth) ghostLfo2Depth = applyNormalizedOffset(ghostLfo2Depth, voiceOut.lastMod2Val);
+            for (int i = 0; i < kNumModEnvs; ++i)
+                if (bp.modEnv[i].target == EnvTarget::LFO2Depth) ghostLfo2Depth = applyNormalizedOffset(ghostLfo2Depth, voiceOut.lastModVal[i]);
             modulatedValues.lfo2Depth.store(lfo2DepthMod ? ghostLfo2Depth : NO_GHOST, std::memory_order_relaxed);
 
             bool lfo3RateMod  = bp.ampTarget == EnvTarget::LFO3Rate
-                              || bp.mod1Target == EnvTarget::LFO3Rate  || bp.mod2Target == EnvTarget::LFO3Rate;
+                              || anyModEnvTargets(bp, EnvTarget::LFO3Rate);
             bool lfo3DepthMod = bp.ampTarget == EnvTarget::LFO3Depth
-                              || bp.mod1Target == EnvTarget::LFO3Depth || bp.mod2Target == EnvTarget::LFO3Depth;
+                              || anyModEnvTargets(bp, EnvTarget::LFO3Depth);
             modulatedValues.lfo3Rate.store(lfo3RateMod ? lfo3.getRate() : NO_GHOST, std::memory_order_relaxed);
             float ghostLfo3Depth = bp.lfo3Depth;
             if (bp.ampTarget == EnvTarget::LFO3Depth) ghostLfo3Depth = applyNormalizedOffset(ghostLfo3Depth, voiceOut.lastAmpVal);
-            if (bp.mod1Target == EnvTarget::LFO3Depth) ghostLfo3Depth = applyNormalizedOffset(ghostLfo3Depth, voiceOut.lastMod1Val);
-            if (bp.mod2Target == EnvTarget::LFO3Depth) ghostLfo3Depth = applyNormalizedOffset(ghostLfo3Depth, voiceOut.lastMod2Val);
+            for (int i = 0; i < kNumModEnvs; ++i)
+                if (bp.modEnv[i].target == EnvTarget::LFO3Depth) ghostLfo3Depth = applyNormalizedOffset(ghostLfo3Depth, voiceOut.lastModVal[i]);
             modulatedValues.lfo3Depth.store(lfo3DepthMod ? ghostLfo3Depth : NO_GHOST, std::memory_order_relaxed);
         }
         else
@@ -6298,7 +6295,7 @@ void T5ynthProcessor::setStateInformation(const void* data, int sizeInBytes)
         // Sync. Patch defaults straight into the loaded tree so the swap
         // is atomic (no setValueNotifyingHost glitch between a pre-reset
         // and the actual restore).
-        struct ClockDefault { const char* pid; int defaultIndex; };
+        struct ClockDefault { const char* pid; float defaultValue; };
         const ClockDefault clockDefaults[] = {
             { PID::lfo1ClockMode,      ClockMode::Off          },
             { PID::lfo1ClockDivision,  ClockDivision::D1_4     },
@@ -6326,9 +6323,28 @@ void T5ynthProcessor::setStateInformation(const void* data, int sizeInBytes)
             if (hasParam(cd.pid)) continue;
             juce::ValueTree node("PARAM");
             node.setProperty("id", cd.pid, nullptr);
-            node.setProperty("value", static_cast<float>(cd.defaultIndex), nullptr);
+            node.setProperty("value", cd.defaultValue, nullptr);
             loadedTree.appendChild(node, nullptr);
         }
+
+        // Same reasoning for ENV 4/5 and their aftertouch sustains (2026-07-29):
+        // a session saved before they existed carries no node for them, so
+        // without this they inherit whatever the last patch left. Defaults come
+        // from the layout, not from a second copy of the numbers.
+        auto patchToLayoutDefault = [&](const char* pid) {
+            if (hasParam(pid)) return;
+            auto* prm = parameters.getParameter(pid);
+            if (prm == nullptr) return;
+            juce::ValueTree node("PARAM");
+            node.setProperty("id", pid, nullptr);
+            node.setProperty("value", prm->convertFrom0to1(prm->getDefaultValue()), nullptr);
+            loadedTree.appendChild(node, nullptr);
+        };
+        for (int e = 2; e < kNumModEnvs; ++e)          // mod3/mod4 = ENV 4/5
+            for (const char* id : PID::modEnv[e].all())
+                patchToLayoutDefault(id);
+        patchToLayoutDefault(PID::aftertouchAmtEnv4Sustain);
+        patchToLayoutDefault(PID::aftertouchAmtEnv5Sustain);
 
         // Per-stage velocity sensitivity (continuous signed, A/D/R TIME only)
         // replaced the old global velSens + discrete A/D/R vel modes. Convert a
@@ -6387,7 +6403,7 @@ void T5ynthProcessor::setStateInformation(const void* data, int sizeInBytes)
             }
 
             // Aftertouch: the single-select Choice (aftertouch_target) + global
-            // aftertouch_amount were replaced by 12 per-target bipolar amounts.
+            // aftertouch_amount were replaced by one bipolar amount per target.
             // Fold a pre-redesign session's routing onto the selected target's
             // per-target param. Legacy IDs are gone from PID:: — raw strings.
             if (hasParam("aftertouch_target"))
@@ -6583,26 +6599,19 @@ static int envVelTimeModeFromString(const juce::String& s) { return choiceFromKe
 static juce::String envVelTimeModeToString(int i)          { return choiceToKey(i, EnvVelTimeMode::kEntries); }
 
 // ── PID group tables for looped save/load of envelopes, LFOs, drift ──
-struct EnvPIDs {
-    const char* attack; const char* decay; const char* sustain; const char* release;
-    const char* amount; const char* loop; const char* target;
-    const char* attackCurve; const char* decayCurve; const char* releaseCurve;
-    const char* attackVelSens; const char* decayVelSens; const char* releaseVelSens;
-};
+// The save/load table is the amp envelope followed by PID::modEnv verbatim, so
+// the mod envelopes' IDs are written down in exactly one place (BlockParams.h).
+using EnvPIDs = PID::ModEnvIds;
 static constexpr EnvPIDs kEnvPIDs[] = {
     { PID::ampAttack, PID::ampDecay, PID::ampSustain, PID::ampRelease,
       PID::ampAmount, PID::ampLoop, PID::ampTarget,
       PID::ampAttackCurve, PID::ampDecayCurve, PID::ampReleaseCurve,
       PID::ampAttackVelSens, PID::ampDecayVelSens, PID::ampReleaseVelSens },
-    { PID::mod1Attack, PID::mod1Decay, PID::mod1Sustain, PID::mod1Release,
-      PID::mod1Amount, PID::mod1Loop, PID::mod1Target,
-      PID::mod1AttackCurve, PID::mod1DecayCurve, PID::mod1ReleaseCurve,
-      PID::mod1AttackVelSens, PID::mod1DecayVelSens, PID::mod1ReleaseVelSens },
-    { PID::mod2Attack, PID::mod2Decay, PID::mod2Sustain, PID::mod2Release,
-      PID::mod2Amount, PID::mod2Loop, PID::mod2Target,
-      PID::mod2AttackCurve, PID::mod2DecayCurve, PID::mod2ReleaseCurve,
-      PID::mod2AttackVelSens, PID::mod2DecayVelSens, PID::mod2ReleaseVelSens },
+    PID::modEnv[0], PID::modEnv[1], PID::modEnv[2], PID::modEnv[3],
 };
+static constexpr int kNumEnvPIDs = sizeof(kEnvPIDs) / sizeof(kEnvPIDs[0]);
+static_assert(kNumEnvPIDs == 1 + kNumModEnvs,
+              "kEnvPIDs must carry the amp envelope plus every mod envelope.");
 
 struct LfoPIDs {
     const char* rate; const char* depth; const char* wave;
@@ -6635,6 +6644,14 @@ static constexpr DriftPIDs kDriftPIDs[] = {
 static void setParam(juce::AudioProcessorValueTreeState& p, const juce::String& id, float val) {
     if (auto* param = p.getParameter(id))
         param->setValueNotifyingHost(param->convertTo0to1(val));
+}
+
+// Put a parameter back to the value createParameterLayout gave it. Reads the
+// default OUT of the layout rather than restating it, so a load path can never
+// disagree with the layout about what "unset" means.
+static void setParamToLayoutDefault(juce::AudioProcessorValueTreeState& p, const juce::String& id) {
+    if (auto* param = p.getParameter(id))
+        param->setValueNotifyingHost(param->getDefaultValue());
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -6796,10 +6813,10 @@ juce::String T5ynthProcessor::exportJsonPreset() const
     }
     root->setProperty("engine", engine.get());
 
-    // Modulation: 3 envelopes
+    // Modulation: every envelope in kEnvPIDs (amp + ENV 2..5)
     juce::DynamicObject::Ptr modObj = new juce::DynamicObject();
     juce::Array<juce::var> envArr;
-    for (int i = 0; i < 3; ++i)
+    for (int i = 0; i < kNumEnvPIDs; ++i)
     {
         const auto& ep = kEnvPIDs[i];
         juce::DynamicObject::Ptr env = new juce::DynamicObject();
@@ -6837,12 +6854,12 @@ juce::String T5ynthProcessor::exportJsonPreset() const
     }
     modObj->setProperty("lfos", lfoArr);
 
-    // MIDI aftertouch routing: 12 per-target bipolar amounts, keyed by target
+    // MIDI aftertouch routing: one bipolar amount per target, keyed by target
     // key. (Superseded the old single-select target + global amount; pre-existing
     // presets are migrated on load.) Saved in the main preset JSON as well as
     // MainPanel::kMainSnapshotParamIds, so a routed preset reloads intact.
     juce::DynamicObject::Ptr aftertouch = new juce::DynamicObject();
-    for (int t = AftertouchTarget::LFO1Depth; t <= AftertouchTarget::NoiseLevel; ++t)
+    for (int t = AftertouchTarget::LFO1Depth; t < AftertouchTarget::kCount; ++t)
         aftertouch->setProperty(AftertouchTarget::kEntries[t].key, get(kAftertouchAmtPid[t]));
     modObj->setProperty("aftertouch", aftertouch.get());
 
@@ -7258,7 +7275,7 @@ bool T5ynthProcessor::importJsonPreset(const juce::String& json)
         auto* envsArr = mod->getProperty("envs").getArray();
         if (envsArr)
         {
-            for (int i = 0; i < std::min(3, envsArr->size()); ++i)
+            for (int i = 0; i < std::min(kNumEnvPIDs, envsArr->size()); ++i)
             {
                 auto* env = (*envsArr)[i].getDynamicObject();
                 if (!env) continue;
@@ -7316,6 +7333,19 @@ bool T5ynthProcessor::importJsonPreset(const juce::String& json)
                              static_cast<float>(curveShapeFromString(env->getProperty("releaseCurve").toString())));
                 setParam(parameters, ep.target, static_cast<float>(envTarget));
             }
+
+            // Every envelope the file does NOT carry is written back to its
+            // layout default. A .t5p from before ENV4/5 has three entries, and
+            // importJsonPreset does not reset the APVTS first — so without this
+            // an ENV4 left routed to DCA by the previously loaded patch keeps
+            // modulating every voice of this one, behind its own tab, for the
+            // whole shipped bank. Index 0 is the amp envelope and has different
+            // defaults; a file missing even that is broken, so it is left alone.
+            for (int i = std::max(1, envsArr->size()); i < kNumEnvPIDs; ++i)
+            {
+                for (const char* id : kEnvPIDs[i].all())
+                    setParamToLayoutDefault(parameters, id);
+            }
         }
 
         auto* lfosArr = mod->getProperty("lfos").getArray();
@@ -7345,23 +7375,29 @@ bool T5ynthProcessor::importJsonPreset(const juce::String& json)
             }
         }
 
-        // MIDI aftertouch routing. New format: 12 per-target bipolar amounts
+        // MIDI aftertouch routing. New format: one bipolar amount per target
         // keyed by target key. Legacy format (single-select target + global
         // amount) is migrated onto the selected target's per-target amount.
         // hasProperty-gated so older .t5p files keep loading at their previous
         // routing instead of being rejected.
         if (auto* at = mod->getProperty("aftertouch").getDynamicObject())
         {
+            // The file's aftertouch block fully determines aftertouch routing:
+            // a target the file does NOT mention is set to 0, never left where
+            // the previously loaded preset put it. Without that, a target added
+            // after a preset was written (ENV4/5 Sustain) survives every load of
+            // the entire shipped bank, silently modulating the next patch.
             bool perTarget = false;
-            for (int t = AftertouchTarget::LFO1Depth; t <= AftertouchTarget::NoiseLevel; ++t)
-                if (at->hasProperty(AftertouchTarget::kEntries[t].key))
-                {
+            for (int t = AftertouchTarget::LFO1Depth; t < AftertouchTarget::kCount; ++t)
+                if (at->hasProperty(AftertouchTarget::kEntries[t].key)) { perTarget = true; break; }
+            if (perTarget)
+                for (int t = AftertouchTarget::LFO1Depth; t < AftertouchTarget::kCount; ++t)
                     setParam(parameters, kAftertouchAmtPid[t],
-                             Calibration::migrateScalar(kAftertouchAmtPid[t],
-                                 static_cast<float>(at->getProperty(AftertouchTarget::kEntries[t].key)),
-                                 fileCalibEpoch));
-                    perTarget = true;
-                }
+                             at->hasProperty(AftertouchTarget::kEntries[t].key)
+                                 ? Calibration::migrateScalar(kAftertouchAmtPid[t],
+                                       static_cast<float>(at->getProperty(AftertouchTarget::kEntries[t].key)),
+                                       fileCalibEpoch)
+                                 : 0.0f);
             if (! perTarget && at->hasProperty("target"))
             {
                 const int t = choiceFromKey(at->getProperty("target").toString(), AftertouchTarget::kEntries);

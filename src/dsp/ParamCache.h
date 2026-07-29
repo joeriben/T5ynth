@@ -35,12 +35,21 @@
     X(mod2Sustain)     X(mod2Release)     X(mod2Amount)     X(mod2Loop) \
     X(mod2Target)     X(mod2AttackCurve)     X(mod2DecayCurve)     X(mod2ReleaseCurve) \
     X(mod2AttackVelSens)     X(mod2DecayVelSens)     X(mod2ReleaseVelSens) \
+    X(mod3Attack)     X(mod3Decay)     X(mod3Sustain)     X(mod3Release) \
+    X(mod3Amount)     X(mod3Loop)     X(mod3Target)     X(mod3AttackCurve) \
+    X(mod3DecayCurve)     X(mod3ReleaseCurve)     X(mod3AttackVelSens) \
+    X(mod3DecayVelSens)     X(mod3ReleaseVelSens) \
+    X(mod4Attack)     X(mod4Decay)     X(mod4Sustain)     X(mod4Release) \
+    X(mod4Amount)     X(mod4Loop)     X(mod4Target)     X(mod4AttackCurve) \
+    X(mod4DecayCurve)     X(mod4ReleaseCurve)     X(mod4AttackVelSens) \
+    X(mod4DecayVelSens)     X(mod4ReleaseVelSens) \
     X(lfo1Rate)     X(lfo1Depth)     X(lfo1Wave)     X(lfo1Target) \
     X(lfo1Mode)     X(lfo2Rate)     X(lfo2Depth)     X(lfo2Wave) \
     X(lfo2Target)     X(lfo2Mode)     X(lfo3Rate)     X(lfo3Depth) \
     X(lfo3Wave)     X(lfo3Target)     X(lfo3Mode) \
     X(aftertouchAmtLfo1Depth)   X(aftertouchAmtLfo2Depth)   X(aftertouchAmtLfo3Depth) \
     X(aftertouchAmtEnv1Sustain) X(aftertouchAmtEnv2Sustain) X(aftertouchAmtEnv3Sustain) \
+    X(aftertouchAmtEnv4Sustain) X(aftertouchAmtEnv5Sustain) \
     X(aftertouchAmtCutoff)      X(aftertouchAmtResonance)   X(aftertouchAmtScan) \
     X(aftertouchAmtDca)         X(aftertouchAmtPitch)       X(aftertouchAmtNoiseLevel) \
     X(driftEnabled)     X(driftRegen)     X(driftCrossfade) \
@@ -91,10 +100,50 @@ struct ParamCache
     T5_PARAM_LIST(T5_PARAM_FIELD)
     #undef T5_PARAM_FIELD
 
+    /** The mod envelopes once more, but INDEXED — what the block-rate read
+        loops over instead of writing ENV 2..5 out four times. These are the
+        SAME pointers as the named members above, not copies: APVTS owns exactly
+        one atomic per parameter for the plugin's lifetime. */
+    struct ModEnvPtrs {
+        std::atomic<float>* attack        = nullptr;
+        std::atomic<float>* decay         = nullptr;
+        std::atomic<float>* sustain       = nullptr;
+        std::atomic<float>* release       = nullptr;
+        std::atomic<float>* amount        = nullptr;
+        std::atomic<float>* loop          = nullptr;
+        std::atomic<float>* target        = nullptr;
+        std::atomic<float>* attackCurve   = nullptr;
+        std::atomic<float>* decayCurve    = nullptr;
+        std::atomic<float>* releaseCurve  = nullptr;
+        std::atomic<float>* attackVelSens = nullptr;
+        std::atomic<float>* decayVelSens  = nullptr;
+        std::atomic<float>* releaseVelSens= nullptr;
+    };
+    ModEnvPtrs modEnv[kNumModEnvs];
+
     void init(juce::AudioProcessorValueTreeState& apvts)
     {
         #define T5_PARAM_INIT(name) name = apvts.getRawParameterValue(PID::name);
         T5_PARAM_LIST(T5_PARAM_INIT)
         #undef T5_PARAM_INIT
+
+        for (int i = 0; i < kNumModEnvs; ++i)
+        {
+            const auto& id = PID::modEnv[i];
+            auto& p = modEnv[i];
+            p.attack         = apvts.getRawParameterValue(id.attack);
+            p.decay          = apvts.getRawParameterValue(id.decay);
+            p.sustain        = apvts.getRawParameterValue(id.sustain);
+            p.release        = apvts.getRawParameterValue(id.release);
+            p.amount         = apvts.getRawParameterValue(id.amount);
+            p.loop           = apvts.getRawParameterValue(id.loop);
+            p.target         = apvts.getRawParameterValue(id.target);
+            p.attackCurve    = apvts.getRawParameterValue(id.attackCurve);
+            p.decayCurve     = apvts.getRawParameterValue(id.decayCurve);
+            p.releaseCurve   = apvts.getRawParameterValue(id.releaseCurve);
+            p.attackVelSens  = apvts.getRawParameterValue(id.attackVelSens);
+            p.decayVelSens   = apvts.getRawParameterValue(id.decayVelSens);
+            p.releaseVelSens = apvts.getRawParameterValue(id.releaseVelSens);
+        }
     }
 };
