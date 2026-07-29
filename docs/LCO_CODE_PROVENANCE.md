@@ -77,6 +77,10 @@ every entry's `why` carries the measurement it was built from. This table is the
 that: the studies themselves, in one place, so a reader can check an entry against its source
 without reading 32 `why` fields. Nothing here is Csound code — that is the point.
 
+**The lexicon's other half has its own record.** This file covers the instrument BODIES. The 51
+sound words — `bright`, `hollow`, `rich`, `warm` — are read by the author model in the same way
+and had no source at all; `docs/LCO_TIMBRE_SEMANTICS.md` is where theirs is kept.
+
 | Entry | Source | What was taken |
 |---|---|---|
 | **`supersaw`** | Adam Szabo, *How to Emulate the Super Saw*, BSc thesis in Media Technology, KTH Royal Institute of Technology, Stockholm 2010. TRITA-CSC-E 2010:131, ISRN-KTH/CSC/E--10/131--SE, ISSN-1653-5715. | A Roland JP-8000 and JP-8080 measured with an FFT analyser and an oscilloscope. Four sets of numbers: the seven detune offsets (table 1), the 11th degree polynomial the detune knob follows (fig 7), the two mix curves — centre linear, sides parabolic, meeting at 0.75 (fig 11), and the pitch-tracking high pass on the first harmonic (fig 14/15). Plus one structural fact: the saws are deliberately NOT band limited, and the fold-back is the sound. The thesis states in its own abstract that no Roland source code or copyrighted technique was used and that the recreation is an emulation built from standard components. |
