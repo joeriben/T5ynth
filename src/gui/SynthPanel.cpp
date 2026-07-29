@@ -45,17 +45,11 @@ static juce::String fmtPeriodSc(double hz)
 // Envelope init
 // ──────────────────────────────────────────────────────────────────────────────
 void SynthPanel::initEnv(EnvSection& env, const juce::String& name, int defaultTarget,
-                          const juce::String& aId, const juce::String& dId,
-                          const juce::String& sId, const juce::String& rId,
-                          const juce::String& aCurveId, const juce::String& dCurveId,
-                          const juce::String& rCurveId,
-                          const juce::String& aVsId, const juce::String& dVsId,
-                          const juce::String& rVsId,
-                          const juce::String& amtId,
-                          const juce::String& loopId,
-                          juce::AudioProcessorValueTreeState& apvts)
+                          const PID::ModEnvIds& ids, juce::AudioProcessorValueTreeState& apvts)
 {
     juce::ignoreUnused(name);   // no longer shown: the advanced-view title was removed
+
+    env.ids = ids;
 
     // Loop toggle — turns the env into a self-retriggering A→D→Hold→R cycle.
     // In loop mode the Sustain control becomes the per-cycle Hold time.
@@ -64,7 +58,23 @@ void SynthPanel::initEnv(EnvSection& env, const juce::String& name, int defaultT
     env.loopBtn.setClickingTogglesState(true);
     env.loopBtn.setTooltip("Loop the envelope as an A-D-Hold-R cycle. In loop mode Sustain sets the Hold time.");
     addAndMakeVisible(env.loopBtn);
-    env.loopBtnA = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(apvts, loopId, env.loopBtn);
+    env.loopBtnA = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(apvts, ids.loop, env.loopBtn);
+
+    // COPY / PASTE — move a whole envelope between the five tabs. Momentary,
+    // so no setClickingTogglesState. PASTE is dead until something is copied,
+    // which is also the only way to tell the two apart at a glance.
+    env.copyBtn.setButtonText("COPY");
+    styleSwitchButton(env.copyBtn, kEnvCol);
+    env.copyBtn.setTooltip("Copy this envelope: every value, target included.");
+    env.copyBtn.onClick = [this, &env] { copyEnvelope(env); };
+    addAndMakeVisible(env.copyBtn);
+
+    env.pasteBtn.setButtonText("PASTE");
+    styleSwitchButton(env.pasteBtn, kEnvCol);
+    env.pasteBtn.setTooltip("Paste the copied envelope onto this one.");
+    env.pasteBtn.setEnabled(false);
+    env.pasteBtn.onClick = [this, &env] { pasteEnvelope(env); };
+    addAndMakeVisible(env.pasteBtn);
 
     // Labels driven from BlockParams::EnvTarget::kEntries (single source of
     // truth for enum index ↔ human-readable label).
@@ -94,9 +104,9 @@ void SynthPanel::initEnv(EnvSection& env, const juce::String& name, int defaultT
     for (auto* vb : { env.attVB.get(), env.decVB.get(), env.relVB.get(), env.levelVB.get() })
         addAndMakeVisible(*vb);
 
-    env.attVBA   = std::make_unique<SA>(apvts, aVsId,       *env.attVB);
-    env.decVBA   = std::make_unique<SA>(apvts, dVsId,       *env.decVB);
-    env.relVBA   = std::make_unique<SA>(apvts, rVsId,       *env.relVB);
+    env.attVBA   = std::make_unique<SA>(apvts, ids.attackVelSens,  *env.attVB);
+    env.decVBA   = std::make_unique<SA>(apvts, ids.decayVelSens,   *env.decVB);
+    env.relVBA   = std::make_unique<SA>(apvts, ids.releaseVelSens, *env.relVB);
     env.levelVBA = std::make_unique<SA>(apvts, PID::velAmt, *env.levelVB);
 
     // Host automation gestures (the attachment can't, since we bypass the base
@@ -110,9 +120,9 @@ void SynthPanel::initEnv(EnvSection& env, const juce::String& name, int defaultT
         vb.onRightClick = [this, pid](juce::Point<int> pt) {
             showMidiLearnMenu(processorRef, pid, pt); };
     };
-    wireVB(*env.attVB,   aVsId);
-    wireVB(*env.decVB,   dVsId);
-    wireVB(*env.relVB,   rVsId);
+    wireVB(*env.attVB,   ids.attackVelSens);
+    wireVB(*env.decVB,   ids.decayVelSens);
+    wireVB(*env.relVB,   ids.releaseVelSens);
     wireVB(*env.levelVB, PID::velAmt);
 
     env.velBox.configure("VELOCITY AMOUNT", kEnvCol, Icon::numIcons);
@@ -124,9 +134,58 @@ void SynthPanel::initEnv(EnvSection& env, const juce::String& name, int defaultT
     // the single source of truth and no hidden slider is load-bearing. fmtMs
     // formats A/D/R, fmtF2 formats Sustain/Amt — mirroring the fader read-outs.
     env.graph = std::make_unique<AdsrGraph>(kEnvCol);
-    env.graph->bind(apvts, aId, dId, sId, rId, amtId, aCurveId, dCurveId, rCurveId,
-                    fmtMs, fmtF2);
+    env.graph->bind(apvts, ids.attack, ids.decay, ids.sustain, ids.release, ids.amount,
+                    ids.attackCurve, ids.decayCurve, ids.releaseCurve, fmtMs, fmtF2);
     addAndMakeVisible(*env.graph);
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Envelope copy / paste
+// ──────────────────────────────────────────────────────────────────────────────
+void SynthPanel::copyEnvelope(const EnvSection& env)
+{
+    auto& apvts = processorRef.getValueTreeState();
+    const auto ids = env.ids.all();
+    for (size_t k = 0; k < ids.size(); ++k)
+    {
+        auto* prm = apvts.getParameter(ids[k]);
+        envClipboard_[k] = prm != nullptr ? prm->convertFrom0to1(prm->getValue()) : 0.0f;
+    }
+    envClipboardFilled_ = true;
+    envClipboardFromAmp_ = (&env == &ampEnv);
+    for (int i = 0; i < PID::kNumEnvs; ++i)
+        envSection(i).pasteBtn.setEnabled(true);
+}
+
+void SynthPanel::pasteEnvelope(const EnvSection& env)
+{
+    if (! envClipboardFilled_)
+        return;
+
+    // Real values, re-normalised against the DESTINATION's own range, so a copy
+    // between envelopes whose ranges differ lands on the nearest legal value
+    // instead of a rescaled one.
+    // The TARGET travels between mod envelopes, which are interchangeable — but
+    // never to or from ENV 1. ENV 1's target IS the DCA: pasting a filter
+    // routing onto it takes the loudness envelope off every voice, and pasting
+    // DCA off it puts a second envelope on the level (+6 dB). The player's
+    // loudness is not part of what "copy the whole envelope" was asked for.
+    const bool ampInvolved = (&env == &ampEnv) || envClipboardFromAmp_;
+    auto& apvts = processorRef.getValueTreeState();
+    const auto ids = env.ids.all();
+    for (size_t k = 0; k < ids.size(); ++k)
+        if (ampInvolved && ids[k] == env.ids.target)
+            continue;
+        else if (auto* prm = apvts.getParameter(ids[k]))
+        {
+            prm->beginChangeGesture();
+            prm->setValueNotifyingHost(juce::jlimit(0.0f, 1.0f, prm->convertTo0to1(envClipboard_[k])));
+            prm->endChangeGesture();
+        }
+
+    // The target may have moved — same follow-up the target box itself does.
+    updateVisibility();
+    resized();
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -1040,19 +1099,9 @@ SynthPanel::SynthPanel(T5ynthProcessor& processor)
     filterDriveRow->updateValue();
 
     // ── Envelopes ──
-    initEnv(ampEnv,  "ENV 1", 2, PID::ampAttack,  PID::ampDecay,  PID::ampSustain,  PID::ampRelease,
-            PID::ampAttackCurve, PID::ampDecayCurve, PID::ampReleaseCurve,
-            PID::ampAttackVelSens, PID::ampDecayVelSens, PID::ampReleaseVelSens,
-            PID::ampAmount,  PID::ampLoop,  apvts);
+    initEnv(ampEnv, "ENV 1", 2, PID::ampEnv, apvts);
     for (int i = 0; i < kNumModEnvs; ++i)
-    {
-        const auto& id = PID::modEnv[i];
-        initEnv(modEnvSections[i], "ENV " + juce::String(i + 2), 1,
-                id.attack, id.decay, id.sustain, id.release,
-                id.attackCurve, id.decayCurve, id.releaseCurve,
-                id.attackVelSens, id.decayVelSens, id.releaseVelSens,
-                id.amount, id.loop, apvts);
-    }
+        initEnv(modEnvSections[i], "ENV " + juce::String(i + 2), 1, PID::modEnv[i], apvts);
 
     // ── LFOs ──
     initLfo(lfo1, "LFO 1",
@@ -1559,6 +1608,8 @@ void SynthPanel::updateVisibility()
     {
         env.targetBox.setVisible(selected);
         env.loopBtn.setVisible(selected);
+        env.copyBtn.setVisible(selected);
+        env.pasteBtn.setVisible(selected);
         env.targetHeader.setVisible(selected);
         // Graph + "Velocity Amount" box: selected env only.
         if (env.graph) env.graph->setVisible(selected);
@@ -1884,12 +1935,25 @@ void SynthPanel::layoutEnvEasy(EnvSection& env, juce::Rectangle<int> area, float
     const int targetHdrW = measureTextWidth("Target", headerFs) + 16;
     env.targetHeader.setBounds(targetRow.removeFromLeft(juce::jmin(targetHdrW, targetRow.getWidth())));
     targetRow.removeFromLeft(gap);
+    // LOOP | COPY | PASTE, right-aligned and reserved BEFORE the target box, so
+    // the three shrink together instead of dropping off one by one as the
+    // envelope column narrows — a PASTE button that quietly went missing at
+    // small widths would be worse than three tight ones. The target box keeps
+    // at least f*4 and takes whatever is left.
     const int tgtW = choiceBoxWidthFor(EnvTarget::kEntries, f, juce::roundToInt(f * 7.0f));
-    env.targetBox.setBounds(targetRow.removeFromLeft(juce::jmin(tgtW, targetRow.getWidth())));
     {
-        const int loopW = juce::jmin(juce::roundToInt(f * 3.2f), targetRow.getWidth());
-        if (loopW > 0) env.loopBtn.setBounds(targetRow.removeFromRight(loopW).reduced(1));
+        // What is left once the Target box has the width its own labels need:
+        // the three shrink together into it, so PASTE cannot quietly go missing
+        // at small widths AND the longest target label cannot be clipped.
+        const int trioW = juce::jlimit(0, juce::roundToInt(f * 3.2f) * 3,
+                                       targetRow.getWidth() - juce::jmin(tgtW, targetRow.getWidth()));
+        auto trio = targetRow.removeFromRight(trioW);
+        const int cellW = trio.getWidth() / 3;
+        env.loopBtn .setBounds(trio.removeFromLeft(cellW).reduced(1));
+        env.copyBtn .setBounds(trio.removeFromLeft(cellW).reduced(1));
+        env.pasteBtn.setBounds(trio.reduced(1));
     }
+    env.targetBox.setBounds(targetRow.removeFromLeft(juce::jmin(tgtW, targetRow.getWidth())));
     area.removeFromTop(gap);
 
     const int rowGap = juce::jmax(gap, 6);

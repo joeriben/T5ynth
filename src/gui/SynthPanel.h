@@ -175,12 +175,34 @@ private:
         juce::TextButton loopBtn;
         std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> loopBtnA;
 
+        // Which envelope this section drives. Held as the whole id set so
+        // COPY/PASTE can move an entire envelope without a second list of
+        // parameter names that could fall behind PID::ModEnvIds.
+        PID::ModEnvIds ids {};
+
+        // Copy the whole envelope — every id in ids.all(), target included —
+        // from one tab to another. Deliberately NOT APVTS-attached: these are
+        // momentary actions on the tree, not parameters of their own.
+        juce::TextButton copyBtn, pasteBtn;
+
         // Graphical ADSR editor — attaches directly to the APVTS envelope
         // parameters. Declared LAST so it is destroyed FIRST.
         std::unique_ptr<AdsrGraph> graph;
     };
+    // Envelope clipboard: real (denormalised) values in PID::ModEnvIds::all()
+    // order. PASTE stays disabled until COPY has filled it. Declared BEFORE the
+    // sections, so it outlives the buttons whose onClick reads it.
+    using EnvValueSet = std::array<float, std::tuple_size<decltype(PID::ModEnvIds{}.all())>::value>;
+    EnvValueSet envClipboard_ {};
+    bool envClipboardFilled_ = false;
+    bool envClipboardFromAmp_ = false;   // ENV 1's target is the DCA and does not travel
+    void copyEnvelope (const EnvSection& env);
+    void pasteEnvelope (const EnvSection& env);
+
     EnvSection ampEnv;
     EnvSection modEnvSections[kNumModEnvs];   // ENV 2..5
+    // ENV 1..5 in tab order; index 0 is the amp envelope.
+    EnvSection& envSection (int i) { return i == 0 ? ampEnv : modEnvSections[i - 1]; }
     static constexpr int kNumModTabs = 1 + kNumModEnvs;   // ENV 1..5; LFO/Drift use the first 3
     static constexpr int kNumWaveBtns = 6;  // sine/tri/saw/sq/s&h/saw-down (mirrors LfoWave + DriftWave)
     static constexpr int kNumLfoModeBtns = 2;
@@ -289,15 +311,7 @@ private:
     std::unique_ptr<CA> modTargetA[kNumModEnvs];
 
     void initEnv(EnvSection& env, const juce::String& name, int defaultTarget,
-                 const juce::String& aId, const juce::String& dId,
-                 const juce::String& sId, const juce::String& rId,
-                 const juce::String& aCurveId, const juce::String& dCurveId,
-                 const juce::String& rCurveId,
-                 const juce::String& aVsId, const juce::String& dVsId,
-                 const juce::String& rVsId,
-                 const juce::String& amtId,
-                 const juce::String& loopId,
-                 juce::AudioProcessorValueTreeState& apvts);
+                 const PID::ModEnvIds& ids, juce::AudioProcessorValueTreeState& apvts);
     void initLfo(LfoSection& lfo, const juce::String& name,
                  const juce::String& rateId, const juce::String& depthId,
                  const juce::String& waveId, const juce::String& modeId,

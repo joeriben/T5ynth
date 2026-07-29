@@ -142,6 +142,8 @@ namespace PID {
                      attackVelSens, decayVelSens, releaseVelSens };
         }
     };
+    static_assert(sizeof(ModEnvIds) == 13 * sizeof(const char*),
+                  "ModEnvIds gained a field - add it to all().");
     static constexpr ModEnvIds modEnv[] = {
         { mod1Attack, mod1Decay, mod1Sustain, mod1Release, mod1Amount, mod1Loop,
           mod1Target, mod1AttackCurve, mod1DecayCurve, mod1ReleaseCurve,
@@ -158,6 +160,19 @@ namespace PID {
     };
     static_assert(sizeof(modEnv) / sizeof(modEnv[0]) == kNumModEnvs,
                   "PID::modEnv table and kNumModEnvs are out of sync.");
+    // The amp envelope wearing the same shape, and the five envelopes in tab
+    // order, so anything that walks "an envelope" or "every envelope" has one
+    // table to walk: the preset loader's kEnvPIDs IS this table, and the GUI
+    // hands each envelope section its own row of it.
+    static constexpr ModEnvIds ampEnv = {
+        ampAttack, ampDecay, ampSustain, ampRelease, ampAmount, ampLoop,
+        ampTarget, ampAttackCurve, ampDecayCurve, ampReleaseCurve,
+        ampAttackVelSens, ampDecayVelSens, ampReleaseVelSens };
+    static constexpr ModEnvIds allEnvs[] = {
+        ampEnv, modEnv[0], modEnv[1], modEnv[2], modEnv[3] };
+    static constexpr int kNumEnvs = 1 + kNumModEnvs;
+    static_assert(sizeof(allEnvs) / sizeof(allEnvs[0]) == kNumEnvs,
+                  "PID::allEnvs must carry the amp envelope plus every mod envelope.");
     static constexpr const char* lfo1Rate         = "lfo1_rate";
     static constexpr const char* lfo1Depth        = "lfo1_depth";
     static constexpr const char* lfo1Wave         = "lfo1_wave";
@@ -257,6 +272,10 @@ namespace PID {
     static constexpr const char* crossfadeMs      = "crossfade_ms";
     static constexpr const char* normalize        = "normalize";
     static constexpr const char* loopOptimize     = "loop_optimize";
+    // The LRO author's authority over the synth's own knobs. OFF = the
+    // parameters are the player's alone; ON = an authored instrument may
+    // also set the filter, envelopes, LFOs, drift and aftertouch it needs.
+    static constexpr const char* lcoSetsParams    = "lco_sets_params";
     static constexpr const char* noiseLevel       = "noise_level";
     static constexpr const char* noiseType        = "noise_type";
     static constexpr const char* wtFrames         = "wt_frames";
