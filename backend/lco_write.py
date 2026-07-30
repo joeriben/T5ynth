@@ -116,10 +116,10 @@ def has_code(code):
 # author still writes whatever it writes and may depart from every suggestion.
 # Reciting all 29 instruments, 51 words and 17 motions cost 60,000 characters on
 # every bake, of which a given prompt needs a handful.
-# `_` is part of a word here. Library keys carry underscores (`fm_ep`,
-# `struck_bar`), the index prints them that way, and that is how the author
-# writes them back — so tokenising `fm_ep` into {fm, ep} would let the bare form
-# `fm` claim a request for the electric piano and open a different instrument.
+# `_` is part of a word here. Library keys carry underscores (`fm_stack`,
+# `struck_bar`, `drum_head`), the index prints them that way, and that is how the
+# author writes them back — so tokenising `fm_stack` into {fm, stack} would let
+# the bare form `fm` claim a request for the DX7 chain and open `fm3` instead.
 _WORD = re.compile(r"[a-zà-ÿ0-9'_]+")
 
 
