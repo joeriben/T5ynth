@@ -41,7 +41,8 @@
    "code": "asig    poscil 0.6, (kfreq * koct1)            ; pure tone",
    "heard": {
     "status": "offen",
-    "hinweis": "kein Beleg für eine Abnahme durch BJ gefunden. NICHT als abgenommen behandeln und nicht aus Herkunft, Commit-Text oder „ear-approved“ in docs/ erschließen — genau das war der Fehler (2026-07-30)."
+    "hinweis": "kein Beleg für eine Abnahme durch BJ gefunden. NICHT als abgenommen behandeln und nicht aus Herkunft, Commit-Text oder „ear-approved“ in docs/ erschließen — genau das war der Fehler (2026-07-30).",
+    "massstab": "Abgenommen ist ein Instrument erst über eine HTML-Abhörseite, auf der die PARAMETERKOMBINATION sichtbar und von BJ wählbar ist — nicht über einen Ordner mit vorgerenderten Dateien. Generatoren: tools/lco_listening_test.py, tools/lco_abx_test.py."
    }
   },
   {
@@ -96,7 +97,8 @@
    "code": "kad0    poscil 0.0004, 0.053         ; slow drift, upper stack\naa10    gbuzz 0.52, (kfreq * koct1), 7, 1, 0.68, giCos          ; harmonic stack\naa20    gbuzz 0.34, (kfreq * koct1) * (1.0018 + kad0), 7, 1, 0.64, giCos ; twin, +3 cents\nasig    = aa10 + aa20",
    "heard": {
     "status": "offen",
-    "hinweis": "kein Beleg für eine Abnahme durch BJ gefunden. NICHT als abgenommen behandeln und nicht aus Herkunft, Commit-Text oder „ear-approved“ in docs/ erschließen — genau das war der Fehler (2026-07-30)."
+    "hinweis": "kein Beleg für eine Abnahme durch BJ gefunden. NICHT als abgenommen behandeln und nicht aus Herkunft, Commit-Text oder „ear-approved“ in docs/ erschließen — genau das war der Fehler (2026-07-30).",
+    "massstab": "Abgenommen ist ein Instrument erst über eine HTML-Abhörseite, auf der die PARAMETERKOMBINATION sichtbar und von BJ wählbar ist — nicht über einen Ordner mit vorgerenderten Dateien. Generatoren: tools/lco_listening_test.py, tools/lco_abx_test.py."
    }
   },
   {
@@ -219,7 +221,8 @@
    },
    "heard": {
     "status": "offen",
-    "hinweis": "kein Beleg für eine Abnahme durch BJ gefunden. NICHT als abgenommen behandeln und nicht aus Herkunft, Commit-Text oder „ear-approved“ in docs/ erschließen — genau das war der Fehler (2026-07-30)."
+    "hinweis": "kein Beleg für eine Abnahme durch BJ gefunden. NICHT als abgenommen behandeln und nicht aus Herkunft, Commit-Text oder „ear-approved“ in docs/ erschließen — genau das war der Fehler (2026-07-30).",
+    "massstab": "Abgenommen ist ein Instrument erst über eine HTML-Abhörseite, auf der die PARAMETERKOMBINATION sichtbar und von BJ wählbar ist — nicht über einen Ordner mit vorgerenderten Dateien. Generatoren: tools/lco_listening_test.py, tools/lco_abx_test.py."
    }
   },
   {
@@ -537,7 +540,8 @@
    },
    "heard": {
     "status": "offen",
-    "hinweis": "kein Beleg für eine Abnahme durch BJ gefunden. NICHT als abgenommen behandeln und nicht aus Herkunft, Commit-Text oder „ear-approved“ in docs/ erschließen — genau das war der Fehler (2026-07-30)."
+    "hinweis": "kein Beleg für eine Abnahme durch BJ gefunden. NICHT als abgenommen behandeln und nicht aus Herkunft, Commit-Text oder „ear-approved“ in docs/ erschließen — genau das war der Fehler (2026-07-30).",
+    "massstab": "Abgenommen ist ein Instrument erst über eine HTML-Abhörseite, auf der die PARAMETERKOMBINATION sichtbar und von BJ wählbar ist — nicht über einen Ordner mit vorgerenderten Dateien. Generatoren: tools/lco_listening_test.py, tools/lco_abx_test.py."
    }
   },
   {
@@ -1037,7 +1041,8 @@
    },
    "heard": {
     "status": "offen",
-    "hinweis": "kein Beleg für eine Abnahme durch BJ gefunden. NICHT als abgenommen behandeln und nicht aus Herkunft, Commit-Text oder „ear-approved“ in docs/ erschließen — genau das war der Fehler (2026-07-30)."
+    "hinweis": "kein Beleg für eine Abnahme durch BJ gefunden. NICHT als abgenommen behandeln und nicht aus Herkunft, Commit-Text oder „ear-approved“ in docs/ erschließen — genau das war der Fehler (2026-07-30).",
+    "massstab": "Abgenommen ist ein Instrument erst über eine HTML-Abhörseite, auf der die PARAMETERKOMBINATION sichtbar und von BJ wählbar ist — nicht über einen Ordner mit vorgerenderten Dateien. Generatoren: tools/lco_listening_test.py, tools/lco_abx_test.py."
    }
   },
   {
@@ -1103,7 +1108,8 @@
    "code": "aexq0   rand 0.06, 0.5, 1          ; continuous exciter -> the metal is driven, a held note stands (31-bit: no 1.365 s loop)\nk0qf0   limit (kfreq * koct1) * 1.0000, 20, 15000\nk0qg0   = ((kfreq * koct1) * 1.0000 < 15000 ? 0.850 : 0)\na0q0   mode aexq0, k0qf0, 900      ; mode 1 @ x1.00, Q 900\nk0qf1   limit (kfreq * koct1) * 2.7600, 20, 15000\nk0qg1   = ((kfreq * koct1) * 2.7600 < 15000 ? 0.700 : 0)\na0q1   mode aexq0, k0qf1, 1025      ; mode 2 @ x2.76, Q 1025\nk0qf2   limit (kfreq * koct1) * 5.4000, 20, 15000\nk0qg2   = ((kfreq * koct1) * 5.4000 < 15000 ? 0.500 : 0)\na0q2   mode aexq0, k0qf2, 1150      ; mode 3 @ x5.40, Q 1150\nk0qf3   limit (kfreq * koct1) * 8.9300, 20, 15000\nk0qg3   = ((kfreq * koct1) * 8.9300 < 15000 ? 0.320 : 0)\na0q3   mode aexq0, k0qf3, 1275      ; mode 4 @ x8.93, Q 1275\nk0qf4   limit (kfreq * koct1) * 13.3400, 20, 15000\nk0qg4   = ((kfreq * koct1) * 13.3400 < 15000 ? 0.180 : 0)\na0q4   mode aexq0, k0qf4, 1400      ; mode 5 @ x13.34, Q 1400\nasig    = (a0q0 * k0qg0 + a0q1 * k0qg1 + a0q2 * k0qg2 + a0q3 * k0qg3 + a0q4 * k0qg4) * 0.150",
    "heard": {
     "status": "offen",
-    "hinweis": "kein Beleg für eine Abnahme durch BJ gefunden. NICHT als abgenommen behandeln und nicht aus Herkunft, Commit-Text oder „ear-approved“ in docs/ erschließen — genau das war der Fehler (2026-07-30)."
+    "hinweis": "kein Beleg für eine Abnahme durch BJ gefunden. NICHT als abgenommen behandeln und nicht aus Herkunft, Commit-Text oder „ear-approved“ in docs/ erschließen — genau das war der Fehler (2026-07-30).",
+    "massstab": "Abgenommen ist ein Instrument erst über eine HTML-Abhörseite, auf der die PARAMETERKOMBINATION sichtbar und von BJ wählbar ist — nicht über einen Ordner mit vorgerenderten Dateien. Generatoren: tools/lco_listening_test.py, tools/lco_abx_test.py."
    }
   },
   {
@@ -1202,7 +1208,8 @@
    "code": "aexq0   rand 0.09, 0.5, 1          ; continuous exciter -> the metal is driven, a held note stands (31-bit: no 1.365 s loop)\nk0qf0   limit (kfreq * koct1) * 1.0000, 20, 15000\nk0qg0   = ((kfreq * koct1) * 1.0000 < 15000 ? 0.220 : 0)\na0q0   mode aexq0, k0qf0, 260      ; mode 1 @ x1.00, Q 260\nk0qf1   limit (kfreq * koct1) * 2.1900, 20, 15000\nk0qg1   = ((kfreq * koct1) * 2.1900 < 15000 ? 0.380 : 0)\na0q1   mode aexq0, k0qf1, 285      ; mode 2 @ x2.19, Q 285\nk0qf2   limit (kfreq * koct1) * 3.4100, 20, 15000\nk0qg2   = ((kfreq * koct1) * 3.4100 < 15000 ? 0.550 : 0)\na0q2   mode aexq0, k0qf2, 310      ; mode 3 @ x3.41, Q 310\nk0qf3   limit (kfreq * koct1) * 4.8300, 20, 15000\nk0qg3   = ((kfreq * koct1) * 4.8300 < 15000 ? 0.720 : 0)\na0q3   mode aexq0, k0qf3, 335      ; mode 4 @ x4.83, Q 335\nk0qf4   limit (kfreq * koct1) * 6.3700, 20, 15000\nk0qg4   = ((kfreq * koct1) * 6.3700 < 15000 ? 0.880 : 0)\na0q4   mode aexq0, k0qf4, 360      ; mode 5 @ x6.37, Q 360\nk0qf5   limit (kfreq * koct1) * 8.0900, 20, 15000\nk0qg5   = ((kfreq * koct1) * 8.0900 < 15000 ? 1.000 : 0)\na0q5   mode aexq0, k0qf5, 385      ; mode 6 @ x8.09, Q 385\nk0qf6   limit (kfreq * koct1) * 10.2400, 20, 15000\nk0qg6   = ((kfreq * koct1) * 10.2400 < 15000 ? 0.860 : 0)\na0q6   mode aexq0, k0qf6, 410      ; mode 7 @ x10.24, Q 410\nk0qf7   limit (kfreq * koct1) * 12.7100, 20, 15000\nk0qg7   = ((kfreq * koct1) * 12.7100 < 15000 ? 0.640 : 0)\na0q7   mode aexq0, k0qf7, 435      ; mode 8 @ x12.71, Q 435\nk0qf8   limit (kfreq * koct1) * 15.8300, 20, 15000\nk0qg8   = ((kfreq * koct1) * 15.8300 < 15000 ? 0.420 : 0)\na0q8   mode aexq0, k0qf8, 460      ; mode 9 @ x15.83, Q 460\nasig    = (a0q0 * k0qg0 + a0q1 * k0qg1 + a0q2 * k0qg2 + a0q3 * k0qg3 + a0q4 * k0qg4 + a0q5 * k0qg5 + a0q6 * k0qg6 + a0q7 * k0qg7 + a0q8 * k0qg8) * 0.150",
    "heard": {
     "status": "offen",
-    "hinweis": "kein Beleg für eine Abnahme durch BJ gefunden. NICHT als abgenommen behandeln und nicht aus Herkunft, Commit-Text oder „ear-approved“ in docs/ erschließen — genau das war der Fehler (2026-07-30)."
+    "hinweis": "kein Beleg für eine Abnahme durch BJ gefunden. NICHT als abgenommen behandeln und nicht aus Herkunft, Commit-Text oder „ear-approved“ in docs/ erschließen — genau das war der Fehler (2026-07-30).",
+    "massstab": "Abgenommen ist ein Instrument erst über eine HTML-Abhörseite, auf der die PARAMETERKOMBINATION sichtbar und von BJ wählbar ist — nicht über einen Ordner mit vorgerenderten Dateien. Generatoren: tools/lco_listening_test.py, tools/lco_abx_test.py."
    }
   },
   {
@@ -1240,7 +1247,8 @@
    "code": "krmw0   poscil 0.004, 0.091          ; modulator drift, ~7 cents\nkrlk0   poscil 0.03, 0.037           ; diode imbalance, drifting\nacar0   poscil 0.8, (kfreq * koct1)\namod0   poscil 1.0, (kfreq * koct1) * (2.0 + krmw0)\nasig    = acar0 * (amod0 * 0.88 + 0.10 + krlk0) ; ring mod + carrier leak",
    "heard": {
     "status": "offen",
-    "hinweis": "kein Beleg für eine Abnahme durch BJ gefunden. NICHT als abgenommen behandeln und nicht aus Herkunft, Commit-Text oder „ear-approved“ in docs/ erschließen — genau das war der Fehler (2026-07-30)."
+    "hinweis": "kein Beleg für eine Abnahme durch BJ gefunden. NICHT als abgenommen behandeln und nicht aus Herkunft, Commit-Text oder „ear-approved“ in docs/ erschließen — genau das war der Fehler (2026-07-30).",
+    "massstab": "Abgenommen ist ein Instrument erst über eine HTML-Abhörseite, auf der die PARAMETERKOMBINATION sichtbar und von BJ wählbar ist — nicht über einen Ordner mit vorgerenderten Dateien. Generatoren: tools/lco_listening_test.py, tools/lco_abx_test.py."
    }
   },
   {
@@ -1281,7 +1289,8 @@
    "code": "kdrv0   poscil 0.12, 0.074           ; drive wander\nkdrb0   poscil 0.05, 0.119           ; second, incommensurate\nadrv0   poscil 0.30 + kdrv0 + kdrb0, (kfreq * koct1)\nash0    tablei adrv0, giCheb, 1, 0.5 ; Chebyshev transfer curve\nasig    = ash0 * 0.55           ; level-match the family",
    "heard": {
     "status": "offen",
-    "hinweis": "kein Beleg für eine Abnahme durch BJ gefunden. NICHT als abgenommen behandeln und nicht aus Herkunft, Commit-Text oder „ear-approved“ in docs/ erschließen — genau das war der Fehler (2026-07-30)."
+    "hinweis": "kein Beleg für eine Abnahme durch BJ gefunden. NICHT als abgenommen behandeln und nicht aus Herkunft, Commit-Text oder „ear-approved“ in docs/ erschließen — genau das war der Fehler (2026-07-30).",
+    "massstab": "Abgenommen ist ein Instrument erst über eine HTML-Abhörseite, auf der die PARAMETERKOMBINATION sichtbar und von BJ wählbar ist — nicht über einen Ordner mit vorgerenderten Dateien. Generatoren: tools/lco_listening_test.py, tools/lco_abx_test.py."
    }
   },
   {
@@ -1355,7 +1364,8 @@
    "code": "kw80    poscil 0.00035, 0.061        ; rank 8' tuning wander\nkw40    poscil 0.00045, 0.083        ; rank 4', incommensurate\nkwq0    poscil 0.00030, 0.107        ; quint rank, incommensurate\na80     gbuzz 0.46, (kfreq * koct1) * (1 + kw80), 6, 1, 0.72, giCos ; 8' principal\na40     gbuzz 0.24, (kfreq * koct1) * 2.0023 * (1 + kw40), 4, 1, 0.66, giCos ; 4' octave, +4 cents\naq0     gbuzz 0.16, (kfreq * koct1) * 1.4987 * (1 + kwq0), 3, 1, 0.60, giCos ; 5 1/3' quint, -1.5 cents\nasig    = a80 + a40 + aq0",
    "heard": {
     "status": "offen",
-    "hinweis": "kein Beleg für eine Abnahme durch BJ gefunden. NICHT als abgenommen behandeln und nicht aus Herkunft, Commit-Text oder „ear-approved“ in docs/ erschließen — genau das war der Fehler (2026-07-30)."
+    "hinweis": "kein Beleg für eine Abnahme durch BJ gefunden. NICHT als abgenommen behandeln und nicht aus Herkunft, Commit-Text oder „ear-approved“ in docs/ erschließen — genau das war der Fehler (2026-07-30).",
+    "massstab": "Abgenommen ist ein Instrument erst über eine HTML-Abhörseite, auf der die PARAMETERKOMBINATION sichtbar und von BJ wählbar ist — nicht über einen Ordner mit vorgerenderten Dateien. Generatoren: tools/lco_listening_test.py, tools/lco_abx_test.py."
    }
   },
   {
@@ -1427,7 +1437,8 @@
    "code": "kbrc0   poscil 0.5, 0.19             ; breath pressure, slow\nkndmx0  limit (min(sr * 0.45, 20000) / (kfreq * koct1) - 1) / 2 - 1, 0, 40 ; sideband room\nkntp0   min 1.425, kndmx0        ; brightest the band allows\nkndc0   = kntp0 * (0.807 + 0.386 * kbrc0) ; the reed opens the series\nasig    foscili 0.55, (kfreq * koct1), 1, 2, kndc0, giSine ; cylindrical bore",
    "heard": {
     "status": "offen",
-    "hinweis": "kein Beleg für eine Abnahme durch BJ gefunden. NICHT als abgenommen behandeln und nicht aus Herkunft, Commit-Text oder „ear-approved“ in docs/ erschließen — genau das war der Fehler (2026-07-30)."
+    "hinweis": "kein Beleg für eine Abnahme durch BJ gefunden. NICHT als abgenommen behandeln und nicht aus Herkunft, Commit-Text oder „ear-approved“ in docs/ erschließen — genau das war der Fehler (2026-07-30).",
+    "massstab": "Abgenommen ist ein Instrument erst über eine HTML-Abhörseite, auf der die PARAMETERKOMBINATION sichtbar und von BJ wählbar ist — nicht über einen Ordner mit vorgerenderten Dateien. Generatoren: tools/lco_listening_test.py, tools/lco_abx_test.py."
    }
   },
   {
@@ -1485,7 +1496,8 @@
    "code": "kbr0    poscil 0.5, 0.31             ; breath-pressure cycle, ~3 s\nkfm0    = 0.24 + 0.16 * kbr0      ; pressure opens the harmonics\nabd0    gbuzz 0.34, (kfreq * koct1), 4, 1, kfm0, giCos ; blown harmonic stack\nkwo0    poscil 0.0009, 0.077         ; air-column wander, own rate\naoc0    poscil 0.05, (kfreq * koct1) * 2 * (1 + kwo0)  ; octave, beats with the body's 2nd\nasig    = abd0 + aoc0",
    "heard": {
     "status": "offen",
-    "hinweis": "kein Beleg für eine Abnahme durch BJ gefunden. NICHT als abgenommen behandeln und nicht aus Herkunft, Commit-Text oder „ear-approved“ in docs/ erschließen — genau das war der Fehler (2026-07-30)."
+    "hinweis": "kein Beleg für eine Abnahme durch BJ gefunden. NICHT als abgenommen behandeln und nicht aus Herkunft, Commit-Text oder „ear-approved“ in docs/ erschließen — genau das war der Fehler (2026-07-30).",
+    "massstab": "Abgenommen ist ein Instrument erst über eine HTML-Abhörseite, auf der die PARAMETERKOMBINATION sichtbar und von BJ wählbar ist — nicht über einen Ordner mit vorgerenderten Dateien. Generatoren: tools/lco_listening_test.py, tools/lco_abx_test.py."
    }
   },
   {
@@ -1637,7 +1649,8 @@
    "code": "kop0    = 1 - exp(-knote * 2.2)       ; attack opens the series ONCE\nkbm0    = 0.30 + kop0 * 0.42       ; dark at onset -> bright, then holds\nklw0    poscil 0.0006, 0.083         ; lip instability, own rate\nabz0    gbuzz 0.5, (kfreq * koct1) * (1 + klw0), 12, 1, kbm0, giCos ; lip + bore\nabl0    reson abz0, 1200, 900, 1   ; bell formant, FIXED in Hz\nasig    = abz0 * 0.95 + abl0 * 0.40",
    "heard": {
     "status": "offen",
-    "hinweis": "kein Beleg für eine Abnahme durch BJ gefunden. NICHT als abgenommen behandeln und nicht aus Herkunft, Commit-Text oder „ear-approved“ in docs/ erschließen — genau das war der Fehler (2026-07-30)."
+    "hinweis": "kein Beleg für eine Abnahme durch BJ gefunden. NICHT als abgenommen behandeln und nicht aus Herkunft, Commit-Text oder „ear-approved“ in docs/ erschließen — genau das war der Fehler (2026-07-30).",
+    "massstab": "Abgenommen ist ein Instrument erst über eine HTML-Abhörseite, auf der die PARAMETERKOMBINATION sichtbar und von BJ wählbar ist — nicht über einen Ordner mit vorgerenderten Dateien. Generatoren: tools/lco_listening_test.py, tools/lco_abx_test.py."
    }
   },
   {
@@ -1769,7 +1782,8 @@
    "code": "krm0    = min(sr * 0.47, 20000) / (kfreq * koct1)        ; harmonics that fit\nkctr0   limit krm0 * 0.62, 1.6, 7 ; corner centre, capped\nksd0x0  poscil 0.0009, 0.061         ; player 1 intonation\nksb0x0  poscil 0.35, 0.089           ; player 1 bow pressure\nasr0x0  vco2 0.30, (kfreq * koct1) * 1.0000 * (1 + ksd0x0), 0\nkbc0x0  limit (kfreq * koct1) * kctr0 * (1 + 0.7 * ksb0x0), 50, min(sr * 0.47, 20000) ; bow sharpens the corner\nase0x0  tone asr0x0, kbc0x0\nksd0x1  poscil 0.0009, 0.073         ; player 2 intonation\nksb0x1  poscil 0.35, 0.107           ; player 2 bow pressure\nasr0x1  vco2 0.30, (kfreq * koct1) * 1.0042 * (1 + ksd0x1), 0\nkbc0x1  limit (kfreq * koct1) * kctr0 * (1 + 0.7 * ksb0x1), 50, min(sr * 0.47, 20000) ; bow sharpens the corner\nase0x1  tone asr0x1, kbc0x1\nksd0x2  poscil 0.0009, 0.047         ; player 3 intonation\nksb0x2  poscil 0.35, 0.127           ; player 3 bow pressure\nasr0x2  vco2 0.30, (kfreq * koct1) * 0.9958 * (1 + ksd0x2), 0\nkbc0x2  limit (kfreq * koct1) * kctr0 * (1 + 0.7 * ksb0x2), 50, min(sr * 0.47, 20000) ; bow sharpens the corner\nase0x2  tone asr0x2, kbc0x2\naens0   = ase0x0 + ase0x1 + ase0x2 ; the desk\nabd0    reson aens0, 460, 380, 1 ; body resonance, FIXED\nasig    = aens0 * 0.70 + abd0 * 0.24",
    "heard": {
     "status": "offen",
-    "hinweis": "kein Beleg für eine Abnahme durch BJ gefunden. NICHT als abgenommen behandeln und nicht aus Herkunft, Commit-Text oder „ear-approved“ in docs/ erschließen — genau das war der Fehler (2026-07-30)."
+    "hinweis": "kein Beleg für eine Abnahme durch BJ gefunden. NICHT als abgenommen behandeln und nicht aus Herkunft, Commit-Text oder „ear-approved“ in docs/ erschließen — genau das war der Fehler (2026-07-30).",
+    "massstab": "Abgenommen ist ein Instrument erst über eine HTML-Abhörseite, auf der die PARAMETERKOMBINATION sichtbar und von BJ wählbar ist — nicht über einen Ordner mit vorgerenderten Dateien. Generatoren: tools/lco_listening_test.py, tools/lco_abx_test.py."
    }
   },
   {
@@ -1966,10 +1980,13 @@
     "pick=0.35  (round: smoother and softer-edged, the last point that still moves at every refl)": "; DECAY: SELF\n; struck once and then left alone -- the note dies on its own and the player's\n; envelope cannot hold it up. `refl` is how long it takes.\n; LOUDNESS: pick\n; moving the pickup moves energy between the strike and the ring, so the two\n; meters travel in opposite directions. See the entry.\nkrefl   = 0.78   ; refl [0.70..0.85]: how long the wire rings on\nkpick   = 0.35   ; pick [0.25..0.35]: where along the wire the sound is heard\n        if changed2(ktrig) == 1 then    ; icps is i-rate, so without this the wire is\n          reinit PLUCKWIRE              ;   struck once when the orchestra is built and\n        endif                           ;   never again -- silence at every note played\nPLUCKWIRE:\nifq     limit i(kfreq) * i(koct1), 20, 12000   ; before the first note i(kfreq) reads 0,\nastr    wgpluck2 0.25, 0.7, ifq, kpick, krefl  ;   and icps 0 asks for a rail so long the\n        rireturn                               ;   orchestra stops running in real time\nasig    = astr                                 ; no dcblock on purpose: see the entry"
    },
    "heard": {
-    "status": "abgenommen",
+    "status": "nur einzelne Dateien gehört",
     "bj_wortlaut": "klingt alles gut. die verstimmung bei refl. 0.85 finde ich durchaus …",
-    "beleg": "71b50293; Achse und Grenzen (refl 0.70-0.85) hat BJ nach Gehör selbst gesetzt (434e6060)"
-   }
+    "beleg": "71b50293; Achse und Grenzen (refl 0.70-0.85) hat BJ nach Gehör selbst gesetzt (434e6060)",
+    "einschraenkung": "BJ, 2026-07-30: „approved aus von dir vorgebauten files mit intransparenter parameterlage aus einem Ordner“. Er hat DATEIEN gehört, die ich ausgesucht hatte, ohne zu sehen, bei welchen Parameterwerten sie standen, und ohne selbst eine Kombination wählen zu können. Das ist kein abgenommenes INSTRUMENT.",
+    "massstab": "Abgenommen ist ein Instrument erst über eine HTML-Abhörseite, auf der die PARAMETERKOMBINATION sichtbar und von BJ wählbar ist — nicht über einen Ordner mit vorgerenderten Dateien. Generatoren: tools/lco_listening_test.py, tools/lco_abx_test.py."
+   },
+   "curated": "BJ 2026-07-30: built or rebuilt under CLAUDE.md's Instrument Authoring rules since the 39-entry revert (defd42c9) -- named synthesis method and source written down before the first orchestra line, and A/B'd on disk against the nearest existing entry by ear. This field is the AUTHORISATION record and the only thing that may be called curated in the UI; it carries the reason rather than a bare true, because a boolean in a data file is indistinguishable from a mistake (same convention as `withheld`). Do NOT infer this from measured properties such as `params` or `anchor_code` -- those prove a number reaches the code, never that BJ approved the entry."
   },
   {
    "key": "bass_saw",
@@ -2130,7 +2147,8 @@
    "code": "ivph0   = frac(ivoice * 0.6180339887)   ; per-voice phase\nkvdr0   poscil 0.0007, 0.043 + 0.0037 * ivoice, giSine, ivph0\nabs0    vco2 0.6, (kfreq * koct1) * (1 + kvdr0), 0 ; saw source\nkcut0   limit (kfreq * koct1) * 24, 100, 15000 ; 24-harmonic ceiling\nadk0    butterlp abs0, kcut0\nasb0    oscili 0.30, (kfreq * koct1) * 0.5    ; sub-octave weight\nasig    = adk0 * 0.72 + asb0",
    "heard": {
     "status": "offen",
-    "hinweis": "kein Beleg für eine Abnahme durch BJ gefunden. NICHT als abgenommen behandeln und nicht aus Herkunft, Commit-Text oder „ear-approved“ in docs/ erschließen — genau das war der Fehler (2026-07-30)."
+    "hinweis": "kein Beleg für eine Abnahme durch BJ gefunden. NICHT als abgenommen behandeln und nicht aus Herkunft, Commit-Text oder „ear-approved“ in docs/ erschließen — genau das war der Fehler (2026-07-30).",
+    "massstab": "Abgenommen ist ein Instrument erst über eine HTML-Abhörseite, auf der die PARAMETERKOMBINATION sichtbar und von BJ wählbar ist — nicht über einen Ordner mit vorgerenderten Dateien. Generatoren: tools/lco_listening_test.py, tools/lco_abx_test.py."
    }
   },
   {
@@ -2305,8 +2323,10 @@
    },
    "heard": {
     "status": "offen",
-    "hinweis": "kein Beleg für eine Abnahme durch BJ gefunden. NICHT als abgenommen behandeln und nicht aus Herkunft, Commit-Text oder „ear-approved“ in docs/ erschließen — genau das war der Fehler (2026-07-30)."
-   }
+    "hinweis": "kein Beleg für eine Abnahme durch BJ gefunden. NICHT als abgenommen behandeln und nicht aus Herkunft, Commit-Text oder „ear-approved“ in docs/ erschließen — genau das war der Fehler (2026-07-30).",
+    "massstab": "Abgenommen ist ein Instrument erst über eine HTML-Abhörseite, auf der die PARAMETERKOMBINATION sichtbar und von BJ wählbar ist — nicht über einen Ordner mit vorgerenderten Dateien. Generatoren: tools/lco_listening_test.py, tools/lco_abx_test.py."
+   },
+   "curated": "BJ 2026-07-30: built or rebuilt under CLAUDE.md's Instrument Authoring rules since the 39-entry revert (defd42c9) -- named synthesis method and source written down before the first orchestra line, and A/B'd on disk against the nearest existing entry by ear. This field is the AUTHORISATION record and the only thing that may be called curated in the UI; it carries the reason rather than a bare true, because a boolean in a data file is indistinguishable from a mistake (same convention as `withheld`). Do NOT infer this from measured properties such as `params` or `anchor_code` -- those prove a number reaches the code, never that BJ approved the entry."
   },
   {
    "key": "sync",
@@ -2349,7 +2369,8 @@
    "code": "ivph0   = frac(ivoice * 0.6180339887)   ; per-voice phase\nkvdr0   poscil 0.0007, 0.043 + 0.0037 * ivoice, giSine, ivph0\nkswp0   oscili 1.1, 0.16            ; slave-ratio sweep\nkrat0   = 2.6 + kswp0            ; 1.5 .. 3.7 x master\nazro0   = 0\namst0, asyn0  syncphasor (kfreq * koct1) * (1 + kvdr0), azro0\naslv0, adum0  syncphasor (kfreq * koct1) * krat0, asyn0\nasig    = (aslv0 * 2 - 1) * 0.45  ; hard-synced saw",
    "heard": {
     "status": "offen",
-    "hinweis": "kein Beleg für eine Abnahme durch BJ gefunden. NICHT als abgenommen behandeln und nicht aus Herkunft, Commit-Text oder „ear-approved“ in docs/ erschließen — genau das war der Fehler (2026-07-30)."
+    "hinweis": "kein Beleg für eine Abnahme durch BJ gefunden. NICHT als abgenommen behandeln und nicht aus Herkunft, Commit-Text oder „ear-approved“ in docs/ erschließen — genau das war der Fehler (2026-07-30).",
+    "massstab": "Abgenommen ist ein Instrument erst über eine HTML-Abhörseite, auf der die PARAMETERKOMBINATION sichtbar und von BJ wählbar ist — nicht über einen Ordner mit vorgerenderten Dateien. Generatoren: tools/lco_listening_test.py, tools/lco_abx_test.py."
    }
   },
   {
@@ -2426,7 +2447,8 @@
    "code": "khw80   poscil 0.00040, 0.071        ; 8' choir tuning drift\nkhw40   poscil 0.00055, 0.094        ; 4' choir, incommensurate\nah80    gbuzz 0.56, (kfreq * koct1) * (1 + khw80), 9, 1, 0.80, giCos ; 8' choir, bright\nah40    gbuzz 0.24, (kfreq * koct1) * 2.0031 * (1 + khw40), 6, 1, 0.72, giCos ; 4' choir\nasig    = ah80 + ah40",
    "heard": {
     "status": "offen",
-    "hinweis": "kein Beleg für eine Abnahme durch BJ gefunden. NICHT als abgenommen behandeln und nicht aus Herkunft, Commit-Text oder „ear-approved“ in docs/ erschließen — genau das war der Fehler (2026-07-30)."
+    "hinweis": "kein Beleg für eine Abnahme durch BJ gefunden. NICHT als abgenommen behandeln und nicht aus Herkunft, Commit-Text oder „ear-approved“ in docs/ erschließen — genau das war der Fehler (2026-07-30).",
+    "massstab": "Abgenommen ist ein Instrument erst über eine HTML-Abhörseite, auf der die PARAMETERKOMBINATION sichtbar und von BJ wählbar ist — nicht über einen Ordner mit vorgerenderten Dateien. Generatoren: tools/lco_listening_test.py, tools/lco_abx_test.py."
    }
   },
   {
@@ -2468,7 +2490,8 @@
    "code": "kst0    oscili 1.49, 0.9            ; slow 3-zone selector\nkdt0    = (kst0 > 0.5 ? 0.125 : (kst0 > -0.5 ? 0.25 : 0.5))\nkdw0    tonek kdt0, 30          ; de-click the duty step\nach0    vco2 0.6, (kfreq * koct1), 2, kdw0     ; stepped chip duty\nasig    = ach0 - 0.6 * (2 * kdw0 - 1) ; remove the duty's DC offset, A*(2d-1)",
    "heard": {
     "status": "offen",
-    "hinweis": "kein Beleg für eine Abnahme durch BJ gefunden. NICHT als abgenommen behandeln und nicht aus Herkunft, Commit-Text oder „ear-approved“ in docs/ erschließen — genau das war der Fehler (2026-07-30)."
+    "hinweis": "kein Beleg für eine Abnahme durch BJ gefunden. NICHT als abgenommen behandeln und nicht aus Herkunft, Commit-Text oder „ear-approved“ in docs/ erschließen — genau das war der Fehler (2026-07-30).",
+    "massstab": "Abgenommen ist ein Instrument erst über eine HTML-Abhörseite, auf der die PARAMETERKOMBINATION sichtbar und von BJ wählbar ist — nicht über einen Ordner mit vorgerenderten Dateien. Generatoren: tools/lco_listening_test.py, tools/lco_abx_test.py."
    }
   },
   {
@@ -2513,7 +2536,8 @@
    "code": "kwv0    poscil 0.5, 0.9              ; slow timbre waver\nkndx0   = 0.42 + 0.34 * kwv0       ; heterodyne mix depth\nasig    foscili 0.55, (kfreq * koct1), 1, 2, kndx0, giSine ; heterodyne nonlinearity",
    "heard": {
     "status": "offen",
-    "hinweis": "kein Beleg für eine Abnahme durch BJ gefunden. NICHT als abgenommen behandeln und nicht aus Herkunft, Commit-Text oder „ear-approved“ in docs/ erschließen — genau das war der Fehler (2026-07-30)."
+    "hinweis": "kein Beleg für eine Abnahme durch BJ gefunden. NICHT als abgenommen behandeln und nicht aus Herkunft, Commit-Text oder „ear-approved“ in docs/ erschließen — genau das war der Fehler (2026-07-30).",
+    "massstab": "Abgenommen ist ein Instrument erst über eine HTML-Abhörseite, auf der die PARAMETERKOMBINATION sichtbar und von BJ wählbar ist — nicht über einen Ordner mit vorgerenderten Dateien. Generatoren: tools/lco_listening_test.py, tools/lco_abx_test.py."
    }
   },
   {
@@ -2561,7 +2585,8 @@
    "code": "ksbw0   poscil 0.0006, 0.067         ; divider drift\nasb0    gbuzz 0.28, (kfreq * koct1) * 0.5 * (1 + ksbw0), 2, 1, 0.55, giCos ; sub octave (divider)\nafn0    poscil 0.50, (kfreq * koct1)          ; fundamental\nasig    = afn0 + asb0",
    "heard": {
     "status": "offen",
-    "hinweis": "kein Beleg für eine Abnahme durch BJ gefunden. NICHT als abgenommen behandeln und nicht aus Herkunft, Commit-Text oder „ear-approved“ in docs/ erschließen — genau das war der Fehler (2026-07-30)."
+    "hinweis": "kein Beleg für eine Abnahme durch BJ gefunden. NICHT als abgenommen behandeln und nicht aus Herkunft, Commit-Text oder „ear-approved“ in docs/ erschließen — genau das war der Fehler (2026-07-30).",
+    "massstab": "Abgenommen ist ein Instrument erst über eine HTML-Abhörseite, auf der die PARAMETERKOMBINATION sichtbar und von BJ wählbar ist — nicht über einen Ordner mit vorgerenderten Dateien. Generatoren: tools/lco_listening_test.py, tools/lco_abx_test.py."
    }
   },
   {
@@ -2765,8 +2790,10 @@
    },
    "heard": {
     "status": "offen",
-    "hinweis": "kein Beleg für eine Abnahme durch BJ gefunden. NICHT als abgenommen behandeln und nicht aus Herkunft, Commit-Text oder „ear-approved“ in docs/ erschließen — genau das war der Fehler (2026-07-30)."
-   }
+    "hinweis": "kein Beleg für eine Abnahme durch BJ gefunden. NICHT als abgenommen behandeln und nicht aus Herkunft, Commit-Text oder „ear-approved“ in docs/ erschließen — genau das war der Fehler (2026-07-30).",
+    "massstab": "Abgenommen ist ein Instrument erst über eine HTML-Abhörseite, auf der die PARAMETERKOMBINATION sichtbar und von BJ wählbar ist — nicht über einen Ordner mit vorgerenderten Dateien. Generatoren: tools/lco_listening_test.py, tools/lco_abx_test.py."
+   },
+   "curated": "BJ 2026-07-30: built or rebuilt under CLAUDE.md's Instrument Authoring rules since the 39-entry revert (defd42c9) -- named synthesis method and source written down before the first orchestra line, and A/B'd on disk against the nearest existing entry by ear. This field is the AUTHORISATION record and the only thing that may be called curated in the UI; it carries the reason rather than a bare true, because a boolean in a data file is indistinguishable from a mistake (same convention as `withheld`). Do NOT infer this from measured properties such as `params` or `anchor_code` -- those prove a number reaches the code, never that BJ approved the entry."
   },
   {
    "key": "blown_bottle",
@@ -2820,9 +2847,12 @@
     "blow=1.0  (saturated: as open as the tube goes; nothing more is added)": "kdrift  oscili 0.16, 0.07, giSine        ; the blow is never quite steady\nkblow   = 1.0 + kdrift\nkmult   = 1.2 * (10 ^ kblow)                ; how far up the bore's colour is let through\nasig    wgclar 0.5, kfreq * koct1, -0.3, 0.1, 0.1, 0.5, 5.735, 0, giSine, 30\n                                            ; kngain at its documented ceiling (0.5): at the top\n                                            ; of that axis the reed stops being a reed and the\n                                            ; tube reads as air across the mouth of a bottle.\n                                            ; the -0.3 is `kstiff` and is INERT -- measured\n                                            ; bit-identical from -0.9 to 0.0 in this build, so\n                                            ; never put a control on it.\n                                            ; kvamp is 0: the model's own vibrato stays off.\nasig    butterlp asig, kfreq * koct1 * kmult\nasig    = asig * 1.45 * kvol1"
    },
    "heard": {
-    "status": "abgenommen",
-    "beleg": "7ce2ca0f: „Two bodies BJ heard and accepted“"
-   }
+    "status": "nur einzelne Dateien gehört",
+    "beleg": "7ce2ca0f: „Two bodies BJ heard and accepted“",
+    "einschraenkung": "BJ, 2026-07-30: „approved aus von dir vorgebauten files mit intransparenter parameterlage aus einem Ordner“. Er hat DATEIEN gehört, die ich ausgesucht hatte, ohne zu sehen, bei welchen Parameterwerten sie standen, und ohne selbst eine Kombination wählen zu können. Das ist kein abgenommenes INSTRUMENT.",
+    "massstab": "Abgenommen ist ein Instrument erst über eine HTML-Abhörseite, auf der die PARAMETERKOMBINATION sichtbar und von BJ wählbar ist — nicht über einen Ordner mit vorgerenderten Dateien. Generatoren: tools/lco_listening_test.py, tools/lco_abx_test.py."
+   },
+   "curated": "BJ 2026-07-30: built or rebuilt under CLAUDE.md's Instrument Authoring rules since the 39-entry revert (defd42c9) -- named synthesis method and source written down before the first orchestra line, and A/B'd on disk against the nearest existing entry by ear. This field is the AUTHORISATION record and the only thing that may be called curated in the UI; it carries the reason rather than a bare true, because a boolean in a data file is indistinguishable from a mistake (same convention as `withheld`). Do NOT infer this from measured properties such as `params` or `anchor_code` -- those prove a number reaches the code, never that BJ approved the entry."
   },
   {
    "key": "driven_metal",
@@ -2906,9 +2936,12 @@
     "drive=1.0  (hissing: driven by full-band hiss, all modes lit)": "kstr    = 0.475                             ; how far the modes are stretched off whole numbers\nkr2     = 2.00 + 1.60 * kstr\nkr3     = 3.00 + 5.20 * kstr\nkdrv    = 1.0                              ; how bright the air driving the body is\nkcen    = 600 * (11.667 ^ kdrv)\naexc    rand 0.05\nkcut    oscili kcen * 0.35, 0.09, giSine     ; the drive keeps moving, so the body keeps changing\nkcut    = kcen + kcut\naexc    butterlp aexc, kcut\na1      mode aexc, kfreq * koct1, 340        ; three modes, driven CONTINUOUSLY rather than struck:\na2      mode aexc, kfreq * koct1 * kr2, 260  ;   a held note stands, and the host owns the note-off\na3      mode aexc, kfreq * koct1 * kr3, 190\nasig    = (a1 * 0.6 + a2 * 0.3 + a3 * 0.16) * 0.27\nasig    = asig * kvol1"
    },
    "heard": {
-    "status": "abgenommen",
-    "beleg": "7ce2ca0f: „Two bodies BJ heard and accepted“"
-   }
+    "status": "nur einzelne Dateien gehört",
+    "beleg": "7ce2ca0f: „Two bodies BJ heard and accepted“",
+    "einschraenkung": "BJ, 2026-07-30: „approved aus von dir vorgebauten files mit intransparenter parameterlage aus einem Ordner“. Er hat DATEIEN gehört, die ich ausgesucht hatte, ohne zu sehen, bei welchen Parameterwerten sie standen, und ohne selbst eine Kombination wählen zu können. Das ist kein abgenommenes INSTRUMENT.",
+    "massstab": "Abgenommen ist ein Instrument erst über eine HTML-Abhörseite, auf der die PARAMETERKOMBINATION sichtbar und von BJ wählbar ist — nicht über einen Ordner mit vorgerenderten Dateien. Generatoren: tools/lco_listening_test.py, tools/lco_abx_test.py."
+   },
+   "curated": "BJ 2026-07-30: built or rebuilt under CLAUDE.md's Instrument Authoring rules since the 39-entry revert (defd42c9) -- named synthesis method and source written down before the first orchestra line, and A/B'd on disk against the nearest existing entry by ear. This field is the AUTHORISATION record and the only thing that may be called curated in the UI; it carries the reason rather than a bare true, because a boolean in a data file is indistinguishable from a mistake (same convention as `withheld`). Do NOT infer this from measured properties such as `params` or `anchor_code` -- those prove a number reaches the code, never that BJ approved the entry."
   },
   {
    "key": "divider_organ",
@@ -3089,8 +3122,10 @@
    "code": "; LOUDNESS: flute\n; LOUDNESS: diapason\n; LOUDNESS: reed\n; LOUDNESS: strings\n; A divide-down organ -- transistor organ, combo organ, string machine. ONE master clock,\n; twelve integer divisors, exact binary octaves, and every stop a footage sum off that same\n; RUNNING chain: the drawbar principle. Nothing here is keyed to the note -- the chain runs\n; and a key only opens taps onto it. The OCTAVE ranks come off that chain, so unisons and\n; octaves between two keys are EXACT; every other interval is equal-tempered and beats exactly\n; as it does anywhere else. The quint and tierce are taken as exact harmonics of the key rather\n; than as their own divider outputs, so they lock where a real chain's would beat slightly.\n; Method: top-octave generator, divisors round(478 / 2^(k/12)) -- the MK50240 set. Measured\n; against a Yamaha D-85 (49 notes, C3-C7): its tuning error depends on the PITCH CLASS alone\n; (0.01 cents spread across octaves) and those divisors reproduce its 12-value pattern to\n; 0.03 cents rms. The stop recipes are that organ's own recovered drawbar levels.\n; FOLLOWS kfreq: yes.   DECAY: none -- it stands for as long as the key is held.\n; It MOVES only through `ensemble`; the chain itself is rigid, and that rigidity is the point.\nkflute    = 1.00  ; flute [0..1]: the tibia rank -- 8', 4', 2' and 1' voiced nearly to sines, no quint\nkdiapason = 0.45  ; diapason [0..1]: the principal chorus -- octave footages plus the 2 2/3' quint and 1 3/5' tierce\nkreed     = 0.00  ; reed [0..1]: the kinura / brass / sax family -- fundamental gone, a formant riding partials 3-7\nkstrings  = 0.00  ; strings [0..1]: the raw saw bus of a string machine, 8' and 4'\nkage      = 1.00  ; age [0..3]: how far the chain's tuning departs from equal temperament; 1 = the measured D-85\nkensemble = 0.45  ; ensemble [0..1]: the three-phase bucket-brigade chorus; 0 is the standing-tone escape\n\nkbase   limit kfreq * koct1, 8.0, 12600.0       ; the host already holds kfreq to 20..12000;\n                                                ;   this guards the koct1 product and keeps\n                                                ;   log() away from zero\nkny     = min(sr * 0.45, 20000)                             ; no voicing corner may pass Nyquist\nkpch    = 12 * (log(kbase / 261.6256) / 0.69314718055994531) + 120\n                                                ; semitones above C, held positive. NOT logbtwo,\n                                                ;   whose table is 0.38 cents out at the bottom of\n                                                ;   the keyboard -- harmless now that round() sits\n                                                ;   below it, but this line is also the pitch-class\n                                                ;   claim's only evidence, and it should be exact.\nkkey    = round(kpch)                           ; the KEY picks the divisor, never the bend --\n                                                ;   a divider chain has twelve of them, not one\n                                                ;   per cent, and rounding the bend would make\n                                                ;   the chain a staircase under a glide.\nkpc     = kkey - 12 * int(kkey / 12)            ; the pitch class this key asks the chain for\nkdiv    = round(478 / pow(2, kpc / 12))         ; the divisor the top-octave chip actually has\nkf      = kbase * pow((478 / kdiv) / pow(2, kpc / 12), kage)\n\nat1      vco2 0.5, kf,       10        ; 8'      the rank that sounds the key. The flip-flops\nat2      vco2 0.5, kf * 2.0, 10        ; 4'        put out SQUARES, so each rank already\nat3      vco2 0.5, kf * 3.0, 10        ; 2 2/3'    carries its own odd partials.\nat4      vco2 0.5, kf * 4.0, 10        ; 2'\nat5      vco2 0.5, kf * 5.0, 10        ; 1 3/5'\nat8      vco2 0.5, kf * 8.0, 10        ; 1'\n\naf1     tone at1, limit(kf * 4.5, 20, kny)         ; the tibia is voiced rank by rank, close to\naf2     tone at2, limit(kf * 2.2, 20, kny)         ;   sines -- the lowest rank brightest, its own\naf4     tone at4, limit(kf * 4.4, 20, kny)         ;   third partial 5 dB above the others', which\naf8     tone at8, limit(kf * 8.8, 20, kny)         ;   is what keeps the stop from going hollow.\naflu    = af1 * 1.00 + af2 * 1.12 + af4 * 0.52 + af8 * 0.50\n\nadia    = at1 * 0.94 + at2 * 0.94 + at3 * 0.31 + at4 * 1.00 + at5 * 0.25 + at8 * 0.38\nadia    tone adia, limit(kf * 12.0, 20, kny)      ; the principal is voiced as a chorus, after the sum\n\napul    vco2 0.5, kf, 2, 0.10         ; the reed's narrow pulse, on the 8' rank\nkbpc    limit kf * 4.5, 20, kny * 0.8    ; the reed's formant, kept inside the band\nkbpw    limit kf * 5.0, 20, kny * 0.8\nar1     butbp apul, kbpc, kbpw\nared    butbp ar1,  kbpc, kbpw        ; the formant rides the note: partials 3-7, up to\n                                      ;   a played ~2.5 kHz. Above that butbp's own warping\n                                      ;   lifts the fundamental back and the stop turns from\n                                      ;   a reed into a bright square. Declared, not clamped.\n\nas1     vco2 0.5, kf,       0         ; the string machine's saw bus, 8'\nas2     vco2 0.5, kf * 2.0, 0         ; and 4'\nastr    = as1 * 0.80 + as2 * 0.30\n\nabus    = aflu * kflute * 0.23 + adia * kdiapason * 0.22 + ared * kreed * 1.00 + astr * kstrings * 0.52\n\nksw1    poscil 1.0, 0.62, giSine               ; the bucket brigade's clock, three phases.\nksw2    poscil 1.0, 0.62, giSine, 0.3333       ;   Its sweep does NOT scale with the knob: a\nksw3    poscil 1.0, 0.62, giSine, 0.6667       ;   brigade always sweeps, and scaling it made\n                                               ;   the bottom of the knob a static comb.\nac1     vdelay3 abus, 6.0 + 3.4 * ksw1, 20.0\nac2     vdelay3 abus, 6.0 + 3.4 * ksw2, 20.0\nac3     vdelay3 abus, 6.0 + 3.4 * ksw3, 20.0\namix    = abus + (ac1 + ac2 + ac3) * 0.333 * kensemble\nasig    balance amix, abus, 1                  ; the knob is a chorus, not a fader: held against\n                                               ;   the dry at a 1 Hz corner, as `analog_osc` holds\n                                               ;   its drive. Mixing wet in bare cost 4.4 dB.",
    "heard": {
     "status": "offen",
-    "hinweis": "kein Beleg für eine Abnahme durch BJ gefunden. NICHT als abgenommen behandeln und nicht aus Herkunft, Commit-Text oder „ear-approved“ in docs/ erschließen — genau das war der Fehler (2026-07-30)."
-   }
+    "hinweis": "kein Beleg für eine Abnahme durch BJ gefunden. NICHT als abgenommen behandeln und nicht aus Herkunft, Commit-Text oder „ear-approved“ in docs/ erschließen — genau das war der Fehler (2026-07-30).",
+    "massstab": "Abgenommen ist ein Instrument erst über eine HTML-Abhörseite, auf der die PARAMETERKOMBINATION sichtbar und von BJ wählbar ist — nicht über einen Ordner mit vorgerenderten Dateien. Generatoren: tools/lco_listening_test.py, tools/lco_abx_test.py."
+   },
+   "curated": "BJ 2026-07-30: built or rebuilt under CLAUDE.md's Instrument Authoring rules since the 39-entry revert (defd42c9) -- named synthesis method and source written down before the first orchestra line, and A/B'd on disk against the nearest existing entry by ear. This field is the AUTHORISATION record and the only thing that may be called curated in the UI; it carries the reason rather than a bare true, because a boolean in a data file is indistinguishable from a mistake (same convention as `withheld`). Do NOT infer this from measured properties such as `params` or `anchor_code` -- those prove a number reaches the code, never that BJ approved the entry."
   }
  ],
  "adjectives": [
