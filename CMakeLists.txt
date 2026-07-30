@@ -220,6 +220,15 @@ juce_add_plugin(T5ynth
     BLUETOOTH_PERMISSION_TEXT "akróasys uses Bluetooth to connect to MIDI controllers."
     MICROPHONE_PERMISSION_ENABLED TRUE
     MICROPHONE_PERMISSION_TEXT "akróasys captures live audio input to seed Resynth (init_audio)."
+    # JUCE would add the moduleinfo.json step the moment the VST3 target exists,
+    # which is BEFORE the Csound bundling below. The helper LOADS the built module
+    # to write that file, and on macOS the module names
+    # @loader_path/../libs/CsoundLib64 — which the bundling has not put there yet, so
+    # the load fails with "The bundle 'akroasys' couldn't be loaded" and the build
+    # stops at 100%. Local builds hid it: the previous build's Contents/libs was
+    # still lying there. The step is re-enabled by hand at the end of this file,
+    # after every platform's Csound has been put beside the module.
+    VST3_AUTO_MANIFEST FALSE
 )
 
 # ── macOS: ad-hoc sign VST3 / AU bundles after JUCE's build steps ──
@@ -240,15 +249,8 @@ juce_add_plugin(T5ynth
 #
 # Fix for both: re-sign ad-hoc after all JUCE POST_BUILD steps have run.
 # POST_BUILD commands run in the order they are added to a target, so this
-# runs *after* JUCE's own manifest / sign steps.
-if(APPLE AND TARGET T5ynth_VST3)
-    add_custom_command(TARGET T5ynth_VST3 POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E echo "re-signing VST3 bundle after moduleinfo.json generation"
-        COMMAND codesign --force --sign - --deep
-            "$<TARGET_BUNDLE_DIR:T5ynth_VST3>"
-        VERBATIM)
-endif()
-
+# runs *after* JUCE's own manifest / sign steps. The VST3's re-sign is not here but
+# at the end of the file, because its manifest step is now added there too.
 if(APPLE AND TARGET T5ynth_AU)
     add_custom_command(TARGET T5ynth_AU POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E echo "ad-hoc signing AU component bundle"
@@ -373,6 +375,25 @@ if(WIN32 AND T5YNTH_CSOUND_VENDORED AND T5YNTH_BUNDLE_CSOUND)
                 VERBATIM)
         endif()
     endforeach()
+endif()
+
+# ── the VST3 manifest step, now that Csound is beside the module ──────────────
+# Turned off in juce_add_plugin above and re-enabled here, so that it is the LAST
+# POST_BUILD step on the VST3 target: the helper LOADS the module, and until each
+# platform's block above has put Csound next to it there is nothing to load. The
+# order that results is JUCE's own sign, the Csound bundling (which re-signs), the
+# manifest, and then the re-sign below — because writing moduleinfo.json into a
+# signed bundle breaks the seal, which is issue 1 at the top of this section.
+if(TARGET T5ynth_VST3)
+    juce_enable_vst3_manifest_step(T5ynth)
+    if(APPLE)
+        add_custom_command(TARGET T5ynth_VST3 POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E echo
+                "re-signing VST3 bundle after moduleinfo.json generation"
+            COMMAND codesign --force --sign - --deep
+                "$<TARGET_BUNDLE_DIR:T5ynth_VST3>"
+            VERBATIM)
+    endif()
 endif()
 
 # The standalone brings its own JUCEApplication (src/StandaloneAppLauncher.cpp)
