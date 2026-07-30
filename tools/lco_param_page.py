@@ -44,6 +44,7 @@ from pathlib import Path
 
 import numpy as np
 import soundfile as sf
+from scipy.signal import resample_poly
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "tools"))
@@ -297,11 +298,33 @@ def reachable(entry, name):
         return False
 
 
+# The plugin does NOT run Csound at the host rate. Since `5e65c0d4` the engine compiles
+# at `sampleRate * factor` — 4 by default, a Settings control since `667d8bea` — and
+# decimates each voice back with a 63-tap halfband FIR (`CsoundEngine::prepare`,
+# `src/gui/PromptPanel.cpp` on the probe path: "1x is worse than the 2x this project
+# measured as audibly dirty"). A page rendered at a bare 44100 therefore hands the
+# listener folding the instrument does not produce — and the approval that page carries
+# would be an approval of an artefact. So render at the rate the body is written for and
+# decimate to the rate the ear is given, which is what the engine does.
+#
+# NOT the plugin's filter: `resample_poly` is a Kaiser-windowed polyphase FIR, not the
+# engine's 63-tap halfband. Close enough that the page is no longer measuring its own
+# decimator instead of the body — and stated on the page, because a second filter that
+# is not named reads as the first one (`tools/lco_measure.py` makes the same point
+# about MEASURING through a substitute decimator).
+OS = 4
+
+
 def render(body, dur, freq):
-    y, err = M.render(body, dur=dur, freq=freq)
+    rate = M.SR
+    try:
+        M.SR = int(rate * OS)
+        y, err = M.render(body, dur=dur, freq=freq)
+    finally:
+        M.SR = rate
     if err:
         raise SystemExit(f"render failed: {err[:400]}")
-    return y.astype(float)
+    return resample_poly(y.astype(float), 1, OS)
 
 
 PAGE = """<!doctype html><meta charset=utf-8><title>{key} — Parameterkombination</title>
@@ -344,7 +367,13 @@ code{{background:#8882;padding:1px 4px;border-radius:3px}}
 <i>deklarierten</i> Ankern. Oben steht immer die vollst&auml;ndige Kombination, die gerade
 klingt &mdash; nichts ist f&uuml;r dich ausgew&auml;hlt worden, was du nicht siehst.
 <b>Ein einziger Pegelfaktor f&uuml;r den ganzen Satz</b> ({gain:+.2f}&nbsp;dB), keine
-Normalisierung pro Datei. {loudness}Note {freq:.0f}&nbsp;Hz, {dur:.0f}&nbsp;s lang.{whydur}</div>
+Normalisierung pro Datei. {loudness}Note {freq:.0f}&nbsp;Hz, {dur:.0f}&nbsp;s lang.{whydur}
+<b>Gerendert bei {osrate:.0f}&nbsp;Hz und auf {rate:.0f}&nbsp;Hz heruntergesetzt</b>, weil das
+Instrument es so tut: die Engine übersetzt den Csound-Text bei Hostrate&nbsp;&times;&nbsp;{os}
+und dezimiert jede Stimme zurück. Bei blossen {rate:.0f}&nbsp;Hz zu rendern legt eine
+Faltung über den Klang, die im Instrument nicht vorkommt. Das Filter hier ist ein
+Kaiser-Polyphasen-FIR, nicht der 63-Takt-Halbband-FIR der Engine &mdash; nah genug, um
+nicht das Filter statt des Körpers zu hören, aber nicht dasselbe.</div>
 
 {axes}
 
@@ -700,6 +729,7 @@ genau der Code, den das schreibende Modell zu sehen bekommt.</div>
         key=esc(args.key),
         why=esc(e.get("why", "")[:900]) + "…",
         gain=20 * np.log10(g), freq=args.freq, dur=args.dur,
+        os=OS, osrate=M.SR * OS, rate=M.SR,
         # Why the default is long, stated as what it IS — a property of this generator,
         # not of the entry on screen. It used to name `analog_osc`'s 0.043 Hz on every
         # page, including `divider_organ`'s, whose slowest motion is fifteen times
