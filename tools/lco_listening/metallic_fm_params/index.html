@@ -1,0 +1,83 @@
+<!doctype html><meta charset=utf-8><title>metallic_fm — Parameterkombination</title>
+<style>
+:root{color-scheme:light dark}
+body{font:15px/1.55 system-ui,sans-serif;margin:0 24px 90px;max-width:940px}
+h1{font-size:21px;margin:18px 0 2px}
+h2{font-size:15px;margin:30px 0 8px;border-top:2px solid #8884;padding-top:12px}
+#bar{position:sticky;top:0;background:Canvas;padding:12px 0 10px;z-index:20;
+border-bottom:2px solid #8886}
+#combo{font:600 16px ui-monospace,monospace;margin-bottom:8px}
+#player{width:100%;height:36px}
+.note{border:1px solid #8884;border-radius:7px;padding:10px 13px;font-size:13px;
+margin:12px 0;background:#8881}
+.axis{margin:16px 0}
+.axis .name{font:600 14px ui-monospace,monospace;margin-bottom:2px}
+.axis .desc{font-size:12.5px;opacity:.75;margin-bottom:7px}
+.opts{display:flex;flex-wrap:wrap;gap:8px}
+.opt{cursor:pointer;border:1px solid #8886;border-radius:7px;padding:8px 12px;
+background:#8881;text-align:left;font:14px system-ui;min-width:150px}
+.opt:hover{background:#8883}
+.opt[aria-pressed=true]{background:#f9a825;border-color:#f57f17;color:#000}
+.opt b{display:block;font-size:14px}
+.opt small{display:block;font-size:11.5px;opacity:.8;margin-top:3px;max-width:230px}
+.opt code{font-size:11px;opacity:.7}
+table{border-collapse:collapse;font-size:13px;margin-top:8px}
+th,td{border:1px solid #8886;padding:5px 9px;text-align:right}
+td:first-child,th:first-child{text-align:left}
+code{background:#8882;padding:1px 4px;border-radius:3px}
+</style>
+<div id='bar'>
+  <div id='combo'>—</div>
+  <audio id='player' controls preload='none'></audio>
+</div>
+
+<h1>metallic_fm — Parameterkombination</h1>
+<div class='note'>gong / tam-tam / anvil / singing bowl / metallic percussion: two phase-modulation operators standing on the (3,0) and (4,0) modes Chladni&#x27;s law predicts for a free circular plate, driving one carrier and a second carrier a few Hz above it. The exponent of that law is the instrument&#x27;s main axis, so the metal runs from a tight nearly-pitched body to a wide plate with no note left; each mode has its own decay, so the attack is bright and the tail is not.…</div>
+
+<div class='note'><b>Wie zu lesen.</b> Jede Achse unten steht auf ihren im Eintrag
+<i>deklarierten</i> Ankern. Oben steht immer die vollst&auml;ndige Kombination, die gerade
+klingt &mdash; nichts ist f&uuml;r dich ausgew&auml;hlt worden, was du nicht siehst.
+<b>Ein einziger Pegelfaktor f&uuml;r den ganzen Satz</b> (+3.22&nbsp;dB), keine
+Normalisierung pro Datei. Dieser Eintrag erkl&auml;rt in seinem eigenen Code, dass <code>beat</code> die Lautst&auml;rke bewegen (<code>; LOUDNESS:</code>), und das ist der Klang, nicht ein Fehler. Note 220&nbsp;Hz, 14&nbsp;s lang. Lang, weil manche K&ouml;rper hier auf Perioden von rund 20&nbsp;Sekunden wandern (<code>analog_osc</code>s <code>age</code> mit 0,043&nbsp;Hz) und ein kurzer Reiz eine solche Achse gar nicht zeigt.
+<b>Gerendert bei 176400&nbsp;Hz und auf 44100&nbsp;Hz heruntergesetzt</b>, weil das
+Instrument es so tut: die Engine übersetzt den Csound-Text bei Hostrate&nbsp;&times;&nbsp;4
+und dezimiert jede Stimme zurück. Bei blossen 44100&nbsp;Hz zu rendern legt eine
+Faltung über den Klang, die im Instrument nicht vorkommt. Das Filter hier ist ein
+Kaiser-Polyphasen-FIR, nicht der 63-Takt-Halbband-FIR der Engine &mdash; nah genug, um
+nicht das Filter statt des Körpers zu hören, aber nicht dasselbe.</div>
+
+<div class='axis'><div class='name'>damping &nbsp;[0.0 … 1.0]&nbsp; Vorgabe 0.35</div><div class='desc'>how much faster a mode dies for standing higher. Kirchhoff&#x27;s plate equation has two loss terms: one that damps every mode alike -- that is `ring` -- and one that grows with the mode&#x27;s frequency. This is the second one. At zero the metal is damped evenly and keeps its colour for as long as the note lasts; turned up, the modes the law puts …</div><div class='opts'><button class='opt' data-axis='damping' data-val='even' aria-pressed='false'><b>even</b><code>damping = 0.0</code><small>no frequency-dependent loss at all: every mode falls at the same rate and the metal holds its colour to the end of the note</small></button><button class='opt' data-axis='damping' data-val='metal' aria-pressed='false'><b>metal</b><code>damping = 0.35</code><small>the default: the (4,0) mode dies about twice as fast as the body and stands about half as high -- an ordinary struck metal</small></button><button class='opt' data-axis='damping' data-val='dead top' aria-pressed='false'><b>dead top</b><code>damping = 0.9</code><small>the top is gone in a fifth of the time and sits 20 dB down: the low body alone, still ringing</small></button></div></div><div class='axis'><div class='name'>stretch &nbsp;[1.4 … 2.4]&nbsp; Vorgabe 1.7</div><div class='desc'>how far the metal&#x27;s modes stand off a harmonic series. This is not a free number: it is the exponent p of Chladni&#x27;s law, f = C(m+2n)^p, and the two operators are placed at the (3,0) and (4,0) modes it predicts. The range is the published one for cymbals, handbells and church bells. Low is a tight metal that still carries the note; high is…</div><div class='opts'><button class='opt' data-axis='stretch' data-val='tight' aria-pressed='false'><b>tight</b><code>stretch = 1.4</code><small>the modes closest together: a small, nearly-pitched metal</small></button><button class='opt' data-axis='stretch' data-val='bell' aria-pressed='false'><b>bell</b><code>stretch = 1.7</code><small>the middle of the published range: struck bell, the note still there</small></button><button class='opt' data-axis='stretch' data-val='plate' aria-pressed='false'><b>plate</b><code>stretch = 2.0</code><small>a flat circular plate, the value the law gives for one: gong</small></button><button class='opt' data-axis='stretch' data-val='wide' aria-pressed='false'><b>wide</b><code>stretch = 2.4</code><small>the top of the published range: the partials furthest apart, no note left</small></button></div></div><div class='axis'><div class='name'>beat &nbsp;[0.0 … 1.0]&nbsp; Vorgabe 0.5</div><div class='desc'>how fast the two struck bodies swell against each other. NOT a detune: the offset is a fraction of a Hertz and you never hear it as pitch, you hear the two bodies going in and out of step -- BJ, 2026-07-31, on the name it used to carry: „das ist kein detune“. The swell has to be SLOW: the n-th partial swells n times as fast as the first, …</div><div class='opts'><button class='opt' data-axis='beat' data-val='locked' aria-pressed='false'><b>locked</b><code>beat = 0.0</code><small>the two bodies in step: one still body, and the loudest setting</small></button><button class='opt' data-axis='beat' data-val='slow' aria-pressed='false'><b>slow</b><code>beat = 0.4</code><small>0.2 Hz: one swell every five seconds</small></button><button class='opt' data-axis='beat' data-val='wide' aria-pressed='false'><b>wide</b><code>beat = 0.85</code><small>0.43 Hz: the fastest swell this body offers</small></button></div></div>
+
+<h2>Nicht gekreuzt: einzeln, alles andere auf Vorgabe</h2><div class='note'><b>Warum getrennt.</b> Alle 5 Achsen zu kreuzen wäre 540 Kombinationen &mdash; kein Hörtest, sondern eine Halde. Gekreuzt sind <code>damping</code>, <code>stretch</code>, <code>beat</code>; hier stehen <code>index</code>, <code>ring</code> einzeln, mit jeder anderen Achse auf ihrer Vorgabe. Was du hier hörst, ist also EIN Punkt des Raums, nicht die Achse über ihn hinweg.</div><div class='axis'><div class='name'>index</div><div class='desc'>how hard the two modes are driven -- how many partials the metal carries. Low leaves the note almost bare; high fills the spectrum between the modes and loosens the pitch, because a deep index empties the carrier itself.…</div><div class='opts'><button class='opt' data-paired='1' data-src='clips/sweep_index_strucksoftly.wav' data-label='index = struck softly (0.13) — übrige Achsen auf Vorgabe'><b>struck softly</b><code>index = 0.13</code><small>barely driven: the note with a trace of metal on it</small></button><button class='opt' data-paired='1' data-src='clips/sweep_index_struck.wav' data-label='index = struck (0.27) — übrige Achsen auf Vorgabe'><b>struck</b><code>index = 0.27</code><small>an ordinary strike, the modes clearly there</small></button><button class='opt' data-paired='1' data-src='clips/sweep_index_struckhard.wav' data-label='index = struck hard (0.6) — übrige Achsen auf Vorgabe'><b>struck hard</b><code>index = 0.6</code><small>hard: the spectrum fills in between the modes</small></button><button class='opt' data-paired='1' data-src='clips/sweep_index_hammered.wav' data-label='index = hammered (0.82) — übrige Achsen auf Vorgabe'><b>hammered</b><code>index = 0.82</code><small>hammered, the pitch beginning to loosen</small></button><button class='opt' data-paired='1' data-src='clips/sweep_index_crashed.wav' data-label='index = crashed (1.0) — übrige Achsen auf Vorgabe'><b>crashed</b><code>index = 1.0</code><small>everything the two modes can put out</small></button></div></div><div class='axis'><div class='name'>ring</div><div class='desc'>how long the drive holds before the metal darkens. Low collapses to a plain body almost at once; high stays lit deep into the note. The host owns when the note stops -- this is the colour, not the loudness.…</div><div class='opts'><button class='opt' data-paired='1' data-src='clips/sweep_ring_quick.wav' data-label='ring = quick (0.11) — übrige Achsen auf Vorgabe'><b>quick</b><code>ring = 0.11</code><small>the metal darkens almost at once</small></button><button class='opt' data-paired='1' data-src='clips/sweep_ring_medium.wav' data-label='ring = medium (0.44) — übrige Achsen auf Vorgabe'><b>medium</b><code>ring = 0.44</code><small>a struck metal&#x27;s ordinary ring-down</small></button><button class='opt' data-paired='1' data-src='clips/sweep_ring_long.wav' data-label='ring = long (0.89) — übrige Achsen auf Vorgabe'><b>long</b><code>ring = 0.89</code><small>stays lit well into the note</small></button></div></div>
+
+<h2>Was im Kreuz steht</h2>
+<div class='note'>36 Kombinationen aus 3 Achsen, jede an ihren Ankern.
+Gerendert direkt gegen das Csound-Ger&uuml;st, aus dem Eintrag im Lexikon &mdash; also
+genau der Code, den das schreibende Modell zu sehen bekommt.</div>
+<table><tr><th>damping</th><th>stretch</th><th>beat</th><th>dBrms</th><th>Peak</th><th>Schwerpunkt Hz</th></tr><tr><td>even</td><td>tight</td><td>locked</td><td>-9.96</td><td>0.473</td><td>739</td></tr><tr><td>even</td><td>tight</td><td>slow</td><td>-13.18</td><td>0.463</td><td>760</td></tr><tr><td>even</td><td>tight</td><td>wide</td><td>-13.02</td><td>0.463</td><td>713</td></tr><tr><td>even</td><td>bell</td><td>locked</td><td>-9.96</td><td>0.615</td><td>849</td></tr><tr><td>even</td><td>bell</td><td>slow</td><td>-13.06</td><td>0.566</td><td>870</td></tr><tr><td>even</td><td>bell</td><td>wide</td><td>-12.90</td><td>0.562</td><td>816</td></tr><tr><td>even</td><td>plate</td><td>locked</td><td>-9.96</td><td>0.476</td><td>935</td></tr><tr><td>even</td><td>plate</td><td>slow</td><td>-13.18</td><td>0.466</td><td>981</td></tr><tr><td>even</td><td>plate</td><td>wide</td><td>-13.02</td><td>0.466</td><td>890</td></tr><tr><td>even</td><td>wide</td><td>locked</td><td>-9.95</td><td>0.458</td><td>1159</td></tr><tr><td>even</td><td>wide</td><td>slow</td><td>-13.19</td><td>0.452</td><td>1226</td></tr><tr><td>even</td><td>wide</td><td>wide</td><td>-13.03</td><td>0.453</td><td>1097</td></tr><tr><td>metal</td><td>tight</td><td>locked</td><td>-9.95</td><td>0.472</td><td>643</td></tr><tr><td>metal</td><td>tight</td><td>slow</td><td>-13.18</td><td>0.462</td><td>665</td></tr><tr><td>metal</td><td>tight</td><td>wide</td><td>-13.02</td><td>0.463</td><td>615</td></tr><tr><td>metal</td><td>bell</td><td>locked</td><td>-9.95</td><td>0.611</td><td>721</td></tr><tr><td>metal</td><td>bell</td><td>slow</td><td>-13.06</td><td>0.561</td><td>728</td></tr><tr><td>metal</td><td>bell</td><td>wide</td><td>-12.90</td><td>0.566</td><td>687</td></tr><tr><td>metal</td><td>plate</td><td>locked</td><td>-9.95</td><td>0.473</td><td>724</td></tr><tr><td>metal</td><td>plate</td><td>slow</td><td>-13.18</td><td>0.459</td><td>764</td></tr><tr><td>metal</td><td>plate</td><td>wide</td><td>-13.02</td><td>0.463</td><td>681</td></tr><tr><td>metal</td><td>wide</td><td>locked</td><td>-9.95</td><td>0.456</td><td>781</td></tr><tr><td>metal</td><td>wide</td><td>slow</td><td>-13.19</td><td>0.452</td><td>837</td></tr><tr><td>metal</td><td>wide</td><td>wide</td><td>-13.02</td><td>0.452</td><td>728</td></tr><tr><td>dead top</td><td>tight</td><td>locked</td><td>-9.95</td><td>0.465</td><td>382</td></tr><tr><td>dead top</td><td>tight</td><td>slow</td><td>-13.18</td><td>0.455</td><td>397</td></tr><tr><td>dead top</td><td>tight</td><td>wide</td><td>-13.02</td><td>0.456</td><td>368</td></tr><tr><td>dead top</td><td>bell</td><td>locked</td><td>-9.95</td><td>0.535</td><td>371</td></tr><tr><td>dead top</td><td>bell</td><td>slow</td><td>-13.16</td><td>0.498</td><td>377</td></tr><tr><td>dead top</td><td>bell</td><td>wide</td><td>-13.01</td><td>0.484</td><td>357</td></tr><tr><td>dead top</td><td>plate</td><td>locked</td><td>-9.95</td><td>0.463</td><td>343</td></tr><tr><td>dead top</td><td>plate</td><td>slow</td><td>-13.18</td><td>0.454</td><td>354</td></tr><tr><td>dead top</td><td>plate</td><td>wide</td><td>-13.02</td><td>0.453</td><td>335</td></tr><tr><td>dead top</td><td>wide</td><td>locked</td><td>-9.95</td><td>0.453</td><td>332</td></tr><tr><td>dead top</td><td>wide</td><td>slow</td><td>-13.18</td><td>0.450</td><td>336</td></tr><tr><td>dead top</td><td>wide</td><td>wide</td><td>-13.02</td><td>0.450</td><td>326</td></tr></table>
+
+<script>
+var STATE={"damping": "even", "stretch": "tight", "beat": "locked"}, DUR=14.0;
+var P=document.getElementById('player'), C=document.getElementById('combo');
+function name(){ return AXES.map(function(a){return STATE[a];}).join('__'); }
+var AXES=["damping", "stretch", "beat"];
+var LABEL={"damping": {"even": "even (0.0)", "metal": "metal (0.35)", "dead top": "dead top (0.9)"}, "stretch": {"tight": "tight (1.4)", "bell": "bell (1.7)", "plate": "plate (2.0)", "wide": "wide (2.4)"}, "beat": {"locked": "locked (0.0)", "slow": "slow (0.4)", "wide": "wide (0.85)"}};
+function refresh(auto){
+  if(!AXES.length){ C.textContent='— keine kreuzbare Achse: alles einzeln, unten —'; return; }
+  C.textContent = AXES.map(function(a){return a+' = '+LABEL[a][STATE[a]];}).join('   |   ');
+  var f='clips/'+name()+'.wav';
+  if(P.src.indexOf(f)<0){ P.src=f; if(auto) P.play(); }
+  // the paired buttons carry no axis, so they must be skipped: STATE[undefined] ===
+  // b.dataset.val would be undefined === undefined, and all of them would read as
+  // selected at once.
+  document.querySelectorAll('.opt:not([data-paired])').forEach(function(b){
+    b.setAttribute('aria-pressed', STATE[b.dataset.axis]===b.dataset.val ? 'true':'false');
+  });
+}
+document.addEventListener('click',function(e){
+  var b=e.target.closest('.opt'); if(!b) return;
+  if(b.dataset.paired){ P.src=b.dataset.src; P.play(); C.textContent=b.dataset.label; return; }
+  STATE[b.dataset.axis]=b.dataset.val; refresh(true);
+});
+refresh(false);
+</script>
