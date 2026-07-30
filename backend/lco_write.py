@@ -453,7 +453,7 @@ HARD RULES
 - Read the pitch from `kfreq` (Hz, k-rate). It GLIDES. Three different things in a body carry a frequency and only the first is the pitch, so decide which one you are writing before you type a number:
   (a) PITCH is `kfreq` times a ratio — never a number. A body that invents its own register is unusable however good it sounds.
   (b) A RESONANCE may be FIXED in Hz, because a formant, a body resonance, a noise band or an LFO rate belongs to the BODY and not to the note — a real bell's formant does not move when you play a different key. Write the number and MARK it, the way the library's own bodies do: `abl0 reson abz0, 1200, 900, 1 ; bell formant, FIXED in Hz`. A body whose resonances are fixed sounds right over part of the range and wrong outside it (`fmvoice` needs roughly 880 Hz and up), which is a property to state, not a defect to correct.
-  (c) A LANDMARK in the spectrum — "above the 6th harmonic", "just under the fundamental", "the top of the spectrum" — is a RATIO to `kfreq`, never Hz: 2200 Hz is the 40th harmonic of a 55 Hz note and the 2nd of an 880 Hz one, so as a fixed number it is a different word at every pitch. Clamp a high ratio to the band (`min(kfreq * koct1 * 8, sr * 0.45)`) so it does not leave it.
+  (c) A LANDMARK in the spectrum — "above the 6th harmonic", "just under the fundamental", "the top of the spectrum" — is a RATIO to `kfreq`, never Hz: 2200 Hz is the 40th harmonic of a 55 Hz note and the 2nd of an 880 Hz one, so as a fixed number it is a different word at every pitch. Clamp a high ratio to the band (`min(kfreq * koct1 * 8, sr * 0.45, 20000)`) so it does not leave it.
 - Write your final audio into a variable named exactly `asig`.
 - Define every variable before you use it, top to bottom. Give your variables distinct names; do not reuse a name for two things.
 - Use only real Csound 6.18 opcodes. `vco2`'s imode is an INTEGER: 0 saw (every harmonic, 1/n), 2 pulse/square (odd harmonics, 1/n), 4 triangle/saw (odd harmonics, 1/n², much darker). Both 2 and 4 take `kpw` as their fourth argument and it is the SAME quantity in both — the fraction of the period spent in the first phase, 0.01 to 0.99: on imode 2 the duty (0.5 a square, away from it a pulse), on imode 4 where the ramp breaks (0.5 a triangle, toward either end a sawtooth). The pulse is the derivative of the ramp, so both spectra carry |sin(pi*n*kpw)| and differ by one power of n: same zeros, `kpw` and 1-`kpw` the same spectrum on either, odd harmonics alone at 0.5 on either. Measured, not guessed: imode 10 is NOT triangle, it is another pulse. There is no `vco1`.
@@ -509,7 +509,10 @@ AVAILABLE IN SCOPE
   giSine (sine table)  giCos (cosine table, for gbuzz/buzz)
   giCheb (Chebyshev transfer table)  giImp (short strike impulse table)
   sr kr ksmps                      Csound's own globals, usable in an expression —
-         `sr * 0.45` is how the library keeps a rising landmark inside the band
+         `min(sr * 0.45, 20000)` is how the library keeps a rising landmark inside
+         the band. Cap it at 20000 as well as at the rate: the plugin may run Csound
+         at 4x, where `sr * 0.45` is 79 kHz and stops bounding anything, and a body
+         must not sound brighter because of a Settings switch
 
 HOW TO ANSWER — you answer TWICE, and the first answer is not code.
 
