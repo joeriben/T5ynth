@@ -116,6 +116,12 @@ limits of this gate
     from a measured perceptual threshold. They come from the entries that happened
     to be in front of the author when they were written.
   six fixed registers, nothing between them and nothing outside them.
+  the movement question is asked of the WHOLE note, so a spectral attack alone can
+    answer it: measured on fm3 with its trade oscillator frozen -- a body that is
+    demonstrably static after 50 ms -- 864 cents at coherence 0.99 over the note and
+    6 cents through the sustain, and it passes. Whether "it moves" should mean the
+    sustain is a change of standard and BJ's; what is recorded here is that today it
+    does not.
   PASS means these thresholds were satisfied. It is not a statement about the sound,
     and it does not stand in for BJ having heard the entry."""
 
