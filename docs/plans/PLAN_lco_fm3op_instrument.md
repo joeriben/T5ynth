@@ -1,6 +1,7 @@
 # PLAN — a three-operator FM entry for the LRO
 
-**Status: plan. Nothing built, nothing authorised.** Written 2026-07-30 on BJ's instruction, after
+**Status: EXECUTED 2026-07-30 — the entry ships as `fm3`. See §7 for what was built, what the plan
+got wrong, and what is still BJ's.** Written 2026-07-30 on BJ's instruction, after
 the three timbre-semantics sources were entered in `docs/LCO_TIMBRE_SEMANTICS.md`. This plan derives
 entirely from source **[2]** of that record and from the method paper it cites; §6 of that record is
 the pre-build record this plan executes.
@@ -55,7 +56,9 @@ mapping may be used.
 5. Only after that: the entry goes into `backend/lco_library.json`.
 
 **Attempt budget** (rule 5 requires one fixed up front, and it is BJ's to fix): proposed **three**
-attempts. When spent, the entry is dropped rather than optimised further.
+attempts. When spent, the entry is dropped rather than optimised further. — **BJ fixed it at 15**
+(2026-07-30), together with keeping all six axes. Two attempts were heard; the second is what
+shipped.
 
 ---
 
@@ -157,3 +160,57 @@ Nothing is taken from `fm` here.
   hand-written phase modulation does not compile or aliases unacceptably (§1 step 1); or the A/B does
   not convince BJ within the three attempts, in which case the entry is dropped
   (`feedback_quality_bar_omit_mediocre`).
+
+---
+
+## 7. Executed — what shipped, what the plan got wrong, what is still BJ's
+
+| commit | what |
+|---|---|
+| `61d7d750` | `feat(lexicon): fm3 — two modulators, and the drive changes hands` — the entry, six axes, 25 anchors, gated |
+| `675a865c` | `fix(lexicon): fm3 keeps its whole drive inside the band, and its notes say what it plays` — the three defects below |
+
+**BJ's reading, 2026-07-30, against `nearest_existing.wav` from `fm`:** `fm` is Rhodes-like; `fm3` is
+bassoon-like, with a kind of pulse-width modulation. The entry takes neither name. Attempt 1 was heard
+as static — the trade oscillator had been copied from `driven_metal` at 0.09 Hz, a 9 s period inside a
+3 s file; at 0.45 Hz the movement is in the note. That is the whole distance between the two attempts.
+
+**Three things this plan did not anticipate, all found after the first commit and fixed in the
+second.** They are recorded here because each is a class, not an incident.
+
+1. **The sideband-room limit in §1's idiom list is wrong when there are two modulators.** Bounding
+   each operator as if it were the only one ignores that the travelling drive arrives *on top of* an
+   operator's own index: the effective index reached twice its bound, and at ratio 8/8, both indices
+   0.6 and `trade` 0.75 a 440 Hz note at sr 44100 carried a sideband at 49 kHz — 42.7 % of its energy
+   off the grid. It is now Carson's rule summed over both operators, one scale factor for the whole
+   drive. The library's existing idiom was written for one-modulator bodies and does not generalise.
+2. **A coincidence guard is a control-space edit and has to be bounded like one.** The first guard
+   fired within 1.5 of `ratio 2` and pushed up by 1.75: it produced 9.75, outside the axis's own
+   declared range, and flattened up to 43 % of `ratio 3` onto one value. Only exact coincidence is
+   static (0–9 cents through the sustain; a separation of 0.01 already moves 1130), so it now fires
+   within 0.02 and pushes toward the middle of the range.
+3. **The entry read its own spectrum against the key instead of against its own fundamental**, and
+   told the author the wrong thing about it. With `ratio 2` at 1.0 a half-integer `ratio 3` puts the
+   spectrum on a grid of `kfreq`/2 — the note sounds an octave *below* the key, and everything on that
+   grid is harmonic. Measured f0 is exactly `kfreq`/2 at 1.5, 2.5, 3.5, 4.5, 5.5, 6.5 and exactly
+   `kfreq` at 2, 3, 4, 7, 8, at every register from 55 to 1760 Hz. The „62.7 % off-series" the first
+   commit reported was that octave counted against the key; off the series it actually has, the body
+   is 1.3–2.1 % everywhere. **Measure f0 before quoting a harmonic ratio** — §6's meter list did not
+   ask for it, and the gate does not check absolute pitch.
+
+**A limit of the gate, found here and now recorded in `tools/lco_axis_probe.py`'s own limits text:**
+the movement question is asked of the whole note, so a spectral attack alone answers it. With its
+trade oscillator frozen this body reads 864 cents at coherence 0.99 over the note and 6 cents through
+the sustain — and passes. Whether „it moves" should mean the sustain is a change of standard, and
+BJ's.
+
+**Still BJ's:**
+
+- **The default of `ratio 3`.** It ships at 5.5 — an octave under the key, which is the material he
+  heard and read as bassoon-like. A whole number (2, 3, 4, 7, 8) plays at the key. Both are declared
+  in the entry; which one is the default is a listening decision, not a measurement.
+- Whether the gate's movement rule should require sustained movement (above).
+- `sr * 0.45` versus the plugin's oversampling: `%SR%` resolves to the *oversampled* rate, so the
+  taught clamp sits at 79 380 Hz against a delivered band ending at 22 050. Raised, unresolved, and
+  now visible here as a side effect — the 338 corner-renders at 1760 Hz the gate reports as static
+  exist only at sr 44100; at 176400 the same corners move 1066–1151 cents.
