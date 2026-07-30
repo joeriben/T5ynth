@@ -122,10 +122,22 @@ done
 mkdir -p "$(dirname "$BIN")/licenses/csound"
 cp -f "$LICENSE_SRC"/*.txt "$(dirname "$BIN")/licenses/csound/"
 
-# The check that matters: nothing may still resolve outside the artefact except the
-# core runtime above. A single survivor means the LRO is silent on a machine
-# without Csound, which is the whole case this exists for.
+# The check that matters: the CSOUND payload must resolve inside the artefact. A
+# single survivor means the LRO is silent on a machine without Csound, which is the
+# whole case this exists for.
+#
+# The scope is per file, and the difference is not cosmetic. For the files this
+# script copied, "outside the artefact" is always a failure: copy_with_deps pulled
+# in every non-system dependency recursively, so anything still pointing at /usr/lib
+# is a copy that did not happen or an rpath that did not take. The BINARY is not one
+# of those files — it is the application, and it legitimately links the
+# distribution's ALSA, fontconfig, freetype and curl, none of which this script
+# bundles or should bundle. Holding it to the payload's rule failed the build on
+# every one of those (measured on CI 2026-07-30: 36 flagged, not one of them
+# Csound's). What it owes is narrower and is asserted positively below: the Csound
+# library, and anything else the payload put in libs/, must come from libs/.
 problems=""
+csound_soname="$(basename "$CSOUND_LIBRARY")"
 for f in "$BIN" "$LIBS"/*.so* "$OPCODES"/*.so; do
     [[ -f "$f" ]] || continue
     while IFS= read -r line; do
@@ -137,11 +149,19 @@ for f in "$BIN" "$LIBS"/*.so* "$OPCODES"/*.so; do
         dep_name="$(basename "$dep")"
         is_system_lib "$dep_name" && continue
         case "$dep" in
-            "$LIBS"/*|"$OPCODES"/*) ;;
-            *) problems="$problems  $(basename "$f"): still resolves $dep"$'\n' ;;
+            "$LIBS"/*|"$OPCODES"/*) continue ;;
         esac
+        # For the binary, only the payload's own libraries are this gate's business.
+        if [[ "$f" == "$BIN" && ! -f "$LIBS/$dep_name" ]]; then continue; fi
+        problems="$problems  $(basename "$f"): still resolves $dep"$'\n'
     done < <(needed_paths "$f")
 done
+
+# ...and the point of the whole exercise, stated as a requirement rather than left
+# to fall out of the loop above: the binary reaches Csound through libs/.
+if ! needed_paths "$BIN" | grep -qxF "$LIBS/$csound_soname"; then
+    problems="$problems  $(basename "$BIN"): does not resolve $csound_soname inside $LIBS"$'\n'
+fi
 if [[ -n "$problems" ]]; then
     printf 'Csound bundling incomplete:\n%s' "$problems" >&2
     exit 1
