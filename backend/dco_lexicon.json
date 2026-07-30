@@ -42,7 +42,7 @@
    "heard": {
     "status": "offen",
     "hinweis": "kein Beleg für eine Abnahme durch BJ gefunden. NICHT als abgenommen behandeln und nicht aus Herkunft, Commit-Text oder „ear-approved“ in docs/ erschließen — genau das war der Fehler (2026-07-30).",
-    "massstab": "Abgenommen ist ein Instrument erst über eine HTML-Abhörseite, auf der die PARAMETERKOMBINATION sichtbar und von BJ wählbar ist — nicht über einen Ordner mit vorgerenderten Dateien. Generatoren: tools/lco_listening_test.py, tools/lco_abx_test.py."
+    "massstab": "Abgenommen ist ein Instrument erst über eine HTML-Abhörseite, auf der die PARAMETERKOMBINATION sichtbar und von BJ wählbar ist — nicht über einen Ordner mit vorgerenderten Dateien. Generator: tools/lco_param_page.py (Kombination frei wählbar, jede Achse an ihren deklarierten Ankern). Daneben: tools/lco_listening_test.py (blinde Wort-Klang-Zuordnung, docs/LCO_TEST_POLICY.md) und tools/lco_abx_test.py."
    }
   },
   {
@@ -98,7 +98,7 @@
    "heard": {
     "status": "offen",
     "hinweis": "kein Beleg für eine Abnahme durch BJ gefunden. NICHT als abgenommen behandeln und nicht aus Herkunft, Commit-Text oder „ear-approved“ in docs/ erschließen — genau das war der Fehler (2026-07-30).",
-    "massstab": "Abgenommen ist ein Instrument erst über eine HTML-Abhörseite, auf der die PARAMETERKOMBINATION sichtbar und von BJ wählbar ist — nicht über einen Ordner mit vorgerenderten Dateien. Generatoren: tools/lco_listening_test.py, tools/lco_abx_test.py."
+    "massstab": "Abgenommen ist ein Instrument erst über eine HTML-Abhörseite, auf der die PARAMETERKOMBINATION sichtbar und von BJ wählbar ist — nicht über einen Ordner mit vorgerenderten Dateien. Generator: tools/lco_param_page.py (Kombination frei wählbar, jede Achse an ihren deklarierten Ankern). Daneben: tools/lco_listening_test.py (blinde Wort-Klang-Zuordnung, docs/LCO_TEST_POLICY.md) und tools/lco_abx_test.py."
    }
   },
   {
@@ -222,7 +222,7 @@
    "heard": {
     "status": "offen",
     "hinweis": "kein Beleg für eine Abnahme durch BJ gefunden. NICHT als abgenommen behandeln und nicht aus Herkunft, Commit-Text oder „ear-approved“ in docs/ erschließen — genau das war der Fehler (2026-07-30).",
-    "massstab": "Abgenommen ist ein Instrument erst über eine HTML-Abhörseite, auf der die PARAMETERKOMBINATION sichtbar und von BJ wählbar ist — nicht über einen Ordner mit vorgerenderten Dateien. Generatoren: tools/lco_listening_test.py, tools/lco_abx_test.py."
+    "massstab": "Abgenommen ist ein Instrument erst über eine HTML-Abhörseite, auf der die PARAMETERKOMBINATION sichtbar und von BJ wählbar ist — nicht über einen Ordner mit vorgerenderten Dateien. Generator: tools/lco_param_page.py (Kombination frei wählbar, jede Achse an ihren deklarierten Ankern). Daneben: tools/lco_listening_test.py (blinde Wort-Klang-Zuordnung, docs/LCO_TEST_POLICY.md) und tools/lco_abx_test.py."
    }
   },
   {
@@ -541,7 +541,7 @@
    "heard": {
     "status": "offen",
     "hinweis": "kein Beleg für eine Abnahme durch BJ gefunden. NICHT als abgenommen behandeln und nicht aus Herkunft, Commit-Text oder „ear-approved“ in docs/ erschließen — genau das war der Fehler (2026-07-30).",
-    "massstab": "Abgenommen ist ein Instrument erst über eine HTML-Abhörseite, auf der die PARAMETERKOMBINATION sichtbar und von BJ wählbar ist — nicht über einen Ordner mit vorgerenderten Dateien. Generatoren: tools/lco_listening_test.py, tools/lco_abx_test.py."
+    "massstab": "Abgenommen ist ein Instrument erst über eine HTML-Abhörseite, auf der die PARAMETERKOMBINATION sichtbar und von BJ wählbar ist — nicht über einen Ordner mit vorgerenderten Dateien. Generator: tools/lco_param_page.py (Kombination frei wählbar, jede Achse an ihren deklarierten Ankern). Daneben: tools/lco_listening_test.py (blinde Wort-Klang-Zuordnung, docs/LCO_TEST_POLICY.md) und tools/lco_abx_test.py."
    }
   },
   {
@@ -1042,7 +1042,7 @@
    "heard": {
     "status": "offen",
     "hinweis": "kein Beleg für eine Abnahme durch BJ gefunden. NICHT als abgenommen behandeln und nicht aus Herkunft, Commit-Text oder „ear-approved“ in docs/ erschließen — genau das war der Fehler (2026-07-30).",
-    "massstab": "Abgenommen ist ein Instrument erst über eine HTML-Abhörseite, auf der die PARAMETERKOMBINATION sichtbar und von BJ wählbar ist — nicht über einen Ordner mit vorgerenderten Dateien. Generatoren: tools/lco_listening_test.py, tools/lco_abx_test.py."
+    "massstab": "Abgenommen ist ein Instrument erst über eine HTML-Abhörseite, auf der die PARAMETERKOMBINATION sichtbar und von BJ wählbar ist — nicht über einen Ordner mit vorgerenderten Dateien. Generator: tools/lco_param_page.py (Kombination frei wählbar, jede Achse an ihren deklarierten Ankern). Daneben: tools/lco_listening_test.py (blinde Wort-Klang-Zuordnung, docs/LCO_TEST_POLICY.md) und tools/lco_abx_test.py."
    }
   },
   {
@@ -1109,7 +1109,7 @@
    "heard": {
     "status": "offen",
     "hinweis": "kein Beleg für eine Abnahme durch BJ gefunden. NICHT als abgenommen behandeln und nicht aus Herkunft, Commit-Text oder „ear-approved“ in docs/ erschließen — genau das war der Fehler (2026-07-30).",
-    "massstab": "Abgenommen ist ein Instrument erst über eine HTML-Abhörseite, auf der die PARAMETERKOMBINATION sichtbar und von BJ wählbar ist — nicht über einen Ordner mit vorgerenderten Dateien. Generatoren: tools/lco_listening_test.py, tools/lco_abx_test.py."
+    "massstab": "Abgenommen ist ein Instrument erst über eine HTML-Abhörseite, auf der die PARAMETERKOMBINATION sichtbar und von BJ wählbar ist — nicht über einen Ordner mit vorgerenderten Dateien. Generator: tools/lco_param_page.py (Kombination frei wählbar, jede Achse an ihren deklarierten Ankern). Daneben: tools/lco_listening_test.py (blinde Wort-Klang-Zuordnung, docs/LCO_TEST_POLICY.md) und tools/lco_abx_test.py."
    }
   },
   {
@@ -1209,7 +1209,7 @@
    "heard": {
     "status": "offen",
     "hinweis": "kein Beleg für eine Abnahme durch BJ gefunden. NICHT als abgenommen behandeln und nicht aus Herkunft, Commit-Text oder „ear-approved“ in docs/ erschließen — genau das war der Fehler (2026-07-30).",
-    "massstab": "Abgenommen ist ein Instrument erst über eine HTML-Abhörseite, auf der die PARAMETERKOMBINATION sichtbar und von BJ wählbar ist — nicht über einen Ordner mit vorgerenderten Dateien. Generatoren: tools/lco_listening_test.py, tools/lco_abx_test.py."
+    "massstab": "Abgenommen ist ein Instrument erst über eine HTML-Abhörseite, auf der die PARAMETERKOMBINATION sichtbar und von BJ wählbar ist — nicht über einen Ordner mit vorgerenderten Dateien. Generator: tools/lco_param_page.py (Kombination frei wählbar, jede Achse an ihren deklarierten Ankern). Daneben: tools/lco_listening_test.py (blinde Wort-Klang-Zuordnung, docs/LCO_TEST_POLICY.md) und tools/lco_abx_test.py."
    }
   },
   {
@@ -1248,7 +1248,7 @@
    "heard": {
     "status": "offen",
     "hinweis": "kein Beleg für eine Abnahme durch BJ gefunden. NICHT als abgenommen behandeln und nicht aus Herkunft, Commit-Text oder „ear-approved“ in docs/ erschließen — genau das war der Fehler (2026-07-30).",
-    "massstab": "Abgenommen ist ein Instrument erst über eine HTML-Abhörseite, auf der die PARAMETERKOMBINATION sichtbar und von BJ wählbar ist — nicht über einen Ordner mit vorgerenderten Dateien. Generatoren: tools/lco_listening_test.py, tools/lco_abx_test.py."
+    "massstab": "Abgenommen ist ein Instrument erst über eine HTML-Abhörseite, auf der die PARAMETERKOMBINATION sichtbar und von BJ wählbar ist — nicht über einen Ordner mit vorgerenderten Dateien. Generator: tools/lco_param_page.py (Kombination frei wählbar, jede Achse an ihren deklarierten Ankern). Daneben: tools/lco_listening_test.py (blinde Wort-Klang-Zuordnung, docs/LCO_TEST_POLICY.md) und tools/lco_abx_test.py."
    }
   },
   {
@@ -1290,7 +1290,7 @@
    "heard": {
     "status": "offen",
     "hinweis": "kein Beleg für eine Abnahme durch BJ gefunden. NICHT als abgenommen behandeln und nicht aus Herkunft, Commit-Text oder „ear-approved“ in docs/ erschließen — genau das war der Fehler (2026-07-30).",
-    "massstab": "Abgenommen ist ein Instrument erst über eine HTML-Abhörseite, auf der die PARAMETERKOMBINATION sichtbar und von BJ wählbar ist — nicht über einen Ordner mit vorgerenderten Dateien. Generatoren: tools/lco_listening_test.py, tools/lco_abx_test.py."
+    "massstab": "Abgenommen ist ein Instrument erst über eine HTML-Abhörseite, auf der die PARAMETERKOMBINATION sichtbar und von BJ wählbar ist — nicht über einen Ordner mit vorgerenderten Dateien. Generator: tools/lco_param_page.py (Kombination frei wählbar, jede Achse an ihren deklarierten Ankern). Daneben: tools/lco_listening_test.py (blinde Wort-Klang-Zuordnung, docs/LCO_TEST_POLICY.md) und tools/lco_abx_test.py."
    }
   },
   {
@@ -1365,7 +1365,7 @@
    "heard": {
     "status": "offen",
     "hinweis": "kein Beleg für eine Abnahme durch BJ gefunden. NICHT als abgenommen behandeln und nicht aus Herkunft, Commit-Text oder „ear-approved“ in docs/ erschließen — genau das war der Fehler (2026-07-30).",
-    "massstab": "Abgenommen ist ein Instrument erst über eine HTML-Abhörseite, auf der die PARAMETERKOMBINATION sichtbar und von BJ wählbar ist — nicht über einen Ordner mit vorgerenderten Dateien. Generatoren: tools/lco_listening_test.py, tools/lco_abx_test.py."
+    "massstab": "Abgenommen ist ein Instrument erst über eine HTML-Abhörseite, auf der die PARAMETERKOMBINATION sichtbar und von BJ wählbar ist — nicht über einen Ordner mit vorgerenderten Dateien. Generator: tools/lco_param_page.py (Kombination frei wählbar, jede Achse an ihren deklarierten Ankern). Daneben: tools/lco_listening_test.py (blinde Wort-Klang-Zuordnung, docs/LCO_TEST_POLICY.md) und tools/lco_abx_test.py."
    }
   },
   {
@@ -1438,7 +1438,7 @@
    "heard": {
     "status": "offen",
     "hinweis": "kein Beleg für eine Abnahme durch BJ gefunden. NICHT als abgenommen behandeln und nicht aus Herkunft, Commit-Text oder „ear-approved“ in docs/ erschließen — genau das war der Fehler (2026-07-30).",
-    "massstab": "Abgenommen ist ein Instrument erst über eine HTML-Abhörseite, auf der die PARAMETERKOMBINATION sichtbar und von BJ wählbar ist — nicht über einen Ordner mit vorgerenderten Dateien. Generatoren: tools/lco_listening_test.py, tools/lco_abx_test.py."
+    "massstab": "Abgenommen ist ein Instrument erst über eine HTML-Abhörseite, auf der die PARAMETERKOMBINATION sichtbar und von BJ wählbar ist — nicht über einen Ordner mit vorgerenderten Dateien. Generator: tools/lco_param_page.py (Kombination frei wählbar, jede Achse an ihren deklarierten Ankern). Daneben: tools/lco_listening_test.py (blinde Wort-Klang-Zuordnung, docs/LCO_TEST_POLICY.md) und tools/lco_abx_test.py."
    }
   },
   {
@@ -1497,7 +1497,7 @@
    "heard": {
     "status": "offen",
     "hinweis": "kein Beleg für eine Abnahme durch BJ gefunden. NICHT als abgenommen behandeln und nicht aus Herkunft, Commit-Text oder „ear-approved“ in docs/ erschließen — genau das war der Fehler (2026-07-30).",
-    "massstab": "Abgenommen ist ein Instrument erst über eine HTML-Abhörseite, auf der die PARAMETERKOMBINATION sichtbar und von BJ wählbar ist — nicht über einen Ordner mit vorgerenderten Dateien. Generatoren: tools/lco_listening_test.py, tools/lco_abx_test.py."
+    "massstab": "Abgenommen ist ein Instrument erst über eine HTML-Abhörseite, auf der die PARAMETERKOMBINATION sichtbar und von BJ wählbar ist — nicht über einen Ordner mit vorgerenderten Dateien. Generator: tools/lco_param_page.py (Kombination frei wählbar, jede Achse an ihren deklarierten Ankern). Daneben: tools/lco_listening_test.py (blinde Wort-Klang-Zuordnung, docs/LCO_TEST_POLICY.md) und tools/lco_abx_test.py."
    }
   },
   {
@@ -1650,7 +1650,7 @@
    "heard": {
     "status": "offen",
     "hinweis": "kein Beleg für eine Abnahme durch BJ gefunden. NICHT als abgenommen behandeln und nicht aus Herkunft, Commit-Text oder „ear-approved“ in docs/ erschließen — genau das war der Fehler (2026-07-30).",
-    "massstab": "Abgenommen ist ein Instrument erst über eine HTML-Abhörseite, auf der die PARAMETERKOMBINATION sichtbar und von BJ wählbar ist — nicht über einen Ordner mit vorgerenderten Dateien. Generatoren: tools/lco_listening_test.py, tools/lco_abx_test.py."
+    "massstab": "Abgenommen ist ein Instrument erst über eine HTML-Abhörseite, auf der die PARAMETERKOMBINATION sichtbar und von BJ wählbar ist — nicht über einen Ordner mit vorgerenderten Dateien. Generator: tools/lco_param_page.py (Kombination frei wählbar, jede Achse an ihren deklarierten Ankern). Daneben: tools/lco_listening_test.py (blinde Wort-Klang-Zuordnung, docs/LCO_TEST_POLICY.md) und tools/lco_abx_test.py."
    }
   },
   {
@@ -1783,7 +1783,7 @@
    "heard": {
     "status": "offen",
     "hinweis": "kein Beleg für eine Abnahme durch BJ gefunden. NICHT als abgenommen behandeln und nicht aus Herkunft, Commit-Text oder „ear-approved“ in docs/ erschließen — genau das war der Fehler (2026-07-30).",
-    "massstab": "Abgenommen ist ein Instrument erst über eine HTML-Abhörseite, auf der die PARAMETERKOMBINATION sichtbar und von BJ wählbar ist — nicht über einen Ordner mit vorgerenderten Dateien. Generatoren: tools/lco_listening_test.py, tools/lco_abx_test.py."
+    "massstab": "Abgenommen ist ein Instrument erst über eine HTML-Abhörseite, auf der die PARAMETERKOMBINATION sichtbar und von BJ wählbar ist — nicht über einen Ordner mit vorgerenderten Dateien. Generator: tools/lco_param_page.py (Kombination frei wählbar, jede Achse an ihren deklarierten Ankern). Daneben: tools/lco_listening_test.py (blinde Wort-Klang-Zuordnung, docs/LCO_TEST_POLICY.md) und tools/lco_abx_test.py."
    }
   },
   {
@@ -1984,7 +1984,7 @@
     "bj_wortlaut": "klingt alles gut. die verstimmung bei refl. 0.85 finde ich durchaus …",
     "beleg": "71b50293; Achse und Grenzen (refl 0.70-0.85) hat BJ nach Gehör selbst gesetzt (434e6060)",
     "einschraenkung": "BJ, 2026-07-30: „approved aus von dir vorgebauten files mit intransparenter parameterlage aus einem Ordner“. Er hat DATEIEN gehört, die ich ausgesucht hatte, ohne zu sehen, bei welchen Parameterwerten sie standen, und ohne selbst eine Kombination wählen zu können. Das ist kein abgenommenes INSTRUMENT.",
-    "massstab": "Abgenommen ist ein Instrument erst über eine HTML-Abhörseite, auf der die PARAMETERKOMBINATION sichtbar und von BJ wählbar ist — nicht über einen Ordner mit vorgerenderten Dateien. Generatoren: tools/lco_listening_test.py, tools/lco_abx_test.py."
+    "massstab": "Abgenommen ist ein Instrument erst über eine HTML-Abhörseite, auf der die PARAMETERKOMBINATION sichtbar und von BJ wählbar ist — nicht über einen Ordner mit vorgerenderten Dateien. Generator: tools/lco_param_page.py (Kombination frei wählbar, jede Achse an ihren deklarierten Ankern). Daneben: tools/lco_listening_test.py (blinde Wort-Klang-Zuordnung, docs/LCO_TEST_POLICY.md) und tools/lco_abx_test.py."
    },
    "curated": "BJ 2026-07-30: built or rebuilt under CLAUDE.md's Instrument Authoring rules since the 39-entry revert (defd42c9) -- named synthesis method and source written down before the first orchestra line, and A/B'd on disk against the nearest existing entry by ear. This field is the AUTHORISATION record and the only thing that may be called curated in the UI; it carries the reason rather than a bare true, because a boolean in a data file is indistinguishable from a mistake (same convention as `withheld`). Do NOT infer this from measured properties such as `params` or `anchor_code` -- those prove a number reaches the code, never that BJ approved the entry."
   },
@@ -2148,7 +2148,7 @@
    "heard": {
     "status": "offen",
     "hinweis": "kein Beleg für eine Abnahme durch BJ gefunden. NICHT als abgenommen behandeln und nicht aus Herkunft, Commit-Text oder „ear-approved“ in docs/ erschließen — genau das war der Fehler (2026-07-30).",
-    "massstab": "Abgenommen ist ein Instrument erst über eine HTML-Abhörseite, auf der die PARAMETERKOMBINATION sichtbar und von BJ wählbar ist — nicht über einen Ordner mit vorgerenderten Dateien. Generatoren: tools/lco_listening_test.py, tools/lco_abx_test.py."
+    "massstab": "Abgenommen ist ein Instrument erst über eine HTML-Abhörseite, auf der die PARAMETERKOMBINATION sichtbar und von BJ wählbar ist — nicht über einen Ordner mit vorgerenderten Dateien. Generator: tools/lco_param_page.py (Kombination frei wählbar, jede Achse an ihren deklarierten Ankern). Daneben: tools/lco_listening_test.py (blinde Wort-Klang-Zuordnung, docs/LCO_TEST_POLICY.md) und tools/lco_abx_test.py."
    }
   },
   {
@@ -2324,7 +2324,7 @@
    "heard": {
     "status": "offen",
     "hinweis": "kein Beleg für eine Abnahme durch BJ gefunden. NICHT als abgenommen behandeln und nicht aus Herkunft, Commit-Text oder „ear-approved“ in docs/ erschließen — genau das war der Fehler (2026-07-30).",
-    "massstab": "Abgenommen ist ein Instrument erst über eine HTML-Abhörseite, auf der die PARAMETERKOMBINATION sichtbar und von BJ wählbar ist — nicht über einen Ordner mit vorgerenderten Dateien. Generatoren: tools/lco_listening_test.py, tools/lco_abx_test.py."
+    "massstab": "Abgenommen ist ein Instrument erst über eine HTML-Abhörseite, auf der die PARAMETERKOMBINATION sichtbar und von BJ wählbar ist — nicht über einen Ordner mit vorgerenderten Dateien. Generator: tools/lco_param_page.py (Kombination frei wählbar, jede Achse an ihren deklarierten Ankern). Daneben: tools/lco_listening_test.py (blinde Wort-Klang-Zuordnung, docs/LCO_TEST_POLICY.md) und tools/lco_abx_test.py."
    },
    "curated": "BJ 2026-07-30: built or rebuilt under CLAUDE.md's Instrument Authoring rules since the 39-entry revert (defd42c9) -- named synthesis method and source written down before the first orchestra line, and A/B'd on disk against the nearest existing entry by ear. This field is the AUTHORISATION record and the only thing that may be called curated in the UI; it carries the reason rather than a bare true, because a boolean in a data file is indistinguishable from a mistake (same convention as `withheld`). Do NOT infer this from measured properties such as `params` or `anchor_code` -- those prove a number reaches the code, never that BJ approved the entry."
   },
@@ -2370,7 +2370,7 @@
    "heard": {
     "status": "offen",
     "hinweis": "kein Beleg für eine Abnahme durch BJ gefunden. NICHT als abgenommen behandeln und nicht aus Herkunft, Commit-Text oder „ear-approved“ in docs/ erschließen — genau das war der Fehler (2026-07-30).",
-    "massstab": "Abgenommen ist ein Instrument erst über eine HTML-Abhörseite, auf der die PARAMETERKOMBINATION sichtbar und von BJ wählbar ist — nicht über einen Ordner mit vorgerenderten Dateien. Generatoren: tools/lco_listening_test.py, tools/lco_abx_test.py."
+    "massstab": "Abgenommen ist ein Instrument erst über eine HTML-Abhörseite, auf der die PARAMETERKOMBINATION sichtbar und von BJ wählbar ist — nicht über einen Ordner mit vorgerenderten Dateien. Generator: tools/lco_param_page.py (Kombination frei wählbar, jede Achse an ihren deklarierten Ankern). Daneben: tools/lco_listening_test.py (blinde Wort-Klang-Zuordnung, docs/LCO_TEST_POLICY.md) und tools/lco_abx_test.py."
    }
   },
   {
@@ -2448,7 +2448,7 @@
    "heard": {
     "status": "offen",
     "hinweis": "kein Beleg für eine Abnahme durch BJ gefunden. NICHT als abgenommen behandeln und nicht aus Herkunft, Commit-Text oder „ear-approved“ in docs/ erschließen — genau das war der Fehler (2026-07-30).",
-    "massstab": "Abgenommen ist ein Instrument erst über eine HTML-Abhörseite, auf der die PARAMETERKOMBINATION sichtbar und von BJ wählbar ist — nicht über einen Ordner mit vorgerenderten Dateien. Generatoren: tools/lco_listening_test.py, tools/lco_abx_test.py."
+    "massstab": "Abgenommen ist ein Instrument erst über eine HTML-Abhörseite, auf der die PARAMETERKOMBINATION sichtbar und von BJ wählbar ist — nicht über einen Ordner mit vorgerenderten Dateien. Generator: tools/lco_param_page.py (Kombination frei wählbar, jede Achse an ihren deklarierten Ankern). Daneben: tools/lco_listening_test.py (blinde Wort-Klang-Zuordnung, docs/LCO_TEST_POLICY.md) und tools/lco_abx_test.py."
    }
   },
   {
@@ -2491,7 +2491,7 @@
    "heard": {
     "status": "offen",
     "hinweis": "kein Beleg für eine Abnahme durch BJ gefunden. NICHT als abgenommen behandeln und nicht aus Herkunft, Commit-Text oder „ear-approved“ in docs/ erschließen — genau das war der Fehler (2026-07-30).",
-    "massstab": "Abgenommen ist ein Instrument erst über eine HTML-Abhörseite, auf der die PARAMETERKOMBINATION sichtbar und von BJ wählbar ist — nicht über einen Ordner mit vorgerenderten Dateien. Generatoren: tools/lco_listening_test.py, tools/lco_abx_test.py."
+    "massstab": "Abgenommen ist ein Instrument erst über eine HTML-Abhörseite, auf der die PARAMETERKOMBINATION sichtbar und von BJ wählbar ist — nicht über einen Ordner mit vorgerenderten Dateien. Generator: tools/lco_param_page.py (Kombination frei wählbar, jede Achse an ihren deklarierten Ankern). Daneben: tools/lco_listening_test.py (blinde Wort-Klang-Zuordnung, docs/LCO_TEST_POLICY.md) und tools/lco_abx_test.py."
    }
   },
   {
@@ -2537,7 +2537,7 @@
    "heard": {
     "status": "offen",
     "hinweis": "kein Beleg für eine Abnahme durch BJ gefunden. NICHT als abgenommen behandeln und nicht aus Herkunft, Commit-Text oder „ear-approved“ in docs/ erschließen — genau das war der Fehler (2026-07-30).",
-    "massstab": "Abgenommen ist ein Instrument erst über eine HTML-Abhörseite, auf der die PARAMETERKOMBINATION sichtbar und von BJ wählbar ist — nicht über einen Ordner mit vorgerenderten Dateien. Generatoren: tools/lco_listening_test.py, tools/lco_abx_test.py."
+    "massstab": "Abgenommen ist ein Instrument erst über eine HTML-Abhörseite, auf der die PARAMETERKOMBINATION sichtbar und von BJ wählbar ist — nicht über einen Ordner mit vorgerenderten Dateien. Generator: tools/lco_param_page.py (Kombination frei wählbar, jede Achse an ihren deklarierten Ankern). Daneben: tools/lco_listening_test.py (blinde Wort-Klang-Zuordnung, docs/LCO_TEST_POLICY.md) und tools/lco_abx_test.py."
    }
   },
   {
@@ -2586,7 +2586,7 @@
    "heard": {
     "status": "offen",
     "hinweis": "kein Beleg für eine Abnahme durch BJ gefunden. NICHT als abgenommen behandeln und nicht aus Herkunft, Commit-Text oder „ear-approved“ in docs/ erschließen — genau das war der Fehler (2026-07-30).",
-    "massstab": "Abgenommen ist ein Instrument erst über eine HTML-Abhörseite, auf der die PARAMETERKOMBINATION sichtbar und von BJ wählbar ist — nicht über einen Ordner mit vorgerenderten Dateien. Generatoren: tools/lco_listening_test.py, tools/lco_abx_test.py."
+    "massstab": "Abgenommen ist ein Instrument erst über eine HTML-Abhörseite, auf der die PARAMETERKOMBINATION sichtbar und von BJ wählbar ist — nicht über einen Ordner mit vorgerenderten Dateien. Generator: tools/lco_param_page.py (Kombination frei wählbar, jede Achse an ihren deklarierten Ankern). Daneben: tools/lco_listening_test.py (blinde Wort-Klang-Zuordnung, docs/LCO_TEST_POLICY.md) und tools/lco_abx_test.py."
    }
   },
   {
@@ -2791,7 +2791,7 @@
    "heard": {
     "status": "offen",
     "hinweis": "kein Beleg für eine Abnahme durch BJ gefunden. NICHT als abgenommen behandeln und nicht aus Herkunft, Commit-Text oder „ear-approved“ in docs/ erschließen — genau das war der Fehler (2026-07-30).",
-    "massstab": "Abgenommen ist ein Instrument erst über eine HTML-Abhörseite, auf der die PARAMETERKOMBINATION sichtbar und von BJ wählbar ist — nicht über einen Ordner mit vorgerenderten Dateien. Generatoren: tools/lco_listening_test.py, tools/lco_abx_test.py."
+    "massstab": "Abgenommen ist ein Instrument erst über eine HTML-Abhörseite, auf der die PARAMETERKOMBINATION sichtbar und von BJ wählbar ist — nicht über einen Ordner mit vorgerenderten Dateien. Generator: tools/lco_param_page.py (Kombination frei wählbar, jede Achse an ihren deklarierten Ankern). Daneben: tools/lco_listening_test.py (blinde Wort-Klang-Zuordnung, docs/LCO_TEST_POLICY.md) und tools/lco_abx_test.py."
    },
    "curated": "BJ 2026-07-30: built or rebuilt under CLAUDE.md's Instrument Authoring rules since the 39-entry revert (defd42c9) -- named synthesis method and source written down before the first orchestra line, and A/B'd on disk against the nearest existing entry by ear. This field is the AUTHORISATION record and the only thing that may be called curated in the UI; it carries the reason rather than a bare true, because a boolean in a data file is indistinguishable from a mistake (same convention as `withheld`). Do NOT infer this from measured properties such as `params` or `anchor_code` -- those prove a number reaches the code, never that BJ approved the entry."
   },
@@ -2850,7 +2850,7 @@
     "status": "nur einzelne Dateien gehört",
     "beleg": "7ce2ca0f: „Two bodies BJ heard and accepted“",
     "einschraenkung": "BJ, 2026-07-30: „approved aus von dir vorgebauten files mit intransparenter parameterlage aus einem Ordner“. Er hat DATEIEN gehört, die ich ausgesucht hatte, ohne zu sehen, bei welchen Parameterwerten sie standen, und ohne selbst eine Kombination wählen zu können. Das ist kein abgenommenes INSTRUMENT.",
-    "massstab": "Abgenommen ist ein Instrument erst über eine HTML-Abhörseite, auf der die PARAMETERKOMBINATION sichtbar und von BJ wählbar ist — nicht über einen Ordner mit vorgerenderten Dateien. Generatoren: tools/lco_listening_test.py, tools/lco_abx_test.py."
+    "massstab": "Abgenommen ist ein Instrument erst über eine HTML-Abhörseite, auf der die PARAMETERKOMBINATION sichtbar und von BJ wählbar ist — nicht über einen Ordner mit vorgerenderten Dateien. Generator: tools/lco_param_page.py (Kombination frei wählbar, jede Achse an ihren deklarierten Ankern). Daneben: tools/lco_listening_test.py (blinde Wort-Klang-Zuordnung, docs/LCO_TEST_POLICY.md) und tools/lco_abx_test.py."
    },
    "curated": "BJ 2026-07-30: built or rebuilt under CLAUDE.md's Instrument Authoring rules since the 39-entry revert (defd42c9) -- named synthesis method and source written down before the first orchestra line, and A/B'd on disk against the nearest existing entry by ear. This field is the AUTHORISATION record and the only thing that may be called curated in the UI; it carries the reason rather than a bare true, because a boolean in a data file is indistinguishable from a mistake (same convention as `withheld`). Do NOT infer this from measured properties such as `params` or `anchor_code` -- those prove a number reaches the code, never that BJ approved the entry."
   },
@@ -2939,7 +2939,7 @@
     "status": "nur einzelne Dateien gehört",
     "beleg": "7ce2ca0f: „Two bodies BJ heard and accepted“",
     "einschraenkung": "BJ, 2026-07-30: „approved aus von dir vorgebauten files mit intransparenter parameterlage aus einem Ordner“. Er hat DATEIEN gehört, die ich ausgesucht hatte, ohne zu sehen, bei welchen Parameterwerten sie standen, und ohne selbst eine Kombination wählen zu können. Das ist kein abgenommenes INSTRUMENT.",
-    "massstab": "Abgenommen ist ein Instrument erst über eine HTML-Abhörseite, auf der die PARAMETERKOMBINATION sichtbar und von BJ wählbar ist — nicht über einen Ordner mit vorgerenderten Dateien. Generatoren: tools/lco_listening_test.py, tools/lco_abx_test.py."
+    "massstab": "Abgenommen ist ein Instrument erst über eine HTML-Abhörseite, auf der die PARAMETERKOMBINATION sichtbar und von BJ wählbar ist — nicht über einen Ordner mit vorgerenderten Dateien. Generator: tools/lco_param_page.py (Kombination frei wählbar, jede Achse an ihren deklarierten Ankern). Daneben: tools/lco_listening_test.py (blinde Wort-Klang-Zuordnung, docs/LCO_TEST_POLICY.md) und tools/lco_abx_test.py."
    },
    "curated": "BJ 2026-07-30: built or rebuilt under CLAUDE.md's Instrument Authoring rules since the 39-entry revert (defd42c9) -- named synthesis method and source written down before the first orchestra line, and A/B'd on disk against the nearest existing entry by ear. This field is the AUTHORISATION record and the only thing that may be called curated in the UI; it carries the reason rather than a bare true, because a boolean in a data file is indistinguishable from a mistake (same convention as `withheld`). Do NOT infer this from measured properties such as `params` or `anchor_code` -- those prove a number reaches the code, never that BJ approved the entry."
   },
@@ -3123,7 +3123,7 @@
    "heard": {
     "status": "offen",
     "hinweis": "kein Beleg für eine Abnahme durch BJ gefunden. NICHT als abgenommen behandeln und nicht aus Herkunft, Commit-Text oder „ear-approved“ in docs/ erschließen — genau das war der Fehler (2026-07-30).",
-    "massstab": "Abgenommen ist ein Instrument erst über eine HTML-Abhörseite, auf der die PARAMETERKOMBINATION sichtbar und von BJ wählbar ist — nicht über einen Ordner mit vorgerenderten Dateien. Generatoren: tools/lco_listening_test.py, tools/lco_abx_test.py."
+    "massstab": "Abgenommen ist ein Instrument erst über eine HTML-Abhörseite, auf der die PARAMETERKOMBINATION sichtbar und von BJ wählbar ist — nicht über einen Ordner mit vorgerenderten Dateien. Generator: tools/lco_param_page.py (Kombination frei wählbar, jede Achse an ihren deklarierten Ankern). Daneben: tools/lco_listening_test.py (blinde Wort-Klang-Zuordnung, docs/LCO_TEST_POLICY.md) und tools/lco_abx_test.py."
    },
    "curated": "BJ 2026-07-30: built or rebuilt under CLAUDE.md's Instrument Authoring rules since the 39-entry revert (defd42c9) -- named synthesis method and source written down before the first orchestra line, and A/B'd on disk against the nearest existing entry by ear. This field is the AUTHORISATION record and the only thing that may be called curated in the UI; it carries the reason rather than a bare true, because a boolean in a data file is indistinguishable from a mistake (same convention as `withheld`). Do NOT infer this from measured properties such as `params` or `anchor_code` -- those prove a number reaches the code, never that BJ approved the entry."
   }
