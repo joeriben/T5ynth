@@ -277,23 +277,23 @@
       8.0
      ],
      "default": 1.0,
-     "note": "operator 2's tuning ratio to the carrier -- where the NEAR family sits. Measured at 220 Hz: centroid 1698 -> 1922 -> 2097 -> 3117 Hz at 1.0, 2.0, 3.0, 8.0. It does not have to be kept away from `ratio 3`, only off it: a separation of 0.01 already moves 1130 cents through the sustain, while exact coincidence makes the two operators one oscillator with nothing to trade (0 to 9 cents). The guard covers only that coincidence.",
+     "note": "operator 2's tuning ratio to the carrier -- where the NEAR family sits. Measured at 220 Hz: centroid 1698 -> 1922 -> 2097 -> 3117 Hz at 1.0, 2.0, 3.0, 8.0. It does not have to be kept away from `ratio 3`, only off it: a separation of 0.01 already moves 1130 cents through the sustain, while exact coincidence makes the two operators one oscillator with nothing to trade (0 to 9 cents). The guard covers only that coincidence. A ratio is NOT a transposition: a modulator at 2 puts nothing at the octave and one at 3 puts nothing at the twelfth. It decides WHICH partials survive -- at 2 the even ones cancel, at 3 the multiples of three do. The anchors are named for the set that is left.",
      "anchors": {
-      "unison": {
+      "full series": {
        "value": 1.0,
-       "gloss": "the default: the near family on the body's own grid"
+       "gloss": "the default: every partial present, from the second up. The most ordinary, most pitched setting this entry has"
       },
-      "octave": {
+      "odd only": {
        "value": 2.0,
-       "gloss": "one octave up -- the classic 2-op pairing"
+       "gloss": "the even partials cancel and what is left is 1 3 5 7 9 11 13 ... -- hollow, the colour a square wave has. NOTHING sounds at the octave: a modulator at twice the carrier does not transpose anything, it decides which partials survive"
       },
-      "twelfth": {
+      "thirds gone": {
        "value": 3.0,
-       "gloss": "an octave and a fifth up"
+       "gloss": "every partial except the multiples of three: 1 2 4 5 7 8 10 11 ... -- a gapped series, reedier than the full one"
       },
-      "three octaves": {
+      "odd, far out": {
        "value": 8.0,
-       "gloss": "far up: thin, glassy sidebands, centroid 3117 Hz"
+       "gloss": "odd only again, but the family reaches to the 35th partial instead of the 25th: thin and glassy, the brightest setting"
       }
      }
     },
