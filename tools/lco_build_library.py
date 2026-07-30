@@ -70,6 +70,15 @@ def assemble(lex):
         item = {"key": entry["key"], "why": entry.get("why", ""),
                 "code": entry.get("code", "")}
 
+        # BJ's authorisation, carried through verbatim so the plugin can show the
+        # library WITHOUT re-deriving "curated" from something measurable. It was
+        # derived once, from `params`+`anchor_code`, and that was wrong in both
+        # directions: it admitted seven entries BJ never approved and dropped
+        # `divider_organ`, which he had. Presence of this field is the only
+        # criterion; its value is the reason (see the entry itself).
+        if entry.get("curated"):
+            item["curated"] = entry["curated"]
+
         params = entry.get("params")
         if params:
             item["params"] = {}
