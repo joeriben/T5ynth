@@ -6,6 +6,13 @@
 *.so
 *.dylib
 *.exe
+
+# ...except the vendored Csound payload, which IS source here: the whole point of
+# third_party/csound is that a build machine needs no Csound of its own. The
+# patterns above silently swallowed the macOS payload's 9 support libraries and
+# 24 plugin opcode modules once already (558ea7ce committed CsoundLib64 alone),
+# and CI only noticed at the bundling step, long after linking succeeded.
+!/third_party/csound/**
 CMakeCache.txt
 CMakeFiles/
 cmake_install.cmake
