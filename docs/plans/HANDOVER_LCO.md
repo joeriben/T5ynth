@@ -55,7 +55,7 @@ The 28, and where each came from:
 
 | | |
 |---|---|
-| **23 inherited** — machine-harvested from the parked emitters, ear-approved before that | `additive` `bass_saw` `brass` `cheby` `chiptune` `clarinet` `cymbal` `drum_head` `flute` `fm` `fm_bell` `fm_ep` `harpsichord` `metallic_fm` `organ` `ring_mod` `sine` `string` `strings` `struck_bar` `sub_sine` `sync` `theremin` |
+| **23 inherited** — machine-harvested from the parked emitters. „ear-approved before that“ hiess: im Emitter der geparkten Implementierung, NICHT einzeln von BJ nach der Übernahme. Ihr Status ist `offen`, siehe `heard` im Lexikon | `additive` `bass_saw` `brass` `cheby` `chiptune` `clarinet` `cymbal` `drum_head` `flute` `fm` `fm_bell` `fm_ep` `harpsichord` `metallic_fm` `organ` `ring_mod` `sine` `string` `strings` `struck_bar` `sub_sine` `sync` `theremin` |
 | **1 inherited and rebuilt** since the revert | `supersaw`, rebuilt 2026-07-28 (`0e38d3dd`) on Szabo's published measurements of the JP-8000 |
 | **3 built since the revert**, each under the Instrument Authoring rules | `blown_bottle`, `driven_metal` (2026-07-26), `plucked_wire` (Karplus-Strong / Jaffe-Smith, 2026-07-26/27) |
 | **`analog_osc`**, which absorbed the four bare waveforms | `saw` `square` `pulse` `triangle` are no longer entries: `56597664` folded them in, restoring the decision `85807cb3` had already made — `analog_osc`'s `wave` axis owns them. A prompt saying "sawtooth" reaches `analog_osc` at `wave` 0 / `width` 0.02. |

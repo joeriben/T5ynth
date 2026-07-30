@@ -125,7 +125,18 @@ BJ, 2026-07-19: „nein, eigentlich Kernidee zuerst. d.h. wir beginnen mit 3 unt
 
 Not coverage. Few parameters, musically meaningful, allowed to grow.
 
-### Instrument 1 — analogue oscillator (`analog_osc`) — BUILT, ear-approved
+
+> **Die Abnahme steht im Lexikon, nicht hier (2026-07-30).** Die Überschriften unten
+> trugen „ear-approved“, ohne dass irgendwo stand, WAS BJ gehört und WAS er gesagt hat.
+> Auf Nachfrage: **`drum_head` ist nicht abgenommen** („nicht autorisiert, strikepos habe
+> ich nicht getestet“), **`fm_bell` wurde ihm nie vorgelegt**, bei **`string`** ist der
+> gestrichene Klang „immer noch nur eine Notlösung“ und der gezupfte wurde nie vorgelegt,
+> **`fm3` ist nicht abgenommen** („überhaupt nur ein paar files gehört“). Das Feld `heard`
+> in `backend/dco_lexicon.json` ist ab jetzt der einzige Ort, an dem eine Abnahme steht;
+> es trägt BJs Wortlaut oder den Status `offen`. Aus Herkunft, Commit-Text oder einer
+> Überschrift wird KEINE Abnahme erschlossen — genau das ist hier passiert.
+
+### Instrument 1 — analogue oscillator (`analog_osc`) — BUILT; Abnahme siehe `heard`
 
 BJ's verdict after testing in the built Standalone: „Klanglich schon überzeugend. Übersteuerung ok, Old funktioniert noch nicht."
 
@@ -143,7 +154,7 @@ Measured facts it rests on (Csound 6.18, Homebrew, double, no STK — do not re-
 
 **Open: `age` is not audible, and the cause is in the rates, not in the wiring.** All three instabilities *are* connected (verified by reading the emitter, not assumed): pitch via `kvdr` in the `vco2` frequency expression, shape via `kdty` added to `kpw`, amplitude via `kagw` on the output. But the pitch drift runs at `0.043 Hz` (a 23-second period) and the shape wobble at `0.057 Hz` (17.5 seconds), because both were inherited from the per-voice drift idiom, whose job is to pull *voices apart from each other* over time — not to make one held note waver. On a note of a few seconds they are a static offset, not motion. The third, amplitude, is fast enough at 0.7 Hz but reaches only ±2.4% at `age=0.8` ≈ 0.2 dB, below the threshold for slow amplitude modulation. **The fix is a second, faster instability layer, not more depth on these three.** Deliberately deferred by BJ — „Nicht wichtig; semantiken können wir später kalibrieren, wir sind back to PoC".
 
-### Instrument 2 — FM electric piano (`fm_ep`) — BUILT, ear-approved
+### Instrument 2 — FM electric piano (`fm_ep`) — BUILT; Abnahme siehe `heard`
 
 Four parameters: `ting`, `ring`, `reed`, `strike`. Two body operator pairs crossfaded, plus a high-ratio tine pair, through a `balance` stage. Every ratio is `car=1, mod=R`.
 
@@ -169,7 +180,7 @@ The measured facts (do not re-derive):
 
 **Open:** the odd/even balance does not travel over the note the way `fmrhode`'s does (−0.4 → +19.9 dB). Measured: a decaying inharmonic tine cannot move it at all, because a ratio-14.2 pair places partials *between* harmonics and so adds off-comb energy without adding even-harmonic energy. Reproducing that travel needs the body mix itself to move over the note — legal, since it is spectrum and not amplitude, but untested.
 
-### Instrument 3 — drum head (`drum_head`) — BUILT, ear-approved
+### Instrument 3 — drum head (`drum_head`) — BUILT; **von BJ NICHT abgenommen**
 
 Four parameters: `pitched`, `spot`, `tension`, `damping`. A `mode` filter bank at membrane ratios under continuous noise excitation — the idiom `cymbal`/`glass`/`struck_bar` already use. Because the excitation is continuous, a held note stands and no self-decay problem arises. A membrane's mode ratios are not a harmonic series; that is the instrument's substance, not a detail of it.
 
@@ -296,7 +307,7 @@ Each of these actually happened. They are recorded because prose rules that depe
 ## 9. Open items, ranked
 
 1. `age` inaudible on instrument 1 (deferred by BJ; cause **found**, see §5 — two of its three components run at 0.04–0.06 Hz and are a static offset on a short note; needs a faster layer, not more depth).
-2. **The proof of concept is complete and all three instruments are ear-approved.** What BJ asked for — „wir beginnen mit 3 unterschiedlichen Instrumenten. die parametrisieren wir" — is done, so **what comes next is a direction decision, not a fourth instrument.** Each still carries one open item of its own: `age` on instrument 1 (item 1), the odd/even travel on instrument 2 (§5), nothing outstanding on instrument 3.
+2. **The proof of concept is complete.** ~~all three instruments are ear-approved~~ — zurückgezogen 2026-07-30, siehe den Kasten bei Instrument 1: What BJ asked for — „wir beginnen mit 3 unterschiedlichen Instrumenten. die parametrisieren wir" — is done, so **what comes next is a direction decision, not a fourth instrument.** Each still carries one open item of its own: `age` on instrument 1 (item 1), the odd/even travel on instrument 2 (§5), nothing outstanding on instrument 3.
 3. **The `wave` convention** (§4) — named by BJ and explicitly deferred by him, then named again unprompted the next day on a second instrument. It would turn the self-decay rule of thumb into a choice made in the prompt. The reason it ranks this high despite being deferred: **all three built instruments turn out to be `wave` readings, and the convention's other half does not exist** — so this is not a refinement of what has been built, it is the half that has not been. Its material is §6's rejection list, whose disqualifications are disqualifications for the `wave` reading only. Not to be built without BJ's say-so.
 4. The anchors are **calculated, not heard.** Where "sharp", "hollow", "old" sit on each axis is BJ's ear, not a measurement. This is the curation step and it cannot be delegated to a gate.
 5. ~~Cross-cutting properties into generation (§8).~~ **ANSWERED 2026-07-22**: the model writes adjectives directly into the code it generates, not as a post-mix stage (§8).
