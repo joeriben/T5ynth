@@ -144,8 +144,8 @@ def derived_site(entry, name):
     already implements.
 
     Returns `(line, literal_index, slope, intercept)`, or `None` when the anchor bodies
-    are not a single-site substitution at all — `fm_ep`'s `ting`, `drum_head`'s
-    `pitched` and `string`'s `bow` rewrite whole passages, so they stay fixed variants.
+    are not a single-site substitution at all — `drum_head`'s `pitched` and `string`'s
+    `bow` rewrite whole passages, so they stay fixed variants.
     """
     base = entry["code"].split("\n")
     pts, sites = [], set()
@@ -265,8 +265,8 @@ def variant_bodies(entry, name):
     """The entry's OWN alternative bodies for one axis, out of `anchor_code`.
 
     Used for the axes whose anchor bodies are NOT a single-site substitution and so
-    cannot become a control: `fm_ep`'s `ting`, `drum_head`'s `pitched`, `string`'s
-    `bow`. Those are the entry's own statement of what the word does, so rendering them
+    cannot become a control: `drum_head`'s `pitched`, `string`'s `bow`. Those are the
+    entry's own statement of what the word does, so rendering them
     invents nothing — but they are fixed bodies, so they can only be offered one at a
     time and never crossed.
     """

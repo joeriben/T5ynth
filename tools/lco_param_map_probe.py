@@ -1,6 +1,10 @@
 """Does the real 7B map natural-language / metaphor prompts onto the discrete
-anchor words of the parametrised LCO instruments -- fm_ep (ting/ring/reed/strike)
-and drum_head (pitched/spot/tension/damping) -- and in the right DIRECTION?
+anchor words of the parametrised LCO instruments -- drum_head
+(pitched/spot/tension/damping) -- and in the right DIRECTION?
+
+It probed `fm_ep` (ting/ring/reed/strike) too until 2026-07-31, when BJ struck that
+entry; those seven cases went with it rather than being retargeted, because the
+prompts name an electric piano and no entry claims one.
 
 This is the empirical answer to "how is a 7B supposed to map metaphors onto
 spot=centre etc.": it exercises the ACTUAL wire the plugin drives (mode=csound
@@ -58,14 +62,6 @@ def call(payload):
 
 # (prompt, instrument we HOPE it routes to, difficulty tier, the axis under test)
 CASES = [
-    # ---- fm_ep : ting / ring / reed / strike --------------------------------
-    ("a clangy bright metallic electric piano",        "fm_ep", "direct",  "ting->clangy"),
-    ("a soft mellow rhodes with no metal in it",       "fm_ep", "direct",  "ting->none/soft"),
-    ("a hollow nasal reed piano",                      "fm_ep", "synonym", "reed->reed/hollow"),
-    ("an electric piano struck hard, biting and edgy", "fm_ep", "synonym", "strike->hard"),
-    ("an e-piano like little glass bells",             "fm_ep", "metaphor","ting/reed high"),
-    ("a warm woody rhodes, felt not metal",            "fm_ep", "metaphor","ting->none reed->full"),
-    ("a rhodes that sounds like it is underwater",     "fm_ep", "far",     "soft/dark"),
     # ---- drum_head : pitched / spot / tension / damping ---------------------
     ("a dead muffled tom, no ring",                    "drum_head","direct",  "damping->muffled pitched->tom"),
     ("a bright tight singing timpani",                 "drum_head","direct",  "tension->tight pitched->timpani"),

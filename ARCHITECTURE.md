@@ -471,10 +471,11 @@ Do not extend or rely on it in the meantime.
 
 ### Where the library lives
 
-`backend/dco_lexicon.json` (`lexicon_version` 10) is the curated source: 30
-instruments, 51 adjectives, 17 motions, of which 7 instruments
-(`analog_osc`, `fm`, `fm_bell`, `fm_ep`, `drum_head`, `metallic_fm`,
-`string`) carry measured parameters with named, glossed anchors.
+`backend/dco_lexicon.json` (`lexicon_version` 21) is the curated source: 29
+instruments, 51 adjectives, 17 motions, of which 12 instruments
+(`analog_osc`, `blown_bottle`, `divider_organ`, `driven_metal`, `drum_head`,
+`fm3`, `fm_bell`, `fm_stack`, `metallic_fm`, `plucked_wire`, `string`,
+`supersaw`) carry measured parameters with named, glossed anchors.
 `tools/lco_build_library.py` assembles it into `backend/lco_library.json`,
 which `lco_write.render_library()` renders into the author's prompt;
 `--check` regenerates the library in memory and exits 1 on drift against
