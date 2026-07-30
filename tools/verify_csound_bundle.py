@@ -347,21 +347,45 @@ def check_linux_payload(root):
         fail(f"no akróasys binary in {root} — nothing to check, and a green result "
              "here would be meaningless")
 
+    # The scope is per file, and the difference is not cosmetic. For the files the
+    # bundler COPIED, "outside the artefact" is always a failure: it copied every
+    # non-system dependency recursively, so one still pointing at /usr/lib is a copy
+    # that did not happen or an rpath that did not take. The BINARY is not one of
+    # those files — it is the application, and it legitimately links the
+    # distribution's ALSA, fontconfig, freetype and curl, none of which is bundled or
+    # should be. Holding it to the payload's rule failed CI on all 36 of them, not
+    # one of them Csound's. What it owes is narrower, and is asserted positively
+    # below: the Csound library, and anything else the payload put in libs/, must
+    # come from libs/. Same rule, same reason, as tools/bundle_csound_linux.sh — and
+    # it has to be stated in both places, because either one alone fails the build.
+    payload = {p.name for p in libs.glob("*.so*")}
+
     problems = []
     for f in binaries + sorted(libs.glob("*.so*")) + sorted(opcodes.glob("*.so")):
         rel = f.relative_to(root)
+        is_app = f in binaries
         deps, missing = _resolved_deps(f)
         for name in missing:
             problems.append(f"{rel}: {name} not found")
         for dep in deps:
             if _is_system_lib(Path(dep).name):
                 continue
-            # The whole point: after bundling, every non-system dependency must
-            # come from inside the artefact. One survivor and the LRO is silent on
-            # a machine without Csound — which is the case this exists for, and the
-            # one the build machine cannot notice, because it HAS Csound.
-            if not Path(dep).resolve().is_relative_to(root.resolve()):
-                problems.append(f"{rel}: still resolves {dep}")
+            if Path(dep).resolve().is_relative_to(root.resolve()):
+                continue
+            if is_app and Path(dep).name not in payload:
+                continue          # a system library the bundler never touched
+            problems.append(f"{rel}: still resolves {dep}")
+
+    # ...and the point of the whole exercise, stated as a requirement rather than
+    # left to fall out of the loop above. The negative form could only catch this by
+    # accident; the positive one also covers a SONAME/filename mismatch, where the
+    # binary looks for a name the copy does not carry.
+    for f in binaries:
+        deps, _ = _resolved_deps(f)
+        if not any(Path(d).name == lib.name
+                   and Path(d).resolve().is_relative_to(root.resolve()) for d in deps):
+            problems.append(f"{f.relative_to(root)}: does not resolve {lib.name} "
+                            f"inside {libs}")
     if problems:
         fail("artefact is not self-contained:\n      " + "\n      ".join(problems))
     ok(f"{len(binaries) + len(list(libs.glob('*.so*'))) + len(list(opcodes.glob('*.so')))} "

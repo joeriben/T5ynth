@@ -159,7 +159,12 @@ done
 
 # ...and the point of the whole exercise, stated as a requirement rather than left
 # to fall out of the loop above: the binary reaches Csound through libs/.
-if ! needed_paths "$BIN" | grep -qxF "$LIBS/$csound_soname"; then
+# A here-string and not a pipe: `grep -q` exits on the first match, and with enough
+# buffered output still to come the awk in needed_paths dies on SIGPIPE, which
+# `pipefail` turns into a failed pipeline and `!` turns into a false alarm about a
+# correct artefact. Measured on mawk 1.3.4 / Ubuntu 24.04: it starts firing above
+# ~35 kB of output, i.e. around 950 resolved dependencies against today's 47.
+if ! grep -qxF "$LIBS/$csound_soname" <<<"$(needed_paths "$BIN")"; then
     problems="$problems  $(basename "$BIN"): does not resolve $csound_soname inside $LIBS"$'\n'
 fi
 if [[ -n "$problems" ]]; then
