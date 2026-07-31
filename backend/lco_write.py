@@ -491,9 +491,9 @@ HARD RULES
     <b's OWN lines>                        ; b, built in full
     asigb   = <b's output>
     asig    = asiga * asigb                ; ring modulation: sum and difference only, no carrier
-  or b opening a's filter — `moogladder` takes its cutoff at AUDIO rate, so b can drive it directly:
+  or b opening a's filter — `zdf_ladder` takes its cutoff at AUDIO rate, so b can drive it directly:
     acut    = 200 + 4000 * abs(asigb)
-    asig    moogladder asiga, acut, 0.4
+    asig    zdf_ladder asiga, acut, 4
   Before you drive an argument, check its RATE in the opcode's signature: `foscili`'s FM index is k-rate, so an audio signal cannot BE an index there — only its ratios are `x`. An `a` where the opcode wants `k` does not compile, and the message names the opcode rather than the rate.
 - Layer 1 must be scaled by `kvol1`, layer 2 by `kvol2`, layer 3 by `kvol3`, and each layer's pitch is `kfreq * koct1` / `koct2` / `koct3`. Those are the player's mix and octave knobs — a layer that ignores them cannot be mixed. With one layer, use `kvol1` and `kfreq * koct1`. In an "a > b" transition the two ends share `kvol1` and `kfreq * koct1` (it is one voice, not two layers).
 

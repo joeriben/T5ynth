@@ -75,9 +75,9 @@ def load_lexicon(path=None):
 # values like "2.5"; a sentence-ending period is stripped like any other
 # punctuation), and German umlauts/ß so the lexicon's native DE surface forms
 # still match. '-' is treated as punctuation (a word boundary), same as the
-# spec's "strip punctuation to word boundaries": "Moog-Bass" must scan as
-# the two independently-meaningful tokens "moog","bass", not survive as one
-# opaque "moog-bass" token. The lexicon carries the corresponding
+# spec's "strip punctuation to word boundaries": "Ladder-Bass" must scan as
+# the two independently-meaningful tokens "ladder","bass", not survive as one
+# opaque "ladder-bass" token. The lexicon carries the corresponding
 # space-separated surface forms ("8 bit", "2 op fm", ...) for the handful of
 # genuinely-compound technique names this affects.
 #
