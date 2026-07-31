@@ -17,6 +17,7 @@
 #include "dsp/ConvolutionReverb.h"
 #include "dsp/AlgorithmicReverb.h"
 #include "dsp/Limiter.h"
+#include "dsp/AmpEffects.h"
 #include "sequencer/StepSequencer.h"
 #include "sequencer/GenerativeSequencer.h"
 #include "sequencer/Arpeggiator.h"
@@ -745,6 +746,10 @@ private:
     LFO lfo3;
     DriftLFO driftLfo;
     T5ynthFilter postFilter;
+    T5ynthDistortion ampDistortion;   // the amplifier chain, ahead of delay/reverb
+    T5ynthChorus     ampChorus;
+    T5ynthPhaser     ampPhaser;
+    T5ynthTremolo    ampTremolo;
     T5ynthDelayLine delay;
     ConvolutionReverb reverb;
     AlgorithmicReverb algoReverb;

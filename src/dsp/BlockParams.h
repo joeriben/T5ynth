@@ -238,6 +238,21 @@ namespace PID {
     static constexpr const char* delayFeedback    = "delay_feedback";
     static constexpr const char* delayMix         = "delay_mix";
     static constexpr const char* delayDamp        = "delay_damp";
+    // The amplifier chain (src/dsp/AmpEffects.h), added 2026-07-31. Every one of
+    // these defaults to OFF -- 0 dB of drive, 0 depth, 0 mix -- because adding a
+    // parameter to a shipping synth may not change a single existing preset.
+    static constexpr const char* fxDistDrive      = "fx_dist_drive";
+    static constexpr const char* fxDistMix        = "fx_dist_mix";
+    static constexpr const char* fxTremRate       = "fx_trem_rate";
+    static constexpr const char* fxTremDepth      = "fx_trem_depth";
+    static constexpr const char* fxTremStereo     = "fx_trem_stereo";
+    static constexpr const char* fxChorusRate     = "fx_chorus_rate";
+    static constexpr const char* fxChorusDepth    = "fx_chorus_depth";
+    static constexpr const char* fxChorusMix      = "fx_chorus_mix";
+    static constexpr const char* fxPhaserRate     = "fx_phaser_rate";
+    static constexpr const char* fxPhaserDepth    = "fx_phaser_depth";
+    static constexpr const char* fxPhaserFeedback = "fx_phaser_feedback";
+    static constexpr const char* fxPhaserMix      = "fx_phaser_mix";
     static constexpr const char* reverbType       = "reverb_type";
     static constexpr const char* reverbMix        = "reverb_mix";
     static constexpr const char* algoRoom         = "algo_room";

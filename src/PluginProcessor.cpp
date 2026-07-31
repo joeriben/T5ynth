@@ -1270,6 +1270,51 @@ juce::AudioProcessorValueTreeState::ParameterLayout T5ynthProcessor::createParam
         juce::ParameterID{PID::delayMix, 1}, "Delay Mix",
         juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.3f));   // -12.0 dB W/D
 
+    // The amplifier chain: distortion -> chorus -> phaser -> tremolo, ahead of
+    // delay and reverb (src/dsp/AmpEffects.h). BJ, 2026-07-31, asked for these
+    // "ggf noch ohne UI", so they are declared here and reachable through the
+    // author shelf and presets, with no control surface yet.
+    //
+    // EVERY DEFAULT IS OFF. Adding parameters to a shipping synth may not change
+    // one existing preset, and an APVTS default is what every preset written
+    // before today will load. 0 dB of drive, 0 depth, 0 mix.
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{PID::fxDistDrive, 1}, "Dist Drive",
+        juce::NormalisableRange<float>(0.0f, 36.0f, 0.1f), 0.0f));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{PID::fxDistMix, 1}, "Dist Mix",
+        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.0f));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{PID::fxTremRate, 1}, "Trem Rate",
+        juce::NormalisableRange<float>(0.05f, 20.0f, 0.01f, 0.4f), 5.5f));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{PID::fxTremDepth, 1}, "Trem Amt",
+        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.0f));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{PID::fxTremStereo, 1}, "Trem Stereo",
+        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.0f));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{PID::fxChorusRate, 1}, "Chorus Rate",
+        juce::NormalisableRange<float>(0.05f, 10.0f, 0.01f, 0.5f), 0.8f));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{PID::fxChorusDepth, 1}, "Chorus Amt",
+        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.35f));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{PID::fxChorusMix, 1}, "Chorus Mix",
+        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.0f));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{PID::fxPhaserRate, 1}, "Phaser Rate",
+        juce::NormalisableRange<float>(0.02f, 10.0f, 0.01f, 0.5f), 0.4f));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{PID::fxPhaserDepth, 1}, "Phaser Amt",
+        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.5f));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{PID::fxPhaserFeedback, 1}, "Phaser Feedback",
+        juce::NormalisableRange<float>(-0.95f, 0.95f, 0.01f), 0.0f));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{PID::fxPhaserMix, 1}, "Phaser Mix",
+        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.0f));
+
     // Reverb
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{PID::reverbMix, 1}, "Reverb Mix",
@@ -2126,6 +2171,10 @@ void T5ynthProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
     reverb.loadImpulseResponse(BinaryData::emt_140_plate_medium_wav,
                                static_cast<size_t>(BinaryData::emt_140_plate_medium_wavSize));
     lastReverbIr = 1; // 0=Bright, 1=Medium, 2=Dark
+    ampDistortion.prepare(sampleRate, samplesPerBlock);
+    ampChorus.prepare(sampleRate, samplesPerBlock);
+    ampPhaser.prepare(sampleRate, samplesPerBlock);
+    ampTremolo.prepare(sampleRate, samplesPerBlock);
     limiter.prepare(sampleRate, samplesPerBlock);
     // Pre-size the internal note-event buffer so the audio thread never grows it
     // (a push_back reallocation would be a heap alloc on the audio thread). Worst
@@ -5014,6 +5063,40 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
             dest.addFrom(c, 0, oneShotBuffer, c, 0, numSamples);
     };
 
+    // ── The amplifier chain: distortion → chorus → phaser → tremolo ────────
+    // Ahead of delay and reverb, which is the order an instrument goes through an
+    // amp and its pedals: the dirt is on the note, the modulation is on the dirty
+    // note, and the room is around all of it. It runs on the voice sum only —
+    // sequencer one-shots join below, the same place they already skip the delay.
+    //
+    // The setters are NOT behind the gate — they run every block, and two of them
+    // cost more than a comparison (`setDrive` is a std::pow, the widget setters
+    // call juce::dsp::Chorus/Phaser::update()). Measured at APVTS defaults: 54.9
+    // ns per block, which at 512/48k is 0.0005% of one core. The four
+    // `processBlock` calls below are the ones that matter and they DO gate
+    // themselves. Idle CPU is this project's number one historical class of bug
+    // (docs/PERFORMANCE_GUIDE.md), and four always-on effects behind the voice sum
+    // would be four new per-block costs on a synth playing nothing.
+    {
+        ampDistortion.setDrive(paramCache.fxDistDrive->load());
+        ampDistortion.setMix(paramCache.fxDistMix->load());
+        ampChorus.setRate(paramCache.fxChorusRate->load());
+        ampChorus.setDepth(paramCache.fxChorusDepth->load());
+        ampChorus.setMix(paramCache.fxChorusMix->load());
+        ampPhaser.setRate(paramCache.fxPhaserRate->load());
+        ampPhaser.setDepth(paramCache.fxPhaserDepth->load());
+        ampPhaser.setFeedback(paramCache.fxPhaserFeedback->load());
+        ampPhaser.setMix(paramCache.fxPhaserMix->load());
+        ampTremolo.setRate(paramCache.fxTremRate->load());
+        ampTremolo.setDepth(paramCache.fxTremDepth->load());
+        ampTremolo.setStereo(paramCache.fxTremStereo->load());
+
+        ampDistortion.processBlock(buffer);
+        ampChorus.processBlock(buffer);
+        ampPhaser.processBlock(buffer);
+        ampTremolo.processBlock(buffer);
+    }
+
     // ── Effects (parallel send-bus: dry + delay + reverb → limiter) ───────
     int delayType = static_cast<int>(paramCache.delayType->load());
     bool delayEnabled = delayType > 0;
@@ -6737,6 +6820,18 @@ static const std::vector<const char*>& authorParamShelf()
             PID::delayType, PID::delayTime, PID::delayFeedback, PID::delayMix,
             PID::delayDamp, PID::delayClockMode, PID::delayClockDivision,
             PID::reverbType, PID::reverbMix,
+            // The amplifier chain. On the shelf because BJ's answer to where the
+            // wiring belongs was "die Woerter erreichbar machen": a prompt asking
+            // for a Rhodes with tremolo, a phased stage piano or an overdriven
+            // Wurlitzer has to be able to reach these, and this shelf is what the
+            // author is allowed to set. The entry `ep_fm3` carries no effect of
+            // its own -- a suitcase has ONE tremolo for the instrument, not one
+            // per key -- so this is the only place those words can land.
+            PID::fxDistDrive, PID::fxDistMix,
+            PID::fxTremRate, PID::fxTremDepth, PID::fxTremStereo,
+            PID::fxChorusRate, PID::fxChorusDepth, PID::fxChorusMix,
+            PID::fxPhaserRate, PID::fxPhaserDepth, PID::fxPhaserFeedback,
+            PID::fxPhaserMix,
         };
         for (int i = 0; i < kNumEnvPIDs; ++i)
             for (const char* id : kEnvPIDs[i].all())
@@ -7243,6 +7338,18 @@ juce::String T5ynthProcessor::exportJsonPreset() const
                     clockModeToString(static_cast<int>(get(PID::delayClockMode))));
     fx->setProperty("delayClockDivision",
                     clockDivisionToString(static_cast<int>(get(PID::delayClockDivision))));
+    fx->setProperty("distDrive", get(PID::fxDistDrive));
+    fx->setProperty("distMix", get(PID::fxDistMix));
+    fx->setProperty("tremRate", get(PID::fxTremRate));
+    fx->setProperty("tremAmt", get(PID::fxTremDepth));
+    fx->setProperty("tremStereo", get(PID::fxTremStereo));
+    fx->setProperty("chorusRate", get(PID::fxChorusRate));
+    fx->setProperty("chorusAmt", get(PID::fxChorusDepth));
+    fx->setProperty("chorusMix", get(PID::fxChorusMix));
+    fx->setProperty("phaserRate", get(PID::fxPhaserRate));
+    fx->setProperty("phaserAmt", get(PID::fxPhaserDepth));
+    fx->setProperty("phaserFeedback", get(PID::fxPhaserFeedback));
+    fx->setProperty("phaserMix", get(PID::fxPhaserMix));
     fx->setProperty("reverbType", choiceToKey(static_cast<int>(get(PID::reverbType)), ReverbType::kEntries));
     fx->setProperty("reverbMix", get(PID::reverbMix));
     fx->setProperty("algoRoom", get(PID::algoRoom));
@@ -7907,6 +8014,31 @@ bool T5ynthProcessor::importJsonPreset(const juce::String& json)
         setParam(parameters, PID::algoWidth, static_cast<float>(fx->getProperty("algoWidth")));
         setParam(parameters, PID::limiterThresh, static_cast<float>(fx->getProperty("limiterThreshold")));
         setParam(parameters, PID::limiterRelease, static_cast<float>(fx->getProperty("limiterRelease")));
+
+        // The amplifier chain. `importJsonPreset` deliberately does not reset the
+        // APVTS first, so a key that is not read here does not fall back to its
+        // default — it KEEPS whatever the previous patch left, and the chain
+        // becomes a sticky global that survives every load. Every one of these
+        // twelve therefore falls back explicitly, and to the same value the
+        // parameter layout declares, so a file written before today loads the
+        // chain OFF rather than inheriting it.
+        const auto fxOr = [&fx](const char* key, float fallback)
+        {
+            return fx->hasProperty(key) ? static_cast<float>(fx->getProperty(key))
+                                        : fallback;
+        };
+        setParam(parameters, PID::fxDistDrive,      fxOr("distDrive", 0.0f));
+        setParam(parameters, PID::fxDistMix,        fxOr("distMix", 0.0f));
+        setParam(parameters, PID::fxTremRate,       fxOr("tremRate", 5.5f));
+        setParam(parameters, PID::fxTremDepth,      fxOr("tremAmt", 0.0f));
+        setParam(parameters, PID::fxTremStereo,     fxOr("tremStereo", 0.0f));
+        setParam(parameters, PID::fxChorusRate,     fxOr("chorusRate", 0.8f));
+        setParam(parameters, PID::fxChorusDepth,    fxOr("chorusAmt", 0.35f));
+        setParam(parameters, PID::fxChorusMix,      fxOr("chorusMix", 0.0f));
+        setParam(parameters, PID::fxPhaserRate,     fxOr("phaserRate", 0.4f));
+        setParam(parameters, PID::fxPhaserDepth,    fxOr("phaserAmt", 0.5f));
+        setParam(parameters, PID::fxPhaserFeedback, fxOr("phaserFeedback", 0.0f));
+        setParam(parameters, PID::fxPhaserMix,      fxOr("phaserMix", 0.0f));
     }
 
     // ── Filter — CRITICAL: cutoff is normalized 0-1, convert to Hz ──

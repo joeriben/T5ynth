@@ -432,6 +432,7 @@ target_sources(T5ynth PRIVATE
     src/dsp/AlgorithmicReverb.cpp
     src/dsp/EarlyReflections.cpp
     src/dsp/Limiter.cpp
+    src/dsp/AmpEffects.cpp
     src/dsp/SamplePlayer.cpp
     src/dsp/FreezeTextureEngine.cpp
     src/dsp/SynthVoice.cpp
