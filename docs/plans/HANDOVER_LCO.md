@@ -318,6 +318,22 @@ Renumbered 2026-07-29. The old list had grown three duplicate numbering runs and
    - The same layer also carries **`glassy`'s clang code**, verbatim but for the ratio — `armc1 oscili 1, kfreq * 2.37` · `asig1 = asig1 * 0.725 + arng1 * 0.275`. A ring modulator at a non-integer ratio breeds inharmonic sidebands, so the body that is supposed to be velvet has a clang in it *and* a lowpass over the top.
    - **Hypothesis, not established:** the same misplaced inharmonic clang may be what makes item 1 dissonant. The body for that one has not been captured, so this is a thing to check, not a cause to report.
 
+   **MEASURED 2026-07-31 — the cause is not the author, it is the vocabulary.** `named_entries("Deep velvet echoes of shimmering golden chimes")` returns instrument `fm_bell`, adjectives `shimmering`, `deep`, `velvety`, motion `shimmer`. And `velvety`'s shipped code is
+
+   ```
+   albd     tone asig, kfreq * koct1
+   asig     = asig + albd * 0.25
+   asig     tone asig, 2100
+   ```
+
+   while `deep`'s is **the same three lines** at 0.60 and 900 Hz. The prompt therefore applies one lowpass twice. Spectral centroid of `fm_bell` at 440 Hz, at the plugin's rate: bare **1531 Hz** → `velvety` 1292 → `deep` 1038 → the two together **870**, with the band above 4 kHz falling 2.0 % → 0.3 % of the spectrum. `shimmering` stacked on top recovers only to **931 Hz**: a one-pole highpass cannot undo two one-pole lowpasses. So the sound is a bell darkened twice, and the words that were supposed to make it velvet and shimmering are fighting each other over the same control.
+
+   **The class, counted over all 51 sound words by the opcodes they use:** twelve are `tone` alone with different constants — `clean, dark, deep, dull, flat, gentle, mellow, muddy, round, smooth, sparse, velvety` — and five more are `atone` alone — `bright, cold, crisp, piercing, sharp`. A third of the vocabulary is one filter with two numbers, so those words cannot be told apart by construction, only by degree. `velvety`'s own `why` says as much: „a smooth+warm hybrid convention" — a convention, with no source.
+
+   **Why no arrangement of those numbers yields velvet**, from this project's own record (`docs/LCO_TIMBRE_SEMANTICS.md` §4.3): velvet is a TEXTURE word, texture is the substrate the lexicon does not have, and its mechanism is „15–300 Hz envelope fluctuation *inside a critical band*, i.e. partials packed closely enough that the cochlea cannot resolve them" — not brightness. A lowpass moves luminance. The word asks for the other axis.
+
+   **So the repair is a rebuild of the sound words on their real substrates, one word at a time**, each with method and source written before the first orchestra line and BJ's ear at the end. It changes what every existing prompt produces, which is why it is not started here.
+
    This lands on the work BJ is doing in parallel today (`docs/LCO_TIMBRE_SEMANTICS.md`, commits `2ab9ded3` … `517fec57`), whose own finding is that **a sound word is never a filter** and that not one of the 51 words is an oscillator word. Treat that document as the live one; do not edit it or `src/gui/LcoTraceView.h`, `src/gui/PresetManagerPanel.h`, `tools/lco_audition_instrument.py` — all four are BJ's uncommitted working set.
 
 3. **A reed-instrument entry.** BJ, 2026-07-24: „ja, mache einen eintrag für reed-instrumente". Wider open now than when it was written: `free_reed`, `harmonica`, `sax`, `double_reed`, `bagpipe` and `jaw_harp` all went in the revert, so **`clarinet` is the only reed in the library** — and the string "reed organ" appears nowhere in the lexicon, so `organ` does not even carry the word (its `why` is „pipe / drawbar organ — hammond, tonewheel, church organ"). The nuance stands: the author writes a *good* accordion from its own knowledge (BJ: „das accordeon alleine ist überhaupt kein Problem → s. preset → klingt großartig"); what is missing is a curated, measured, ear-approved idiom. The consultation shows the hole from the inside — asked for `accordeon > guitar` it opens `brass`, `cheby`, `clarinet`, `string`. This build ships `wgclar` and `wgbrass`, which is where a reed entry starts.
