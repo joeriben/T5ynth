@@ -27,6 +27,8 @@
 //   dist_drive dist_mix trem_rate trem_amt trem_stereo
 //   chorus_rate chorus_amt chorus_mix phaser_rate phaser_amt phaser_fb phaser_mix
 //   block   (host block size, default 512 — vary it to hear the chunking hold)
+//   rumble  (scales the supply's ring, default 1 = the model; 0 removes it.
+//            NOT a plugin parameter — it exists so the page can A/B that one term)
 //
 // A mono input is widened to stereo first, because two of these four are stereo
 // effects and a suitcase tremolo has nothing to say in mono.
@@ -52,7 +54,7 @@ int main(int argc, char** argv)
         { "trem_rate", 5.5f }, { "trem_amt", 0.0f }, { "trem_stereo", 0.0f },
         { "chorus_rate", 0.8f }, { "chorus_amt", 0.35f }, { "chorus_mix", 0.0f },
         { "phaser_rate", 0.4f }, { "phaser_amt", 0.5f }, { "phaser_fb", 0.0f },
-        { "phaser_mix", 0.0f }, { "block", 512.0f },
+        { "phaser_mix", 0.0f }, { "block", 512.0f }, { "rumble", 1.0f },
     };
     for (int i = 3; i < argc; ++i)
     {
@@ -80,6 +82,7 @@ int main(int argc, char** argv)
     T5ynthDistortion dist; T5ynthChorus chorus; T5ynthPhaser phaser; T5ynthTremolo trem;
     dist.prepare(sr, block); chorus.prepare(sr, block); phaser.prepare(sr, block); trem.prepare(sr, block);
     dist.setDrive(p["dist_drive"]);   dist.setMix(p["dist_mix"]);
+    dist.setRumbleScale(p["rumble"]);
     chorus.setRate(p["chorus_rate"]); chorus.setDepth(p["chorus_amt"]); chorus.setMix(p["chorus_mix"]);
     phaser.setRate(p["phaser_rate"]); phaser.setDepth(p["phaser_amt"]);
     phaser.setFeedback(p["phaser_fb"]); phaser.setMix(p["phaser_mix"]);

@@ -55,6 +55,44 @@ namespace
     constexpr double kLoadAttackSec  = 0.002;
     constexpr double kLoadReleaseSec = 0.150;
     constexpr double kDcBlockHz = 10.0;
+
+    // RUMBLE, and it is the rail that carries it — not a tone added under the
+    // note. BJ defined the word twice, 2026-07-31: „tieffrequente Störung, und
+    // zwar als negativ von Rumble-filtern wie sie in plattenspielern sitzen",
+    // then „Link Wray → Rumble. Oder auch LKW die eien Strasse langfahren und
+    // Gläser klirren lassen aufgrund tieffrequenter Schwingungen." Both name the
+    // same thing: something under the music that shakes what is above it. The
+    // glasses are the audible part; the truck is not.
+    //
+    // The band is BJ's own definition, read off the filter he named it by: a
+    // turntable's rumble is a low-frequency resonance „usually in the 10-30Hz
+    // region" (Lindos Electronics, „Rumble Measurement", the measurement
+    // standards DIN 45539 / IEC 98 / BS4852).
+    //
+    // The mechanism is the amplifier's own, in the same band, and it is the node
+    // this stage already models. A rectifier has a high output impedance, so —
+    // Wikipedia, „Motorboating (electronics)", citing Jones, *Valve Amplifiers*
+    // (2011), Dailey, *Electronics for Guitarists* (2013) and van der Veen,
+    // *Modern High-end Valve Amplifiers* (1999) — „low frequency swings in the
+    // current drawn by output stages can cause voltage swings in the power
+    // supply voltage which feed back to earlier stages", at 1–20 Hz and commonly
+    // below 16 Hz in valve circuits. The filter that feeds the rail is a choke
+    // and a capacitor, i.e. an LC network with its own resonance placed below
+    // the ripple frequency, and a pulsed signal puts a large transient on it.
+    // So: the rail does not only droop, it RINGS, and what kicks it is the
+    // CHANGE in the current drawn, not its level. That is why this can be „in
+    // der Transiente" where the bark could not: a ring is excited by a step and
+    // then dies, while a level follower behind the voices only ever reports how
+    // loud it is now.
+    //
+    // 16 Hz sits inside both bands. Two things follow from the rail wobbling
+    // there, and BJ named both: the clipping thresholds travel with it, so every
+    // partial above gets sidebands at ±16 Hz that decay — the glasses; and the
+    // asymmetric pair leaves a mean under the note that travels with it too, so
+    // there is real energy in the 10–30 Hz band — the truck.
+    constexpr float kRumbleHz = 16.0f;
+    constexpr double kRumbleDecaySec = 0.30;  // to −60 dB, so it is gone within a note
+    constexpr float kRumbleAmt = 0.20f;       // of the rail, at a full-scale attack
 }
 
 // ── distortion ──────────────────────────────────────────────────────────────
@@ -78,7 +116,19 @@ void T5ynthDistortion::prepare(double sampleRate, int samplesPerBlock)
     relCoef_ = static_cast<float>(1.0 - std::exp(-1.0 / (kLoadReleaseSec * osr)));
     ripInc_  = static_cast<float>(kRippleHz / osr);
     dcPole_  = static_cast<float>(1.0 - juce::MathConstants<double>::twoPi * kDcBlockHz / osr);
+    // The supply's LC ring, as a two-pole resonator. `r` is set from the decay
+    // rather than from a Q, because what has to be right is that it is gone
+    // before the note is; the input is scaled by sin(w) so that a surge of unit
+    // AREA rings at unit amplitude whatever the sample rate.
+    {
+        const double w = juce::MathConstants<double>::twoPi * kRumbleHz / osr;
+        const double r = std::pow(10.0, -3.0 / (kRumbleDecaySec * osr));
+        ringA1_ = 2.0 * r * std::cos(w);
+        ringA2_ = -(r * r);
+        ringSin_ = std::sin(w);
+    }
     load_ = 0.0f; ripPhase_ = 0.0f;
+    loadPrev_ = 0.0f; ring1_ = ring2_ = 0.0;
     dcX_[0] = dcX_[1] = dcY_[0] = dcY_[1] = 0.0f;
 
     for (auto* s : { &gain_, &wet_, &dryG_, &engage_ })
@@ -100,6 +150,7 @@ void T5ynthDistortion::reset()
 {
     if (os_) os_->reset();
     load_ = 0.0f; ripPhase_ = 0.0f;
+    loadPrev_ = 0.0f; ring1_ = ring2_ = 0.0;
     dcX_[0] = dcX_[1] = dcY_[0] = dcY_[1] = 0.0f;
     for (auto* s : { &gain_, &wet_, &dryG_ })
         s->setCurrentAndTargetValue(s->getTargetValue());
@@ -118,6 +169,15 @@ void T5ynthDistortion::setMix(float mix)
     mix_ = juce::jlimit(0.0f, 1.0f, mix);
     wet_.setTargetValue(mix_);
     dryG_.setTargetValue(1.0f - mix_);
+}
+
+void T5ynthDistortion::setRumbleScale(float scale)
+{
+    // 2 and not 4: past scale 2.49 the pre-floor rail goes NEGATIVE (−0.214 at
+    // 24 dB, 0.82 % of samples) and those samples are squashed to ±0.035, some
+    // 26 dB under their surroundings. That is an audible 16 Hz gate, and an
+    // audition control that can invent an artefact is worse than no control.
+    ringScale_ = juce::jlimit(0.0f, 2.0f, scale);
 }
 
 void T5ynthDistortion::processBlock(juce::AudioBuffer<float>& buffer)
@@ -141,6 +201,7 @@ void T5ynthDistortion::processBlock(juce::AudioBuffer<float>& buffer)
         {
             os_->reset();
             load_ = 0.0f;
+            loadPrev_ = 0.0f; ring1_ = ring2_ = 0.0;
             dcX_[0] = dcX_[1] = dcY_[0] = dcY_[1] = 0.0f;
             engage_.setCurrentAndTargetValue(0.0f);
             running_ = true;
@@ -219,13 +280,42 @@ void T5ynthDistortion::processBlock(juce::AudioBuffer<float>& buffer)
             // …and it carries the rectifier's ripple, at twice the mains
             // frequency because the supply is full-wave rectified. The
             // intermodulation of that ripple with the note is what players call
-            // ghost notes, and it is only there while the supply is loaded,
-            // which is BJ's „kleiner Übersteuerungs-Rumble in der Transiente".
+            // ghost notes. It is only there while the supply is loaded. It is
+            // NOT the rumble — BJ heard a build that had only this and reported
+            // „kein Rumble", and he was right: 100 Hz is a hum, two octaves
+            // above the band he named.
             const float rip = droop * kRipple
                             * std::sin(juce::MathConstants<float>::twoPi * ripPhase_);
             ripPhase_ += ripInc_;
             if (ripPhase_ >= 1.0f) ripPhase_ -= 1.0f;
-            const float rail = juce::jmax(0.05f, 1.0f - droop + rip);
+
+            // The rumble. What kicks the supply's LC ring is the current SURGE,
+            // so the excitation is the RISE of the load and nothing else: a
+            // sustained note draws a large current without ringing anything,
+            // because a ring answers a change. Over an attack the rises sum to
+            // the height of the attack, which is why a hard-struck note rumbles
+            // and a soft one does not, without a second control saying so.
+            // SIGNED, and that is load-bearing rather than tidy. A rectified
+            // surge is strictly non-negative, so it carries a large DC term, and
+            // a resonator that has to be GONE in 0.30 s cannot reject it: the
+            // decay and the frequency together fix Q at 16·2π·0.30/(3·ln10) =
+            // 2.18 at every sample rate, and at that Q DC passes only 7.2 dB
+            // under the 16 Hz peak. Measured on a sustained tone, the ring then
+            // settled on a constant +0.635 — a rail LIFT with no 16 Hz left in
+            // it, +1.75 dB on the tail at 36 dB of drive — which is both the
+            // opposite of a ring and a second, wrong-signed copy of the droop.
+            // Signed is also the physics: an LC network answers di/dt in both
+            // directions, and the one-way part of the current IS the droop,
+            // already modelled above. The difference telescopes, so its mean over
+            // any window is (load_now − load_then)/N ≈ 0 on a standing tone.
+            const double surge = static_cast<double>(load_ - loadPrev_);
+            loadPrev_ = load_;
+            const double ring = ringA1_ * ring1_ + ringA2_ * ring2_ + surge * ringSin_;
+            ring2_ = ring1_; ring1_ = ring;
+            const float rumble = kRumbleAmt * ringScale_
+                               * static_cast<float>(juce::jlimit(-1.0, 1.0, ring));
+
+            const float rail = juce::jmax(0.05f, 1.0f - droop + rip + rumble);
 
             for (int ch = 0; ch < upCh; ++ch)
             {
