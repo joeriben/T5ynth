@@ -52,12 +52,6 @@ namespace
     // enough to squash the attack and then let the note come back LOUDER than
     // it started (+3.1 dB at 6 s), which is the opposite of sag.
     constexpr float kMaxDroop = 0.45f;
-    // The droop follows the SMOOTHED pre-gain rather than the raw dB the knob
-    // reports, so a drive automation cannot step the rail once per block while
-    // the gain beside it ramps. Linear in the gain and not in dB, because the
-    // current drawn is what droops the rail and that is linear in the signal.
-    // 1/(10^(24/20) − 1): full droop by 24 dB, where the wave is already square.
-    constexpr float kSagPerGain = 1.0f / 14.8489f;
     constexpr double kLoadAttackSec  = 0.002;
     constexpr double kLoadReleaseSec = 0.150;
     constexpr double kDcBlockHz = 10.0;
@@ -214,11 +208,14 @@ void T5ynthDistortion::processBlock(juce::AudioBuffer<float>& buffer)
             // note dies away it comes back and the clipping goes with it. That
             // is why this also answers „hell lang": the bark ends up in the
             // attack rather than standing over the whole note.
-            // How far the amplifier is being driven past what its supply can
-            // hold. Not a second thing the knob does: in the circuit the current
-            // drawn IS the pre-gain, so the droop follows it.
-            const float sagAmt = juce::jlimit(0.0f, 1.0f, (g - 1.0f) * kSagPerGain);
-            const float droop = sagAmt * kMaxDroop * load_ / (1.0f + load_);
+            // The droop follows the LOAD and nothing else. `load_` is already the
+            // envelope of |x·g|, so the drive is in it once — an earlier version
+            // also scaled the droop by the gain, and taking the drive twice bent
+            // the control back on itself: out/in RMS peaked at +6.76 dB by 18 dB
+            // of drive and fell to +4.01 at 36, which is exactly the
+            // quieter-as-you-turn-it-up shape this file rules out, and a knob
+            // driving two model inputs besides.
+            const float droop = kMaxDroop * load_ / (1.0f + load_);
             // …and it carries the rectifier's ripple, at twice the mains
             // frequency because the supply is full-wave rectified. The
             // intermodulation of that ripple with the note is what players call
