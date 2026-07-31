@@ -54,14 +54,24 @@ public:
      *  not a menu (project_lco_llm_authors_csound): the author may use these
      *  or write its own code, and it always sees ALL entries, not just these.
      *
-     *  The criterion is the `curated` field and nothing else. It is written by
-     *  hand into `backend/dco_lexicon.json` for the entries built or rebuilt
-     *  under CLAUDE.md's Instrument Authoring rules, and carried through
-     *  verbatim by tools/lco_build_library.py. Marking one more entry there is
-     *  therefore the ONLY step needed to make it appear here — no code change
-     *  (BJ 2026-07-30: "diese sind automatisch dort einzublenden").
+     *  The criterion is the `curated` field of the library and nothing else,
+     *  and there is ONE way that field comes to exist: tools/lco_build_library
+     *  .py composes it from the lexicon entry's `heard` record — BJ's own
+     *  words, the date, and the page he heard it on — for the entries whose
+     *  `heard.status` is "abgenommen". Recording his approval there is
+     *  therefore the ONLY step needed to make an entry appear here — no code
+     *  change (BJ 2026-07-30: "diese sind automatisch dort einzublenden").
      *
-     *  Never re-derive this from something measurable. Deriving it from
+     *  Do NOT write a `curated` field into the lexicon by hand; the build tool
+     *  rejects one. That was the previous mechanism and it put a second home
+     *  under a verdict that has only one: six entries got a blanket "built
+     *  under the Authoring rules" text — a claim about how they were BUILT —
+     *  while five of their own `heard` records said „nur einzelne Dateien
+     *  gehört … Das ist kein abgenommenes INSTRUMENT", and `singing_bowl`,
+     *  which he had called „verfiziertes instrument", had no such field and so
+     *  never appeared here at all.
+     *
+     *  Never re-derive this from something measurable either. Deriving it from
      *  `params`+`anchor_code` was tried and was wrong in both directions: it
      *  admitted seven entries he had not approved and dropped one he had.
      *

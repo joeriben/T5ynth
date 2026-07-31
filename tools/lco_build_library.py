@@ -46,6 +46,101 @@ sys.path.insert(0, str(REPO / "backend"))
 import lco_write as W  # noqa: E402  (needs the path above)
 
 
+# The closed vocabulary of `heard.status`, and with it the ONE record of whether BJ
+# has taken an entry. The value is whether that status IS an approval.
+#
+# Closed, because free text is what let the verdict drift. "ABGENOMMEN von BJ,
+# 2026-07-31" and "gehört 2026-07-31 ... noch nicht abgenommen" cannot both be read by
+# one rule, and the obvious rule -- does the status say "abgenommen" -- reads "nicht
+# abgenommen" as a yes. Detail belongs in the fields beside it (`hinweis`, `wie`,
+# `beleg`, `einschraenkung`, `massstab`), which every record already has.
+HEARD_STATUS = {
+    "abgenommen": True,                     # BJ heard it and took it
+    "gehört, nicht abgenommen": False,      # heard on a parameter page, no verdict yet
+    "nur einzelne Dateien gehört": False,   # files picked for him, parameters not visible
+    "nicht abgenommen": False,              # presented and not taken
+    "nicht vorgelegt": False,               # never presented
+    "offen": False,                         # no record either way
+}
+
+
+def authorisation(entry):
+    """The library's `curated` string for an entry, or None if BJ has not taken it.
+
+    COMPOSED from `heard` — his own words, the date, and how he heard it — and not
+    read from a second field anyone can write by hand. That is the whole point: a
+    verdict with two homes has a wrong answer in one of them, and it did. `curated`
+    was hand-written, and on 2026-07-30 six entries got one blanket text saying they
+    were "built or rebuilt under CLAUDE.md's Instrument Authoring rules" — which is a
+    claim about how they were BUILT, not a verdict — while their own `heard` said
+    „nur einzelne Dateien gehört … Das ist kein abgenommenes INSTRUMENT" (`driven_metal`,
+    `blown_bottle`, `plucked_wire`) or, in as many words, „NICHT als abgenommen
+    behandeln" (`supersaw`, `divider_organ`). At the same time `singing_bowl`, which BJ
+    had called „verfiziertes instrument", carried no such field and so never reached the
+    panel at all. BJ, 2026-07-31: „singing bowl fehlt, dafür irgend ein phantasiescheiss
+    'driven metal'".
+
+    The rule the field's own text stated is kept and is now enforced rather than
+    trusted: the value carries the REASON and never a bare true, because a boolean in a
+    data file is indistinguishable from a mistake (same convention as `withheld`); and
+    it is never inferred from something measurable such as `params` or `anchor_code` —
+    those prove a number reaches the code, never that BJ approved the entry.
+    """
+    h = entry.get("heard") or {}
+    status = h.get("status")
+    if not (isinstance(status, str) and HEARD_STATUS.get(status)):
+        return None
+    # `bj_wortlaut` is everything he said ABOUT the entry, and only one of those
+    # sentences is usually the verdict: `ep_fm3` carries a judgement of its
+    # predecessor and a build instruction alongside „ok, ep_fm3 funktioniert gut,
+    # hiermit abgenommen." So the quotes are introduced as what he said, not
+    # presented as if each one were the approval. The approval itself is the
+    # status, and the date is beside it.
+    words = h["bj_wortlaut"]
+    said = " | ".join(f"„{w}“" for w in ([words] if isinstance(words, str) else words))
+    out = f"BJ, {h['datum']}: abgenommen. Seine Worte zu diesem Eintrag: {said}"
+    if h.get("wie"):
+        out += f" — gehört {h['wie']}"
+    return out
+
+
+def heard_problems(lex):
+    """Everything that would make an entry's authorisation unreadable or untrue.
+
+    An entry without a `heard` record is a hole, not a "no": the entries are taken one
+    at a time and a new one arrives unheard, so the record has to say so out loud —
+    that is what `offen` is for. A status outside the vocabulary above is caught here
+    rather than silently read as "not approved", which is how a taken entry would
+    disappear from the panel without anyone noticing. And a hand-written `curated` left
+    in the lexicon is an error and not an override: it is the second home this function
+    exists to remove.
+    """
+    bad = []
+    for e in lex["techniques"]:
+        h = e.get("heard")
+        if not isinstance(h, dict):
+            bad.append(f"{e['key']}: no `heard` record. Every entry needs one — use "
+                       f'"status": "offen" for an entry nobody has heard yet.')
+            continue
+        # isinstance first: a status written as a list is unhashable, and the
+        # validator is the one thing here that must not fall over on bad input.
+        status = h.get("status")
+        if not (isinstance(status, str) and status in HEARD_STATUS):
+            bad.append(f"{e['key']}: heard.status {status!r} is not one of "
+                       + ", ".join(repr(s) for s in HEARD_STATUS)
+                       + ". Detail belongs in `hinweis` / `wie`, not in the status.")
+        elif HEARD_STATUS[status]:
+            if not (h.get("datum") and h.get("bj_wortlaut")):
+                bad.append(f"{e['key']}: heard.status says BJ took it, but the record "
+                           f"has no `datum` and/or no `bj_wortlaut`. An approval "
+                           f"without his words and a date is not evidence of one.")
+        if "curated" in e:
+            bad.append(f"{e['key']}: has a hand-written `curated` field. The record is "
+                       f"`heard`; the library's `curated` is composed from it (see "
+                       f"authorisation()). Put his words in `heard.bj_wortlaut`.")
+    return bad
+
+
 def assemble(lex):
     instruments, withheld = [], []
     for entry in lex["techniques"]:
@@ -86,14 +181,14 @@ def assemble(lex):
         item["name"] = (entry.get("display_name")
                         or (forms[0] if forms else entry["key"]))
 
-        # BJ's authorisation, carried through verbatim so the plugin can show the
-        # library WITHOUT re-deriving "curated" from something measurable. It was
-        # derived once, from `params`+`anchor_code`, and that was wrong in both
-        # directions: it admitted seven entries BJ never approved and dropped
-        # `divider_organ`, which he had. Presence of this field is the only
-        # criterion; its value is the reason (see the entry itself).
-        if entry.get("curated"):
-            item["curated"] = entry["curated"]
+        # BJ's authorisation, composed from the entry's `heard` record so the plugin
+        # can show it without a second, hand-written field that can contradict the
+        # verdict — and one did, in both directions at once. See authorisation().
+        # Presence of this field in the library is the only criterion the plugin
+        # applies; its value is the reason, in BJ's own words.
+        auth = authorisation(entry)
+        if auth:
+            item["curated"] = auth
 
         params = entry.get("params")
         if params:
@@ -432,8 +527,26 @@ def main():
                       f"phrase would open only {inst!r} instead of the whole library",
                       file=sys.stderr)
         return 1
+    # Before the library is written OR checked: the authorisation record has to be
+    # readable, or what the plugin shows a player is a guess.
+    heard = heard_problems(lex)
+    if heard:
+        for problem in heard:
+            print(problem, file=sys.stderr)
+        return 1
     lib = assemble(lex)
     text = json.dumps(lib, indent=1, ensure_ascii=False) + "\n"
+
+    # BEFORE the --check exit, not after it, because a withheld entry is exactly what
+    # nobody is looking at: assemble() drops it before authorisation() is reached, so
+    # withholding an entry BJ has TAKEN removes it from the author's view and from the
+    # panel with nothing said anywhere. Withholding may still be right — it is how an
+    # entry that duplicates the synth's own controls is held back — it just may not
+    # happen quietly, which is the whole failure this file's authorisation() describes.
+    taken = {e["key"] for e in lex["techniques"] if authorisation(e)}
+    for key, why in (lib.get("withheld") or {}).items():
+        mark = " — AND BJ HAS TAKEN IT" if key in taken else ""
+        print(f"WITHHELD from the library (still in the lexicon): {key}{mark} — {why}")
 
     if args.check:
         if not OUT.exists():
@@ -460,8 +573,6 @@ def main():
     empty = [i["key"] for i in lib["instruments"] if not has_code(i["code"])]
     if empty:
         print("WITHOUT code: " + ", ".join(empty))
-    for key, why in (lib.get("withheld") or {}).items():
-        print(f"WITHHELD from the library (still in the lexicon): {key} — {why}")
     return 0
 
 

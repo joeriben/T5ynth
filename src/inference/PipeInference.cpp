@@ -221,14 +221,25 @@ juce::StringArray PipeInference::getCuratedInstrumentNames() const
         return {};
 
     // "Curated" is BJ's AUTHORISATION, and it is only ever read here, never
-    // re-derived. The `curated` field is written into the lexicon by hand for
-    // the entries he built or rebuilt under CLAUDE.md's Instrument Authoring
-    // rules since the revert, and carried into this file verbatim by
-    // tools/lco_build_library.py. Deriving it instead from something measurable
-    // — `params` plus `anchor_code`, i.e. "the number reaches the code" — was
-    // tried and was wrong in BOTH directions: it admitted seven entries he
-    // never approved, and dropped `divider_organ`, which he had. A measured
-    // property is not a verdict; only this field is.
+    // re-derived. tools/lco_build_library.py composes the `curated` field from
+    // the ONE record of that authorisation — the lexicon entry's `heard`, which
+    // carries his own words, the date, and the page he heard it on — and writes
+    // it into this file only for the entries he has actually taken.
+    //
+    // Both of the other ways to get this list have been tried and both were
+    // wrong. Deriving it from something measurable — `params` plus
+    // `anchor_code`, i.e. "the number reaches the code" — admitted seven
+    // entries he never approved. Hand-writing `curated` as a second field
+    // beside `heard` then contradicted the verdict in both directions at once:
+    // six entries carried a blanket "built under the Authoring rules" text
+    // (a claim about how they were BUILT, not a verdict) while five of their
+    // own `heard` records said „nur einzelne Dateien gehört … Das ist kein
+    // abgenommenes INSTRUMENT" or „NICHT als abgenommen behandeln", and
+    // `singing_bowl`, which he had called „verfiziertes
+    // instrument", had no such field and so never appeared. BJ, 2026-07-31:
+    // „singing bowl fehlt, dafür irgend ein phantasiescheiss 'driven metal'".
+    // A measured property is not a verdict, and a verdict with two homes has a
+    // wrong answer in one of them.
     //
     // The NAME comes from the library's `name` field and is not derived here.
     // "fm fm3 fm_bell" tells a player nothing, so the key is not it; and
