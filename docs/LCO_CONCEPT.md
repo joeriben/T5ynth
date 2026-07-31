@@ -22,6 +22,16 @@ BJ, 2026-07-19, dictated for the record:
 
 Every design decision is measured against that paragraph.
 
+### Why this is not offered as an interface
+
+BJ, 2026-07-31, naming what the oscillator is FOR that nothing else does:
+
+> „Man könnte die ganzen schönen Synthesetechnologien ja auch als Interface anbieten. Machen wir aber nicht. denn der USP ist gerade dass der LLM-Autor ALL dieses Synthesetechnologien FREI miteinander verbinden und kombinieren kann. Dafür könnte man kein sinnvolles UI bauen, oder wenn, würde es aussehen wie eine Modularsynth-Wand die kein Mensch wirklich kontrollieren kann, oder wenn, mit 8h/Soundidee arbeit."
+
+So the library is not a palette of engines with a selector over it. **The combination is the product**, and it is unbounded: any number of methods, freely wired, in one orchestra. The reason there is no UI for it is not that one has not been built yet — it is that a control surface for free combination either does not exist or is a modular wall costing eight hours per sound idea, which is the opposite of a prompt.
+
+Two things follow, and both are already rules elsewhere: a layer that narrows what the author may combine takes away the one thing the instrument has ([[feedback_llm_writes_csound_preamble]]), and a construction that enumerates permitted timbres ahead of the prompt is the old waveform selector rebuilt (§3, §7).
+
 ---
 
 ## 2. The architecture
