@@ -1,0 +1,28 @@
+<!doctype html><meta charset=utf-8>
+<title>the amplifier chain — distortion, chorus, phaser, tremolo</title>
+<style>
+ body{font:15px/1.5 -apple-system,system-ui,sans-serif;max-width:820px;margin:2rem auto;
+   padding:0 1rem;background:#14161a;color:#e6e6e6}
+ h1{font-size:1.35rem;margin-bottom:.2rem} h2{font-size:1.05rem;margin:0 0 .2rem}
+ section{border:1px solid #2c3038;border-radius:8px;padding:.9rem 1rem;margin:.8rem 0;
+   background:#191c21}
+ .g{margin:.1rem 0 .5rem;color:#a8b0bb}
+ .s{font:12px ui-monospace,Menlo,monospace;color:#7fd1b9;margin:.2rem 0 .3rem}
+ .v{font:12px ui-monospace,Menlo,monospace;color:#8b93a0;margin:0 0 .6rem}
+ audio{height:32px;width:100%} .n{color:#a8b0bb;font-size:13px}
+</style>
+<h1>the amplifier chain</h1>
+<p class=n>7 s, <b>one gain for the whole set</b> (-1.41 dB) —
+nothing is normalised per file, so a row that is louder than the dry one is louder
+because the effect made it so.</p>
+<p class=n>The sound is <b>ep_fm3</b> at two of its named voicings. The effects are the real
+<code>src/dsp/AmpEffects.cpp</code> classes driven in host-sized blocks by
+<code>tools/audition_amp_effects</code>, in the plugin's own order:
+distortion → chorus → phaser → tremolo, ahead of delay and reverb. They have no UI yet;
+the LRO author reaches them by name (<code>fx_trem_stereo</code> and the other eleven).</p>
+<p class=n>Measured across these files, so it is not a claim about how they sound:
+the suitcase row has an L−R of 0.0410 and the wurlitzer row 0.0000 — the one is a pan and
+the other is amplitude, which is the difference the two instruments' amplifiers make. The
+chorus and phaser rows are also 0.0000, and that one is a LIMIT, not a setting: see the
+chorus row. And <b>dry</b> is the source times the shared gain and nothing else.</p>
+<section><h2>dry</h2><p class=g>the body alone — every effect at its default, which is off</p><p class=s><i>alles aus</i></p><p class=v>auf <b>rhodes</b>, 220 Hz</p><audio controls preload=none src="clips/dry.wav"></audio></section><section><h2>suitcase tremolo</h2><p class=g>a PAN, because a suitcase's vibrato alternates between two amplifier pairs — listen across the stereo image, not to the level</p><p class=s><b>trem_amt</b> 0.6 <b>trem_rate</b> 5.0 <b>trem_stereo</b> 1.0</p><p class=v>auf <b>rhodes</b>, 220 Hz</p><audio controls preload=none src="clips/suitcase_tremolo.wav"></audio></section><section><h2>wurlitzer tremolo</h2><p class=g>the same control at stereo 0: one amplifier, so it is amplitude and sits in the middle</p><p class=s><b>trem_amt</b> 0.6 <b>trem_rate</b> 5.5 <b>trem_stereo</b> 0.0</p><p class=v>auf <b>wurlitzer</b>, 220 Hz</p><audio controls preload=none src="clips/wurlitzer_tremolo.wav"></audio></section><section><h2>stage + phaser</h2><p class=g>slow, where a Small Stone sits — juce::dsp::Phaser at a 600 Hz centre</p><p class=s><b>phaser_mix</b> 0.6 <b>phaser_rate</b> 0.3 <b>phaser_amt</b> 0.7 <b>phaser_fb</b> 0.3</p><p class=v>auf <b>rhodes</b>, 220 Hz</p><audio controls preload=none src="clips/stage_and_phaser.wav"></audio></section><section><h2>dyno chorus</h2><p class=g>juce::dsp::Chorus, 7 ms centre delay, no feedback. It THICKENS but does not WIDEN: the widget holds one LFO and one delay line for all channels (juce_Chorus.h:157–158), so a signal that arrives identical in both channels leaves identical — measured L−R of exactly 0. The same is true of the phaser</p><p class=s><b>chorus_mix</b> 0.5 <b>chorus_rate</b> 0.8 <b>chorus_amt</b> 0.4</p><p class=v>auf <b>rhodes</b>, 220 Hz</p><audio controls preload=none src="clips/dyno_chorus.wav"></audio></section><section><h2>wurlitzer bark</h2><p class=g>tanh over 2x oversampling, NO make-up — so it gets louder as well as dirtier, which is what the same opcode does in the filter's own drive</p><p class=s><b>dist_mix</b> 0.7 <b>dist_drive</b> 9</p><p class=v>auf <b>wurlitzer</b>, 220 Hz</p><audio controls preload=none src="clips/wurlitzer_bark.wav"></audio></section><section><h2>bark, hard</h2><p class=g>the top of the range, where the wave is nearly a square</p><p class=s><b>dist_mix</b> 1.0 <b>dist_drive</b> 24</p><p class=v>auf <b>wurlitzer</b>, 220 Hz</p><audio controls preload=none src="clips/bark_hard.wav"></audio></section><section><h2>suitcase, whole</h2><p class=g>chorus into the pan — the chain in the order the plugin runs it</p><p class=s><b>chorus_mix</b> 0.35 <b>chorus_rate</b> 0.6 <b>chorus_amt</b> 0.3 <b>trem_amt</b> 0.5 <b>trem_rate</b> 4.5 <b>trem_stereo</b> 0.9</p><p class=v>auf <b>rhodes</b>, 220 Hz</p><audio controls preload=none src="clips/suitcase_whole.wav"></audio></section>
