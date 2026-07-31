@@ -539,7 +539,8 @@ You have already reasoned about the sound in the first turn. Do not reason it ou
 _PARAMS_HEAD = """
 THE SYNTH'S OWN CONTROLS — the player has allowed you to set them
 Your oscillator sits inside a real instrument: a filter, five envelopes, three
-LFOs, three slow drift LFOs, aftertouch amounts, noise and two effects. For this
+LFOs, three slow drift LFOs, aftertouch amounts, noise, an amplifier chain
+(distortion, chorus, phaser, tremolo) and two effects (delay, reverb). For this
 sound you may set them. Use them for what belongs OUT THERE rather than inside
 your body — a filter the words ask for, an envelope that opens something, an LFO
 that moves it. What you build in Csound is still the spectrum; these are the
