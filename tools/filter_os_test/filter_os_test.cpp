@@ -3,14 +3,14 @@
 // Hypothesis (user, 2026-06-21): the Ladder/Warp filters sound "bad" because
 // they run at base rate — their in-loop saturation generates harmonics above
 // Nyquist that fold back as aliasing. The linear SVF doesn't alias and sounds
-// fine. This harness drives the REAL filter classes (MoogLadderFilter.h /
+// fine. This harness drives the REAL filter classes (LadderFilter.h /
 // CutoffWarpFilter.h) at base rate vs N× oversampled and renders WAVs so the
 // aliasing can be heard and measured. The only thing that differs between the
 // renders is the filter's internal sample rate.
 //
 // Build (see run.sh): g++ -std=c++17 -O2 -I . -I ../../src/dsp ...
 
-#include "MoogLadderFilter.h"
+#include "LadderFilter.h"
 #include "CutoffWarpFilter.h"
 
 #include <cstdint>
@@ -185,7 +185,7 @@ int main(int argc, char** argv)
 {
     const std::string outDir = (argc > 1) ? argv[1] : ".";
     std::printf("Rendering filter aliasing test → %s\n", outDir.c_str());
-    renderAll<MoogLadderFilter>("ladder", outDir);
+    renderAll<LadderFilter>("ladder", outDir);
     renderAll<CutoffWarpFilter>("warp",   outDir);
     std::printf("done.\n");
     return 0;

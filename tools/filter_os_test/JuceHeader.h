@@ -1,4 +1,4 @@
-// Minimal JUCE shim — just enough for MoogLadderFilter.h / CutoffWarpFilter.h to
+// Minimal JUCE shim — just enough for LadderFilter.h / CutoffWarpFilter.h to
 // compile standalone (offline aliasing test). NOT for use in the plugin build.
 #pragma once
 #include <algorithm>

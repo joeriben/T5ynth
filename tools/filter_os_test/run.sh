@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Build + run the filter aliasing test and CPU benchmark, then analyze.
-# Drives the REAL MoogLadderFilter.h / CutoffWarpFilter.h offline (JUCE-free
+# Drives the REAL LadderFilter.h / CutoffWarpFilter.h offline (JUCE-free
 # shim) at base rate vs 2×/4×/8× oversampled. See HANDOVER_FILTER_OVERSAMPLING.md.
 set -euo pipefail
 cd "$(dirname "$0")"

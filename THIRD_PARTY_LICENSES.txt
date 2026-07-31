@@ -290,7 +290,7 @@ not copyrightable in itself; the specific idea of a style-switchable per-
 feedback nonlinearity as a musical character parameter is credited to the
 Surge XT project. No source code was copied from Surge XT — our
 implementation is written from scratch against the published ZDF-ladder
-derivation, and our saturation curve set (tanh / softclip / OJD-like /
+derivation, and our saturation curve set (tanh / softclip / algebraic /
 sin-fold / digital / asym-tanh) is a subset chosen for musical coverage
 rather than a verbatim reproduction of Surge's style list.
 

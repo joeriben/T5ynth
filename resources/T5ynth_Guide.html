@@ -1179,7 +1179,7 @@ selector in the filter header row.
   <tr><td><strong>Kbd Track</strong></td><td>0.0 – 1.0</td><td>Cutoff offset per MIDI semitone</td></tr>
   <tr><td><strong>Drive</strong></td><td>0 – 36 dB</td><td>On SVF: pre-filter <code>tanh</code> saturation (optionally oversampled). On Ladder / Warp: input gain into the filter's own nonlinear stages — the filter itself provides the saturation character, master volume handles level.</td></tr>
   <tr><td><strong>OS</strong></td><td>SVF: Off / 2× / 4× / 8× &middot; Ladder/Warp: see Settings</td><td>On <strong>SVF</strong>: inline, per-preset oversampling for the Drive <code>tanh</code> (Off / 2× / 4× / 8×). On <strong>Ladder / Warp</strong>: global machine-wide setting in the <em>Settings</em> panel (General Settings tab), not per preset — Off / 2× / 4×, default 2×. 8× is not available for Ladder / Warp.</td></tr>
-  <tr><td><strong>Style</strong></td><td>Tanh / SoftClip / OJD / Sin / Digital / Asym</td><td>Warp-only — picks the per-pole saturation curve. Greyed out for SVF / Ladder. See algorithm notes.</td></tr>
+  <tr><td><strong>Style</strong></td><td>Tanh / SoftClip / Algebraic / Sin / Digital / Asym</td><td>Warp-only — picks the per-pole saturation curve. Greyed out for SVF / Ladder. See algorithm notes.</td></tr>
 </table>
 
 <div class="note">
@@ -1195,7 +1195,7 @@ selector in the filter header row.
   <ul>
     <li><strong>Tanh</strong> — symmetric soft, the classic reference.</li>
     <li><strong>SoftClip</strong> — <code>x / (1 + |x|)</code>; gentler, flatter knee than <code>tanh</code>.</li>
-    <li><strong>OJD</strong> — <code>x / √(1 + x²)</code>; slower approach to the limit than <code>tanh</code> with more odd-harmonic content for a given drive.</li>
+    <li><strong>Algebraic</strong> — <code>x / √(1 + x²)</code>; slower approach to the limit than <code>tanh</code> with more odd-harmonic content for a given drive.</li>
     <li><strong>Sin</strong> — wavefolded sine; FM-like timbre when driven hard.</li>
     <li><strong>Digital</strong> — hard clamp to ±1; deliberately buzzy, rich in odd harmonics at any drive.</li>
     <li><strong>Asym</strong> — <code>tanh(x + 0.25) − tanh(0.25)</code>; asymmetric response, prominent 2nd-harmonic colouring, bias-compensated so it's still centered at zero.</li>
@@ -2506,7 +2506,7 @@ formulation and not copyrightable in itself; the specific idea of a
 style-switchable per-feedback nonlinearity as a musical character parameter
 is credited to the Surge XT project. No Surge XT source code was copied —
 our implementation is written from scratch against the published ZDF ladder
-derivation, and our saturation set (Tanh / SoftClip / OJD-like / Sin-fold /
+derivation, and our saturation set (Tanh / SoftClip / Algebraic / Sin-fold /
 Digital / Asym) is a musically curated subset rather than a verbatim
 reproduction of Surge's full style list.
 </p>

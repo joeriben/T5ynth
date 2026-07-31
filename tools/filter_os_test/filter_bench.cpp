@@ -2,7 +2,7 @@
 // cost vs base rate, extrapolated to worst-case polyphony (16 voices × stereo)?
 // Header-only filters drive directly; SVF is excluded (it's linear, not getting
 // oversampled, and needs real juce::dsp). Build: see run.sh.
-#include "MoogLadderFilter.h"
+#include "LadderFilter.h"
 #include "CutoffWarpFilter.h"
 #include <chrono>
 #include <cstdio>
@@ -45,7 +45,7 @@ static double nsPerSample(const char* name)
 int main()
 {
     std::printf("Filter cost @ %.0f kHz, 1 sample = one processSample call\n", kSr/1000);
-    const double ladder = nsPerSample<MoogLadderFilter>("Ladder");
+    const double ladder = nsPerSample<LadderFilter>("Ladder");
     const double warp   = nsPerSample<CutoffWarpFilter>("Warp");
     std::printf("\nWorst case = %d voices x %d ch, all running this filter:\n", kVoices, kChans);
     const double load = kVoices * kChans * kSr;     // processSample calls / second
