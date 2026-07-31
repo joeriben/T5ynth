@@ -395,6 +395,87 @@ def words(min_n, top, strict=False):
         print(line)
 
 
+def profile(want, top=12):
+    """Everything about the voices whose name carries one of `want` -- the WHOLE
+    voice and not the projection, because when an entry is about to be built from
+    a word, the projection is exactly what must not be trusted.
+
+    The DX7 envelope is four rates and four levels: the output runs to L1 at rate
+    R1, then to L2 at R2, then to L3 at R3, and on key-off to L4 at R4 (rates are
+    0-99 and FASTER when larger). What makes a struck FM body struck is therefore
+    visible here and nowhere in `--axes`: a modulator whose L1 stands far above its
+    L2 with a quick R2 is a transient that dies back, and one whose L1 and L2 are
+    level is a family that stays. That is the distinction `fm3` does not have.
+    """
+    want = {w.lower() for w in want}
+    hits, algs, pairs = [], Counter(), Counter()
+    for v in read_corpus():
+        if not want & {w.lower() for w in WORD.findall(v["name"])}:
+            continue
+        carriers, mods = routing(v["alg"])
+        ops = v["ops"]
+        live = {s for s in range(6) if sounds(ops[s])}
+        car = [s for s in carriers if s in live]
+        if not car:
+            continue
+        c = max(car, key=lambda s: (ops[s]["level"], s))
+        rc = ratio(ops[c])
+        m = [s for s in mods[c] if s in live and ratio(ops[s]) is not None]
+        if not rc or not m:
+            continue
+        algs[v["alg"] + 1] += 1
+        rs = sorted(round(ratio(ops[s]) / rc, 2) for s in m)
+        pairs[tuple(rs)] += 1
+        hits.append({"name": v["name"], "carriers": len(car), "c": ops[c], "rc": rc,
+                     "mods": [(round(ratio(ops[s]) / rc, 2), ops[s]) for s in m]})
+    if not hits:
+        print(f"nichts zu {sorted(want)}")
+        return
+    print(f"{len(hits)} Stimmen zu {sorted(want)}")
+    print(f"  Algorithmen: {algs.most_common(6)}")
+    print(f"  Träger im Median: {statistics.median(h['carriers'] for h in hits):.0f}")
+    print(f"  häufigste Modulator-Verhältnisse am Haupttäger: {pairs.most_common(top)}\n")
+
+    band = defaultdict(list)
+    for h in hits:
+        for r, o in h["mods"]:
+            band["fern (>= 8)" if r >= 8 else "mittel (2-8)" if r >= 2
+                 else "nah (< 2)"].append(o)
+    print(f"{'Modulator':16}{'n':>7}{'Pegel':>8}{'R1':>6}{'L1':>6}{'R2':>6}{'L2':>6}"
+          f"{'L1-L2':>8}   was das heißt")
+    for k in ("fern (>= 8)", "mittel (2-8)", "nah (< 2)"):
+        g = band.get(k)
+        if not g:
+            continue
+        med = {f: statistics.median(o[f] if isinstance(o[f], int) else o[f][i]
+                                    for o in g)
+               for f, i in (("level", 0),)}
+        r1 = statistics.median(o["eg_rates"][0] for o in g)
+        l1 = statistics.median(o["eg_levels"][0] for o in g)
+        r2 = statistics.median(o["eg_rates"][1] for o in g)
+        l2 = statistics.median(o["eg_levels"][1] for o in g)
+        drop = statistics.median(o["eg_levels"][0] - o["eg_levels"][1] for o in g)
+        says = ("stirbt zurueck" if drop >= 15 else "steht" if drop <= 4 else "sinkt leicht")
+        print(f"{k:16}{len(g):7}{med['level']:8.0f}{r1:6.0f}{l1:6.0f}{r2:6.0f}"
+              f"{l2:6.0f}{drop:8.0f}   {says}")
+    cg = [h["c"] for h in hits]
+    print(f"\n{'Träger':16}{len(cg):7}"
+          f"{statistics.median(o['level'] for o in cg):8.0f}"
+          f"{statistics.median(o['eg_rates'][0] for o in cg):6.0f}"
+          f"{statistics.median(o['eg_levels'][0] for o in cg):6.0f}"
+          f"{statistics.median(o['eg_rates'][1] for o in cg):6.0f}"
+          f"{statistics.median(o['eg_levels'][1] for o in cg):6.0f}"
+          f"{statistics.median(o['eg_levels'][0] - o['eg_levels'][1] for o in cg):8.0f}")
+    print("\nzehn Stimmen im Klartext (Verhältnis: Pegel, L1->L2 bei R2):")
+    for h in hits[:10]:
+        parts = [f"{r}: {o['level']}, {o['eg_levels'][0]}->{o['eg_levels'][1]}"
+                 f"@{o['eg_rates'][1]}" for r, o in h["mods"]]
+        cc = h["c"]
+        print(f"  {h['name']:12} Träger {cc['level']}, "
+              f"{cc['eg_levels'][0]}->{cc['eg_levels'][1]}@{cc['eg_rates'][1]}"
+              f"  |  " + "  |  ".join(parts))
+
+
 def axes(min_n, top, strict=False):
     """The main directions, per `fm3` axis: which words sit at the top of an axis
     and which at the bottom, over every word the corpus counts often enough.
@@ -521,6 +602,8 @@ if __name__ == "__main__":
     ap.add_argument("--words", action="store_true", help="Wörter gegen fm3s Achsen")
     ap.add_argument("--axes", action="store_true",
                     help="Hauptrichtungen: was oben und was unten auf jeder fm3-Achse steht")
+    ap.add_argument("--profile", nargs="+", metavar="WORT",
+                    help="die GANZEN Stimmen zu diesen Wörtern, mit Hüllkurven")
     ap.add_argument("--check", action="store_true",
                     help="BJs Trombone-Datum gegen den Korpus prüfen")
     ap.add_argument("--strict", action="store_true",
@@ -529,8 +612,10 @@ if __name__ == "__main__":
     ap.add_argument("--min-n", type=int, default=25, help="ab wie vielen Stimmen ein Wort zählt")
     ap.add_argument("--top", type=int, default=40)
     a = ap.parse_args()
-    if a.selftest or not (a.fetch or a.words or a.check or a.axes):
+    if a.selftest or not (a.fetch or a.words or a.check or a.axes or a.profile):
         selftest()
+    if a.profile:
+        profile(a.profile)
     if a.fetch:
         fetch()
     if a.words:
