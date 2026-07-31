@@ -88,11 +88,25 @@ The entry is in `backend/dco_lexicon.json` as `singing_bowl`; `singing bowl` and
 
 Five things the body ended up doing differently from the first draft, each because a measurement said so, and each written into the code at the line it belongs to: the mallet does **not** scale with Q (a fixed impulse gives a Q-independent attack over a 75× span — Q is the decay); there is **no noise exciter** (at Q 10000 a mode's bandwidth is 0.02 Hz, so noise through it is a lottery, −24.3 dB at 3 s against −33.3 at 5.7); the mallet hangs on `knote` rather than `expon` (which starts at instrument init, so under a preroll the strike is already gone); it is **deterministic** (a random mallet made the note's peak a random draw, and the axis probe then read `bowl` and `warble` as faders); and the split is the table's **irregular** pattern rather than one shared fraction (twelve long partials whose beats share a period all re-align at once — measured as an 11.6 dB pulse).
 
-### Open, and put to BJ rather than repaired
+### The audition was at the wrong sample rate — found after the approval, 2026-07-31
 
-Both are LEVEL, not timbre, and neither could be heard on the page, because one gain lay over everything there.
+**The page BJ heard rendered at 44100. The plugin compiles Csound at 176400** (`lroOsFactor_ { 4 }` in `src/PluginProcessor.h`, capped so the absolute engine rate stays under 200 kHz — 4× at a 44.1 kHz host). At that rate the approved body is a different sound:
 
-- **Register tilt 12.61 dB total, −4.20 dB/octave** (110 → 880 Hz). This is `mode` itself: a resonator's gain at resonance goes with Q/f, so a fixed impulse into a fixed-Q bank gets louder as the bank moves down. The library's other mode banks carry the same tilt (`driven_metal` −2.72, `drum_head` −2.99 dB/octave). It breaks `M7`, "the keyboard itself must not be a volume control", and the one-loudness-at-every-register bound reads 26.22 dB across corners and registers together.
-- **It goes over the host's clip ceiling in the bass.** Post-onset peak at the defaults: 110 Hz → 3.994, 220 Hz → 2.049, 440 → 1.635, 880 → 1.692. The absolute ceiling is 2.75, so from roughly A3 down a note is clipped away rather than merely loud. This is the same tilt, seen where it bites.
+| | 44100 | 176400 | |
+|---|---|---|---|
+| post-onset peak, 220 Hz, defaults | 2.049 | **12.48** | 6.09× |
+| spectral centroid | 377 Hz | **259 Hz** | |
+| peak at 110 Hz | 3.994 | **23.32** | |
 
-The fix for both is one scale factor against `kc` compensating `mode`'s own gain law, pinned so that 220 Hz — where BJ listened — stays exactly as he heard it. It leaves the spectrum at every pitch untouched and changes only the level across the keyboard. It was not applied because „so lassen" covers the sound he heard, and this changes what the body does at pitches he did not.
+Against a host clip ceiling of 2.52 transparent / 2.75 absolute, the entry as approved was hard-limited at 110, 220 and 440 Hz in the synth and only survived at 880. **So what BJ approved was not what the instrument would have played** — the timbre, not only the level: the low modes gain far more than the high ones, which is the 118 Hz of centroid.
+
+**The cause was mine and it was in the exciter, not in `mode`.** The mallet's weight hung on `knote` as `exp(-knote / 0.0018)`, and 1.8 ms is *shorter than one control period*: how much of that pulse exists at all depends on the control rate, and the control rate follows the sample rate. Isolated by measurement — `mpulse` alone runs 1.07× across the two rates, and `interp` in place of `a()` changed nothing, so it is neither the bank nor the staircase.
+
+**The repair is the same force, computed where a sub-millisecond force belongs:** at audio rate, as a one-pole `tone` on the contact impulse, at the 88.4 Hz corner the exponential already named. It is not a new sound. At 44100 — the rate BJ heard — the peak moves 2.049 → 2.156 (+0.4 dB) and the centroid 377 → 362 Hz. Across the two rates it now measures 1.04× with the centroid 362 against 361 Hz. It also took two thirds of the register tilt with it (12.61 dB from 110 to 880, now 6.72 at the attack) and brought the whole keyboard inside the ceiling, because how much of a 1.8 ms pulse survived one control period was a function of pitch as much as of rate.
+
+One further change, headroom and not taste: an output scale of 0.72. The corner space still reached 2.76 at 110 Hz, over the absolute ceiling, and the project's own page generator refuses to render a body above 2.52 at all — so the entry could not be put in front of BJ at the plugin's rate. It now peaks 2.00 at the worst of 81 corners × four registers and 1.61 at its defaults, which is where the library's other mode banks sit at that rate (`struck_bar` 1.96, `cymbal` 2.26). No balance inside the body moves.
+
+### Still open
+
+- **Register tilt 6.72 dB total, −2.24 dB/octave** at the attack. This one really is `mode`: a resonator's gain at resonance goes with Q/f. The library's other mode banks carry it too (`driven_metal` −2.72, `drum_head` −2.99 dB/octave). Over `M7`'s bound and **declared rather than flattened**, because flattening it would be a fitted curve laid over the substrate's own model, which Instrument Authoring rule 2 forbids.
+- **The re-hearing.** The approval of 2026-07-31 stands for a sound rendered at a rate the instrument does not run at. `tools/lco_listening/singing_bowl_params/index.html`, generated by `tools/lco_param_page.py`, renders at 4× the way the plugin does — that is the page the entry has to survive.
