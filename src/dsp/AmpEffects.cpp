@@ -96,6 +96,10 @@ void T5ynthDistortion::prepare(double sampleRate, int samplesPerBlock)
     wet_.setCurrentAndTargetValue(wet_.getTargetValue());
     dryG_.setCurrentAndTargetValue(dryG_.getTargetValue());
     engage_.setCurrentAndTargetValue(1.0f);
+    // A host re-prepare while the stage was engaged must not skip the engage
+    // crossfade: the oversampler is new and cold, and stepping into it measured
+    // 0.258 at drive 0 and 0.913 at 36 dB against the signal's own 0.0144.
+    running_ = false;
 }
 
 void T5ynthDistortion::reset()
@@ -125,28 +129,38 @@ void T5ynthDistortion::setMix(float mix)
 void T5ynthDistortion::processBlock(juce::AudioBuffer<float>& buffer)
 {
     if (!prepared_ || !os_) return;
-    if (!wants() && !moving() && !engage_.isSmoothing()) { running_ = false; return; }
 
     const int numCh = buffer.getNumChannels();
     const int total = buffer.getNumSamples();
     if (numCh <= 0 || total <= 0) return;
 
-    // Re-engaging after a bypass, the oversampler's polyphase allpass chains
-    // still hold the signal from whenever it last ran — a different phase of the
-    // same note, mixed into the first samples of the new one: a 0.317 step
-    // against the signal's own 0.0144. Zeroing them leaves the cold-filter
-    // warm-up instead, 0.138, so the first 20 ms are also crossfaded in from the
-    // raw input.
-    if (!running_)
+    // The gate is SYMMETRIC, and both sides cross into the RAW input rather than
+    // into the stage's own idea of dry. That is forced by the mix living inside
+    // the oversampled domain: once the dry travels through the oversampler,
+    // "arrived at dry" is the bypass signal delayed 2.34 samples, so switching
+    // between them is a step whichever direction it goes — measured 0.317
+    // engaging with stale filter state, 0.138 with fresh state, and 0.042
+    // disengaging, against the signal's own largest step of 0.0144.
+    if (wants() || moving())
     {
-        os_->reset();
-        load_ = 0.0f;
-        dcX_[0] = dcX_[1] = dcY_[0] = dcY_[1] = 0.0f;
-        engage_.setCurrentAndTargetValue(0.0f);
+        if (!running_)
+        {
+            os_->reset();
+            load_ = 0.0f;
+            dcX_[0] = dcX_[1] = dcY_[0] = dcY_[1] = 0.0f;
+            engage_.setCurrentAndTargetValue(0.0f);
+            running_ = true;
+        }
         engage_.setTargetValue(1.0f);
-        running_ = true;
     }
-    const bool fadingIn = engage_.isSmoothing();
+    else
+    {
+        if (!running_) return;
+        engage_.setTargetValue(0.0f);
+        if (engage_.getCurrentValue() <= 0.0f) { running_ = false; return; }
+    }
+    const bool fadingIn = engage_.isSmoothing()
+                       || engage_.getCurrentValue() < 0.9999f;
 
     // Oversampling was given a maximum block at prepare(); anything larger is
     // walked in prepared-size chunks rather than handed over whole.

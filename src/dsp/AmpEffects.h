@@ -137,11 +137,15 @@ public:
     void processBlock(juce::AudioBuffer<float>& buffer);
 
 private:
-    /** True while a parameter ramp is still travelling, so the stage may not
-        stop yet however its target reads. */
+    /** True while the MIX ramp is still travelling, so the stage may not stop
+        yet however its target reads. Deliberately NOT the drive: with the mix at
+        zero the stage contributes nothing whatever the drive is doing, and
+        including `gain_` here meant every drive automation woke the whole
+        oversampler at mix 0 — measured, 102400 of 102400 samples came back
+        changed from a bypassed stage. */
     bool moving() const noexcept
     {
-        return gain_.isSmoothing() || wet_.isSmoothing() || dryG_.isSmoothing();
+        return wet_.isSmoothing() || dryG_.isSmoothing();
     }
 
     std::unique_ptr<juce::dsp::Oversampling<float>> os_;
