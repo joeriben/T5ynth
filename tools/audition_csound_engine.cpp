@@ -10,9 +10,9 @@
 // renderUpTo -> voiceManager.renderBlock(..., &cs), with the same
 // csoundLastWritePos_ negative-carry accounting across block boundaries.
 //
-// Five cases (spec §5), each a hard assert -- if any fails, the CODE under
-// test is wrong, not the assertion (unless the assertion itself turns out to
-// contradict the spec, which would be called out separately):
+// Six cases (spec §5 plus §6 below), each a hard assert -- if any fails, the
+// CODE under test is wrong, not the assertion (unless the assertion itself turns
+// out to contradict the spec, which would be called out separately):
 //   1. NOTE-ON LATENCY   -- post-VCA onset lands within ~1 ksmps + portk lag.
 //   2. RELEASE INTEGRITY -- D3: gate = voice ACTIVE, not note-held; the T5ynth
 //                           ampEnv release plays out in full after note-off.
@@ -25,6 +25,10 @@
 //   5. TIMING            -- raw CsoundEngine: a gate/trig write followed by
 //                           renderUpTo produces a non-zero sample within one
 //                           ksmps block (64 samples).
+//   6. REPEATED NOTES    -- N notes in a row all arrive in the voice buffer,
+//                           sequentially and overlapping, and no sample in the
+//                           run is non-finite. See the case's own header for
+//                           the gap it closes.
 //
 // Renders WAVs (-12 dBFS) into tools/csound_engine_out/ for BJ's ear.
 //
@@ -44,6 +48,10 @@
 // static lib: an ODR violation (stub vs real Impl/class layout) that a
 // linker will not necessarily flag as an error.
 //
+// The CMake target is still called T5ynth; the ARTEFACT it produces is named
+// after the product and was renamed to `akroasys` on 2026-07-25, so the flags
+// path and the library path do not share a name any more.
+//
 //   FLAGS=build_clean/CMakeFiles/T5ynth.dir/flags.make
 //   { grep -m1 CXX_DEFINES "$FLAGS"; grep -m1 CXX_INCLUDES "$FLAGS"; } \
 //     | sed 's/^CXX_[A-Z]* = //' > /tmp/h.rsp
@@ -54,7 +62,7 @@
 //   mkdir -p tools/csound_engine_out
 //   clang++ -std=c++17 -O2 @/tmp/h.rsp \
 //     tools/audition_csound_engine.cpp \
-//     build_clean/T5ynth_artefacts/Release/libT5ynth_SharedCode.a \
+//     build_clean/T5ynth_artefacts/Release/libakroasys_SharedCode.a \
 //     -F"$CSOUND_FW" -framework CsoundLib64 -Wl,-rpath,"$CSOUND_FW" \
 //     -framework Accelerate -framework AudioToolbox -framework Cocoa -framework CoreAudio \
 //     -framework CoreAudioKit -framework CoreMIDI -framework DiscRecording -framework Foundation \
@@ -62,6 +70,12 @@
 //     -weak_framework Metal -weak_framework MetalKit \
 //     -o tools/csound_engine_out/audition_csound_engine
 //   tools/csound_engine_out/audition_csound_engine
+//
+// An optional argument runs case 6 a SECOND time against an authored orchestra
+// instead of the built-in one, at the oversampling factor the plugin compiles
+// at, so a body out of the library can be put through the same N-note test:
+//
+//   tools/csound_engine_out/audition_csound_engine <body.csd> [osFactor]
 
 #include "JuceHeader.h"
 #include "dsp/VoiceManager.h"
@@ -175,7 +189,21 @@ struct CsoundRig
     int absoluteBlockStart_ = 0;   // this rig's running sample clock since the last resetTimeline()
     size_t evtCursor_ = 0;         // index into the events vector currently being scanned
 
-    CsoundRig(float ampAttackMs, float ampDecayMs, float ampSustain, float ampReleaseMs, int voiceLimit)
+    // See renderBlock. `ready` is false only when an AUTHORED orchestra failed to
+    // compile — a built-in-orchestra failure is fatal there and never returns.
+    bool  trackVoicePeaks = false;
+    float voicePeak[CsoundEngine::kMaxVoices] {};
+    bool  ready = false;
+
+    void clearVoicePeaks() { for (float& p : voicePeak) p = 0.0f; }
+
+    // `orchestra` == nullptr compiles the Phase-1 built-in, which is what cases
+    // 1-5 have always used. A non-null text is compiled verbatim at `osFactor`,
+    // exactly as PluginProcessor's compile thread does it (prepare's fourth
+    // argument, lroOsFactor_), so an AUTHORED body can be driven through this
+    // same rig at the rate the plugin actually runs Csound at.
+    CsoundRig(float ampAttackMs, float ampDecayMs, float ampSustain, float ampReleaseMs, int voiceLimit,
+              const char* orchestra = nullptr, int osFactor = 1)
         : lfoZero((size_t) BS, 0.0f)
     {
         for (int i = 0; i < 128; ++i)
@@ -193,11 +221,24 @@ struct CsoundRig
         bp.velAmt = 1.0f;
         vm.setBlockParams(bp);
 
-        if (! cs.prepare(SR, BS))
+        ready = cs.prepare(SR, BS, orchestra, osFactor);
+        if (! ready)
         {
+            // An AUTHORED orchestra that does not compile is a result, not a
+            // broken tool: say so and let the case report a verdict. Only the
+            // built-in orchestra failing is fatal — cases 1-5 have nothing left
+            // to measure, and the cause is the environment rather than any input.
+            if (orchestra != nullptr)
+            {
+                std::fprintf(stderr,
+                    "    the supplied orchestra did not compile (see the Csound log above).\n"
+                    "    NOTE: this argument is a FULL 16-instrument CSD, not a library body --\n"
+                    "    backend/lco_write.py's wrap() is what turns a body into one.\n");
+                return;
+            }
             std::fprintf(stderr,
-                "FATAL: CsoundEngine::prepare() failed -- framework missing at runtime, "
-                "compile error, or this binary was built against the T5YNTH_HAS_CSOUND=0 "
+                "FATAL: CsoundEngine::prepare() failed on the BUILT-IN orchestra -- framework "
+                "missing at runtime, or this binary was built against the T5YNTH_HAS_CSOUND=0 "
                 "stub (see this file's build-recipe warning). Aborting.\n");
             std::exit(1);
         }
@@ -257,6 +298,17 @@ struct CsoundRig
                 csoundLastWritePos_ = renderPos;
                 vm.renderBlock(buf, bp, lfoZero.data() + renderPos, lfoZero.data() + renderPos,
                                lfoZero.data() + renderPos, renderPos, subLen, &cs);
+
+                // Per-SLOT peak, read straight off the Csound engine rather than
+                // inferred from the mono sum. Case 6's pool sweep needs to know
+                // WHICH of the sixteen instruments produced audio, and one silent
+                // slot among sixteen sounding ones is inaudible in the sum. Off by
+                // default, so case 4's malloc measurement is one bool test poorer.
+                if (trackVoicePeaks)
+                    for (int vi = 0; vi < CsoundEngine::kMaxVoices; ++vi)
+                        if (const float* vb = cs.voiceBuffer(vi))
+                            for (int s = renderPos; s < subEnd; ++s)
+                                voicePeak[vi] = std::max(voicePeak[vi], std::fabs(vb[s]));
             }
 
             while (evtCursor_ < events.size()
@@ -565,9 +617,256 @@ static bool caseTiming()
     return ok;
 }
 
-int main()
+// ═══════════════════════════ Case 6: REPEATED NOTES ═══════════════════════════
+// THE GAP THIS CLOSES (2026-07-31). Every case above plays at most TWO notes,
+// and the offline harness on the other side of the fence -- tools/lco_measure.py
+// -- emits exactly ONE trigger edge per render (`ktrig = timeinsts() >= preroll
+// ? 1 : 0`). So between them the two harnesses cannot see any defect that first
+// appears at the SECOND note, or at the note that reuses a voice slot: a latched
+// filter state, a trigger epoch that stops stepping, an allocator that hands out
+// a slot nothing renders into. That class was invisible, and a symptom in it
+// ("exactly one note, then silence") is what this case was written for.
+//
+// TWO RUNS, and each one measures the ONLY thing it is able to measure. Both
+// shapes below were falsified against a deliberately-silenced note before being
+// kept, because the first version of this case had a second run that could not
+// see one at all.
+//
+//   (a) SEQUENTIAL -- release over before the next note-on, so each note's
+//       window contains that note ALONE and an RMS floor means what it says.
+//       Measured on a build with one note's note-on suppressed: that note reads
+//       0.0000 and the run FAILS. The pre-note windows are asserted quiet, which
+//       is what licenses the floor: if a window could contain a predecessor's
+//       tail, a silent note would be masked by it.
+//
+//       WHAT AN RMS FLOOR STILL CANNOT SEPARATE, stated because it is a real
+//       limit and not a hedge: the sixteen Csound instruments are ALWAYS ON, so
+//       a resonant body keeps ringing inside its slot while the VCA gate is
+//       shut. A note whose STRIKE fails but whose gate opens therefore lets the
+//       previous strike's ring through. What catches it here is that the ring
+//       DECAYS: the pre-fix `singing_bowl` (struck once, when the orchestra is
+//       built) falls to 0.04 x note 1 by note 17 and fails. A body whose ring
+//       outlasts the whole run would slip through, and only an onset measure
+//       could tell those two apart.
+//
+//   (b) POOL SWEEP -- what run (a) cannot reach: it only ever occupies two
+//       slots, because findFreeVoice returns the LOWEST inactive one. Holding
+//       sixteen notes at once is the only way to make the allocator hand out
+//       every slot, and the per-slot peaks are read straight off
+//       CsoundEngine::voiceBuffer rather than from the mono sum, where one
+//       silent instrument among sixteen is inaudible. Run twice, so the second
+//       round is slot REUSE and not first use.
+//
+// A lower bound only, never an upper one: a self-decaying body's ring is still
+// present when the next strike lands, so a run legitimately gets LOUDER note by
+// note (measured on `singing_bowl`: 0.2575 -> 0.4708 -> 0.6108). The symptom
+// this guards against is silence, and silence is a floor.
+static int nonFiniteCount(const std::vector<float>& buf)
+{
+    int n = 0;
+    for (float s : buf)
+        if (! std::isfinite(s)) ++n;
+    return n;
+}
+
+static bool sequentialNoteRun(const std::string& wavName, const char* orchestra, int osFactor)
+{
+    constexpr int    kNotes   = 20;
+    constexpr double kHoldSec = 0.35;
+    constexpr double kGapSec  = 0.30;
+    constexpr float  kRelease = 200.0f;   // exp curve, idle well inside the gap
+
+    CsoundRig rig(2.0f, 20.0f, 1.0f, kRelease, CsoundEngine::kMaxVoices, orchestra, osFactor);
+    if (! rig.ready) { printf("    sequential   -> *** FAIL *** (orchestra did not compile)\n"); return false; }
+
+    const int hold = (int) (kHoldSec * CsoundRig::SR);
+    const int step = (int) ((kHoldSec + kGapSec) * CsoundRig::SR);
+
+    std::vector<ScheduledEvent> events;
+    events.reserve((size_t) kNotes * 2);
+    for (int k = 0; k < kNotes; ++k)
+    {
+        // ONE pitch throughout: identical spectrum note to note, so the RMS
+        // comparison below is a level comparison and nothing else (case 3 picks
+        // its retrig pitch on the same reasoning).
+        events.push_back({ k * step,        [&rig] { rig.noteOn(60); } });
+        events.push_back({ k * step + hold, [&rig] { rig.noteOff(60); } });
+    }
+    auto out = rig.renderRange(kNotes * step, events);
+
+    // Skip the first 5 ms of each note: the VCA attack and the orchestra's own
+    // portk gate lag both live in there, and neither is what is being measured.
+    const int skip   = (int) (0.005 * CsoundRig::SR);
+    const int winLen = juce::jmax(1, juce::jmin(hold - skip, (int) (0.150 * CsoundRig::SR)));
+    const int quietLen = (int) (0.050 * CsoundRig::SR);   // ends AT the note-on
+
+    std::vector<double> rms((size_t) kNotes, 0.0);
+    double loudestGap = 0.0;
+    for (int k = 0; k < kNotes; ++k)
+    {
+        rms[(size_t) k] = rmsWindow(out, k * step + skip, winLen);
+        if (k > 0)
+            loudestGap = std::max(loudestGap, rmsWindow(out, k * step - quietLen, quietLen));
+    }
+
+    const int nonFinite = nonFiniteCount(out);
+    const double first = rms[0];
+    int worstNote = 0;
+    double worst = first;
+    for (int k = 1; k < kNotes; ++k)
+        if (rms[(size_t) k] < worst) { worst = rms[(size_t) k]; worstNote = k; }
+
+    // The gap must be quiet against the NOTE, not against an absolute level: a
+    // loud body's numerical floor is higher than a quiet body's whole signal.
+    const bool firstSounds = first > 1.0e-4;
+    const bool gapsQuiet   = loudestGap < 0.10 * first;
+    const bool allSound    = worst > 0.25 * first;
+    const bool ok = firstSounds && gapsQuiet && allSound && nonFinite == 0;
+
+    printf("    sequential   note1=%.4f  worst=note%d %.4f (%.2f x)  loudest gap %.4f (%.2f x)"
+           "  nonFinite=%d -> %s\n",
+           first, worstNote + 1, worst, first > 0.0 ? worst / first : 0.0,
+           loudestGap, first > 0.0 ? loudestGap / first : 0.0,
+           nonFinite, ok ? "PASS" : "*** FAIL ***");
+    printf("      per-note rms:");
+    for (int k = 0; k < kNotes; ++k)
+        printf(" %.4f", rms[(size_t) k]);
+    printf("\n");
+
+    // A run that failed on non-finite samples still gets a WAV, because the
+    // shape BEFORE the fault is the evidence -- but the non-finite samples are
+    // zeroed for the file, since writeWav's lround() has nothing sane to do with
+    // a NaN and peak-normalising a buffer that contains one silently keeps the
+    // gain at 1. The count above is the finding; the file is only for the ear.
+    if (nonFinite > 0)
+        for (float& s : out)
+            if (! std::isfinite(s)) s = 0.0f;
+    writeWavNormalized(wavName, out, (int) CsoundRig::SR, -12.0f);
+    return ok;
+}
+
+static bool poolSweepRun(const std::string& wavName, const char* orchestra, int osFactor)
+{
+    constexpr float kRelease = 200.0f;
+    // A distinct pitch per slot: sixteen voices at ONE pitch interfere at fixed
+    // relative phase, and the resulting per-slot spread would be read as a level
+    // finding. Whole tones keep every slot's own partials apart.
+    auto pitchFor = [](int slot) { return 48 + slot * 2; };
+
+    CsoundRig rig(2.0f, 20.0f, 1.0f, kRelease, CsoundEngine::kMaxVoices, orchestra, osFactor);
+    if (! rig.ready) { printf("    pool sweep   -> *** FAIL *** (orchestra did not compile)\n"); return false; }
+    rig.trackVoicePeaks = true;
+
+    const int onEvery  = (int) (0.060 * CsoundRig::SR);
+    const int settle   = (int) (0.300 * CsoundRig::SR);   // after the 16th note-on
+    const int roundLen = CsoundEngine::kMaxVoices * onEvery + settle;
+    const int release  = (int) (1.500 * CsoundRig::SR);   // exp release + margin
+
+    std::vector<float> out;
+    bool ok = true;
+    float peaks[2][CsoundEngine::kMaxVoices] {};
+
+    for (int round = 0; round < 2; ++round)
+    {
+        std::vector<ScheduledEvent> on;
+        on.reserve(CsoundEngine::kMaxVoices);
+        for (int v = 0; v < CsoundEngine::kMaxVoices; ++v)
+            on.push_back({ v * onEvery, [&rig, pitchFor, v] { rig.noteOn(pitchFor(v)); } });
+
+        // Peaks are cleared AFTER the previous round's release has been rendered,
+        // so a slot still ringing out from round 1 cannot be counted for round 2.
+        rig.clearVoicePeaks();
+        rig.renderRange(roundLen, on);   // renderRange resets the timeline itself
+        std::memcpy(peaks[round], rig.voicePeak, sizeof(rig.voicePeak));
+
+        std::vector<ScheduledEvent> off;
+        off.reserve(CsoundEngine::kMaxVoices);
+        for (int v = 0; v < CsoundEngine::kMaxVoices; ++v)
+            off.push_back({ 0, [&rig, pitchFor, v] { rig.noteOff(pitchFor(v)); } });
+        auto tail = rig.renderRange(release, off);
+        (void) tail;
+    }
+
+    // Relative to the loudest slot, so a body whose level varies over two octaves
+    // of pitch is not read as a dead slot.
+    for (int round = 0; round < 2; ++round)
+    {
+        float loudest = 0.0f;
+        for (float p : peaks[round]) loudest = std::max(loudest, p);
+        int silent = 0;
+        for (float p : peaks[round]) if (p < 0.05f * loudest || loudest <= 1.0e-5f) ++silent;
+        const bool roundOk = loudest > 1.0e-4f && silent == 0;
+        ok &= roundOk;
+        printf("    pool sweep %s  loudest slot %.4f  silent slots %d/%d -> %s\n",
+               round == 0 ? "(first use)" : "(reuse)   ", loudest, silent,
+               CsoundEngine::kMaxVoices, roundOk ? "PASS" : "*** FAIL ***");
+        printf("      per-slot peak:");
+        for (float p : peaks[round]) printf(" %.3f", p);
+        printf("\n");
+    }
+
+    // The sweep's own audio, for the ear: sixteen voices arriving one by one.
+    {
+        CsoundRig ear(2.0f, 20.0f, 1.0f, kRelease, CsoundEngine::kMaxVoices, orchestra, osFactor);
+        if (ear.ready)
+        {
+            std::vector<ScheduledEvent> on;
+            for (int v = 0; v < CsoundEngine::kMaxVoices; ++v)
+                on.push_back({ v * onEvery, [&ear, pitchFor, v] { ear.noteOn(pitchFor(v)); } });
+            out = ear.renderRange(roundLen, on);
+            for (float& s : out) if (! std::isfinite(s)) s = 0.0f;
+            writeWavNormalized(wavName, out, (int) CsoundRig::SR, -12.0f);
+        }
+    }
+    return ok;
+}
+
+static bool caseRepeatedNotes(const char* orchestra, int osFactor, const char* what)
+{
+    // The EFFECTIVE factor, not the requested one: prepare() clamps anything
+    // outside {1,2,4} and caps the absolute engine rate, so printing the request
+    // would report a run that did not happen.
+    const int effective = CsoundEngine::effectiveOversampleFactor(CsoundRig::SR, osFactor);
+    printf("[6] REPEATED NOTES (%s, os=%dx", what, effective);
+    if (effective != osFactor) printf(", requested %dx", osFactor);
+    printf(")\n");
+
+    const std::string prefix = std::string("tools/csound_engine_out/case6_")
+                             + (orchestra == nullptr ? "builtin" : "authored");
+    bool ok = sequentialNoteRun(prefix + "_sequential.wav", orchestra, osFactor);
+    ok &= poolSweepRun(prefix + "_poolsweep.wav", orchestra, osFactor);
+    return ok;
+}
+
+int main(int argc, char** argv)
 {
     juce::ScopedJuceInitialiser_GUI juceInit;   // safe init for any JUCE statics
+
+    // Optional: an authored orchestra to put through case 6 as well, and the
+    // oversampling factor to compile it at (the plugin's own is lroOsFactor_).
+    std::string authored;
+    int authoredOs = 4;
+    if (argc > 1)
+    {
+        std::ifstream f(argv[1], std::ios::binary);
+        authored.assign(std::istreambuf_iterator<char>(f), std::istreambuf_iterator<char>());
+        // An unreadable OR empty file must not read as "no argument given": that
+        // silently skips the authored run and the tool still prints ALL PASS.
+        if (! f || authored.empty())
+        {
+            std::fprintf(stderr, "FATAL: orchestra file '%s' is missing or empty\n", argv[1]);
+            return 1;
+        }
+        if (argc > 2)
+        {
+            authoredOs = std::atoi(argv[2]);
+            if (authoredOs != 1 && authoredOs != 2 && authoredOs != 4)
+            {
+                std::fprintf(stderr, "FATAL: oversampling factor must be 1, 2 or 4 (got '%s')\n", argv[2]);
+                return 1;
+            }
+        }
+    }
 
     printf("Phase-1 Csound engine voice bridge -- guard tool (spec sections 3+5)\n");
     printf("SR=%.0f BS=%d kMaxVoices=%d kKsmps=%d\n\n",
@@ -579,8 +878,14 @@ int main()
     ok &= caseStandingTone();
     ok &= caseRtCleanliness();
     ok &= caseTiming();
+    ok &= caseRepeatedNotes(nullptr, 1, "built-in orchestra");
+    if (! authored.empty())
+        ok &= caseRepeatedNotes(authored.c_str(), authoredOs, argv[1]);
 
-    printf("\nWAVs: tools/csound_engine_out/case{1,2,3}_*.wav\n");
+    printf("\nWAVs: tools/csound_engine_out/case{1,2,3,6}_*.wav\n");
+    printf("NOTE: case 6's authored run leaves BS(480) exactly divisible by "
+           "kKsmps/os at os=2 and os=4,\n      so the carry FIFO the 480 was "
+           "chosen for is exercised by the built-in (os=1) run only.\n");
     printf("%s\n", ok ? "ALL PASS" : "*** FAIL ***");
     return ok ? 0 : 1;
 }
