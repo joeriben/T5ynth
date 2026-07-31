@@ -183,6 +183,15 @@ Not coverage. Few parameters, musically meaningful, allowed to grow.
 > in `backend/dco_lexicon.json` ist ab jetzt der einzige Ort, an dem eine Abnahme steht;
 > es trägt BJs Wortlaut oder den Status `offen`. Aus Herkunft, Commit-Text oder einer
 > Überschrift wird KEINE Abnahme erschlossen — genau das ist hier passiert.
+>
+> **Und der Stand ist ohne die Datei lesbar (2026-07-31).** `heard.status` ist eine
+> geschlossene Liste, `tools/lco_build_library.py` druckt bei jedem Lauf die Rolle —
+> wer abgenommen ist (und damit im LRO-Panel steht) und wer in welchem Zustand nicht —
+> und verweigert den Build, wenn ein Datensatz unlesbar ist. Anlass: `divider_organ`
+> stand zwei Tage auf „offen — kein Beleg für eine Abnahme gefunden“, während BJs
+> „divider ist erstklassig gelungen“ (2026-07-29) die ganze Zeit im Protokoll stand.
+> „Kein Beleg gefunden“ ist eine Aussage über die Suche und nie über sein Urteil: eine
+> fehlende Abnahme ist eine offene FRAGE an ihn, kein Nein.
 
 ### Instrument 1 — analogue oscillator (`analog_osc`) — BUILT; Abnahme siehe `heard`
 

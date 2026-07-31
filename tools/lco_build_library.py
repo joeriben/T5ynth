@@ -548,6 +548,24 @@ def main():
         mark = " — AND BJ HAS TAKEN IT" if key in taken else ""
         print(f"WITHHELD from the library (still in the lexicon): {key}{mark} — {why}")
 
+    # The roll, printed on both paths. `heard` is where an approval LIVES (that was
+    # settled on 2026-07-30 and is why there is no second list anywhere), but it lives
+    # inside a half-megabyte JSON, and a record nobody can read is a record that gets
+    # filled in wrong: `divider_organ` sat at "offen — kein Beleg für eine Abnahme
+    # gefunden" for two days while BJ's „divider ist erstklassig gelungen" (2026-07-29)
+    # was in the transcript the whole time. BJ, 2026-07-31: "ich hatte angeordnet dass
+    # das KLAR und EINDEUTIG zu markieren ist an geeigneter Stelle." This is that place
+    # made legible — derived from `heard` on every run, never a copy of it.
+    by_status = {}
+    for e in lex["techniques"]:
+        by_status.setdefault(e["heard"]["status"], []).append(
+            e.get("display_name") or (e.get("surface_forms") or [e["key"]])[0])
+    shown = sorted(by_status.pop("abgenommen", []))
+    print(f"ABGENOMMEN von BJ, and therefore shown in the panel ({len(shown)}): "
+          + ", ".join(shown))
+    for status, names in sorted(by_status.items()):
+        print(f"  {status} ({len(names)}): " + ", ".join(sorted(names)))
+
     if args.check:
         if not OUT.exists():
             print(f"{OUT} missing", file=sys.stderr)
