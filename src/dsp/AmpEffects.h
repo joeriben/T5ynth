@@ -70,65 +70,29 @@
  * `ep_fm3`'s `strike` axis, which already carries it.
  *
  * IT IS AN AMPLIFIER AND NOT A CURVE, which is what BJ said about the FIRST
- * version — a plain symmetric `tanh`: *„das ist zu glatt, hell lang und müsste
- * außerdem — ein ungelöstes Problem — auch einen kleinen Übersteuerungs-
- * ‚Rumble' in der Transiente haben."* Measured against
- * the dry body, all three of those were in the files: the even/odd balance moved
- * by 1.4 dB and nothing else (a symmetric curve has NO even harmonics); the
- * spectral centroid over 6.5 s went 3946 → 794 Hz where the body's own went
- * 1827 → 605, and the level fell 1.0 dB where the body fell 9.9 — saturation
- * flattens the envelope AND the brightness; and nothing in the code could
- * produce a rumble at all.
+ * version — a plain symmetric `tanh`: *„das ist zu glatt, hell lang."* Both were
+ * in the files: the even/odd balance moved by 1.4 dB and nothing else (a
+ * symmetric curve has NO even harmonics), and the spectral centroid over 6.5 s
+ * went 3946 → 794 Hz where the body's own went 1827 → 605 while the level fell
+ * 1.0 dB against the body's 9.9 — saturation flattens the envelope AND the
+ * brightness.
  *
- * So the stage models four things an amplifier does when it is driven past what
- * its supply can hold, and each has its source in the .cpp: a rail that DROOPS
- * with the current drawn (so the clipping threshold moves, the bark ends up in
- * the attack, and the note is no longer flattened for its whole length), the
- * rectifier RIPPLE that droop makes audible (the intermodulation players call
- * ghost notes), an ASYMMETRIC pair of clipping thresholds (so there are even
- * harmonics at all: measured, the 2nd partial rises 12.7 dB over the dry body
- * and the 4th 28.6 dB) — and the RUMBLE.
+ * So the stage models the three things an amplifier does when it is driven past
+ * what its supply can hold, and each has its source in the .cpp: a rail that
+ * DROOPS with the current drawn (so the clipping threshold moves, the bark ends
+ * up in the attack, and the note is no longer flattened for its whole length),
+ * the rectifier RIPPLE that droop makes audible (the intermodulation players
+ * call ghost notes), and an ASYMMETRIC pair of clipping thresholds (so there are
+ * even harmonics at all: measured, the 2nd partial rises 12.7 dB over the dry
+ * body and the 4th 28.6 dB).
  *
- * THE RUMBLE is the same rail, ringing. BJ defined the word twice after hearing
- * a build that had only the 100 Hz ripple and reporting „kein Rumble", which was
- * correct — 100 Hz is a hum, two octaves above what he meant: *„tieffrequente
- * Störung, und zwar als negativ von Rumble-filtern wie sie in plattenspielern
- * sitzen"*, then *„Link Wray → Rumble. Oder auch LKW die eien Strasse
- * langfahren und Gläser klirren lassen aufgrund tieffrequenter Schwingungen."*
- * The band is the one he named it by (a turntable's rumble is a resonance at
- * 10–30 Hz), the mechanism is the amplifier's own in that same band (a
- * rectifier's high output impedance lets current swings move the rail, 1–20 Hz;
- * the choke and cap that feed it are an LC network that a pulsed signal kicks) —
- * so the rail RINGS, and what kicks it is the CHANGE in the current drawn, not
- * its level. That is why this can sit in the transient where the bark could not:
- * a ring answers a step and then dies, while a level follower behind the voices
- * only reports how loud it is now.
- *
- * Measured against the same code with the term at zero, at mix 0.7 and 24 dB of
- * drive on the dry body: the added energy sits in the band and nowhere else —
- * +32.4 dB at 16–25 Hz, +21.8 at 10–16, +9.9 at 25–40, and +0.0, −0.1 and −0.1
- * at 80–160, 160–320 and 320–2000. It dies with the transient: the difference
- * between the two files is −28.0 dBFS over the first 0.3 s and −64.2 over the
- * next 0.3, i.e. 36 dB gone in 300 ms. And it shakes what is above it, which is
- * the half BJ's two images are actually about — the envelope's own 16 Hz
- * component rises from −20.0 to −3.9 dB.
- *
- * It is an ÜBERSTEUERUNGS-rumble in the literal sense: +1.4 dB of that shake at
- * 9 dB of drive, +9.2 at 18, +16.1 at 24 and +21.6 at 30, because the rail IS
- * the clipping threshold and moving it does little to a stage that is not
- * clipping. And on a note that does not decay it leaves nothing behind: on a
- * held 220 Hz sine the tail from two to three seconds measures −0.00 dB against
- * the same code with the term at zero, at 12, 24 and 36 dB of drive alike. The
- * rail is never lifted above its unloaded value either — measured range
- * [0.347 … 1.000] at 36 dB, and the 0.05 floor is reached on 0.00 % of samples
- * at every drive.
- *
- * It costs 2.1 dB of PEAK, and that is the price of putting real energy under
- * the note: the stage's peak output goes 0.829 → 1.059 at 12 dB of drive and
- * 0.725 → 0.948 at 24, because the asymmetric pair leaves a 16 Hz component that
- * the 10 Hz DC blocker only partly removes. Past full scale at the first of
- * those, which the always-on limiter in PluginProcessor catches — but it is a
- * real 2.1 dB and not a rounding.
+ * THIS STAGE DOES NOT DO A RUMBLE, and nothing here should be read as promising
+ * one. BJ asked for „einen kleinen Übersteuerungs-‚Rumble' in der Transiente",
+ * defined the word twice (the low-frequency disturbance a turntable's rumble
+ * filter removes; Link Wray; a truck making glasses rattle), heard three builds
+ * and reported „kein Rumble" every time. It is not offered, not attempted again
+ * here, and not listed as pending — his ruling, 2026-07-31: *„vergiss den
+ * Rumble, Du kannst kein Rumble."*
  *
  * NO MAKE-UP GAIN, deliberately. The obvious 1/g (tanh's slope at zero, so
  * exact for the quiet part of the waveform) turns the top half of the control
@@ -168,13 +132,6 @@ public:
     /** 0…1 wet. 0 is bypass, and is the default. */
     void setMix(float mix);
 
-    /** Scales the supply's ring, for the A/B on the audition page and nothing
-        else — 1 is the model and is the default, 0 removes the term without
-        touching anything around it. Deliberately NOT a plugin parameter: the
-        amplifier chain has the twelve `fx_*` ids and no thirteenth, and how far
-        a supply rings is a property of the amplifier, not a knob on it. */
-    void setRumbleScale(float scale);
-
     bool wants() const noexcept { return mix_ > 0.0001f; }
     void processBlock(juce::AudioBuffer<float>& buffer);
 
@@ -196,20 +153,6 @@ private:
     float driveDb_ = 0.0f, mix_ = 0.0f;
     // the supply model — one rail for the whole amplifier, per-channel DC block
     float load_ = 0.0f, ripPhase_ = 0.0f;
-    float loadPrev_ = 0.0f, ringScale_ = 1.0f;
-    /** The ring is DOUBLE, and that is a requirement rather than caution. Its
-        stability margin is 1 − a1 − a2 = w² + δ², which shrinks as 1/osr²: at a
-        192 kHz host it is 7.2e-8, and one float ULP beside a1 ≈ 2.0 is 1.2e-7.
-        In float the ROUNDING of the two coefficients decides stability — swept
-        over every integer host rate, 1489 of them (all ≥ 172795 Hz) put the pair
-        at or over the edge, where the poles turn real with one at z = 1 and the
-        term becomes an integrator that never returns to rest: measured at
-        172795 Hz, five notes with two seconds of silence between them each came
-        back 2.0 dB up with no 16 Hz left in them. It does not blow up — the
-        clamp below and the rail's floor bound the output — it silently latches,
-        which is worse. In double the same margin is 1.62e8 ULPs wide. */
-    double ring1_ = 0.0, ring2_ = 0.0;
-    double ringA1_ = 0.0, ringA2_ = 0.0, ringSin_ = 0.0;
     float attCoef_ = 0.0f, relCoef_ = 0.0f, ripInc_ = 0.0f, dcPole_ = 0.0f;
     float dcX_[2] { 0.0f, 0.0f }, dcY_[2] { 0.0f, 0.0f };
     double sr_ = 44100.0;

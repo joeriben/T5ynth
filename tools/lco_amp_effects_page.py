@@ -59,20 +59,6 @@ SETTINGS = [
      "an overdriven AMPLIFIER: the rail droops with the current drawn, carries the "
      "rectifier\u2019s 100 Hz ripple while it is loaded, and clips asymmetrically. "
      "NOT offered as an e-piano bark \u2014 see the note above"),
-    ("overdrive, driven", "rhodes",
-     ["dist_mix=0.7", "dist_drive=24"],
-     "the same stage at 24 dB, which is where the RUMBLE is \u2014 the rail rings at "
-     "16 Hz when a transient changes the current drawn. Against the same code with "
-     "that one term at zero it adds +32.4 dB at 16\u201325 Hz and nothing at all above "
-     "80 Hz (+0.0, \u22120.1, \u22120.1), the difference between the two files falls 36 dB "
-     "within 300 ms, and it moves the envelope\u2019s own 16 Hz component from "
-     "\u221220.0 to \u22123.9 dB. At the 9 dB row above that last figure is +1.4 dB: it is a "
-     "rumble from \u00dcBERSTEUERUNG, so it appears when the stage is actually "
-     "overdriven and not before"),
-    ("overdrive, driven, no rumble", "rhodes",
-     ["dist_mix=0.7", "dist_drive=24", "rumble=0"],
-     "the row above with the ring term switched off and nothing else changed \u2014 "
-     "the A/B for the paragraph beside it"),
     ("suitcase, whole", "rhodes",
      ["chorus_mix=0.35", "chorus_rate=0.6", "chorus_amt=0.3",
       "trem_amt=0.5", "trem_rate=4.5", "trem_stereo=0.9"],
@@ -164,22 +150,12 @@ the note. An amplifier behind the voices has no envelope at all \u2014 it follow
 and the level falls more slowly than the modulation, which is exactly why the effect grows
 instead of decaying. The bark belongs in the body, where <code>ep_fm3</code> already has it
 as its <code>strike</code> axis.</p>
-<p class=n><b>The rumble is the other half of that instruction, and it IS here now.</b>
-BJ defined the word twice after hearing the build that had only a 100 Hz ripple and
-reporting „kein Rumble" — which was right, 100 Hz is a hum: „tieffrequente Störung, und
-zwar als negativ von Rumble-filtern wie sie in plattenspielern sitzen", then „Link Wray →
-Rumble. Oder auch LKW die eien Strasse langfahren und Gläser klirren lassen aufgrund
-tieffrequenter Schwingungen." A turntable's rumble is a resonance at <b>10–30 Hz</b>, and
-an amplifier's own low-frequency instability sits in the same band: a rectifier's high
-output impedance lets the current the output stage draws move the rail (1–20 Hz), and the
-choke and capacitor that feed it are an LC network a pulsed signal kicks. So the rail does
-not only droop — it <b>rings</b>, and what kicks it is the CHANGE in the current drawn, not
-its level. That is why it can sit in the transient where the bark could not: a ring answers
-a step and then dies. Both of BJ's images are separate measurements: the truck is real
-energy in the band (+32.4 dB at 16–25 Hz over the same code with the term at zero, and
-+0.0 dB at 80–160), the glasses are everything above it being shaken (the envelope's own
-16 Hz component, −20.0 → −3.9 dB). On a note that does NOT decay it leaves nothing behind —
-a held sine measures −0.00 dB on its tail either way. <b>The last two rows are that A/B.</b></p>
+<p class=n><b>There is no rumble either, and it is not pending.</b> BJ asked for „einen
+kleinen Übersteuerungs-‚Rumble' in der Transiente", defined the word twice — the
+low-frequency disturbance a turntable's rumble filter removes, Link Wray, a truck making
+glasses rattle — heard three builds and reported „kein Rumble" each time. His ruling,
+2026-07-31: „vergiss den Rumble, Du kannst kein Rumble." So the overdrive row below is a
+sag, a ripple and an asymmetric clip, and claims nothing beyond that.</p>
 <p class=n>Measured across these files, so it is not a claim about how they sound:
 the suitcase row has an L−R of 0.0410 and the wurlitzer row 0.0000 — the one is a pan and
 the other is amplitude, which is the difference the two instruments' amplifiers make. The
