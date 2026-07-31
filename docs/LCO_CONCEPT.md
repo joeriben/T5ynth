@@ -78,6 +78,44 @@ Translate natural language, adjectives and **metaphors** into (a) the instrument
 
 Instruments wave-morph according to the prompt, and up to three are mixed. Both are properties the library must carry: an entry that only knows how it sounds alone is half an entry.
 
+### A synthesis method and an instrument are two categories, and the library holds them in one list
+
+Stated by BJ on 2026-07-31, on seeing `ep_fm3` next to `fm3`:
+
+> „UNKLAR ist uns bisher dass einige Synthesetechnologien zugleich Orchestrierungen sind. Wir sehen das an ep_fm3 aber: Das Instrument ist ein epiano, die synthesetechnologie fm3. Aber fm3 existiert auch als Instrument (zu recht! ‚DX3' hätte ein Synth sein können)."
+
+Two categories, and the difference is what the entry *is for*:
+
+- **A synthesis method** is a MEANS — FM, PM, additive, ring modulation, Chebyshev waveshaping, an analogue oscillator, a filter. It is what an instrument is built OUT OF.
+- **An instrument** is a RESULT — an electric piano, a drum head, a bottle, and equally the nature and culture sounds still to come. It is built *with* one or more methods; `ep_fm3` is an e-piano built with `fm3`.
+
+The two overlap, and that is correct rather than a defect to clean up: `fm3` is a method AND a playable instrument, because a three-operator FM synth is a thing you can put a keyboard on — BJ's "DX3". `analog_osc` and `supersaw` are the same case. What is NOT the case is the reverse: a nature or culture sound is never itself a synthesis method. It is authored out of them.
+
+**Today the library does not carry this distinction at all.** All 29 entries sit in one group, `techniques`, whatever they are: `sine`, `additive`, `ring_mod`, `cheby`, `sync`, `sub_sine` (methods) next to `organ`, `clarinet`, `harpsichord`, `theremin`, `cymbal`, `blown_bottle` (instruments) next to `fm3`, `analog_osc`, `supersaw` (both). Nothing in an entry says which it is, so nothing can act on it — not the author's prompt, not a check, not a future page.
+
+### Synthetic mimesis is the goal, and it is not reconstruction
+
+> „Dadurch erreichen wir mit sehr gut kuratierten Synthesetechnologien und gut kuratierten Instrumenten etwas, das Synthesizer-Urgelände ist: die SYNTHETISCHE MIMESIS, also interpretierende Übersetzung in die eigene Apparatur. Physical Modeling zeigt das: es ist eben nicht das Nachbauen echter konkreter Physik (Pianoteq) und echter Schaltungen (Xils PolyM u.a.m.)." — BJ, 2026-07-31
+
+So the target of an instrument entry is the **interpreting translation** of a sound into this apparatus's own means — not a reconstruction of the thing's physics and not a circuit model. Read this together with [[project_lco_material_not_imitation]] („das ist ein synth!") and `project_lco_imagination_is_the_goal`: it names the *operation* those two describe the result of. It also states why the two curations have to be good separately — the methods, because they are what the translation is written in; the instruments, because they are what a translation has already been done for.
+
+### The layer that is missing: a filter bank
+
+BJ, same day: *„Was hier also unter anderem der klassische Weg wäre, wäre eine Filterbank (mit parametern wie Old für analogen bis digitalfiltercharacteristik). Das wäre dann jedenfalls eine Basis auch für ‚Natur'-Klänge und ‚Kultur'-Klänge."*
+
+What the sound words do today, counted across all 51 of them plus the 17 motions: **49 uses of `tone` and 27 of `atone`** — a one-pole lowpass and a one-pole highpass — and 6 of `reson`. Nothing else. A one-pole tilt is the whole vocabulary a sound word has to shape a body with.
+
+And where a word wanted more than a tilt, it did not filter at all: **nine of the 51 carry a complete `vco2` oscillator of their own instead of shaping `asig`** — `warm`, `hollow`, `nasal`, `fat`, `thin`, `thick`, `reedy`, `distorted`, `old`. They are leftovers of the wavetable architecture, and under the heading the author reads (*"What each word means in code. Fold it into how the tone is MADE"*) they read as an invitation to replace the instrument rather than colour it. That is the same hole seen from the other side: the words had no filter to reach for.
+
+The substrate already has the bank, so this is not a build-from-nothing. Verified with `csound -z1` on this build (6.18), not assumed:
+
+- `resonbnk` — a bank of resonators driven from a table. A filter bank in the literal sense.
+- `mode` — modal resonators; already used 59 times, but only ever inside instruments, never by a sound word.
+- `clfilt` — the four classical analogue prototypes (Butterworth, Chebyshev I and II, Bessel) at a chosen order.
+- `moogladder`, `moogladder2`, `diode_ladder`, `zdf_ladder`, `zdf_2pole`, `statevar`, `svfilter`, `lowres`, `vlowres`, `bqrez`, `rbjeq`, `eqfil`, `pareq`, `nlfilt`, `nlfilt2`, `streson`.
+
+Which of those carries an `old` axis from an analogue to a digital filter character is **open and is BJ's to hear** — the nonlinear ladders are the obvious candidate for one end, but that is a hypothesis, not a measurement, and the rule that a method needs a named source before the first orchestra line applies here as everywhere.
+
 ---
 
 ## 4. Platform invariants every instrument must obey
