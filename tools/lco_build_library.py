@@ -70,6 +70,22 @@ def assemble(lex):
         item = {"key": entry["key"], "why": entry.get("why", ""),
                 "code": entry.get("code", "")}
 
+        # The entry's own NAME, for anything that has to show it to a player.
+        # It is the first surface form -- curated, and the very word that
+        # reaches this body in a prompt. Deriving a name instead from the head
+        # of `why` was tried and produced descriptions, not names ("a wire
+        # under tension", "a metal body held ringing by moving air"); BJ,
+        # 2026-07-30: "das sind NICHT die Instrumente". A `why` opens however
+        # its author wrote it; a surface form is the name on purpose.
+        # `display_name` overrides it where the first form is not the name the
+        # entry should be shown under: `divider_organ` routes from
+        # "divide-down organ" but is called "transistor organ/string machine"
+        # (BJ, 2026-07-30). The shown name is a product decision and must not
+        # be a side effect of routing order.
+        forms = entry.get("surface_forms") or []
+        item["name"] = (entry.get("display_name")
+                        or (forms[0] if forms else entry["key"]))
+
         # BJ's authorisation, carried through verbatim so the plugin can show the
         # library WITHOUT re-deriving "curated" from something measurable. It was
         # derived once, from `params`+`anchor_code`, and that was wrong in both
