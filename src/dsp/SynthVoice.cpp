@@ -68,9 +68,20 @@ float applyAftertouchDcaGain(const BlockParams& p, float gain, float pressure)
                         + aftertouchDrive(p, AftertouchTarget::DCA, pressure));
 }
 
-float computeDcaGain(const BlockParams& p, float ampEnvVal, const float* modEnvVals)
+// The VCA's control voltage is an EXCLUSIVE choice — spec: "jeder Zustand einer
+// Stimme ist zu JEDER Zeit ein XODER: Wert (ENV→DCA) oder Wert Taste an/aus."
+// Either the amp envelope is routed to the DCA and IS the level, or it is routed
+// elsewhere and the KEY is the level. The old else-branch was a constant 1.0f,
+// which is neither: the key never entered the level at all, so with the amp
+// envelope pointed anywhere but the DCA a voice sounded at full scale for its
+// whole lifetime — through the release, with no note held. `keyGate` is that
+// missing arm (0/1 as the spec says: on/off, velocity belongs to the envelope),
+// ramped by the caller so the gate edge is not a step.
+// Mod envelopes on the DCA stay what they have always been — multiplicative
+// trims on top of whichever authority holds the level, not an authority.
+float computeDcaGain(const BlockParams& p, float ampEnvVal, const float* modEnvVals, float keyGate)
 {
-    float vca = (p.ampTarget == EnvTarget::DCA) ? ampEnvVal : 1.0f;
+    float vca = (p.ampTarget == EnvTarget::DCA) ? ampEnvVal : keyGate;
     for (int m = 0; m < kNumModEnvs; ++m)
         if (p.modEnv[m].target == EnvTarget::DCA) vca *= (1.0f + modEnvVals[m]);
     return std::max(0.0f, vca);
@@ -154,6 +165,10 @@ void SynthVoice::prepare(double sampleRate, int samplesPerBlock)
     // before the first noteOn/glideToNote.
     csoundFreq_.reset(sampleRate, 0.0);
     csoundFreq_.setCurrentAndTargetValue(baseFrequency);
+
+    // Key gate: closed until a note arrives.
+    keyGate_.reset(sampleRate, KEY_GATE_MS * 0.001);
+    keyGate_.setCurrentAndTargetValue(0.0f);
 }
 
 void SynthVoice::reset()
@@ -175,6 +190,7 @@ void SynthVoice::reset()
     if (driveOs8x_) driveOs8x_->reset();
     active = false;
     noteHeld = false;
+    keyGate_.setCurrentAndTargetValue(0.0f);
     currentNote = -1;
     aftertouch_ = 0.0f;
     lastAmpEnvLevel = 0.0f;
@@ -657,7 +673,9 @@ void SynthVoice::updateSamplerPreStretchNorm(const BlockParams& p)
         for (int m = 0; m < kNumModEnvs; ++m)
             modEnvVals[m] = modRef[m].processSample() * p.modEnv[m].amount;
 
-        dcaCurve[static_cast<size_t>(i)] = computeDcaGain(p, ampEnvVal, modEnvVals);
+        // The reference envelopes above are never released, so this analyses a
+        // HELD note — the key gate is open for its whole length.
+        dcaCurve[static_cast<size_t>(i)] = computeDcaGain(p, ampEnvVal, modEnvVals, 1.0f);
     }
 
     float analysisPeak = 0.0f;
@@ -972,6 +990,11 @@ void SynthVoice::renderBlock(float* output, float* outputRight, const BlockParam
         for (int i = pos; i < subBlockEnd; ++i)
         {
             float ampEnvVal = ampEnv.processSample() * p.ampAmount;
+            // The key's own control voltage, advanced every sample next to the
+            // envelopes — unconditionally, so the ramp stays sample-locked no
+            // matter which branch of computeDcaGain reads it this block.
+            keyGate_.setTargetValue(noteHeld ? 1.0f : 0.0f);
+            const float keyGate = keyGate_.getNextValue();
             float modEnvVals[kNumModEnvs];
             for (int m = 0; m < kNumModEnvs; ++m)
                 modEnvVals[m] = modEnvs[m].processSample() * p.modEnv[m].amount;
@@ -1097,14 +1120,21 @@ void SynthVoice::renderBlock(float* output, float* outputRight, const BlockParam
             }
 
             // Cache VCA for phase D; raw audio goes to output[i] / outputRBuf untouched.
-            float vca = computeDcaGain(p, ampEnvVal, modEnvVals);
+            float vca = computeDcaGain(p, ampEnvVal, modEnvVals, keyGate);
             vca = applyAftertouchDcaGain(p, vca, aftertouch_);
 
             output[i] = sample;
             outputRBuf[i - pos] = sampleR;
             vcaScratch[i - pos] = vca;
 
-            if (ampEnv.isIdle() && !noteHeld)
+            // Freeing the voice cuts its output dead, so it may only happen once
+            // NOTHING is still shaping the level. With the amp envelope on the
+            // DCA that is the envelope alone, exactly as before. With it routed
+            // elsewhere the KEY holds the level (computeDcaGain above), and its
+            // release ramp has to finish first — otherwise a zero-release amp
+            // envelope would chop the gate's fall mid-slope and click.
+            if (ampEnv.isIdle() && !noteHeld
+                && !(p.ampTarget != EnvTarget::DCA && keyGate_.isSmoothing()))
             {
                 active = false;
                 lastI = i + 1;

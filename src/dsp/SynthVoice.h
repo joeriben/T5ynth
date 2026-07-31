@@ -161,6 +161,12 @@ private:
     // time (later commit); the orchestra's own portk provides the audible
     // smoothing between steps. noteOn snaps it, glideToNote re-arms it.
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> csoundFreq_;
+    // The key ON/OFF as a control voltage for the DCA — the "Taste an/aus" arm of
+    // the voice-state XOR, read by computeDcaGain whenever the amp envelope is
+    // routed off the DCA. A bare 0/1 would step the output by full scale on every
+    // note edge, so it is ramped over KEY_GATE_MS. Advanced once per sample in
+    // renderBlock, next to the envelopes.
+    juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> keyGate_;
     // This block's Csound render input (Phase-1 spec §3), stored from the
     // renderBlock parameter of the same name — mirrors how lfo1Buf/lfo2Buf/
     // lfo3Buf are threaded, just captured into a member so the render-branch
@@ -317,6 +323,11 @@ private:
     int restartFadeSamplesLeft_ = 0;
     int restartFadeTotalSamples_ = 1;
     static constexpr float RESTART_FADE_MS = 3.0f;
+    // Rise/fall of the key gate above. Same 3 ms as the retrigger seam — the
+    // shortest fade this synth uses, long enough that the edge is not a click and
+    // short enough that a gated note still reads as instant. Its own constant, so
+    // changing one fade never silently moves the other.
+    static constexpr float KEY_GATE_MS = 3.0f;
 
     PreStretchNormState preStretchNormState_;
     float samplerPreStretchNormGain_ = 1.0f;
