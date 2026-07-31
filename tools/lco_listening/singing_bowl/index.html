@@ -1,0 +1,27 @@
+<!doctype html><meta charset=utf-8>
+<title>singing bowl — Kandidat gegen metallic_fm</title>
+<style>body{font:15px/1.5 -apple-system,system-ui,sans-serif;max-width:820px;margin:2rem auto;
+padding:0 1rem;background:#14161a;color:#e6e6e6} h1{font-size:1.35rem} h2{font-size:1.05rem;margin:0 0 .2rem}
+section{border:1px solid #2c3038;border-radius:8px;padding:.9rem 1rem;margin:.8rem 0;background:#191c21}
+section.inc{border-color:#5a3a3a;background:#211a1a}
+.g{margin:.1rem 0 .5rem;color:#a8b0bb} .s{font:12px ui-monospace,Menlo,monospace;color:#7fd1b9}
+audio{height:32px;width:100%} .n{color:#a8b0bb;font-size:13px} .w{color:#e0a860}</style>
+<h1>singing bowl — Kandidat gegen den Amtsinhaber</h1>
+<p class=n>8 s, 220 Hz, <b>eine Verstärkung für den ganzen Satz</b> (-12.26 dB).
+Die zwei rot umrandeten Zeilen sind <code>metallic_fm</code>, das heute alles bekommt, was
+„singing bowl“ oder „klangschale“ sagt. Darunter der Kandidat.</p>
+<p class=n>Verfahren und Quellen stehen in <code>docs/plans/PLAN_lco_singing_bowl.md</code>, vor der
+ersten Orchesterzeile geschrieben. Kurz: Inácio, Henrique &amp; Antunes (Acta Acustica 92, 2006)
+haben vier Schalen vermessen — die Modenverhältnisse, die Tatsache dass JEDE Mode ein PAAR ist
+(daher die Schwebung), und die Dämpfung ζ = 0,002…0,015 %. Terwagne &amp; Bush (arXiv:1106.6348)
+geben die geschlossene Form und den „mode lock-in“: gerieben statt geschlagen bringt der Körper
+ECHTE Harmonische. Nichts hier ist gefittet; die Achsenenden sind zwei vermessene Schalen.</p>
+<p class=n><b>Der Satz, um den es geht</b>, aus derselben Quelle: die Verhältnisse sind
+„mildly inharmonic, which does not affect the definite pitch of this instrument“. Eine
+Klangschale HAT eine bestimmte Tonhöhe. Ein Gong nicht.</p>
+<p class="n w"><b>Offen, und ich sage es bevor Du hörst:</b> der Kandidat hat noch zwei
+mechanische Mängel, die ihn so nicht in die Bibliothek lassen — über die Tastatur fällt der
+Pegel um 4,2 dB/Oktave (110 Hz steht 12,6 dB über 880), und die Achse <code>sung</code> steht
+5,6 dB über dem geschlagenen Ende. Beide sind zu beheben. Was ich von Dir brauche, ist NICHT
+das — es ist, ob die Richtung stimmt.</p>
+<section class=inc><h2>metallic_fm, Vorgaben — DER AMTSINHABER</h2><p class=g>was der Prompt „crystal singing bowls in a cathedral“ heute erreicht. Teiltöne 1.00 / 3.89 / 8.76 / 11.65 / 16.54, stärkster tiefer Teilton bei 62 Hz unter einer gespielten 220 — eine Chladni-Platte, ein Gong</p><audio controls preload=none src='nearest_existing.wav'></audio></section><section class=inc><h2>metallic_fm, so nah an einer Schale wie seine eigenen Achsen kommen</h2><p class=g>stretch 1.4, damping 0, ring 0.89 — der Eintrag an seinem schalenähnlichsten Punkt, damit der Vergleich fair ist</p><audio controls preload=none src='nearest_existing_tightest.wav'></audio></section><section><h2>bowl, struck</h2><p class=g>die Vorgaben: Modenreihe zwischen Schale 2 und Schale 4, Schwebung wie Schale 1, Q rund 3500</p><p class=s><b>bowl</b> 0.5 <b>warb</b> 0.3 <b>ring</b> 0.6 <b>sung</b> 0</p><audio controls preload=none src='bowl_struck.wav'></audio></section><section><h2>bowl, long</h2><p class=g>dieselbe Schale frei aufgehängt — ζ 0,002 %, Q 25000, T60 rund 250 s</p><p class=s><b>bowl</b> 0.5 <b>warb</b> 0.3 <b>ring</b> 1 <b>sung</b> 0</p><audio controls preload=none src='bowl_long.wav'></audio></section><section><h2>bowl, handled</h2><p class=g>in der Hand gehalten — die Quelle sagt, das erhöht die Dämpfung um eine Größenordnung</p><p class=s><b>bowl</b> 0.5 <b>warb</b> 0.3 <b>ring</b> 0 <b>sung</b> 0</p><audio controls preload=none src='bowl_handled.wav'></audio></section><section><h2>bowl, wide warble</h2><p class=g>die Schwebung von Schale 3: 2,07 % auf dem Grundton; das Muster über die Bank ist Schale 1</p><p class=s><b>bowl</b> 0.5 <b>warb</b> 1 <b>ring</b> 0.6 <b>sung</b> 0</p><audio controls preload=none src='bowl_wide_warble.wav'></audio></section><section><h2>bowl, no warble</h2><p class=g>die kleinste gemessene Spaltung — die Paare stehen fast still</p><p class=s><b>bowl</b> 0.5 <b>warb</b> 0 <b>ring</b> 0.6 <b>sung</b> 0</p><audio controls preload=none src='bowl_no_warble.wav'></audio></section><section><h2>bowl, sung</h2><p class=g>gerieben statt geschlagen: mode lock-in, der Grundton mit ECHTEN Harmonischen</p><p class=s><b>bowl</b> 0.5 <b>warb</b> 0.3 <b>ring</b> 0.6 <b>sung</b> 1</p><audio controls preload=none src='bowl_sung.wav'></audio></section><section><h2>bowl, flat</h2><p class=g>die flachste gemessene Schale (Nr. 2) — die Achse `bowl` an ihrem unteren Ende</p><p class=s><b>bowl</b> 0 <b>warb</b> 0.3 <b>ring</b> 0.6 <b>sung</b> 0</p><audio controls preload=none src='bowl_flat.wav'></audio></section>
