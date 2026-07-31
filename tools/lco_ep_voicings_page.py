@@ -19,18 +19,24 @@ CLIPS = OUT / "clips"
 FREQ, DUR = 220.0, 7.0
 
 V = [
-    ("rhodes mark i",       dict(tine=14.0, ting=0.62, ring=0.30, hollow=0.35, strike=0.75, decay=0.38),
-     "growlier and barkier — the early tines and old pickups"),
-    ("rhodes mark ii",      dict(tine=18.0, ting=0.55, ring=0.45, hollow=0.30, strike=0.62, decay=0.38),
-     "more bell than bark, a little brighter"),
-    ("rhodes mark v",       dict(tine=20.0, ting=0.52, ring=0.45, hollow=0.28, strike=0.58, decay=0.40),
-     "as the mark ii, with more clarity"),
-    ("wurlitzer 200a",      dict(tine=7.0,  ting=0.75, ring=0.75, hollow=0.80, strike=0.90, decay=0.55),
-     "a reed and not a tine: the metal close to the body, the bark most of the attack, "
-     "and gone in half a Rhodes's time"),
-    ("rhodes, softly played", dict(tine=22.0, ting=0.55, ring=0.08, hollow=0.15, strike=0.15, decay=0.30),
-     "the source's own words: “glockenspiel-like, with an extremely short transient "
-     "showing higher partials”"),
+    ("rhodes",          dict(tine=14.0, ting=0.55, ring=0.30, hollow=0.10, strike=0.62, decay=0.45),
+     "the corpus's centre of gravity — 971 voices, far ratio 14 in 521 of them"),
+    ("rhodes suitcase", dict(tine=12.0, ting=0.62, ring=0.30, hollow=0.05, strike=0.62, decay=0.45),
+     "a lower tine and a hotter one — 24 voices at 11, 13.5, 13, 12"),
+    ("rhodes stage",    dict(tine=14.0, ting=0.42, ring=0.30, hollow=0.05, strike=0.55, decay=0.45),
+     "the softest drive of any group (level 64 against the dyno's 80)"),
+    ("rhodes mark",     dict(tine=14.0, ting=0.45, ring=0.30, hollow=0.05, strike=0.50, decay=0.22),
+     "rings on — the one thing the 21 Mark-named patches share is a carrier that "
+     "barely decays, 99→93 against everything else's 99→75"),
+    ("dyno",            dict(tine=26.0, ting=0.75, ring=0.30, hollow=0.35, strike=0.72, decay=0.45),
+     "157 voices, bimodal on the tine ratio — 14 in 32 and 26 in 30 — and the hottest "
+     "drive of any group. That second mode is what the name means here"),
+    ("wurlitzer",       dict(tine=14.0, ting=0.38, ring=0.30, hollow=0.80, strike=0.60, decay=0.33),
+     "the even partials cancelled: 41 % of its modulators sit in the 2–8 band, 198 of "
+     "them at exactly 2.0, against 3 % for the Rhodes. Weakest drive, and it rings "
+     "LONGER than the Rhodes — the opposite of the acoustic instruments"),
+    ("tine",            dict(tine=12.0, ting=0.38, ring=0.65, hollow=0.20, strike=0.58, decay=0.28),
+     "99 voices at ratio 12, and the far family STAYS instead of dying (99→85, not 99→75)"),
     ("(the entry's own defaults)", {}, "for comparison — what a bare “electric piano” gives"),
 ]
 
@@ -90,17 +96,22 @@ for name, over, gloss, ys in rows:
 <p class=n>{DUR:g} s, three registers, <b>one gain for the whole set</b>
 ({20 * np.log10(gain):+.2f} dB) — nothing here is normalised per file, so what you hear
 between the rows is the entry and not the renderer.</p>
-<p class=n>Where the differences come from: Pfeifle &amp; Münster, „Tone Production of the
-Wurlitzer and Rhodes E-Pianos“, DAGA 2017 Kiel, 556–559 — both timbres come from the
-<b>pickup</b>, not the vibrator. A Rhodes tine centred on the wedge magnet outputs at twice
-the fundamental; off centre, and under a harder strike, the flux change gets asymmetric and
-the harmonics come in. The inharmonic part is the brass tonebar and is strongest in the upper
-register. The Wurlitzer's reed has negligible higher modes — its harmonics are the
-capacitance changing differently on each excursion, which is the bark.</p>
-<p class=n><b>The rows are not measured.</b> The source gives the direction of each setting;
-the numbers are the entry's and yours to overrule. The effects these instruments are
-inseparable from — the suitcase tremolo, the Small Stone phaser, the Wurlitzer's overdrive —
-are <b>not</b> in here.</p>
+<p class=n>Where these come from: <b>this is an FM electric piano, so the reference is what
+FM programmers did</b>, not what a real pickup does. Every row is grouped out of the DX7
+corpus by the name written on the voice (<code>tools/dx7_corpus.py --profile</code>).</p>
+<p class=n>Three things the measurement says and the instrument world does not.
+<b>The Mark numbers are not an FM distinction</b> — 21 voices out of 119,296 carry one, there
+is no Mark V in the corpus at all, and what the Mark patches share is that they barely decay.
+What FM programmers separated instead is <b>dyno</b> (157) and <b>suitcase</b> (24).
+<b>The dyno is bimodal</b> on the tine ratio, 14 and 26, and carries the hottest drive.
+And, opposite to the acoustic instruments, <b>an FM Wurlitzer decays LESS than an FM
+Rhodes</b>, and it separates on <code>hollow</code> rather than on <code>tine</code> — both
+sit at 14; the Wurlitzer's mark is a modulator at exactly twice the carrier, which is what
+cancels the even partials.</p>
+<p class=n>The far-ratio column is measured and transfers as a value. The other five are the
+entry's reading of a measured DIRECTION — the DX7's output level rises with modulation index
+but does not count cycles. Yours to overrule. The effects these instruments are inseparable
+from — the suitcase tremolo, the Small Stone phaser, the bark — are <b>not</b> in here.</p>
 {''.join(cells)}
 """)
 print("→", OUT / "index.html")
