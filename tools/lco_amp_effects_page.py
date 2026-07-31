@@ -30,43 +30,43 @@ FREQ, DUR, SR = 220.0, 7.0, 48000
 # The two voicings the settings below are actually about, from `ep_fm3`'s own
 # table. Nothing here is a new sound: the point is what the amplifier does to one.
 VOICINGS = {
-    "rhodes": dict(tine=14.0, ting=0.55, ring=0.30, hollow=0.10, strike=0.62, decay=0.45),
-    "wurlitzer": dict(tine=14.0, ting=0.38, ring=0.30, hollow=0.80, strike=0.60, decay=0.33),
+    "tine": dict(tine=14.0, ting=0.55, ring=0.30, hollow=0.10, strike=0.62, decay=0.45),
+    "reed": dict(tine=14.0, ting=0.38, ring=0.30, hollow=0.80, strike=0.60, decay=0.33),
 }
 
 # Each row: label, voicing, the tool's arguments, and what it claims to be.
 SETTINGS = [
-    ("dry", "rhodes", [],
+    ("dry", "tine", [],
      "the body alone — every effect at its default, which is off"),
-    ("suitcase tremolo", "rhodes",
+    ("cased tremolo", "tine",
      ["trem_amt=0.6", "trem_rate=5.0", "trem_stereo=1.0"],
-     "a PAN, because a suitcase's vibrato alternates between two amplifier pairs — "
+     "a PAN, because the cased instrument's vibrato alternates between two amplifier pairs — "
      "listen across the stereo image, not to the level"),
-    ("wurlitzer tremolo", "wurlitzer",
+    ("reed tremolo", "reed",
      ["trem_amt=0.6", "trem_rate=5.5", "trem_stereo=0.0"],
      "the same control at stereo 0: one amplifier, so it is amplitude and sits in the middle"),
-    ("stage + phaser", "rhodes",
+    ("stage + phaser", "tine",
      ["phaser_mix=0.6", "phaser_rate=0.3", "phaser_amt=0.7", "phaser_fb=0.3"],
-     "slow, where a Small Stone sits — juce::dsp::Phaser at a 600 Hz centre"),
-    ("dyno chorus", "rhodes",
+     "slow, where a phase-shifter pedal sits — juce::dsp::Phaser at a 600 Hz centre"),
+    ("bright chorus", "tine",
      ["chorus_mix=0.5", "chorus_rate=0.8", "chorus_amt=0.4"],
      "juce::dsp::Chorus, 7 ms centre delay, no feedback. It THICKENS but does not WIDEN: "
      "the widget holds one LFO and one delay line for all channels (juce_Chorus.h:157–158), "
      "so a signal that arrives identical in both channels leaves identical — measured L−R "
      "of exactly 0. The same is true of the phaser"),
-    ("overdrive", "rhodes",
+    ("overdrive", "tine",
      ["dist_mix=0.7", "dist_drive=9"],
      "an overdriven AMPLIFIER: the rail droops with the current drawn, carries the "
      "rectifier\u2019s 100 Hz ripple while it is loaded, and clips asymmetrically. "
      "NOT offered as an e-piano bark \u2014 see the note above"),
-    ("overdrive, driven", "rhodes",
+    ("overdrive, driven", "tine",
      ["dist_mix=0.7", "dist_drive=24"],
      "the same stage at 24 dB instead of 9. Against the dry body the 2nd partial is up "
      "13.3 dB and the 6th 37.6 (at 9 dB: 5.8 and 23.4), and it is +9.15 dB louder over "
      "the whole note against +3.66. The sag shows as the attack contrast going the other "
      "way \u2014 8.9 dB dry, 10.8 at 9 dB, 7.4 here. <b>No rumble is claimed:</b> at this "
      "setting there is LESS below 30 Hz than in the dry body, \u221275.3 dB against \u221266.9"),
-    ("suitcase, whole", "rhodes",
+    ("cased, whole", "tine",
      ["chorus_mix=0.35", "chorus_rate=0.6", "chorus_amt=0.3",
       "trem_amt=0.5", "trem_rate=4.5", "trem_stereo=0.9"],
      "chorus into the pan — the chain in the order the plugin runs it"),
@@ -150,7 +150,7 @@ anzubieten." Both halves are in the files: the distortion CUT the attack contras
 dry body\u2019s +6.8 dB to +5.3, and its excess over that body GREW across the note, from
 +3.9 dB to +5.0 (and +8.4 to +16.5 at the hard setting) instead of dying away.</p>
 <p class=n>Why a stage here can never do it, from the corpus BJ asked for \u2014 842 named
-e-pianos in the DX7 library: the FAR modulator, which is the bright, barking part, falls at
+e-pianos in the FM patch corpus: the FAR modulator, which is the bright, barking part, falls at
 envelope rate <b>50</b> while the carrier falls at <b>25</b>, and drops 24 envelope points
 against the near modulator\u2019s 6. The bark has its OWN envelope, about twice as fast as
 the note. An amplifier behind the voices has no envelope at all \u2014 it follows the level,
@@ -164,7 +164,7 @@ glasses rattle — heard three builds and reported „kein Rumble" each time. Hi
 2026-07-31: „vergiss den Rumble, Du kannst kein Rumble." So the overdrive row below is a
 sag, a ripple and an asymmetric clip, and claims nothing beyond that.</p>
 <p class=n>Measured across these files, so it is not a claim about how they sound:
-the suitcase row has an L−R of 0.0410 and the wurlitzer row 0.0000 — the one is a pan and
+the cased row has an L−R of 0.0410 and the reed row 0.0000 — the one is a pan and
 the other is amplitude, which is the difference the two instruments' amplifiers make. The
 chorus and phaser rows are also 0.0000, and that one is a LIMIT, not a setting: see the
 chorus row. And <b>dry</b> is the source times the shared gain and nothing else.</p>

@@ -24,7 +24,7 @@ V = [
     ("rhodes suitcase", dict(tine=12.0, ting=0.62, ring=0.30, hollow=0.05, strike=0.62, decay=0.45),
      "a lower tine and a hotter one — 24 voices at 11, 13.5, 13, 12"),
     ("rhodes stage",    dict(tine=14.0, ting=0.42, ring=0.30, hollow=0.05, strike=0.55, decay=0.45),
-     "the softest drive of any group (level 64 against the dyno's 80)"),
+     "the softest drive of any group (level 64 against 80)"),
     ("rhodes mark",     dict(tine=14.0, ting=0.45, ring=0.30, hollow=0.05, strike=0.50, decay=0.22),
      "rings on — the one thing the 21 Mark-named patches share is a carrier that "
      "barely decays, 99→93 against everything else's 99→75"),
@@ -33,8 +33,8 @@ V = [
      "drive of any group. That second mode is what the name means here"),
     ("wurlitzer",       dict(tine=14.0, ting=0.38, ring=0.30, hollow=0.80, strike=0.60, decay=0.33),
      "the even partials cancelled: 41 % of its modulators sit in the 2–8 band, 198 of "
-     "them at exactly 2.0, against 3 % for the Rhodes. Weakest drive, and it rings "
-     "LONGER than the Rhodes — the opposite of the acoustic instruments"),
+     "them at exactly 2.0, against 3 % for the tine group. Weakest drive, and it rings "
+     "LONGER than the tine group — the opposite of the acoustic instruments"),
     ("tine",            dict(tine=12.0, ting=0.38, ring=0.65, hollow=0.20, strike=0.58, decay=0.28),
      "99 voices at ratio 12, and the far family STAYS instead of dying (99→85, not 99→75)"),
     ("(the entry's own defaults)", {}, "for comparison — what a bare “electric piano” gives"),
@@ -98,20 +98,20 @@ for name, over, gloss, ys in rows:
 between the rows is the entry and not the renderer.</p>
 <p class=n>Where these come from: <b>this is an FM electric piano, so the reference is what
 FM programmers did</b>, not what a real pickup does. Every row is grouped out of the DX7
-corpus by the name written on the voice (<code>tools/dx7_corpus.py --profile</code>).</p>
+corpus by the name a programmer wrote on the voice (<code>tools/dx7_corpus.py --profile</code>).</p>
 <p class=n>Three things the measurement says and the instrument world does not.
 <b>The Mark numbers are not an FM distinction</b> — 21 voices out of 119,296 carry one, there
 is no Mark V in the corpus at all, and what the Mark patches share is that they barely decay.
 What FM programmers separated instead is <b>dyno</b> (157) and <b>suitcase</b> (24).
 <b>The dyno is bimodal</b> on the tine ratio, 14 and 26, and carries the hottest drive.
-And, opposite to the acoustic instruments, <b>an FM Wurlitzer decays LESS than an FM
-Rhodes</b>, and it separates on <code>hollow</code> rather than on <code>tine</code> — both
-sit at 14; the Wurlitzer's mark is a modulator at exactly twice the carrier, which is what
+And, opposite to the acoustic instruments, <b>the reed group decays LESS than the tine
+group</b>, and it separates on <code>hollow</code> rather than on <code>tine</code> — both
+sit at 14; its mark is a modulator at exactly twice the carrier, which is what
 cancels the even partials.</p>
 <p class=n>The far-ratio column is measured and transfers as a value. The other five are the
 entry's reading of a measured DIRECTION — the DX7's output level rises with modulation index
 but does not count cycles. Yours to overrule. The effects these instruments are inseparable
-from — the suitcase tremolo, the Small Stone phaser, the bark — are <b>not</b> in here.</p>
+from — the cased tremolo, the phase-shifter pedal, the bark — are <b>not</b> in here.</p>
 {''.join(cells)}
 """)
 print("→", OUT / "index.html")
