@@ -90,6 +90,7 @@ tools/_bugcheck_out*/
 
 # Accumulated render output (keep the scripts, drop the WAV/PNG renders)
 tools/alpha0_collapse_out/
+tools/csound_engine_out/
 tools/delay_audition_out/
 tools/env_loop_audition_out/
 tools/loop_hang_out/
