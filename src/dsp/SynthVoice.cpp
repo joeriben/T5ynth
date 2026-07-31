@@ -626,11 +626,27 @@ void SynthVoice::updateSamplerPreStretchNorm(const BlockParams& p)
             analysisMs = std::max(analysisMs, envWindowMs(modAttackMs[m], modDecayMs[m],
                                                           modReleaseMs[m], p.modEnv[m].loop));
 
+    // This whole function runs on the AUDIO THREAD — configureForBlock calls it
+    // every block, and noteOn marks it dirty, so it re-runs on every note in
+    // sampler mode with Normalize on. The curve was a local std::vector sized
+    // per call, i.e. up to sr×3 floats allocated per note (576 KB at 48 kHz).
+    // It is now the pool's one shared buffer, lent by VoiceManager::prepare, and
+    // its length IS the clamp: nothing below can ask for more than was lent.
+    if (dcaScratch_ == nullptr || dcaScratchLen_ < 64)
+    {
+        // No buffer lent (a voice used before VoiceManager::prepare). Assert a
+        // known gain rather than leave the sampler on whatever it last carried,
+        // and stay dirty so the real analysis still runs once prepare has been.
+        samplerPreStretchNormGain_ = 1.0f;
+        sampler.setSourceGain(1.0f);
+        return;
+    }
+
     int analysisSamples = std::max(referencePathSamples,
         static_cast<int>(std::ceil(sr * analysisMs * 0.001)));
-    analysisSamples = juce::jlimit(64, static_cast<int>(sr * 3.0), analysisSamples);
+    analysisSamples = juce::jlimit(64, dcaScratchLen_, analysisSamples);
 
-    std::vector<float> dcaCurve(static_cast<size_t>(analysisSamples), 0.0f);
+    float* dcaCurve = dcaScratch_;
 
     ADSREnvelope ampRef;
     ADSREnvelope modRef[kNumModEnvs];
@@ -679,7 +695,7 @@ void SynthVoice::updateSamplerPreStretchNorm(const BlockParams& p)
     }
 
     float analysisPeak = 0.0f;
-    sampler.estimatePlaybackRms(dcaCurve.data(), analysisSamples, &analysisPeak);
+    sampler.estimatePlaybackRms(dcaCurve, analysisSamples, &analysisPeak);
 
     static constexpr float kCeiling = 0.95f;
     samplerPreStretchNormGain_ = 1.0f;

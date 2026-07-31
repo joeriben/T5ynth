@@ -55,8 +55,15 @@ void VoiceManager::prepare(double sampleRate, int samplesPerBlock)
 {
     sr = sampleRate;
     maxBlockSize = samplesPerBlock;
+    // Sized before the voices are handed pointers into it — the 3 s ceiling
+    // SynthVoice::updateSamplerPreStretchNorm clamps its analysis window to.
+    dcaAnalysisScratch.assign(static_cast<size_t>(sampleRate * 3.0), 0.0f);
     for (auto& v : voices)
+    {
         v.prepare(sampleRate, samplesPerBlock);
+        v.setDcaAnalysisScratch(dcaAnalysisScratch.data(),
+                                static_cast<int>(dcaAnalysisScratch.size()));
+    }
     for (auto& scratch : voiceScratch)
         scratch.resize(static_cast<size_t>(samplesPerBlock));
     for (auto& scratch : voiceScratchRight)

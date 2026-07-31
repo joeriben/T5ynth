@@ -219,6 +219,14 @@ private:
     // Pre-allocated per-voice scratch buffers
     std::array<std::vector<float>, MAX_VOICES> voiceScratch;
     std::array<std::vector<float>, MAX_VOICES> voiceScratchRight;
+    // ONE buffer for the whole pool: the DCA curve a voice analyses for the
+    // sampler's pre-stretch normalization. That analysis is on the audio thread,
+    // so it may not allocate — and it may not be per-voice either, because it is
+    // clamped to 3 s and the pool is MAX_VOICES deep (70 MB at 48 kHz for
+    // something only one voice touches at a time). Every configureForBlock call
+    // site is under the processor's callback lock, so there is exactly one
+    // writer. prepare() sizes it and lends it to each voice.
+    std::vector<float> dcaAnalysisScratch;
     std::array<float, MAX_VOICES> voicePan {};
     std::array<int, MAX_VOICES> voiceSourceId {};
     std::array<int8_t, MAX_VOICES> voiceMidiChannel_ {};  // 0=unassigned, 1-16=MIDI channel

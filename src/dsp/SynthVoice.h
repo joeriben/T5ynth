@@ -117,6 +117,16 @@ public:
     // ── Tuning ──
     void setTuningTable(const float* table) { tuningHz_ = table; }
 
+    /** Lend this voice the pool's shared DCA-analysis buffer (see dcaScratch_).
+        VoiceManager::prepare owns it and calls this for every voice; the buffer
+        must outlive the voice's rendering and must not be resized while a block
+        is in flight. */
+    void setDcaAnalysisScratch(float* buffer, int numSamples)
+    {
+        dcaScratch_ = buffer;
+        dcaScratchLen_ = numSamples;
+    }
+
     // ── Engine mode ──
     // Csound: a REAL 4th DSP path — a processor-owned CsoundEngine instance
     // renders this voice's audio directly (renderBlock's 4th branch, fed via
@@ -332,5 +342,16 @@ private:
     PreStretchNormState preStretchNormState_;
     float samplerPreStretchNormGain_ = 1.0f;
     bool samplerPreStretchNormDirty_ = true;
+    // Where updateSamplerPreStretchNorm writes the DCA curve it analyses. Not
+    // owned: VoiceManager holds ONE buffer for the whole pool and hands it to
+    // every voice in prepare() (setDcaAnalysisScratch below). It has to be
+    // pre-allocated because that analysis runs on the audio thread — every
+    // block, and re-computed on every note-on in sampler mode with Normalize on
+    // — and it may not be per-voice, because the pool is 128 voices deep and the
+    // ceiling is 3 s: 70 MB at 48 kHz for a buffer only ever used by one voice
+    // at a time. Every configureForBlock caller runs under the processor's
+    // callback lock, so the single buffer has exactly one writer.
+    float* dcaScratch_ = nullptr;
+    int    dcaScratchLen_ = 0;
 
 };
