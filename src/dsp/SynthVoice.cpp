@@ -1137,6 +1137,17 @@ void SynthVoice::renderBlock(float* output, float* outputRight, const BlockParam
                 && !(p.ampTarget != EnvTarget::DCA && keyGate_.isSmoothing()))
             {
                 active = false;
+                // Close the gate with the voice. A freed voice stops rendering,
+                // so the ramp stops advancing too — and on the ENV1→DCA branch
+                // the free above does not wait for it, so it can stop part-way
+                // down. Left at that value, the next note to land on this slot
+                // would start there instead of at zero: with a percussive amp
+                // envelope (sustain 0, release 0) the envelope reaches idle in
+                // under the 3 ms fall, and the following note begins at ~0.99 —
+                // the full-scale step KEY_GATE_MS exists to prevent. Where the
+                // key IS the authority the free already waited for the ramp, so
+                // this is a no-op there.
+                keyGate_.setCurrentAndTargetValue(0.0f);
                 lastI = i + 1;
                 for (int j = lastI; j < numSamples; ++j)
                 {
