@@ -33,10 +33,8 @@
  * for (juce_DryWetMixer.cpp: `smoothedGains.reset(sampleRate, 0.05)`).
  *
  * The two modulation effects wrap `juce::dsp::Chorus` and `juce::dsp::Phaser`
- * rather than reimplementing them. Distortion is `tanh`, the same shape — and
- * now, with no make-up, the same LAW — the filter's own drive already uses in
- * SynthVoice, so the two stages do not disagree about what saturation sounds
- * like here.
+ * rather than reimplementing them. The distortion is an OVERDRIVEN AMPLIFIER
+ * rather than a curve — see its own comment.
  *
  * RT contract, the same one every other module in this directory keeps:
  * `prepare()` allocates and `processBlock()` never does. Every gain that a
@@ -49,8 +47,53 @@
  */
 
 /**
- * tanh saturation with 2x oversampling. Bypassed at mix == 0, which is the
- * default.
+ * An overdriven amplifier, at 2x oversampling. Bypassed at mix == 0, the default.
+ *
+ * NOT AN E-PIANO BARK, and this is the load-bearing sentence: BJ ruled that out
+ * on 2026-07-31 after hearing two attempts — *„es klingt nicht ab. das ist ein
+ * 4-sekunden-bark. ein bark bei einem epiano klingt aber nach höchstens 1 sek
+ * ab … das bark-Sample hat keine Transiente, die wird verschluckt. und kein
+ * Rumble. Mein vorschlag daher, bark nicht anzubieten."* Both halves measured:
+ * the stage CUT the attack contrast from the dry body's +6.8 dB to +5.3, and its
+ * excess over that body GREW across the note, +3.9 → +5.0 dB (and +8.4 → +16.5
+ * at 24 dB of drive), instead of dying away.
+ *
+ * A stage HERE can never do it, and the reason generalises past this one sound.
+ * From the DX7 corpus, 842 named e-pianos: the far modulator — the bright,
+ * barking part — falls at envelope rate 50 where the carrier falls at 25, and
+ * drops 24 envelope points against the near modulator's 6. The bark carries its
+ * OWN envelope at about twice the speed of the note. An amplifier behind the
+ * voices has no envelope; it follows the LEVEL, and a saturating stage under a
+ * decaying body turns a decaying sound into a standing one by construction,
+ * because the body falls and the saturation holds the output up. Anything that
+ * has to die faster than the note belongs in the body — for the e-piano that is
+ * `ep_fm3`'s `strike` axis, which already carries it.
+ *
+ * IT IS AN AMPLIFIER AND NOT A CURVE, which is what BJ said about the FIRST
+ * version — a plain symmetric `tanh`: *„das ist zu glatt, hell lang und müsste
+ * außerdem — ein ungelöstes Problem — auch einen kleinen Übersteuerungs-
+ * ‚Rumble' in der Transiente haben."* Measured against
+ * the dry body, all three of those were in the files: the even/odd balance moved
+ * by 1.4 dB and nothing else (a symmetric curve has NO even harmonics); the
+ * spectral centroid over 6.5 s went 3946 → 794 Hz where the body's own went
+ * 1827 → 605, and the level fell 1.0 dB where the body fell 9.9 — saturation
+ * flattens the envelope AND the brightness; and nothing in the code could
+ * produce a rumble at all.
+ *
+ * So the stage models the three things an amplifier does when it is driven past
+ * what its supply can hold, and each has its source in the .cpp: a rail that
+ * DROOPS with the current drawn (so the clipping threshold moves, the bark ends
+ * up in the attack, and the note is no longer flattened for its whole length),
+ * the rectifier RIPPLE that droop makes audible (the intermodulation players
+ * call ghost notes), and an ASYMMETRIC pair of clipping thresholds (so there are
+ * even harmonics at all: measured, the 2nd partial rises 12.7 dB over the dry
+ * body and the 4th 28.6 dB).
+ *
+ * The ripple is NOT an answer to the rumble BJ asked for: he heard this build and
+ * reported „kein Rumble". It measures −20.8 dB under the fundamental in the
+ * attack against −25.4 at three seconds, and at 0.25 rather than 0.04 it was a
+ * mains hum at +3 dB OVER the fundamental. It stays because it is what a loaded
+ * supply does and it is one line, not because it delivers what was asked.
  *
  * NO MAKE-UP GAIN, deliberately. The obvious 1/g (tanh's slope at zero, so
  * exact for the quiet part of the waveform) turns the top half of the control
@@ -58,11 +101,11 @@
  * of drive and −27.06 dB at 36, because by then the output is a square wave
  * divided by 63. A drive knob that gets quieter as it is turned up is not a
  * drive knob. Without it the control runs the other way and stays bounded,
- * because tanh is: measured on the same 0.5 sine, +0.07 dB at 0.5 dB of drive,
- * +4.34 at 6, +7.20 at 12 and +8.95 at 36, where the output is a square and the
- * ceiling is the +9.0 dB a full-scale square holds over that sine. It does
- * exactly what `SynthVoice`'s filter drive does, with the same opcode and now
- * the same law.
+ * because tanh is: measured on a 0.5 sine BEFORE the supply model was added,
+ * +0.07 dB at 0.5 dB of drive, +4.34 at 6, +7.20 at 12 and +8.95 at 36, where
+ * the output is a square and the ceiling is the +9.0 dB a full-scale square
+ * holds over that sine. The sag now takes some of that back at the attack,
+ * which is what sag is.
  *
  * The dry/wet mix is taken INSIDE the oversampled domain, so both halves travel
  * the same path and arrive with the same latency. Mixing an undelayed dry
@@ -105,6 +148,10 @@ private:
     juce::AudioBuffer<float> raw_;              ///< engage crossfade source only
     juce::SmoothedValue<float> gain_, wet_, dryG_, engage_;
     float driveDb_ = 0.0f, mix_ = 0.0f;
+    // the supply model — one rail for the whole amplifier, per-channel DC block
+    float load_ = 0.0f, ripPhase_ = 0.0f;
+    float attCoef_ = 0.0f, relCoef_ = 0.0f, ripInc_ = 0.0f, dcPole_ = 0.0f;
+    float dcX_[2] { 0.0f, 0.0f }, dcY_[2] { 0.0f, 0.0f };
     double sr_ = 44100.0;
     int maxBlock_ = 0;
     bool prepared_ = false, running_ = false;

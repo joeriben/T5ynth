@@ -13,6 +13,54 @@ namespace
     // mix is turned to zero they therefore need that long to actually ARRIVE at
     // dry; stopping sooner is the click this margin exists to avoid.
     constexpr double kWidgetFlushSeconds = 0.06;
+
+    // ── the overdriven amplifier, and where each number comes from ──────────
+    // Method and sources named before the first line, per the authoring rule.
+    //
+    // SAG and GHOST NOTES. Randall Aiken, „What is Sag?" and the technical Q&A
+    // at aikenamps.com: a supply's own impedance means the rail voltage drops
+    // with the current drawn, and the same impedance leaves ripple at TWICE the
+    // mains frequency, because the supply is full-wave rectified. Aiken states
+    // both halves of what players hear as sag — the droop that softens
+    // transients, and the increased ripple that adds a low-frequency bloom —
+    // and names ghost notes as the intermodulation of that ripple with the note
+    // played, at sum and difference frequencies, i.e. not harmonically related.
+    // The digital modelling of this class is reviewed in Pakarinen & Yeh, „A
+    // Review of Digital Techniques for Modeling Vacuum-Tube Guitar Amplifiers",
+    // Computer Music Journal 33(2), 2009, 85–100 (cited for the class; the full
+    // text was not read for these constants).
+    //
+    // ASYMMETRY. The standard idiom, and one this project's own substrate
+    // writes down: Csound's `distort1` (Hans Mikelson) carries SEPARATE shape
+    // factors for the positive and negative half of the wave. A symmetric curve
+    // has no even harmonics at all.
+    // Two clipping thresholds rather than one offset. An ADDITIVE bias was
+    // tried first and is worthless here: once the stage is driven hard the
+    // offset is negligible against the signal and the curve is symmetric again
+    // — measured, the even/odd balance went from the dry body's −1.0 dB to
+    // −30.2, i.e. the even partials were GONE. Separate thresholds stay
+    // asymmetric at every drive, which is what `distort1` does.
+    constexpr float kClipPos = 0.70f;  // of the rail
+    constexpr float kClipNeg = 1.30f;
+    // The ripple rides the rail, and under hard clipping the output IS the
+    // rail, so this is very nearly pure amplitude modulation and a percent is
+    // already audible. At 0.25 it measured +3 dB OVER the fundamental on the
+    // soft setting and +29.5 on the hard one — a mains hum, not a rumble.
+    constexpr float kRipple = 0.04f;   // of the droop, so it only exists under load
+    constexpr float kRippleHz = 100.0f;  // 50 Hz mains, full-wave rectified
+    // A real supply droops; it does not collapse. Unbounded, the rail fell far
+    // enough to squash the attack and then let the note come back LOUDER than
+    // it started (+3.1 dB at 6 s), which is the opposite of sag.
+    constexpr float kMaxDroop = 0.45f;
+    // The droop follows the SMOOTHED pre-gain rather than the raw dB the knob
+    // reports, so a drive automation cannot step the rail once per block while
+    // the gain beside it ramps. Linear in the gain and not in dB, because the
+    // current drawn is what droops the rail and that is linear in the signal.
+    // 1/(10^(24/20) − 1): full droop by 24 dB, where the wave is already square.
+    constexpr float kSagPerGain = 1.0f / 14.8489f;
+    constexpr double kLoadAttackSec  = 0.002;
+    constexpr double kLoadReleaseSec = 0.150;
+    constexpr double kDcBlockHz = 10.0;
 }
 
 // ── distortion ──────────────────────────────────────────────────────────────
@@ -30,6 +78,15 @@ void T5ynthDistortion::prepare(double sampleRate, int samplesPerBlock)
     os_->initProcessing(static_cast<size_t>(maxBlock_));
     raw_.setSize(2, maxBlock_, false, false, true);
 
+    // Everything the supply model needs, at the OVERSAMPLED rate it runs at.
+    const double osr = sampleRate * static_cast<double>(os_->getOversamplingFactor());
+    attCoef_ = static_cast<float>(1.0 - std::exp(-1.0 / (kLoadAttackSec  * osr)));
+    relCoef_ = static_cast<float>(1.0 - std::exp(-1.0 / (kLoadReleaseSec * osr)));
+    ripInc_  = static_cast<float>(kRippleHz / osr);
+    dcPole_  = static_cast<float>(1.0 - juce::MathConstants<double>::twoPi * kDcBlockHz / osr);
+    load_ = 0.0f; ripPhase_ = 0.0f;
+    dcX_[0] = dcX_[1] = dcY_[0] = dcY_[1] = 0.0f;
+
     for (auto* s : { &gain_, &wet_, &dryG_, &engage_ })
         s->reset(sampleRate, kSmoothSeconds);
     prepared_ = true;
@@ -44,6 +101,8 @@ void T5ynthDistortion::prepare(double sampleRate, int samplesPerBlock)
 void T5ynthDistortion::reset()
 {
     if (os_) os_->reset();
+    load_ = 0.0f; ripPhase_ = 0.0f;
+    dcX_[0] = dcX_[1] = dcY_[0] = dcY_[1] = 0.0f;
     for (auto* s : { &gain_, &wet_, &dryG_ })
         s->setCurrentAndTargetValue(s->getTargetValue());
     engage_.setCurrentAndTargetValue(1.0f);
@@ -81,6 +140,8 @@ void T5ynthDistortion::processBlock(juce::AudioBuffer<float>& buffer)
     if (!running_)
     {
         os_->reset();
+        load_ = 0.0f;
+        dcX_[0] = dcX_[1] = dcY_[0] = dcY_[1] = 0.0f;
         engage_.setCurrentAndTargetValue(0.0f);
         engage_.setTargetValue(1.0f);
         running_ = true;
@@ -122,14 +183,62 @@ void T5ynthDistortion::processBlock(juce::AudioBuffer<float>& buffer)
             const float g = step ? gain_.getNextValue() : gain_.getCurrentValue();
             const float w = step ? wet_.getNextValue()  : wet_.getCurrentValue();
             const float d = step ? dryG_.getNextValue() : dryG_.getCurrentValue();
+
+            // ── the supply ──────────────────────────────────────────────────
+            // ONE power supply for the whole amplifier, so the load is the
+            // largest channel and not each channel's own — that is what makes
+            // the rumble coherent across the stereo image instead of two
+            // independent wobbles.
+            float peak = 0.0f;
+            for (int ch = 0; ch < upCh; ++ch)
+                peak = juce::jmax(peak, std::abs(up.getSample(ch, i) * g));
+            load_ += (peak - load_) * (peak > load_ ? attCoef_ : relCoef_);
+
+            // Sag: the rail droops with the current drawn. It is not a tone
+            // control laid over the output — the rail IS the clipping
+            // threshold, so when it drops the stage clips harder, and when the
+            // note dies away it comes back and the clipping goes with it. That
+            // is why this also answers „hell lang": the bark ends up in the
+            // attack rather than standing over the whole note.
+            // How far the amplifier is being driven past what its supply can
+            // hold. Not a second thing the knob does: in the circuit the current
+            // drawn IS the pre-gain, so the droop follows it.
+            const float sagAmt = juce::jlimit(0.0f, 1.0f, (g - 1.0f) * kSagPerGain);
+            const float droop = sagAmt * kMaxDroop * load_ / (1.0f + load_);
+            // …and it carries the rectifier's ripple, at twice the mains
+            // frequency because the supply is full-wave rectified. The
+            // intermodulation of that ripple with the note is what players call
+            // ghost notes, and it is only there while the supply is loaded,
+            // which is BJ's „kleiner Übersteuerungs-Rumble in der Transiente".
+            const float rip = droop * kRipple
+                            * std::sin(juce::MathConstants<float>::twoPi * ripPhase_);
+            ripPhase_ += ripInc_;
+            if (ripPhase_ >= 1.0f) ripPhase_ -= 1.0f;
+            const float rail = juce::jmax(0.05f, 1.0f - droop + rip);
+
             for (int ch = 0; ch < upCh; ++ch)
             {
                 const float x = up.getSample(ch, i);
+                // Asymmetric, because a symmetric curve has no even harmonics
+                // at all and that is what „zu glatt" was: tanh is odd, so it
+                // moved the even/odd balance by 0.6 dB over the dry body and
+                // nothing else. The two thresholds are fractions of the RAIL, so
+                // they travel with the sag rather than being two more things to
+                // set.
+                const float u = x * g;
+                const float thr = rail * (u >= 0.0f ? kClipPos : kClipNeg);
+                float y = thr * std::tanh(u / thr);
+                // An asymmetric curve puts a DC offset under the note; 10 Hz
+                // one-pole highpass takes it out and leaves the ripple, which is
+                // an order of magnitude above it, where it is.
+                const float hp = y - dcX_[ch] + dcPole_ * dcY_[ch];
+                dcX_[ch] = y; dcY_[ch] = hp;
+
                 // Dry and wet are summed HERE, at the oversampled rate, so both
                 // halves see the same down-sampling filter and arrive together.
                 // Mixing an undelayed dry against this path outside the
                 // oversampler combs it: measured -23.3 dB at 10 kHz at mix 0.5.
-                up.setSample(ch, i, std::tanh(x * g) * w + x * d);
+                up.setSample(ch, i, hp * w + x * d);
             }
         }
         os_->processSamplesDown(block);
