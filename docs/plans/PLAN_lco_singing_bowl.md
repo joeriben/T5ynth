@@ -77,3 +77,22 @@ Not self-scored (rule 3). One folder, same pitch, same length, one gain for the 
 - `new.wav` and an HTML page where the parameter combination is visible and selectable (`tools/lco_param_page.py`), because that is the standard this project holds an instrument to.
 
 BJ's ear decides. Measurements may accompany the result; they never decide it.
+
+## 6. What happened — 2026-07-31
+
+**Passed, on the second attempt of the three budgeted.** Heard at 220 Hz, 8 s, one gain for the whole set (−12.26 dB), two incumbent rows against seven candidate rows at the anchors of `ring`, `warble`, `sung` and `bowl`. BJ:
+
+> ja, dsie bowls sind sehr gut! so lassen. verfiziertes instrument
+
+The entry is in `backend/dco_lexicon.json` as `singing_bowl`; `singing bowl` and `klangschale` moved off `metallic_fm` as §4 requires, and `named_entries("crystal singing bowls in a cathedral")` now returns `['singing_bowl']` while `a large gong` still returns `['metallic_fm']`.
+
+Five things the body ended up doing differently from the first draft, each because a measurement said so, and each written into the code at the line it belongs to: the mallet does **not** scale with Q (a fixed impulse gives a Q-independent attack over a 75× span — Q is the decay); there is **no noise exciter** (at Q 10000 a mode's bandwidth is 0.02 Hz, so noise through it is a lottery, −24.3 dB at 3 s against −33.3 at 5.7); the mallet hangs on `knote` rather than `expon` (which starts at instrument init, so under a preroll the strike is already gone); it is **deterministic** (a random mallet made the note's peak a random draw, and the axis probe then read `bowl` and `warble` as faders); and the split is the table's **irregular** pattern rather than one shared fraction (twelve long partials whose beats share a period all re-align at once — measured as an 11.6 dB pulse).
+
+### Open, and put to BJ rather than repaired
+
+Both are LEVEL, not timbre, and neither could be heard on the page, because one gain lay over everything there.
+
+- **Register tilt 12.61 dB total, −4.20 dB/octave** (110 → 880 Hz). This is `mode` itself: a resonator's gain at resonance goes with Q/f, so a fixed impulse into a fixed-Q bank gets louder as the bank moves down. The library's other mode banks carry the same tilt (`driven_metal` −2.72, `drum_head` −2.99 dB/octave). It breaks `M7`, "the keyboard itself must not be a volume control", and the one-loudness-at-every-register bound reads 26.22 dB across corners and registers together.
+- **It goes over the host's clip ceiling in the bass.** Post-onset peak at the defaults: 110 Hz → 3.994, 220 Hz → 2.049, 440 → 1.635, 880 → 1.692. The absolute ceiling is 2.75, so from roughly A3 down a note is clipped away rather than merely loud. This is the same tilt, seen where it bites.
+
+The fix for both is one scale factor against `kc` compensating `mode`'s own gain law, pinned so that 220 Hz — where BJ listened — stays exactly as he heard it. It leaves the spectrum at every pitch untouched and changes only the level across the keyboard. It was not applied because „so lassen" covers the sound he heard, and this changes what the body does at pitches he did not.

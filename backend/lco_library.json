@@ -689,6 +689,105 @@
    }
   },
   {
+   "key": "singing_bowl",
+   "why": "singing bowl / Klangschale / Tibetan bowl: a bank of `mode` resonators on the (j,0) modes of an axisymmetric shell, every mode a PAIR split by a measured fraction, struck by a mallet or rubbed into a mode lock-in. It exists because `metallic_fm` -- a Chladni free circular plate, and a good gong -- is the wrong body for the word, and the mismatch is objective rather than a matter of taste: that entry computes its two ratios from Chladni's law as 1.5^p and 2.0^p over a declared p of [1.4, 2.4], and a bowl's first two overtones at 2.83 and 5.42 would need p = 2.57 for the one operator and 2.44 for the other -- two different exponents, both outside the range. Rendered at its defaults at 220 Hz its loudest low partial sits at 62 Hz: it does not carry the note. BJ, 2026-07-29: „Crystal singing bowls in a cathedral“ comes out extremely dissonant, „Wäre gut da eine eigene Parametrisierung zu machen (oder Instrument)“.\n\nTHE POINT OF THE BODY, in the source's own sentence: ‚The frequency relationships are mildly inharmonic, which does not affect the definite pitch of this instrument, mainly dominated by the first (2,0) shell mode.‘ A bowl has a DEFINITE PITCH. That is exactly what a gong does not have and exactly what was missing.\n\nSOURCES, both read in full, both quoted in docs/plans/PLAN_lco_singing_bowl.md with their tables: Inácio, Henrique & Antunes, ‚The dynamics of Tibetan singing bowls‘, Acta Acustica united with Acustica 92 (2006) 637-653 -- experimental modal identification of four bowls, which supplies the mode series, the pair splits and the damping range; and Terwagne & Bush, ‚Tibetan singing bowls‘, arXiv:1106.6348 -- the closed form f(j,0) ~ j(j^2-1)/sqrt(j^2+1), the finding that only (n,0) modes are excited at all, and the rubbed mode lock-in that `sung` runs on. Nothing here is fitted: the two ends of the main axis are two bowls somebody measured.\n\nDECLARED PROPERTIES, because an author has to be able to route this without hearing it first. It FOLLOWS `kfreq` -- the whole bank stands on kc, and the (2,0) mode is the note. It DECAYS (`; DECAY: SELF`): struck, it rings down on its own, and at the long end of `ring` that ring-down is far longer than any note this instrument plays -- Q 5228 at the default is a 1/e time of 7.6 s -- so inside a 0.1-11 s note it is a standing tone that darkens. Rubbed (`sung` 1.0) it stands outright, which is what a rubbed bowl does.\n\nWHAT IT MEASURES AND IS NOT: the body is LOUDER LOW. 12.61 dB from 110 to 880 Hz, -4.20 dB/octave, which is `mode` itself -- a resonator's gain at resonance goes with Q/f, so a fixed impulse into a fixed-Q bank gets louder as the bank moves down. The same tilt is in the library's other mode banks (`driven_metal` -2.72, `drum_head` -2.99 dB/octave). Two consequences to know before routing it: it breaks the one-loudness-at-every-register bound (26.22 dB across corners and registers together), and at the LOW end with a long `ring` it goes over the host's clip ceiling -- peak 7.67 against 2.75 at 110 Hz, `ring` 1.0. Open, recorded in the plan, not silently repaired: BJ heard and approved this body at 220 Hz on 2026-07-31 and said „so lassen“, and a level fix changes what it does at other pitches.",
+   "code": "; DECAY: SELF\n; LOUDNESS: warble\n; A Tibetan singing bowl as what the measurements say it is: an axisymmetric shell whose\n; (j,0) modes are MILDLY inharmonic and therefore keep a definite pitch -- Inacio, Henrique\n; & Antunes, Acta Acustica 92 (2006) 637-653, on four bowls they identified experimentally.\n; That is the whole difference to `metallic_fm`, which is a Chladni plate and has no pitch.\nkc      = kfreq * koct1\nkbowl   = 0.50   ; bowl[0.0..1.0]: which measured bowl the mode series is\nkwarb   = 0.30   ; warble[0.0..1.0]: how far the two halves of each mode pair stand apart\nkring   = 0.60   ; ring[0.0..1.0]: how long the shell holds\nksung   = 0.00   ; sung[0.0..1.0]: struck (shell modes) -> rubbed (mode lock-in, harmonics)\n; --- THE MODE SERIES. Two MEASURED bowls, not a curve through them: Bowl 2 (563 g, 152 mm)\n;     is the flattest of the four and Bowl 4 the widest, and Bowl 4 sits almost exactly on\n;     the in-plane ring solution f_j ~ j(j^2-1)/sqrt(j^2+1) that Terwagne & Bush validate\n;     for j = 2..6 (arXiv:1106.6348 Eq. 5). `bowl` travels between the two, so every\n;     position is between two real instruments.\nkr2     = 1.0\nkr3     = 2.70 + 0.20 * kbowl      ; Bowl 2: 2.7   Bowl 4: 2.9\nkr4     = 4.80 + 0.90 * kbowl      ;         4.8          5.7\nkr5     = 7.50 + 1.60 * kbowl      ;         7.5          9.1\nkr6     = 10.60 + 2.50 * kbowl     ;        10.6         13.1\nkr7     = 14.20 + 3.50 * kbowl     ;        14.2         17.7\n; --- DAMPING. zeta 0.002..0.015 % measured, \"higher values pertaining to higher-order\n;     modes\", and \"may increase one order of magnitude, or more, depending on how the bowls\n;     are actually supported or handled\". Q = 1/(2*zeta): 25000 free, ~330 held. `ring` runs\n;     that span; the per-mode factor is the paper's own direction and not a fitted number.\nkz      = 0.00002 * exp(log(50.0) * (1 - kring))   ; 0.002 % .. 0.1 %\nkq2     = 1 / (2 * kz)\nkq3     = kq2 / 1.30\nkq4     = kq2 / 1.70\nkq5     = kq2 / 2.20\nkq6     = kq2 / 2.80\nkq7     = kq2 / 3.50\n; --- THE SPLIT, and it is IRREGULAR up the bank, which is what Table I actually shows.\n;     Bowl 1's seven measured pairs, as (f_B - f_A)/f_AB: 0.454, 0.131, 0.334, 0.017,\n;     0.375, 0.038, 0.299 %. A single fraction for all of them was the first version and\n;     it was wrong twice over -- unfaithful to the table, and audible: twelve long-ringing\n;     partials whose beats share one period all come back into phase together, and the\n;     peak of the note then sat 11.6 dB above the strike at the long end of `ring`, which\n;     this project's own axis probe reads as a fader. The measured pattern has no common\n;     period, so they never re-align. `warble` scales the whole pattern; the shape is the\n;     bowl's.\nkwsc    = 0.30 + 4.26 * kwarb                      ; Bowl 1 at 0.3x .. Bowl 3's 2.07 % on the fundamental\nkw2     = 0.00454 * kwsc\nkw3     = 0.00131 * kwsc\nkw4     = 0.00334 * kwsc\nkw5     = 0.00017 * kwsc\nkw6     = 0.00375 * kwsc\nkw7     = 0.00038 * kwsc\n; --- THE EXCITER. Struck is a short burst into a shell that then rings on its own; rubbed\n;     is continuous, and Terwagne & Bush record what continuous friction does: the lowest\n;     mode locks in and brings its own HARMONICS with it. So `sung` crossfades the drive\n;     from a strike into a hold AND fades in a harmonic layer locked to the fundamental.\n; --- THE MALLET, and its amplitude does NOT depend on Q. Measured on one `mode` over a\n;     75x span of Q, a fixed impulse gives an attack level of -69.5 to -68.3 dB -- 1.2 dB\n;     across the whole range -- while what changes is the DECAY: -102.0 dB over 5.7 s at\n;     Q 330 against -1.4 at Q 25000. That is what Q means and it is what the mallet does,\n;     so `ring` is a decay axis with a constant strike and needs no normalisation. An\n;     earlier version divided the impulse by Q on the theory that a resonator's gain goes\n;     with Q; that is true of its STEADY state, not of its response to a strike, and it\n;     made the axis a 15 dB volume control.\n;     NO NOISE EXCITER, deliberately, and this one is also measured rather than reasoned:\n;     at Q 10000 a mode's bandwidth is 0.02 Hz, so noise through it is one sinusoid whose\n;     amplitude random-walks over tens of seconds -- the same body measured -24.3 dB at\n;     three seconds and -33.3 at 5.7. `struck_bar` and `cymbal` can hold a noise exciter\n;     because their Q is 900-1400; at a bowl's Q it is not a drive, it is a lottery.\n;     THE MALLET HANGS ON `knote` AND NOT ON `expon`, and that is not a style choice.\n;     `expon` starts when the INSTRUMENT starts, so under the harness's preroll -- and\n;     under any host that keeps a voice alive between notes -- the strike has already\n;     decayed before the note begins, and what is left is only the ring-down. Measured\n;     before this line: the axis probe read the peak 13.0 dB apart across `ring` where the\n;     body's own sample peak moves 0.89 dB, because at the short end there was nothing\n;     left to hear by the time the note started. `ep_fm3` uses `exp(-knote/tau)` for the\n;     same reason.\n;     AND IT IS DETERMINISTIC. A mallet is a short force pulse, not noise: an exponential\n;     force step is broadband on its own (one-pole, corner 1/(2*pi*0.0018) = 88 Hz, so\n;     every mode gets excited and the higher ones a little less, which is what a soft\n;     mallet does). Multiplying it by `rand` made the note's PEAK a random draw, and the\n;     axis probe then read `bowl` and `warble` as faders at 1.0 and 3.5 dB when neither\n;     touches the level -- it was measuring noise peaks.\n;     TWO PARTS, because one alone does not do it. The exponential force step is the\n;     mallet's WEIGHT and rolls off at 88 Hz, so on its own it leaves the upper modes\n;     nearly unexcited -- measured, the body's colour then travelled 1 Hz over the note\n;     and `project_lco_movement_by_default` is a platform requirement, not a preference.\n;     A single-sample `mpulse` is the CONTACT and is flat to Nyquist. Together they are a\n;     soft mallet on a bowl: everything rings, the top rings less, and the top dies first,\n;     which is the colour travelling 360 Hz over the note.\nkimp    = exp(-knote / 0.0018)                      ; the mallet's weight\naex     = mpulse(3.0, 0) + a(kimp) * 0.25           ; the contact, and the weight\n; --- the bank. Each mode twice, split by kw, so the pair beats the way the table says.\nka2a    limit kc * kr2 * (1 - kw2/2), 20, 18000\nka2b    limit kc * kr2 * (1 + kw2/2), 20, 18000\nka3a    limit kc * kr3 * (1 - kw3/2), 20, 18000\nka3b    limit kc * kr3 * (1 + kw3/2), 20, 18000\nka4a    limit kc * kr4 * (1 - kw4/2), 20, 18000\nka4b    limit kc * kr4 * (1 + kw4/2), 20, 18000\nka5a    limit kc * kr5 * (1 - kw5/2), 20, 18000\nka5b    limit kc * kr5 * (1 + kw5/2), 20, 18000\nka6a    limit kc * kr6 * (1 - kw6/2), 20, 18000\nka6b    limit kc * kr6 * (1 + kw6/2), 20, 18000\nka7a    limit kc * kr7 * (1 - kw7/2), 20, 18000\nka7b    limit kc * kr7 * (1 + kw7/2), 20, 18000\nkg3     = (kc * kr3 < 16000 ? 1 : 0)\nkg4     = (kc * kr4 < 16000 ? 1 : 0)\nkg5     = (kc * kr5 < 16000 ? 1 : 0)\nkg6     = (kc * kr6 < 16000 ? 1 : 0)\nkg7     = (kc * kr7 < 16000 ? 1 : 0)\na2a     mode aex, ka2a, kq2\na2b     mode aex, ka2b, kq2\na3a     mode aex, ka3a, kq3\na3b     mode aex, ka3b, kq3\na4a     mode aex, ka4a, kq4\na4b     mode aex, ka4b, kq4\na5a     mode aex, ka5a, kq5\na5b     mode aex, ka5b, kq5\na6a     mode aex, ka6a, kq6\na6b     mode aex, ka6b, kq6\na7a     mode aex, ka7a, kq7\na7b     mode aex, ka7b, kq7\n; --- the (2,0) mode dominates: \"mainly dominated by the first (2,0) shell mode\"\nashell  = (a2a + a2b) * 1.000 \\\n        + (a3a + a3b) * 0.500 * kg3 \\\n        + (a4a + a4b) * 0.280 * kg4 \\\n        + (a5a + a5b) * 0.160 * kg5 \\\n        + (a6a + a6b) * 0.090 * kg6 \\\n        + (a7a + a7b) * 0.050 * kg7\n; --- MODE LOCK-IN, and it is a SEPARATE LAYER because it is a separate spectrum. Rubbed\n;     rather than struck, \"the lowest mode is excited along with its harmonics, an effect\n;     known as a mode 'lock in'\" (Terwagne & Bush). Those are true harmonics of the (2,0)\n;     mode and not shell modes, so re-tuning the bank would be the wrong move. It is\n;     deterministic and not noise-driven, which is what friction locking onto a mode IS,\n;     and it also keeps this half of the axis off the random walk above.\n;     The pair beats here too: the rub excites both halves of the fundamental.\nalk     poscil 0.50, kc * (1 - kw2/2), giSine\nalkb    poscil 0.50, kc * (1 + kw2/2), giSine\nalk2    poscil 0.30, kc * 2, giSine\nalk3    poscil 0.12, kc * 3, giSine\nalk4    poscil 0.05, kc * 4, giSine\nkbld    portk ksung, 0.35                            ; the rub takes hold, it does not jump\n; --- levelled against the strike rather than left where it fell: the rub STANDS\n;     while the strike decays, so at equal amplitude it read 5.35 dB louder at\n;     the note's peak. This is a level match between two layers of this body,\n;     not a curve over anyone's model.\nalock   = (alk + alkb + alk2 + alk3 + alk4) * 0.227\n; --- ONE equal-power crossfade, so `sung` moves the spectrum and not the level. Added\n;     rather than crossfaded, it measured 22.3 dB across its own travel.\nasig    = ashell * 0.42 * sqrt(1 - kbld) + alock * sqrt(kbld)\nasig    = asig * kvol1",
+   "params": {
+    "bowl": {
+     "range": [
+      0.0,
+      1.0
+     ],
+     "default": 0.5,
+     "note": "which measured bowl the mode series is. Not a curve and not a stretch factor: the two ends are Inácio et al. Table I/II, Bowl 2 (563 g, 152 mm, the flattest of their four) and Bowl 4 (the widest), so every position between them is between two real instruments. Bowl 2 runs 1, 2.7, 4.8, 7.5, 10.6, 14.2; Bowl 4 runs 1, 2.9, 5.7, 9.1, 13.1, 17.7, which sits almost exactly on the in-plane ring solution f_j ~ j(j^2-1)/sqrt(j^2+1) that Terwagne & Bush validate for j = 2..6. Low is the tighter, darker series; high is the wide, glassy one. It moves colour only -- measured 0.5 dB across its own travel.",
+     "anchors": {
+      "small": {
+       "value": 0.0,
+       "gloss": "Bowl 2 as measured: the flattest series, the partials closest in"
+      },
+      "mid": {
+       "value": 0.5,
+       "gloss": "between the two bowls"
+      },
+      "wide": {
+       "value": 1.0,
+       "gloss": "Bowl 4 as measured, and the ring solution: the widest, most crystalline series"
+      }
+     }
+    },
+    "warble": {
+     "range": [
+      0.0,
+      1.0
+     ],
+     "default": 0.3,
+     "note": "how far the two halves of each mode pair stand apart -- the bowl's beating, and a measurement rather than a detune. Every mode in Inácio et al. Table I is a PAIR (f_nA, f_nB) because a real bowl is not perfectly axisymmetric; their model ‚introduc[es] a difference (or split) between the frequencies of each mode pair‘, and Terwagne & Bush confirm it independently: ‚Due to the bowl asymmetry, two peaks separated by several Hz arise and a beating mode is heard.‘ The pattern up the bank is IRREGULAR and that is the point -- Bowl 1's seven pairs measure 0.454, 0.131, 0.334, 0.017, 0.375, 0.038, 0.299 %, which have no common period, so twelve long-ringing partials never come back into phase together. One shared fraction was the first version and it was audible as a pulse. This axis scales the whole measured pattern; the shape is the bowl's. At 0.0 the split is 0.3x Bowl 1 (a 3.3 s beat at 220 Hz), at 0.164 Bowl 1 exactly, at 1.0 Bowl 3's measured 2.07 %. DECLARED AS THE LOUDNESS AXIS (`; LOUDNESS: warble`): because the body is read at the note's peak and the peak of a beat depends on where the halves are in their cycle, it moves the peak 6.17 dB on its own. That is the beating, not a fader.",
+     "anchors": {
+      "slow": {
+       "value": 0.0,
+       "gloss": "the pair barely apart: one beat every three seconds at 220 Hz"
+      },
+      "measured": {
+       "value": 0.164,
+       "gloss": "Bowl 1 exactly as the table has it: about one beat per second at 220 Hz"
+      },
+      "mid": {
+       "value": 0.5,
+       "gloss": "between the measured bowls"
+      },
+      "wide": {
+       "value": 1.0,
+       "gloss": "Bowl 3's 2.07 %, the widest pair the paper measured: a fast shimmer"
+      }
+     }
+    },
+    "ring": {
+     "range": [
+      0.0,
+      1.0
+     ],
+     "default": 0.6,
+     "note": "how long the shell holds, and the range is the paper's: ‚dissipation is very low, with modal damping ratios typically in the range 0.002~0.015 % (higher values pertaining to higher-order modes). However, note that these values may increase one order of magnitude, or more, depending on how the bowls are actually supported or handled.‘ Q = 1/(2*zeta), so 25000 for a bowl standing free down to a few hundred for one held in a hand. The upper modes are damped harder than the fundamental (factors 1.3 to 3.5 up the bank), which is the paper's own direction and is why the note darkens as it rings. THE STRIKE DOES NOT CHANGE WITH IT, and that is measured rather than assumed: over a 75x span of Q a fixed impulse into one `mode` gives an attack of -69.5 to -68.3 dB while the DECAY goes from -102.0 dB over 5.7 s to -1.4. An earlier version divided the exciter by Q on the theory that a resonator's gain goes with Q -- true of its steady state, not of its response to a strike -- and that made this a 15 dB volume control. AT THE LONG END AND LOW IT OVERDRIVES THE HOST: peak 7.67 against a clip ceiling of 2.75 at 110 Hz with `ring` 1.0. Open, see the entry's `why`.",
+     "anchors": {
+      "held": {
+       "value": 0.0,
+       "gloss": "the bowl in a hand, the paper's damped case: Q ~500, gone in about five seconds"
+      },
+      "mid": {
+       "value": 0.6,
+       "gloss": "Q ~5200: a 7.6 s 1/e time, so it stands and darkens through any note"
+      },
+      "free": {
+       "value": 1.0,
+       "gloss": "the lowest damping measured, Q 25000: it outlasts the longest note by far"
+      }
+     }
+    },
+    "sung": {
+     "range": [
+      0.0,
+      1.0
+     ],
+     "default": 0.0,
+     "note": "struck or rubbed, and they are two different spectra from one body. Terwagne & Bush: ‚When the bowl is rubbed with a leather wrapped mallet, the lowest mode is excited along with its harmonics, an effect known as a mode lock in.‘ So struck (0.0) gives the inharmonic shell modes above, and rubbed (1.0) gives the (2,0) mode plus TRUE HARMONICS of it -- which is why the lock-in is its own layer and not a retuning of the bank. The pair beats on that layer too, because the rub excites both halves of the fundamental. It crossfades equal-power over 0.35 s, because friction takes hold rather than jumping; added instead of crossfaded it measured 22.3 dB across its own travel. Residual level difference at the note's peak: about 5.6 dB, and it is structural -- the struck body DECAYS from its strike while the rubbed one STANDS, so the two cannot match at the peak AND through the note, and this levelling favours where the note actually lives.",
+     "anchors": {
+      "struck": {
+       "value": 0.0,
+       "gloss": "the mallet: shell modes, mildly inharmonic, ringing down"
+      },
+      "half": {
+       "value": 0.5,
+       "gloss": "the rub taking hold over the strike"
+      },
+      "rubbed": {
+       "value": 1.0,
+       "gloss": "the mode lock-in: fundamental plus true harmonics, standing"
+      }
+     }
+    }
+   }
+  },
+  {
    "key": "struck_bar",
    "why": "tuned struck metal bar -- glockenspiel / music box / celesta / kalimba: ideal free-free bar partials (h 2.76/5.4/8.93/13.34), brighter and thinner than a big bell, rung by a continuous noise exciter through a bank of high-Q resonators",
    "code": "aexq0   rand 0.06, 0.5, 1          ; continuous exciter -> the metal is driven, a held note stands (31-bit: no 1.365 s loop)\nk0qf0   limit (kfreq * koct1) * 1.0000, 20, 15000\nk0qg0   = ((kfreq * koct1) * 1.0000 < 15000 ? 0.850 : 0)\na0q0   mode aexq0, k0qf0, 900      ; mode 1 @ x1.00, Q 900\nk0qf1   limit (kfreq * koct1) * 2.7600, 20, 15000\nk0qg1   = ((kfreq * koct1) * 2.7600 < 15000 ? 0.700 : 0)\na0q1   mode aexq0, k0qf1, 1025      ; mode 2 @ x2.76, Q 1025\nk0qf2   limit (kfreq * koct1) * 5.4000, 20, 15000\nk0qg2   = ((kfreq * koct1) * 5.4000 < 15000 ? 0.500 : 0)\na0q2   mode aexq0, k0qf2, 1150      ; mode 3 @ x5.40, Q 1150\nk0qf3   limit (kfreq * koct1) * 8.9300, 20, 15000\nk0qg3   = ((kfreq * koct1) * 8.9300 < 15000 ? 0.320 : 0)\na0q3   mode aexq0, k0qf3, 1275      ; mode 4 @ x8.93, Q 1275\nk0qf4   limit (kfreq * koct1) * 13.3400, 20, 15000\nk0qg4   = ((kfreq * koct1) * 13.3400 < 15000 ? 0.180 : 0)\na0q4   mode aexq0, k0qf4, 1400      ; mode 5 @ x13.34, Q 1400\nasig    = (a0q0 * k0qg0 + a0q1 * k0qg1 + a0q2 * k0qg2 + a0q3 * k0qg3 + a0q4 * k0qg4) * 0.150"
