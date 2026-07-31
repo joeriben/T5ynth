@@ -59,6 +59,13 @@ SETTINGS = [
      "an overdriven AMPLIFIER: the rail droops with the current drawn, carries the "
      "rectifier\u2019s 100 Hz ripple while it is loaded, and clips asymmetrically. "
      "NOT offered as an e-piano bark \u2014 see the note above"),
+    ("overdrive, driven", "rhodes",
+     ["dist_mix=0.7", "dist_drive=24"],
+     "the same stage at 24 dB instead of 9. Against the dry body the 2nd partial is up "
+     "13.3 dB and the 6th 37.6 (at 9 dB: 5.8 and 23.4), and it is +9.15 dB louder over "
+     "the whole note against +3.66. The sag shows as the attack contrast going the other "
+     "way \u2014 8.9 dB dry, 10.8 at 9 dB, 7.4 here. <b>No rumble is claimed:</b> at this "
+     "setting there is LESS below 30 Hz than in the dry body, \u221275.3 dB against \u221266.9"),
     ("suitcase, whole", "rhodes",
      ["chorus_mix=0.35", "chorus_rate=0.6", "chorus_amt=0.3",
       "trem_amt=0.5", "trem_rate=4.5", "trem_stereo=0.9"],
