@@ -54,13 +54,11 @@ SETTINGS = [
      "the widget holds one LFO and one delay line for all channels (juce_Chorus.h:157–158), "
      "so a signal that arrives identical in both channels leaves identical — measured L−R "
      "of exactly 0. The same is true of the phaser"),
-    ("wurlitzer bark", "wurlitzer",
+    ("overdrive", "rhodes",
      ["dist_mix=0.7", "dist_drive=9"],
-     "tanh over 2x oversampling, NO make-up — so it gets louder as well as dirtier, "
-     "which is what the same opcode does in the filter's own drive"),
-    ("bark, hard", "wurlitzer",
-     ["dist_mix=1.0", "dist_drive=24"],
-     "the top of the range, where the wave is nearly a square"),
+     "an overdriven AMPLIFIER: the rail droops with the current drawn, carries the "
+     "rectifier\u2019s 100 Hz ripple while it is loaded, and clips asymmetrically. "
+     "NOT offered as an e-piano bark \u2014 see the note above"),
     ("suitcase, whole", "rhodes",
      ["chorus_mix=0.35", "chorus_rate=0.6", "chorus_amt=0.3",
       "trem_amt=0.5", "trem_rate=4.5", "trem_stereo=0.9"],
@@ -137,6 +135,21 @@ because the effect made it so.</p>
 <code>tools/audition_amp_effects</code>, in the plugin's own order:
 distortion → chorus → phaser → tremolo, ahead of delay and reverb. They have no UI yet;
 the LRO author reaches them by name (<code>fx_trem_stereo</code> and the other eleven).</p>
+<p class=n><b>There is no bark row, and there will not be one.</b> BJ, 2026-07-31, after
+hearing two attempts: „als sound ok, aber es klingt nicht ab. das ist ein 4-sekunden-bark.
+ein bark bei einem epiano klingt aber nach höchstens 1 sek ab … das bark-Sample hat keine
+Transiente, die wird verschluckt. und kein Rumble. Mein vorschlag daher, bark nicht
+anzubieten." Both halves are in the files: the distortion CUT the attack contrast from the
+dry body\u2019s +6.8 dB to +5.3, and its excess over that body GREW across the note, from
++3.9 dB to +5.0 (and +8.4 to +16.5 at the hard setting) instead of dying away.</p>
+<p class=n>Why a stage here can never do it, from the corpus BJ asked for \u2014 842 named
+e-pianos in the DX7 library: the FAR modulator, which is the bright, barking part, falls at
+envelope rate <b>50</b> while the carrier falls at <b>25</b>, and drops 24 envelope points
+against the near modulator\u2019s 6. The bark has its OWN envelope, about twice as fast as
+the note. An amplifier behind the voices has no envelope at all \u2014 it follows the level,
+and the level falls more slowly than the modulation, which is exactly why the effect grows
+instead of decaying. The bark belongs in the body, where <code>ep_fm3</code> already has it
+as its <code>strike</code> axis.</p>
 <p class=n>Measured across these files, so it is not a claim about how they sound:
 the suitcase row has an L−R of 0.0410 and the wurlitzer row 0.0000 — the one is a pan and
 the other is amplitude, which is the difference the two instruments' amplifiers make. The
