@@ -1127,14 +1127,27 @@ void SynthVoice::renderBlock(float* output, float* outputRight, const BlockParam
             outputRBuf[i - pos] = sampleR;
             vcaScratch[i - pos] = vca;
 
-            // Freeing the voice cuts its output dead, so it may only happen once
-            // NOTHING is still shaping the level. With the amp envelope on the
-            // DCA that is the envelope alone, exactly as before. With it routed
-            // elsewhere the KEY holds the level (computeDcaGain above), and its
-            // release ramp has to finish first — otherwise a zero-release amp
-            // envelope would chop the gate's fall mid-slope and click.
-            if (ampEnv.isIdle() && !noteHeld
-                && !(p.ampTarget != EnvTarget::DCA && keyGate_.isSmoothing()))
+            // Freeing the voice cuts its output dead AND ends it as a modulation
+            // source, so it may only happen once neither job is left.
+            //
+            // LEVEL: whoever holds it has to be finished. Amp envelope on the
+            // DCA — the envelope, exactly as before. Routed anywhere else, the
+            // KEY holds it (computeDcaGain above) and its release ramp has to
+            // land first, or a zero-release amp envelope would chop the gate's
+            // fall mid-slope and click.
+            //
+            // MODULATION: an amp envelope routed to the delay, the reverb or an
+            // LFO drives something OUTSIDE this voice, which the processor reads
+            // off the newest active voice — so it keeps mattering long after the
+            // voice has gone quiet, and the slot stays held for it. Against the
+            // voice's OWN targets (filter, pitch, scan, noise) there is nothing
+            // to wait for: they are inaudible the moment the level is zero.
+            const bool levelDone = (p.ampTarget == EnvTarget::DCA)
+                                 ? ampEnv.isIdle()
+                                 : ! keyGate_.isSmoothing();
+            const bool stillModulating = EnvTarget::isOutsideTheVoice(p.ampTarget)
+                                      && ! ampEnv.isIdle();
+            if (levelDone && !stillModulating && !noteHeld)
             {
                 active = false;
                 // Close the gate with the voice. A freed voice stops rendering,

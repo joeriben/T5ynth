@@ -471,6 +471,32 @@ namespace EnvTarget {
     static constexpr int kCount = sizeof(kEntries) / sizeof(kEntries[0]);
     static_assert(LFO3Depth + 1 == kCount,
                   "EnvTarget enum and kEntries are out of sync.");
+
+    /** Does this target live OUTSIDE the voice — i.e. does an envelope pointed
+        at it keep mattering after the voice itself has gone silent?
+
+        The delay, the reverb and the LFO rates/depths are processor-wide: the
+        block-rate ghost reads them off the NEWEST ACTIVE voice
+        (VoiceManager.cpp, `out.lastAmpVal`), so the voice has to stay alive for
+        the envelope to keep driving them. DCA, Filter, Scan, Pitch and Noise
+        are the voice's own — they die with it and cannot outlast it.
+
+        SynthVoice's voice-free test asks this: a voice whose LEVEL is finished
+        may still be needed as a modulation source, and only when neither holds
+        may the slot be released. */
+    inline constexpr bool isOutsideTheVoice (int target)
+    {
+        return target == DelayTime || target == DelayFB || target == DelayMix
+            || target == ReverbMix
+            || target == LFO1Rate || target == LFO1Depth
+            || target == LFO2Rate || target == LFO2Depth
+            || target == LFO3Rate || target == LFO3Depth;
+    }
+    static_assert(! isOutsideTheVoice(None) && ! isOutsideTheVoice(DCA)
+                  && ! isOutsideTheVoice(Filter) && ! isOutsideTheVoice(Scan)
+                  && ! isOutsideTheVoice(Pitch) && ! isOutsideTheVoice(NoiseLevel)
+                  && isOutsideTheVoice(DelayTime) && isOutsideTheVoice(LFO3Depth),
+                  "isOutsideTheVoice and the EnvTarget enum have drifted apart.");
 }
 
 // ── LFO targets ──
