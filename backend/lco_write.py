@@ -200,7 +200,7 @@ def named_entries(text, lib=None):
     whatever it names in that reasoning is what gets quoted to it in full. This
     function does not choose — it recognises names the model itself wrote down,
     over the same surface forms the lexicon already carries (so "bell" finds
-    `fm_bell` and "electric piano" finds `fm_ep`, whichever way the model said
+    `fm_bell` and "electric piano" finds `ep_fm3`, whichever way the model said
     it).
 
     Nothing here is a fallback: naming nothing is a real answer, and the caller

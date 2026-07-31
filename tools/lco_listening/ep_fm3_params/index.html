@@ -1,0 +1,83 @@
+<!doctype html><meta charset=utf-8><title>ep_fm3 — Parameterkombination</title>
+<style>
+:root{color-scheme:light dark}
+body{font:15px/1.55 system-ui,sans-serif;margin:0 24px 90px;max-width:940px}
+h1{font-size:21px;margin:18px 0 2px}
+h2{font-size:15px;margin:30px 0 8px;border-top:2px solid #8884;padding-top:12px}
+#bar{position:sticky;top:0;background:Canvas;padding:12px 0 10px;z-index:20;
+border-bottom:2px solid #8886}
+#combo{font:600 16px ui-monospace,monospace;margin-bottom:8px}
+#player{width:100%;height:36px}
+.note{border:1px solid #8884;border-radius:7px;padding:10px 13px;font-size:13px;
+margin:12px 0;background:#8881}
+.axis{margin:16px 0}
+.axis .name{font:600 14px ui-monospace,monospace;margin-bottom:2px}
+.axis .desc{font-size:12.5px;opacity:.75;margin-bottom:7px}
+.opts{display:flex;flex-wrap:wrap;gap:8px}
+.opt{cursor:pointer;border:1px solid #8886;border-radius:7px;padding:8px 12px;
+background:#8881;text-align:left;font:14px system-ui;min-width:150px}
+.opt:hover{background:#8883}
+.opt[aria-pressed=true]{background:#f9a825;border-color:#f57f17;color:#000}
+.opt b{display:block;font-size:14px}
+.opt small{display:block;font-size:11.5px;opacity:.8;margin-top:3px;max-width:230px}
+.opt code{font-size:11px;opacity:.7}
+table{border-collapse:collapse;font-size:13px;margin-top:8px}
+th,td{border:1px solid #8886;padding:5px 9px;text-align:right}
+td:first-child,th:first-child{text-align:left}
+code{background:#8882;padding:1px 4px;border-radius:3px}
+</style>
+<div id='bar'>
+  <div id='combo'>—</div>
+  <audio id='player' controls preload='none'></audio>
+</div>
+
+<h1>ep_fm3 — Parameterkombination</h1>
+<div class='note'>electric piano / rhodes / wurlitzer / dx piano: a struck tine over a body that holds, and a note that falls away while the key is down. The STRUCK reading of frequency modulation -- `fm3` is the held one, and the two name each other the way `plucked_wire` and `string` do. Method: Chowning 1973&#x27;s percussive construction, the modulation index carrying its own decaying envelope. The tine&#x27;s ratio, its range and the fact that the far family dies while the near one stands are measured, not recalled: 1386 named electric pianos in the DX7 corpus, docs/LCO_TIMBRE_SEMANTICS.md §7. Pre-build record: docs/plans/PLAN_lco_ep_fm3.md. It replaces the struck `fm_ep`, which had every axis this one has except the two that were missing -- the tine&#x27;s ratio was hardcoded at 14.2 with no knob on it, and the body did not decay at all.…</div>
+
+<div class='note'><b>Wie zu lesen.</b> Jede Achse unten steht auf ihren im Eintrag
+<i>deklarierten</i> Ankern. Oben steht immer die vollst&auml;ndige Kombination, die gerade
+klingt &mdash; nichts ist f&uuml;r dich ausgew&auml;hlt worden, was du nicht siehst.
+<b>Ein einziger Pegelfaktor f&uuml;r den ganzen Satz</b> (+6.32&nbsp;dB), keine
+Normalisierung pro Datei. Dieser Eintrag erkl&auml;rt in seinem eigenen Code, dass <code>decay</code> die Lautst&auml;rke bewegen (<code>; LOUDNESS:</code>), und das ist der Klang, nicht ein Fehler. Note 220&nbsp;Hz, 8&nbsp;s lang. Lang, weil manche K&ouml;rper hier auf Perioden von rund 20&nbsp;Sekunden wandern (<code>analog_osc</code>s <code>age</code> mit 0,043&nbsp;Hz) und ein kurzer Reiz eine solche Achse gar nicht zeigt.
+<b>Gerendert bei 176400&nbsp;Hz und auf 44100&nbsp;Hz heruntergesetzt</b>, weil das
+Instrument es so tut: die Engine übersetzt den Csound-Text bei Hostrate&nbsp;&times;&nbsp;4
+und dezimiert jede Stimme zurück. Bei blossen 44100&nbsp;Hz zu rendern legt eine
+Faltung über den Klang, die im Instrument nicht vorkommt. Das Filter hier ist ein
+Kaiser-Polyphasen-FIR, nicht der 63-Takt-Halbband-FIR der Engine &mdash; nah genug, um
+nicht das Filter statt des Körpers zu hören, aber nicht dasselbe.</div>
+
+<div class='axis'><div class='name'>tine &nbsp;[6.0 … 28.0]&nbsp; Vorgabe 14.0</div><div class='desc'>where the metal of the strike stands, as a multiple of the note. THIS IS THE AXIS `fm_ep` DID NOT HAVE: it hardcoded 14.2 and put no control on it, which is the defect docs/LCO_TIMBRE_SEMANTICS.md §4.8 records for the old `fm` -- &quot;what the designers reached for hardest has no knob here&quot;. Hayes &amp; Saitis 2020 measured the modulator tuning r…</div><div class='opts'><button class='opt' data-axis='tine' data-val='close metal' aria-pressed='false'><b>close metal</b><code>tine = 6.0</code><small>the metal sits near the body, more thud than ting</small></button><button class='opt' data-axis='tine' data-val='tine' aria-pressed='false'><b>tine</b><code>tine = 14.0</code><small>the corpus&#x27;s own most common tine, 595 of 1386 voices</small></button><button class='opt' data-axis='tine' data-val='high tine' aria-pressed='false'><b>high tine</b><code>tine = 22.0</code><small>thin and glassy, well clear of the body</small></button><button class='opt' data-axis='tine' data-val='needle' aria-pressed='false'><b>needle</b><code>tine = 28.0</code><small>the top of the corpus&#x27;s range; only low notes carry it</small></button></div></div><div class='axis'><div class='name'>ting &nbsp;[0.0 … 1.0]&nbsp; Vorgabe 0.55</div><div class='desc'>how much of the strike is metal. This is the single feature that separates an electric piano from a plain FM tone; at 0 the instrument is only its body. The metal fades back out of the tone as the note is held -- it loses its brightness, and it trades against the body rather than being added on top, so this moves colour and not level. Hay…</div><div class='opts'><button class='opt' data-axis='ting' data-val='none' aria-pressed='false'><b>none</b><code>ting = 0.0</code><small>the body alone, no metal in the strike</small></button><button class='opt' data-axis='ting' data-val='soft' aria-pressed='false'><b>soft</b><code>ting = 0.3</code><small>a hint of tine</small></button><button class='opt' data-axis='ting' data-val='classic' aria-pressed='false'><b>classic</b><code>ting = 0.55</code><small>the default: a struck electric piano</small></button><button class='opt' data-axis='ting' data-val='clangy' aria-pressed='false'><b>clangy</b><code>ting = 1.0</code><small>the metal is most of the attack</small></button></div></div>
+
+<h2>Nicht gekreuzt: einzeln, alles andere auf Vorgabe</h2><div class='note'><b>Warum getrennt.</b> Alle 6 Achsen zu kreuzen wäre 3840 Kombinationen &mdash; kein Hörtest, sondern eine Halde. Gekreuzt sind <code>tine</code>, <code>ting</code>; hier stehen <code>ring</code>, <code>hollow</code>, <code>strike</code>, <code>decay</code> einzeln, mit jeder anderen Achse auf ihrer Vorgabe. Was du hier hörst, ist also EIN Punkt des Raums, nicht die Achse über ihn hinweg.</div><div class='axis'><div class='name'>ring</div><div class='desc'>how long the metal takes to die back into the body -- the tine&#x27;s time constant, 0.08 s at the bottom and 1.48 s at the top. Short is a quick struck-tine click, long is a metallic buzz that stays through most of the note. Both ends are the corpus&#x27;s: its far modulators fall from envelope level 99 to 7…</div><div class='opts'><button class='opt' data-paired='1' data-src='clips/sweep_ring_click.wav' data-label='ring = click (0.0) — übrige Achsen auf Vorgabe'><b>click</b><code>ring = 0.0</code><small>the metal is gone in a third of a second</small></button><button class='opt' data-paired='1' data-src='clips/sweep_ring_short.wav' data-label='ring = short (0.3) — übrige Achsen auf Vorgabe'><b>short</b><code>ring = 0.3</code><small>the default: a rhodes-like tine</small></button><button class='opt' data-paired='1' data-src='clips/sweep_ring_medium.wav' data-label='ring = medium (0.6) — übrige Achsen auf Vorgabe'><b>medium</b><code>ring = 0.6</code><small>the metal carries into the note</small></button><button class='opt' data-paired='1' data-src='clips/sweep_ring_long.wav' data-label='ring = long (1.0) — übrige Achsen auf Vorgabe'><b>long</b><code>ring = 1.0</code><small>a wurlitzer-like reed that buzzes on</small></button></div></div><div class='axis'><div class='name'>hollow</div><div class='desc'>the body&#x27;s harmonics, from the full series to odd only. Low keeps every harmonic and sounds broad and piano-like; high cancels the even ones, which is what makes a reed sound hollow and nasal. It is a LEVEL crossfade between two bodies and never a ratio sweep: a modulator ratio swept from 1 to 2 pas…</div><div class='opts'><button class='opt' data-paired='1' data-src='clips/sweep_hollow_full.wav' data-label='hollow = full (0.0) — übrige Achsen auf Vorgabe'><b>full</b><code>hollow = 0.0</code><small>every harmonic, broad and piano-like</small></button><button class='opt' data-paired='1' data-src='clips/sweep_hollow_hollow.wav' data-label='hollow = hollow (0.45) — übrige Achsen auf Vorgabe'><b>hollow</b><code>hollow = 0.45</code><small>the even partials thinning out</small></button><button class='opt' data-paired='1' data-src='clips/sweep_hollow_nasal.wav' data-label='hollow = nasal (0.75) — übrige Achsen auf Vorgabe'><b>nasal</b><code>hollow = 0.75</code><small>mostly odd, a pinched reed</small></button><button class='opt' data-paired='1' data-src='clips/sweep_hollow_reed.wav' data-label='hollow = reed (1.0) — übrige Achsen auf Vorgabe'><b>reed</b><code>hollow = 1.0</code><small>odd only, a wurlitzer body</small></button></div></div><div class='axis'><div class='name'>strike</div><div class='desc'>how bright the body starts before it softens. This shapes the tone and not the volume -- a hard strike is brighter, not louder, because frequency modulation redistributes power rather than adding it. The body settles to 29 % of its opening index over about a second and then HOLDS there, which is the…</div><div class='opts'><button class='opt' data-paired='1' data-src='clips/sweep_strike_soft.wav' data-label='strike = soft (0.0) — übrige Achsen auf Vorgabe'><b>soft</b><code>strike = 0.0</code><small>barely struck, almost a sine body</small></button><button class='opt' data-paired='1' data-src='clips/sweep_strike_normal.wav' data-label='strike = normal (0.64) — übrige Achsen auf Vorgabe'><b>normal</b><code>strike = 0.64</code><small>the default</small></button><button class='opt' data-paired='1' data-src='clips/sweep_strike_hard.wav' data-label='strike = hard (1.0) — übrige Achsen auf Vorgabe'><b>hard</b><code>strike = 1.0</code><small>the body opens bright and closes down over a second</small></button></div></div><div class='axis'><div class='name'>decay</div><div class='desc'>how fast the whole note falls away while the key is held: a time constant of 11.3 s at the bottom and 0.30 s at the top. This is the axis `fm_ep` did not have at all -- docs/LCO_CONCEPT.md §4 records that `fm_ep` emitted no amplitude envelope and was the STANDING reading of an instrument whose whole…</div><div class='opts'><button class='opt' data-paired='1' data-src='clips/sweep_decay_ringson.wav' data-label='decay = rings on (0.0) — übrige Achsen auf Vorgabe'><b>rings on</b><code>decay = 0.0</code><small>11 seconds; nearly a standing tone</small></button><button class='opt' data-paired='1' data-src='clips/sweep_decay_long.wav' data-label='decay = long (0.25) — übrige Achsen auf Vorgabe'><b>long</b><code>decay = 0.25</code><small>6.5 seconds, a big instrument</small></button><button class='opt' data-paired='1' data-src='clips/sweep_decay_piano.wav' data-label='decay = piano (0.45) — übrige Achsen auf Vorgabe'><b>piano</b><code>decay = 0.45</code><small>the default, 3.6 seconds</small></button><button class='opt' data-paired='1' data-src='clips/sweep_decay_short.wav' data-label='decay = short (0.75) — übrige Achsen auf Vorgabe'><b>short</b><code>decay = 0.75</code><small>one second</small></button><button class='opt' data-paired='1' data-src='clips/sweep_decay_clipped.wav' data-label='decay = clipped (1.0) — übrige Achsen auf Vorgabe'><b>clipped</b><code>decay = 1.0</code><small>a third of a second; struck and gone</small></button></div></div>
+
+<h2>Was im Kreuz steht</h2>
+<div class='note'>16 Kombinationen aus 2 Achsen, jede an ihren Ankern.
+Gerendert direkt gegen das Csound-Ger&uuml;st, aus dem Eintrag im Lexikon &mdash; also
+genau der Code, den das schreibende Modell zu sehen bekommt.</div>
+<table><tr><th>tine</th><th>ting</th><th>dBrms</th><th>Peak</th><th>Schwerpunkt Hz</th></tr><tr><td>close metal</td><td>none</td><td>-19.97</td><td>0.383</td><td>525</td></tr><tr><td>close metal</td><td>soft</td><td>-20.08</td><td>0.345</td><td>526</td></tr><tr><td>close metal</td><td>classic</td><td>-20.08</td><td>0.345</td><td>526</td></tr><tr><td>close metal</td><td>clangy</td><td>-19.88</td><td>0.423</td><td>523</td></tr><tr><td>tine</td><td>none</td><td>-19.97</td><td>0.383</td><td>525</td></tr><tr><td>tine</td><td>soft</td><td>-20.08</td><td>0.347</td><td>526</td></tr><tr><td>tine</td><td>classic</td><td>-20.08</td><td>0.338</td><td>526</td></tr><tr><td>tine</td><td>clangy</td><td>-19.88</td><td>0.408</td><td>525</td></tr><tr><td>high tine</td><td>none</td><td>-19.97</td><td>0.383</td><td>525</td></tr><tr><td>high tine</td><td>soft</td><td>-20.08</td><td>0.355</td><td>526</td></tr><tr><td>high tine</td><td>classic</td><td>-20.08</td><td>0.347</td><td>527</td></tr><tr><td>high tine</td><td>clangy</td><td>-19.89</td><td>0.417</td><td>526</td></tr><tr><td>needle</td><td>none</td><td>-19.97</td><td>0.383</td><td>525</td></tr><tr><td>needle</td><td>soft</td><td>-20.08</td><td>0.367</td><td>526</td></tr><tr><td>needle</td><td>classic</td><td>-20.12</td><td>0.331</td><td>527</td></tr><tr><td>needle</td><td>clangy</td><td>-20.03</td><td>0.390</td><td>527</td></tr></table>
+
+<script>
+var STATE={"tine": "close metal", "ting": "none"}, DUR=8.0;
+var P=document.getElementById('player'), C=document.getElementById('combo');
+function name(){ return AXES.map(function(a){return STATE[a];}).join('__'); }
+var AXES=["tine", "ting"];
+var LABEL={"tine": {"close metal": "close metal (6.0)", "tine": "tine (14.0)", "high tine": "high tine (22.0)", "needle": "needle (28.0)"}, "ting": {"none": "none (0.0)", "soft": "soft (0.3)", "classic": "classic (0.55)", "clangy": "clangy (1.0)"}};
+function refresh(auto){
+  if(!AXES.length){ C.textContent='— keine kreuzbare Achse: alles einzeln, unten —'; return; }
+  C.textContent = AXES.map(function(a){return a+' = '+LABEL[a][STATE[a]];}).join('   |   ');
+  var f='clips/'+name()+'.wav';
+  if(P.src.indexOf(f)<0){ P.src=f; if(auto) P.play(); }
+  // the paired buttons carry no axis, so they must be skipped: STATE[undefined] ===
+  // b.dataset.val would be undefined === undefined, and all of them would read as
+  // selected at once.
+  document.querySelectorAll('.opt:not([data-paired])').forEach(function(b){
+    b.setAttribute('aria-pressed', STATE[b.dataset.axis]===b.dataset.val ? 'true':'false');
+  });
+}
+document.addEventListener('click',function(e){
+  var b=e.target.closest('.opt'); if(!b) return;
+  if(b.dataset.paired){ P.src=b.dataset.src; P.play(); C.textContent=b.dataset.label; return; }
+  STATE[b.dataset.axis]=b.dataset.val; refresh(true);
+});
+refresh(false);
+</script>
