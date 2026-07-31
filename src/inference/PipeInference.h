@@ -47,6 +47,36 @@ public:
     const juce::StringArray& getAvailableModels() const { return availableModels_; }
     const juce::String& getDefaultModel() const { return defaultModel_; }
 
+    /** The instruments BJ has AUTHORISED, from `lco_library.json` — read
+     *  directly off disk (no subprocess round trip, no LLM call: this is a
+     *  static reference list, the same file authorCsoundOrchestra() already
+     *  consults on the Python side). For UI orientation only — the library is
+     *  not a menu (project_lco_llm_authors_csound): the author may use these
+     *  or write its own code, and it always sees ALL entries, not just these.
+     *
+     *  The criterion is the `curated` field and nothing else. It is written by
+     *  hand into `backend/dco_lexicon.json` for the entries built or rebuilt
+     *  under CLAUDE.md's Instrument Authoring rules, and carried through
+     *  verbatim by tools/lco_build_library.py. Marking one more entry there is
+     *  therefore the ONLY step needed to make it appear here — no code change
+     *  (BJ 2026-07-30: "diese sind automatisch dort einzublenden").
+     *
+     *  Never re-derive this from something measurable. Deriving it from
+     *  `params`+`anchor_code` was tried and was wrong in both directions: it
+     *  admitted seven entries he had not approved and dropped one he had.
+     *
+     *  NAMES only, and deliberately no parameters. A catalogue of every
+     *  control of every entry laid out in advance is not a thing this surface
+     *  does (BJ 2026-07-30: "es werden nicht zig parameter auf vorrat
+     *  angezeigt, das geht gar nicht") — the controls that matter are the ones
+     *  the author actually reached for in the orchestra it just wrote, and the
+     *  KNOBS row already carries those. This decides the question left open in
+     *  project_lco_params_are_the_user_surface.
+     *
+     *  Empty before launch() has recorded a backendDir_, or if the file can't
+     *  be found/parsed. */
+    juce::StringArray getCuratedInstrumentNames() const;
+
     /** Per-model static metadata reported by Python at startup.
      *
      *  Currently surfaces:
@@ -375,7 +405,15 @@ private:
     juce::StringArray availableModels_;
     juce::String defaultModel_;
     std::map<juce::String, ModelMetadata> modelMetadata_;
-    juce::File backendDir_;   // remembered for auto-restart
+    juce::File backendDir_;   // remembered for auto-restart — guarded by backendDirMutex_
+    mutable std::mutex backendDirMutex_;         // guards ONLY backendDir_ — deliberately NOT
+                                                  // stateMutex_: getCuratedInstrumentNames() reads
+                                                  // it from the message thread (SynthPanel::
+                                                  // updateVisibility), and stateMutex_ is held for
+                                                  // the WHOLE authorCsoundOrchestra() round-trip —
+                                                  // an LLM call. Blocking the message thread on
+                                                  // that would freeze the GUI for as long as a bake
+                                                  // is in flight.
     juce::String lastError_;  // human-readable error from last failed launch
     mutable std::mutex authorConfigMutex_;       // guards ONLY authorProviderConfig_ below —
                                                   // see setAuthorProviderConfig()'s doc comment
@@ -395,6 +433,11 @@ private:
 
     juce::File findBundledBinary(const juce::File& backendDir) const;
     bool isCompatibleBundledBinary(const juce::File& binary) const;
+    /** Mirrors findBundledBinary's dual layout: a local PyInstaller test build
+     *  nests it under dist/pipe_inference/ (PyInstaller's `datas` land at '.'
+     *  inside that folder); a dev run or an installed/shipped app has it as a
+     *  direct sibling of the backend directory. */
+    juce::File findLibraryFile(const juce::File& backendDir) const;
     void prepareBundledBinary(const juce::File& backendDir, const juce::File& binary) const;
     juce::String maybeAugmentMacStandaloneError(const juce::File& backendDir,
                                                 const juce::String& detail) const;

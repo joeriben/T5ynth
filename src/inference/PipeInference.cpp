@@ -165,6 +165,96 @@ juce::File PipeInference::findBundledBinary(const juce::File& backendDir) const
     return {};  // not found — fall back to Python
 }
 
+juce::File PipeInference::findLibraryFile(const juce::File& backendDir) const
+{
+    // Dev tree: lco_library.json sits directly in backend/, next to
+    // pipe_inference.py (LIBRARY_PATH in lco_write.py).
+    auto sibling = backendDir.getChildFile("lco_library.json");
+    if (sibling.existsAsFile()) return sibling;
+
+    // PyInstaller 6.x onedir (pipe_inference.spec, no contents-directory
+    // override — verified against the vendored 6.20.0) keeps the executable
+    // at the dist root but nests every `datas` entry, this JSON included,
+    // under `_internal/`. Installed-app layout (docs/RELEASE_PROCESS.md
+    // embeds the dist output straight into backendDir) and Linux packaging
+    // (installer/linux/stage_backend_bundle.sh) both confirm this same
+    // `_internal/` nesting, so this is the sibling case's actual shape:
+    auto internalSibling = backendDir.getChildFile("_internal/lco_library.json");
+    if (internalSibling.existsAsFile()) return internalSibling;
+
+    // Local PyInstaller test build, not yet packaged (backend/dist/pipe_
+    // inference/ still holding its own dist layout):
+    auto dist = backendDir.getChildFile("dist/pipe_inference/_internal/lco_library.json");
+    if (dist.existsAsFile()) return dist;
+
+    return {};
+}
+
+juce::StringArray PipeInference::getCuratedInstrumentNames() const
+{
+    // backendDir_ is written on a background launch thread (MainPanel::
+    // tryLoadInferenceModels), while this is called from the message thread
+    // (SynthPanel::updateVisibility) — a real cross-thread race on the
+    // juce::String backendDir_ holds, not merely a stale read. Snapshot it
+    // under backendDirMutex_ (NOT stateMutex_ — see that mutex's doc comment)
+    // and do the actual file I/O outside the lock.
+    juce::File dir;
+    {
+        const std::lock_guard<std::mutex> dirLock(backendDirMutex_);
+        dir = backendDir_;
+    }
+    if (! dir.isDirectory())
+        return {};
+
+    auto libFile = findLibraryFile(dir);
+    if (! libFile.existsAsFile())
+        return {};
+
+    auto parsed = juce::JSON::parse(libFile);
+    auto* root = parsed.getDynamicObject();
+    if (root == nullptr)
+        return {};
+
+    auto instruments = root->getProperty("instruments");
+    auto* arr = instruments.getArray();
+    if (arr == nullptr)
+        return {};
+
+    // "Curated" is BJ's AUTHORISATION, and it is only ever read here, never
+    // re-derived. The `curated` field is written into the lexicon by hand for
+    // the entries he built or rebuilt under CLAUDE.md's Instrument Authoring
+    // rules since the revert, and carried into this file verbatim by
+    // tools/lco_build_library.py. Deriving it instead from something measurable
+    // — `params` plus `anchor_code`, i.e. "the number reaches the code" — was
+    // tried and was wrong in BOTH directions: it admitted seven entries he
+    // never approved, and dropped `divider_organ`, which he had. A measured
+    // property is not a verdict; only this field is.
+    //
+    // The NAME comes from the library's `name` field and is not derived here.
+    // "fm fm3 fm_bell" tells a player nothing, so the key is not it; and
+    // cutting the head off `why` produced descriptions rather than names — "a
+    // wire under tension", "a metal body held ringing by moving air" — which is
+    // an invention wearing the costume of data (BJ, 2026-07-30: "das sind NICHT
+    // die Instrumente"). tools/lco_build_library.py writes `name` from the
+    // entry's first surface form: curated, and the word that actually reaches
+    // that body in a prompt.
+    juce::StringArray names;
+    for (auto& entry : *arr)
+        if (auto* obj = entry.getDynamicObject())
+        {
+            if (obj->getProperty("curated").toString().isEmpty())
+                continue;
+
+            auto name = obj->getProperty("name").toString().trim();
+            if (name.isEmpty())
+                name = obj->getProperty("key").toString();
+            if (name.isNotEmpty())
+                names.add(name);
+        }
+
+    return names;
+}
+
 bool PipeInference::isCompatibleBundledBinary(const juce::File& binary) const
 {
     if (!binary.existsAsFile())
@@ -360,7 +450,10 @@ bool PipeInference::launch(const juce::File& backendDir)
     // Kill any orphaned subprocess before starting a new one
     shutdown();
 
-    backendDir_ = backendDir;
+    {
+        const std::lock_guard<std::mutex> dirLock(backendDirMutex_);
+        backendDir_ = backendDir;
+    }
 
     // Resolve executable: bundled binary (PyInstaller) or Python + script
     auto bundled = findBundledBinary(backendDir);
