@@ -549,7 +549,82 @@ nearest existing entry is **`fm`** — one carrier, one modulator; its `why` des
 
 ---
 
-## 7. Every research contribution this project leans on
+## 7. [4] The DX7 corpus — where a word sits, from 119,296 human patches
+
+Built on BJ's instruction, 2026-07-31: „es sind 1000ende DX7-Presets online. baue ein skript das
+die retrieved, passende 3op-konstellationen ausliest und von den Bezeichnungen auf sonische
+qualitäten schließt." Tool: `tools/dx7_corpus.py`, whose docstring carries the format sources and
+the derivation that is not copied. Source: `visualizersdotnl/Yamaha-DX7-patch-library`, CC0-1.0,
+3728 bulk dumps, 119,296 voices.
+
+**What it is, and the three things it is not.** A DX7 patch is a datum of the same *kind* as [2]:
+a person set operator ratios and drives and then wrote a name on it. Thousands of people, over
+forty years, independently. It is **not a listening test** — these are other ears, on another
+instrument, reported through a 10-character label, and a name is not a percept. It is **not a
+meter** in the sense `feedback_no_selfmade_perceptual_meters` forbids: nothing here scores a
+sound, it counts human settings grouped by human words. And it is **not my judgement repeated**,
+which is the failure mode §4.10 records from [3] — the authors are thousands of people who never
+saw this project. What it can do is stop the library from guessing where a word sits.
+
+**The projection, and what it costs.** `fm3` is one carrier driven by two modulators in linear
+combination. Measured over this corpus that exact shape is **0.1 %** of the voices — 45 % of DX7
+patches have two live carriers, 19 % three, 91 % keep all six operators sounding — so a filter for
+it yields 153 voices and no word reaches a countable group. Each voice is instead reduced to the
+part `fm3` can express: its **loudest carrier**, and on that carrier the **lowest- and
+highest-ratio** modulators (by ratio, because that is what defines the entry's two slots; a
+carrier with one modulator is a two-operator voice and lands as both slots at one ratio). 85,874
+voices survive. Every row carries what was dropped (`carriers`, `mods`, `chain`) and the 149 rows
+that lost nothing are marked `strict`, so any reading can be re-run on those alone.
+
+**Its own limits, stated rather than discovered later.** (a) The DX7 has an envelope on every
+operator; `fm3` has one `onset` for both modulators, so a large part of what makes a DX7 patch
+that patch is not in this projection at all. (b) The DX7 output level rises with modulation index
+but does not count cycles — the drive columns are read for **sign only** and must never be
+transcribed as a value. Its EG rate 1 runs **opposite** to `onset`. (c) The corpus is 1980s
+instrument imitation, and this instrument is not imitative (`project_lco_material_not_imitation`,
+BJ: „das ist ein synth!"). The use is not "make `fm3` sound like a trombone" — it is that when a
+word arrives, the author has a **measured place to start from** instead of a guess.
+
+**The one validation, and it was not tuned for.** BJ's own reading of `fm3` (2026-07-31, recorded
+in the entry's `heard`) was the falsifiable prediction: `under` together with `slow` goes „sehr
+klar richtung trombone". The corpus reproduces it on both axes at once:
+
+| word | n | modulator at ≥ 2× the note | carrier attack (99 = instant) |
+|---|---|---|---|
+| trombone | 174 | 12.6 % | 57 |
+| horn | 807 | 8.7 % | 61 |
+| sax | 395 | 7.3 % | 64 |
+| cello | 381 | 14.2 % | 52 |
+| **corpus** | 85,874 | **40.6 %** | **80** |
+| glass | 128 | 59.4 % | 95 |
+| vibe | 195 | 89.2 % | 80 |
+| marimba | 330 | 98.5 % | 99 |
+
+**The main directions** (`tools/dx7_corpus.py --axes --min-n 80`), in the entry's own axes:
+
+| axis | high | low |
+|---|---|---|
+| `ratio 3` | sitar 7.0, clarinet 6.0, marimba/xylophone 5.0, bells 3.5, vibes 3.0 | harpsichord 0.17, oboe/bassoon 0.25, choir/male/sax 0.5, brass/horn/trombone/string 1.0 |
+| `ratio 2` | mallet/block 5.0, bells 3.5, marimba 3.3, vibes 3.0 | the same low set |
+| `index 2` / `index 3` | clavinet, harpsichord, drums, jazz guitar, saw | piccolo, clarinet, trumpet, flute, panflute, lute, chimes |
+| `onset` | *slow*: chimes, organ pipes, violin, choir, `/strings`, `/voice` | *fast*: percussion, marimba, pizzicato, sitar, synth bass, metal |
+| `trade` | — | the DX7 has no counterpart; this axis is unmeasured here |
+
+**Three findings nobody asked for.**
+
+- **„brass" is not one place.** `trumpet` (67.5 %) and `tuba` (52 %) go the *other* way on the
+  ratio from `trombone` (12.6 %) and `horn` (8.7 %), while all four stay slow. Their brightness
+  comes from a far family; trombone's does not. A single "brass" direction would be wrong.
+- **`clarinet` is the sharpest single signature in the corpus:** 100 % of its voices reach a far
+  family, and it has the *weakest* drive on it (54 against 82). Far and quietly driven — a
+  combination no rule in the library would have produced.
+- **`fm3` cannot reach the electric piano.** The corpus's electric pianos sit at ratio 11–14 and
+  its acoustic pianos at 20–21; this entry's ratio axes stop at 8.0. That is a measurement about
+  the entry's range. Widening it is BJ's.
+
+---
+
+## 8. Every research contribution this project leans on
 
 Recorded on BJ's instruction, 2026-07-30, so that no rule, measurement or planned entry rests on a
 source a reader cannot find. Two tiers, and the difference between them is load-bearing: **A** was
@@ -561,7 +636,7 @@ record in `docs/LCO_CODE_PROVENANCE.md` (Szabo 2010 for `supersaw`; ffitch/Lazza
 1983, Järveläinen & Tolonen 2001, Karjalainen et al. 1998 for `plucked_wire`) and are not repeated
 here.
 
-### 7.A Read in full
+### 8.A Read in full
 
 | | contribution | used for |
 |---|---|---|
@@ -569,7 +644,7 @@ here.
 | **[2]** | Hayes, Ben & Saitis, Charalampos (2020): „There's more to timbre than musical instruments: semantic dimensions of FM sounds". *Proceedings of the 2nd International Conference on Timbre (Timbre 2020)*, 3–4 September 2020, Thessaloniki. Code: `github.com/ben-hayes/fm-synth-study` | §§2, 4.7–4.8, 6; `docs/plans/PLAN_lco_fm3op_instrument.md` in full. **FM entries only** (BJ's ruling, §2) |
 | **[3]** | Siedenburg, Kai & Saitis, Charalampos (2023): „The language of sounds unheard: Exploring musical timbre semantics of large language models". arXiv:2304.07830v3, 5 May 2023 | §§3, 4.9–4.11; `docs/plans/PLAN_lco_rule_refinement_llm_semantics.md` in full |
 
-### 7.B Reached through them, and not read here
+### 8.B Reached through them, and not read here
 
 The method source for the planned FM entry, cited by [2]:
 
@@ -649,6 +724,6 @@ The human reference data and the statistical criterion [3] depends on:
 
 ---
 
-## 8. Open
+## 9. Open
 
 What follows from §4, if anything, is BJ's. Nothing in this file is a proposal.

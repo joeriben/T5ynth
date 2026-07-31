@@ -161,5 +161,5 @@ Diagnostic discipline when a release crashes in user hands:
 - `docs/CSOUND_INTEGRATION.md` — how Csound ships inside the app on macOS and Windows, why the Windows module delay-loads it, and what proves a build carries a working one
 - `docs/LCO_CODE_PROVENANCE.md` — **the licence record per Csound source.** Read before taking any instrument code from anywhere; the authority where it and the next file disagree
 - `docs/LCO_CSOUND_SOURCES_AND_LICENCES.md` — the authoring practice that follows from that record ("take physics, not code")
-- `docs/LCO_TIMBRE_SEMANTICS.md` — the same kind of source record for the lexicon's OTHER half, the 51 sound words, which had none. Currently one source (Saitis & Weinzierl 2019) and its published measurement models; the evaluation for this instrument is open and is BJ's
+- `docs/LCO_TIMBRE_SEMANTICS.md` — the same kind of source record for the lexicon's OTHER half, the 51 sound words, which had none. Three timbre-semantics studies read in full and their published measurement models, plus §7's DX7 patch corpus (119,296 human-named voices, where a word SITS on `fm3`'s axes — not a listening test); the evaluation for this instrument is open and is BJ's
 - `docs/devlog.md` — development history and design decisions
