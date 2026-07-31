@@ -293,7 +293,7 @@ inline const std::array<ResoLawRemap, 1>& resoLawRemaps()
 inline float remapResoValue(float stored, int algIndex, int warpStyle)
 {
     if (algIndex == FilterAlgorithm::Ladder)
-        return LadderResoLaw::migrateResonance(stored, LadderResoLaw::kMoogPole);
+        return LadderResoLaw::migrateResonance(stored, LadderResoLaw::kLadderPole);
     if (algIndex == FilterAlgorithm::Warp)
         return LadderResoLaw::migrateResonance(stored, LadderResoLaw::warpPole(warpStyle));
     return stored;

@@ -378,7 +378,7 @@ juce::String buildSelfCheckUserTurn (const juce::String& intention,
 // of ACOUSTIC / SPECTRAL qualities (brightness, harmonic structure, movement),
 // the glass-box counterpart of the neural embedding. It is NOT "the machine's
 // vocabulary": framing it that way pushed the 1.5B LLM into machine-speak ("a
-// vintage Moog synthesizer produces…") instead of hearing the sound. Empty in →
+// vintage analogue synthesizer produces…") instead of hearing the sound. Empty in →
 // empty out (old backend without the field, or before the first bake): the turn
 // is unchanged and behaves exactly as it did before this grounding existed.
 juce::String dcoVocabularyConstraintBlock (const juce::String& referenceVocabulary)

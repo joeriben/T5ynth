@@ -6694,7 +6694,13 @@ static juce::String filterDriveOsToString(int i)          { return choiceToKey(i
 static int filterAlgorithmFromString(const juce::String& s) { return choiceFromKey(s, FilterAlgorithm::kEntries); }
 static juce::String filterAlgorithmToString(int i)          { return choiceToKey(i, FilterAlgorithm::kEntries); }
 
-static int filterWarpStyleFromString(const juce::String& s) { return choiceFromKey(s, FilterWarpStyle::kEntries); }
+// The one renamed key in the whole parameter set (BlockParams.h says why).
+// Without this, choiceFromKey falls through to index 0 and every preset that
+// stored the old name would load Tanh — a different saturation, silently.
+static int filterWarpStyleFromString(const juce::String& s) {
+    if (s == "ojd") return FilterWarpStyle::Algebraic;
+    return choiceFromKey(s, FilterWarpStyle::kEntries);
+}
 static juce::String filterWarpStyleToString(int i)          { return choiceToKey(i, FilterWarpStyle::kEntries); }
 
 static int envTargetFromString(const juce::String& s)   { return choiceFromKey(s, EnvTarget::kEntries); }

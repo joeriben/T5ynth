@@ -762,7 +762,7 @@ namespace FilterDriveOs {
 
 // ── Filter algorithm ──
 // SVF: existing linear TPT SVF + one-pole cascade (low CPU, clean default).
-// Ladder: Huovilainen 4-pole Moog ladder with tanh saturation in each stage
+// Ladder: Huovilainen 4-pole transistor ladder with tanh saturation in each stage
 //         (warm analog growl, self-oscillating at high resonance).
 // Warp: Surge-XT-style ZDF ladder with per-pole nonlinearity, style-switchable
 //       (wide continuous character space, designed for embedding modulation).
@@ -781,12 +781,19 @@ namespace FilterAlgorithm {
 // Applied to the feedback path of the ZDF ladder in CutoffWarpFilter. Only
 // consumed when filterAlgorithm == Warp. Keys are stable forever — new styles
 // must be appended, never reordered.
+//
+// ONE KEY HAS CHANGED, and it is the only one that ever will: index 2 was
+// named after a product, which is forbidden anywhere in this repo. The curve
+// it names is x / sqrt(1 + x*x), the algebraic sigmoid, so the key now says
+// that. Presets written before the change store the old key; the reader in
+// PluginProcessor.cpp maps it, because choiceFromKey's fallback is index 0 and
+// an unknown key would silently load a DIFFERENT saturation.
 namespace FilterWarpStyle {
-    enum : int { Tanh = 0, SoftClip = 1, OJD = 2, Sin = 3, Digital = 4, Asym = 5 };
+    enum : int { Tanh = 0, SoftClip = 1, Algebraic = 2, Sin = 3, Digital = 4, Asym = 5 };
     static constexpr ChoiceEntry kEntries[] = {
-        { "tanh",     "Tanh"     },
-        { "softclip", "SoftClip" },
-        { "ojd",      "OJD"      },
+        { "tanh",      "Tanh"      },
+        { "softclip",  "SoftClip"  },
+        { "algebraic", "Algebraic" },
         { "sin",      "Sin"      },
         { "digital",  "Digital"  },
         { "asym",     "Asym"     }
@@ -1022,7 +1029,7 @@ namespace FxMixLaw {
 //     P(k) = −20·log10(1 − k/k_pole).
 //
 // P is flat in k until k is nearly 4 and then a cliff. Measured on
-// MoogLadderFilter itself (LP, 24 dB/oct, 1 kHz, small-signal impulse), the old
+// LadderFilter itself (LP, 24 dB/oct, 1 kHz, small-signal impulse), the old
 // mapping delivered a peak of
 //
 //     r    0.000  0.125  0.250  0.375  0.500  0.625  0.750  0.875  0.950
@@ -1042,7 +1049,7 @@ namespace FxMixLaw {
 // the self-oscillating stretch of the knob is unchanged for every filter.
 //
 // k_pole per filter:
-//   • MoogLadderFilter — exactly 4, derived, not fitted (Zavalishin §5.2:
+//   • LadderFilter — exactly 4, derived, not fitted (Zavalishin §5.2:
 //     1/|G(jω_c)| = 1/(1/4)). Measured onset lands between r = 0.94 and 0.96,
 //     i.e. k between 3.95 and 4.03, which is the derivation confirmed.
 //   • CutoffWarpFilter — one per saturation style, because each style's curve
@@ -1079,13 +1086,13 @@ namespace LadderResoLaw {
     // recomputed: feedback() runs per voice per block on the audio thread.
     static constexpr float kKneeFrac  = 1.0f - 0.00794328f;
 
-    static constexpr float kMoogPole  = 4.0f;    // derived (Zavalishin §5.2)
+    static constexpr float kLadderPole  = 4.0f;    // derived (Zavalishin §5.2)
 
     // CutoffWarpFilter, indexed by FilterWarpStyle. Bisected, 1 kHz — see above.
     static constexpr float kWarpPole[6] = {
         3.9934f,   // Tanh
         3.8683f,   // SoftClip
-        3.9176f,   // OJD
+        3.9176f,   // Algebraic
         3.8536f,   // Sin
         3.9120f,   // Digital
         3.9086f,   // Asym

@@ -4,7 +4,7 @@
 #include "BlockParams.h"   // LadderResoLaw
 
 /**
- * Zero-delay-feedback (ZDF / TPT) 4-pole Moog ladder filter.
+ * Zero-delay-feedback (ZDF / TPT) 4-pole transistor-ladder filter.
  *
  * History: this was previously the Huovilainen DAFx-04 cascade with a *delayed*
  * resonance feedback (`fbIn = halfIn − k·y4`, where y4 was last sample's value —
@@ -36,7 +36,7 @@
  * The denominator (1 + k·G) ≥ 1 for k ≥ 0, so the loop is unconditionally
  * stable (no instantaneous blow-up; Zavalishin: stable for k ≥ −1).
  *
- * Drive topology (unchanged): in a real Moog, gain is applied *before* the
+ * Drive topology (unchanged): in a real ladder, gain is applied *before* the
  * ladder, each saturating stage shapes that hot signal — a single tanh *before*
  * the filter would flat-clip and leave nothing for the stages to shape. So this
  * filter takes `setInputDrive(gain)` separately; upstream code feeds the
@@ -48,7 +48,8 @@
  * slope at zero = 1 (so k = 4 is still the self-oscillation threshold) while
  * widening each stage's ceiling to ±2·Vt — enough headroom for the feedback to
  * keep ringing the first stage through its linear region at high drive (the
- * Minimoog ROAR; see docs/handover_session16_filter_drive.md). With satStage as
+ * the classic overdriven-ladder roar; see docs/handover_session16_filter_drive.md).
+ * With satStage as
  * identity the ZDF resolution above is exact; with it active, the linearised
  * feedback is the standard bounded nonlinear-ZDF approximation — the loop stays
  * stable (denominator ≥ 1, tanh bounded) and self-limits under heavy saturation,
@@ -59,7 +60,7 @@
  *
  * API mirrors T5ynthFilter so SynthVoice treats all filter models interchangeably.
  */
-class MoogLadderFilter
+class LadderFilter
 {
 public:
     void prepare(double sampleRate, int /*samplesPerBlock*/)
@@ -93,7 +94,7 @@ public:
     {
         if (std::abs(r - lastReso) < 0.001f) return;
         lastReso = juce::jlimit(0.0f, 1.0f, r);
-        k = LadderResoLaw::feedback(lastReso, LadderResoLaw::kMoogPole);
+        k = LadderResoLaw::feedback(lastReso, LadderResoLaw::kLadderPole);
     }
 
     // currentType: 0 = LP, 1 = HP, 2 = BP
@@ -103,7 +104,7 @@ public:
 
     // Pre-filter input gain. The ladder's four tanh stages see the hot signal
     // and saturate on it; that's the audible drive character. No output comp
-    // is applied: on a real Moog, drive makes the filter louder + crunchier,
+    // is applied: on a real ladder, drive makes the filter louder + crunchier,
     // not level-matched. Master volume handles overall level.
     void setInputDrive(float gain)
     {

@@ -9,13 +9,13 @@
  * Surge-XT-style ZDF (zero-delay-feedback) 4-pole ladder with a per-pole
  * nonlinearity applied at the feedback input. The style selector picks which
  * saturation curve is used, opening a continuous character space beyond the
- * single tanh response of a classical Moog ladder.
+ * single tanh response of a classical transistor ladder.
  *
  * Reference topology: Surge XT src/common/dsp/filters/CutoffWarp.cpp (GPL-3).
  * Written from scratch against the standard ZDF-ladder derivation and Surge's
  * documented saturation curves — no code copied.
  *
- * Feedback resolution: like MoogLadderFilter, the resonance loop is solved
+ * Feedback resolution: like LadderFilter, the resonance loop is solved
  * within the sample — u = (x − kEff·S)/(1 + kEff·G), kEff = k·kStyleScale — so
  * there is no unit-delay over-resonance at high cutoff. (Earlier revisions used
  * a delayed y4 + half-sample input averaging; both are gone.)
@@ -26,7 +26,7 @@
  *   s_new = y + v
  * where g = tan(π · cutoff / sr), computed once per sub-block.
  *
- * Drive topology: same as MoogLadderFilter — input gain before the ladder,
+ * Drive topology: same as LadderFilter — input gain before the ladder,
  * the style-selected saturation inside the loop does the shaping, output
  * compensation brings level back down. Upstream code skips the pre-filter
  * tanh when the Warp is the active algorithm and feeds `filter_drive` in
@@ -43,12 +43,12 @@
  * widens the per-stage saturation ceiling to ±2·Vt. The feedback tap `k·y4`
  * therefore gets more headroom to swing the first-stage summing node across
  * its linear region when the hot signal is pinned at saturation, restoring
- * resonance / self-oscillation at high drive. See MoogLadderFilter.h for the
+ * resonance / self-oscillation at high drive. See LadderFilter.h for the
  * derivation. Other styles keep their original curves on this first pass —
  * revisit per-style if the acceptance matrix fails for one of them.
  *
  * Saturation styles must all be monotonic and centered at 0 (sat(0) == 0)
- * so the feedback loop has a well-defined equilibrium. OJD was previously
+ * so the feedback loop has a well-defined equilibrium. The algebraic sigmoid was previously
  * biased and caused DC drift / glitches under modulation; it now subtracts
  * the at-zero offset to guarantee sat(0) = 0. Digital-clip has a hard corner
  * that's deliberate — that's its character.
@@ -76,7 +76,7 @@ public:
         updateCoeffs();
     }
 
-    // Same law as MoogLadderFilter — the knob travels evenly in dB of peak
+    // Same law as LadderFilter — the knob travels evenly in dB of peak
     // height, not in feedback gain — but against THIS style's own pole, because
     // each saturation curve reaches unity loop gain at a different nominal k
     // (bisected: Tanh 3.9934 … Sin 3.8536; see LadderResoLaw in BlockParams.h).
@@ -125,7 +125,7 @@ public:
 
         // ── Zero-delay feedback resolution ──
         // Close the resonance loop within this sample from the current TPT
-        // states, exactly as in MoogLadderFilter: G = G1⁴, S = Σ G1^(4-i)·z_i
+        // states, exactly as in LadderFilter: G = G1⁴, S = Σ G1^(4-i)·z_i
         // with z_i = (1−G1)·s_i, and u = (hot − kEff·S)/(1 + kEff·G). The
         // feedback gain is kEff = k·kStyleScale so resonance "strength" stays
         // consistent across saturation curves. No delayed y4 ⇒ no cutoff-
@@ -157,7 +157,7 @@ public:
         s4 += antiDenormal;  s4 -= antiDenormal;
 
         // Flat output makeup for level parity with the SVF and the Ladder
-        // (matches MoogLadderFilter's kOutComp). Flat ⇒ peak/passband ratio
+        // (matches LadderFilter's kOutComp). Flat ⇒ peak/passband ratio
         // unchanged; purely a loudness match.
         constexpr float kOutComp = 1.20f;
         const float wet = tapOutput(hot) * kOutComp * kStyleLevel;
@@ -218,7 +218,7 @@ private:
     // RECALIBRATED for the zero-delay-feedback loop. The old values were tuned
     // for the previous delayed-feedback structure, whose loop gain was lower;
     // the true-ZDF loop is more effective, so the old scales self-oscillated far
-    // too early (measured onsets: SoftClip r=0.71, OJD 0.86, Sin 0.24, Asym
+    // too early (measured onsets: SoftClip r=0.71, Algebraic 0.86, Sin 0.24, Asym
     // never). These values were set by bisecting each style's measured self-
     // oscillation onset to r ≈ 0.93 (slightly below 1 so it still rings at
     // nominal level, where saturation raises the effective threshold). Final
@@ -229,7 +229,7 @@ private:
         {
             case 0: return 1.00f;  // Tanh — reference (onset r≈0.95)
             case 1: return 1.04f;  // SoftClip
-            case 2: return 1.02f;  // OJD
+            case 2: return 1.02f;  // Algebraic
             case 3: return 0.17f;  // Sin — π/2 slope at zero rings hardest, needs least k
             case 4: return 1.02f;  // Digital
             case 5: return 1.31f;  // Asym — bias lowers effective gain, needs most k
@@ -260,7 +260,7 @@ private:
         {
             case 0: return 1.000f; // Tanh — reference
             case 1: return 1.797f; // SoftClip — +5.1 dB (soft knee → quiet)
-            case 2: return 1.076f; // OJD — +0.6 dB
+            case 2: return 1.076f; // Algebraic — +0.6 dB
             case 3: return 0.233f; // Sin — −12.7 dB (π/2 slope → loud)
             case 4: return 0.990f; // Digital — ≈0 dB
             case 5: return 1.270f; // Asym — +2.1 dB
@@ -273,7 +273,7 @@ private:
     // ±2·Vt and therefore the allowed swing of the feedback tap, which is
     // what keeps resonance alive at high drive.
     //
-    // NOTE: MoogLadderFilter.h has its own copy of this constant. Keep the
+    // NOTE: LadderFilter.h has its own copy of this constant. Keep the
     // two in sync — if you change kVt here, change it there too. Both were
     // left local to keep each filter self-contained.
     static constexpr float kVt = 1.22f;
@@ -298,7 +298,7 @@ private:
             case 1: // SoftClip — x / (1 + |x|), gentler than tanh
                 return x / (1.0f + std::abs(x));
 
-            case 2: // OJD-like — x / sqrt(1 + x²), slower approach to ±1 than
+            case 2: // Algebraic sigmoid — x / sqrt(1 + x²), slower approach to ±1 than
                     // tanh, more odd-harmonic content for the same saturation.
                     // Kept centered at 0 (no DC bias) so the feedback loop
                     // can't drift; asymmetry lives in "Asym" (style 5).

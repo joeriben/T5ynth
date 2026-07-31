@@ -5,7 +5,7 @@
 #include "ADSREnvelope.h"
 #include "LFO.h"
 #include "StateVariableFilter.h"
-#include "MoogLadderFilter.h"
+#include "LadderFilter.h"
 #include "CutoffWarpFilter.h"
 #include "NoiseGenerator.h"
 #include "BlockParams.h"
@@ -184,10 +184,10 @@ private:
     // Stereo filter pairs — L processes output[], R processes outputRBuf[].
     // Same coefficients (mirrored at setCutoff/setReso/etc.), separate state.
     T5ynthFilter       filter;       // linear TPT SVF (low-CPU default)
-    MoogLadderFilter   filterLadder; // Huovilainen nonlinear ladder
+    LadderFilter   filterLadder; // Huovilainen nonlinear ladder
     CutoffWarpFilter   filterWarp;   // Surge-XT-style ZDF ladder + style
     T5ynthFilter       filterR;
-    MoogLadderFilter   filterLadderR;
+    LadderFilter   filterLadderR;
     CutoffWarpFilter   filterWarpR;
     // Drive oversamplers (polyphase IIR half-band), 2-channel for stereo drive.
     // Three instances, prepared in prepare(); renderBlock() picks the one
