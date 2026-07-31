@@ -1418,9 +1418,13 @@ void SynthPanel::reconcileWaveformDisplayMode()
         waveformDisplay.exitWavetableMode();   // left the table → restore sample view + brackets
     else if (showWtTable && ! waveformDisplay.isWavetableMode())
         processorRef.republishWtDisplayIfActive();   // display lost the fan → re-adopt it
+    // LRO (Csound): no baked table, no loaded sample — "Loop interval" would
+    // name a Sampler concept a live-rendered voice doesn't have.
+    const bool isCsoundEngine = engineModeHidden.getSelectedId() == EngineMode::Csound + 1;
     waveformDisplay.setRegionLabel(showWtTable        ? "Wavetable"
                                  : processorRef.isWavetableMode() ? "Extraction region"
                                  : processorRef.isFreezeMode()    ? "Granular position"
+                                 : isCsoundEngine                 ? juce::String()
                                                                   : "Loop interval");
 }
 
@@ -1491,13 +1495,41 @@ void SynthPanel::updateVisibility()
     bool isFreeze = engineId == 3;
     bool isSampler = !isWavetable && !isFreeze;
     // Csound (id EngineMode::Csound+1 = 5) is not scan-driven (spec §2 item 8:
-    // it's neither Wavetable nor Freeze), so it already falls into the
-    // isSampler branch above — the same non-scan control-row visibility
-    // Sampler gets. There is no dedicated Csound control surface yet (D6: no
-    // new UI); isCsound documents that this is the deliberate Phase-1
-    // fallback, not an accidental isSampler fallthrough.
+    // it's neither Wavetable nor Freeze), so it falls into the isSampler
+    // bucket above for that purpose — but it is its OWN paradigm (LRO), not a
+    // Sampler variant, and the panel below now says so.
     const bool isCsound = (engineId == EngineMode::Csound + 1);
     jassertquiet(!isCsound || isSampler);
+
+    // LRO (Csound) is entered ONLY through MainPanel's oscModeToggle
+    // (project_lco_mode_toggle_owns_engine) — never through these three
+    // buttons. Leaving them live let a click set engineMode straight to
+    // Sampler/Wavetable/Freeze while LRO was sounding, bypassing the toggle's
+    // paradigm ownership (and its lcoEngineMode_/dcoPrevEngineMode_
+    // bookkeeping) entirely — a real bypass, not just visual noise, so they
+    // hide rather than sit unlit. isBufferSampler gates the controls that
+    // reprocess a captured BUFFER (loop traversal, crossfade, HF boost,
+    // normalize) — a live Csound voice renders per-sample straight from the
+    // orchestra and has none of those (there is no buffer to loop, crossfade
+    // or boost). Octave/tuning/filter/envelopes/LFO/drift/noise stay: all of
+    // them demonstrably still drive a Csound voice (SynthVoice::noteOn/
+    // glideToNote feed tunedHz(shiftedNote) into csoundFreq_; noise mix,
+    // drive, filter and the VCA sit downstream of csoundBuf_[i] in the one
+    // shared render tail, per SynthVoice.cpp).
+    samplerBtn.setVisible(!isCsound);
+    wavetableBtn.setVisible(!isCsound);
+    freezeBtn.setVisible(!isCsound);
+    const bool isBufferSampler = isSampler && !isCsound;
+
+    // Cache the curated-instrument caption the first time it's needed (retried
+    // on every call while still empty, in case the backend hadn't launched
+    // yet — see the member comment). Cheap and bounded: updateVisibility()
+    // runs on UI events (mode switches, resizes), never on a timer.
+    if (isCsound && lroInstrumentNames_.isEmpty())
+    {
+        if (auto pipePtr = processorRef.getPipeInferencePtr())
+            lroInstrumentNames_ = pipePtr->getCuratedInstrumentNames();
+    }
 
     // A DCO/LCO table owns the oscillator: lock the engine away from Sampler/
     // Granular (the baked table is the sound) and pin the documented 256-frame
@@ -1515,16 +1547,18 @@ void SynthPanel::updateVisibility()
         frameBtns[i].setAlpha(dcoLock ? 0.4f : 1.0f);
     }
 
-    // Shared playback traversal controls
-    oneshotBtn.setVisible(!isFreeze);
-    loopModeBtn.setVisible(!isFreeze);
-    pingpongBtn.setVisible(!isFreeze);
+    // Shared playback traversal controls — a live Csound voice has no buffer
+    // to traverse (host_owns_note_off: the orchestra has no decay time of its
+    // own either), so these hide for LRO along with the buffer-only row below.
+    oneshotBtn.setVisible(!isFreeze && !isCsound);
+    loopModeBtn.setVisible(!isFreeze && !isCsound);
+    pingpongBtn.setVisible(!isFreeze && !isCsound);
 
     // Sampler-only controls
-    crossfadeRow->setVisible(isSampler);
-    loopOptimizeBtn.setVisible(isSampler);
-    normalizeToggle.setVisible(isSampler || isFreeze);
-    hfBoostBtn.setVisible(true);
+    crossfadeRow->setVisible(isBufferSampler);
+    loopOptimizeBtn.setVisible(isBufferSampler);
+    normalizeToggle.setVisible(isBufferSampler || isFreeze);
+    hfBoostBtn.setVisible(!isCsound);
     hfBoostBtn.setConnectedEdges(isWavetable ? 0 : juce::Button::ConnectedOnRight);
     normalizeToggle.setConnectedEdges(juce::Button::ConnectedOnLeft);
     for (int i = 0; i < kNumOctBtns; ++i)
@@ -1544,7 +1578,7 @@ void SynthPanel::updateVisibility()
 
     reconcileWaveformDisplayMode();   // WT fan vs sample view + region label
 
-    if (isSampler)
+    if (isBufferSampler)
     {
         bool isOneshot = loopModeHidden.getSelectedId() == 1;
         crossfadeRow->setAlpha(isOneshot ? dimAlpha : 1.0f);
@@ -2461,7 +2495,8 @@ void SynthPanel::paint(juce::Graphics& g)
         paintCard(g, juce::Rectangle<int>(padX, top, getWidth() - padX * 2, bot - top));
 
         // Switchbox borders
-        paintSwitchBoxBorder(g, engineSwitchBounds);
+        if (samplerBtn.isVisible())
+            paintSwitchBoxBorder(g, engineSwitchBounds);
         paintSwitchBoxBorder(g, voiceSwitchBounds);
         if (oneshotBtn.isVisible())
             paintSwitchBoxBorder(g, loopSwitchBounds);
@@ -2584,12 +2619,17 @@ void SynthPanel::paintOverChildren(juce::Graphics& g)
     // prompt-authored Csound orchestra, not a table/sample — so whatever the
     // PREVIOUS engine mode last drew (sample peaks, wavetable fan, frame
     // count) would otherwise sit there stale. Mask the display area and paint
-    // a centred "PROMPT ORCHESTRA" caption instead. Drawn here, in the panel's
-    // existing paintOverChildren pass (already re-triggered whenever the mode
-    // changes — see the isCsound branches in engineModeHidden.onChange and
-    // resized()) — no new timer or repaint loop (docs/PERFORMANCE_GUIDE.md:
-    // idle-CPU regressions are this project's #1 historical bug class).
-    // Non-interactive; no other new UI.
+    // the "PROMPT ORCHESTRA" caption plus — once cached (updateVisibility) —
+    // the curated instrument keys from lco_library.json, so the space reads as
+    // the library the coding LLM already consults, not an empty engine (BJ
+    // 2026-07-30: "nicht als Einschränkung, sondern Bibliothek des Coding-
+    // LLM" — orientation, never a menu the user is restricted to). Drawn here,
+    // in the panel's existing paintOverChildren pass (already re-triggered
+    // whenever the mode changes — see the isCsound branches in
+    // engineModeHidden.onChange and resized()) — reads the cached string only,
+    // no file I/O in a paint callback, no new timer or repaint loop
+    // (docs/PERFORMANCE_GUIDE.md: idle-CPU regressions are this project's #1
+    // historical bug class). Non-interactive; no other new UI.
     if (engineModeHidden.getSelectedId() == EngineMode::Csound + 1)
     {
         auto wfBounds = waveformDisplay.getBounds();
@@ -2597,11 +2637,127 @@ void SynthPanel::paintOverChildren(juce::Graphics& g)
         {
             g.setColour(kBg);
             g.fillRect(wfBounds);
-            g.setColour(kImpulseA);
-            const float capFs = juce::jlimit(14.0f, 26.0f,
-                                              static_cast<float>(wfBounds.getHeight()) * 0.14f);
-            g.setFont(juce::FontOptions(capFs).withStyle("Bold"));
-            g.drawFittedText("PROMPT ORCHESTRA", wfBounds, juce::Justification::centred, 1);
+
+            const float f = fs();
+            auto card = wfBounds.reduced(juce::roundToInt(f * 1.2f),
+                                          juce::roundToInt(f * 0.3f));
+
+            // The LIST is the deliverable here, not a footnote under a headline
+            // (BJ 2026-07-30: "eine liste vorhandener Orchester/Instrumente ...
+            // Bibliothek des Coding-LLM"). So every size below is a real, fixed
+            // font size with a legible floor, and the names are laid out as an
+            // actual multi-column list. What this replaces: one run-on comma
+            // string through drawFittedText, which shrinks without any floor of
+            // its own until it fits whatever the headline left over — that is
+            // how 30 names ended up unreadable.
+            // ONE header line, not a title block over a subtitle: those two
+            // together ate half the card's height and left the list — the
+            // actual content — squeezed into the rest (BJ, 2026-07-30). The
+            // panel's own ENGINE header already names the section, so this is a
+            // caption, and it says in the UI what the architecture is:
+            // orientation the coding LLM reads, never a menu the user is
+            // confined to (project_lco_llm_authors_csound). ASCII only — a raw
+            // non-ASCII literal mojibakes in JUCE
+            // (feedback_juce_nonascii_strings).
+            const float headFs = juce::jlimit(11.0f, 14.0f, f * 0.85f);
+            const float nameFs = juce::jlimit(12.0f, 17.0f, f * 1.0f);
+
+            g.setColour(kImpulseA.withAlpha(0.75f));
+            g.setFont(juce::FontOptions(headFs));
+            g.drawText("PROMPT ORCHESTRA - curated instruments; the coding agent "
+                       "will use these or invent its own code",
+                       card.removeFromTop(juce::roundToInt(headFs * 1.7f)),
+                       juce::Justification::centred);
+
+            if (! lroInstrumentNames_.isEmpty())
+            {
+                // NAMES ONLY. The parameters are the player's surface
+                // (project_lco_params_are_the_user_surface) and belong here —
+                // but not as `refl 0.7..0.85`: a lexicon key and a numeric
+                // range are the author's identifiers, and nobody writing a
+                // prompt can do anything with them (BJ 2026-07-30). No
+                // parameter in the lexicon carries a player-readable name yet
+                // (`range`, `default`, `note`, `anchors` — the note is
+                // paragraphs of measurement prose), so there is nothing
+                // truthful to put on that line, and a catalogue of every control
+                // laid out in advance is not what this surface does anyway. The
+                // library still
+                // carries `params`, so the day a short human label exists per
+                // parameter this becomes a second line and nothing else.
+                const int n = lroInstrumentNames_.size();
+                const juce::Font nameFont { juce::FontOptions(nameFs) };
+
+                juce::Array<int> blockW;
+                for (const auto& nm : lroInstrumentNames_)
+                    // +2: a cell sized to the measured width exactly is a pixel
+                    // short once drawText rounds, and every name ellipsizes.
+                    blockW.add(2 + juce::roundToInt(
+                        juce::GlyphArrangement::getStringWidth(nameFont, nm)));
+
+                const int lineH  = juce::jmax(1, juce::roundToInt(nameFs * 1.45f));
+                const int blockH = lineH;
+                const int gutter = juce::jmax(1, juce::roundToInt(nameFs * 2.0f));
+
+                // Each column is packed to ITS OWN widest entry, not to one
+                // uniform cell sized to the longest label in the whole list: a
+                // uniform cell has its gutter eaten the moment the grid is
+                // wider than the card, and then the columns touch.
+                auto widthsFor = [&](int rowCount, juce::Array<int>& w)
+                {
+                    w.clearQuick();
+                    const int cols = (n + rowCount - 1) / rowCount;
+                    for (int c = 0; c < cols; ++c)
+                    {
+                        int mx = 0;
+                        for (int r = 0; r < rowCount; ++r)
+                        {
+                            const int i = c * rowCount + r;
+                            if (i < n) mx = juce::jmax(mx, blockW[i]);
+                        }
+                        w.add(mx + gutter);
+                    }
+                };
+
+                // Fewest rows (so the widest, flattest block) that still fits
+                // the card's width; if none does, use every row the height
+                // affords and let the longest names ellipsize.
+                const int rowsMax = juce::jlimit(1, n, card.getHeight() / blockH);
+                juce::Array<int> widths;
+                int rows = rowsMax;
+                for (int r = 1; r <= rowsMax; ++r)
+                {
+                    widthsFor(r, widths);
+                    int sum = -gutter;
+                    for (auto v : widths) sum += v;
+                    if (sum <= card.getWidth()) { rows = r; break; }
+                }
+                widthsFor(rows, widths);
+
+                int total = -gutter;
+                for (auto v : widths) total += v;
+
+                int x = card.getX() + juce::jmax(0, (card.getWidth() - total) / 2);
+                juce::Graphics::ScopedSaveState clipToCard(g);
+                g.reduceClipRegion(card);
+
+                for (int c = 0; c < widths.size(); ++c)
+                {
+                    for (int r = 0; r < rows; ++r)
+                    {
+                        // Column-major: the eye reads each column down, then
+                        // across, the way a printed index does.
+                        const int i = c * rows + r;
+                        if (i >= n) break;
+                        const juce::Rectangle<int> block { x, card.getY() + r * blockH,
+                                                           widths[c] - gutter, blockH };
+
+                        g.setColour(kImpulseA.withAlpha(0.95f));
+                        g.setFont(nameFont);
+                        g.drawText(lroInstrumentNames_[i], block, juce::Justification::centredLeft);
+                    }
+                    x += widths[c];
+                }
+            }
         }
     }
 
@@ -2715,16 +2871,37 @@ void SynthPanel::resized()
     engineHeader.setBounds(engineHeaderRow);
     area.removeFromTop(headerGap);
 
+    // Engine-mode booleans, needed immediately below to reclaim the 3 switch
+    // buttons' width for LRO, and again further down for the waveform/controls
+    // branch — computed once here rather than twice.
+    const int engineId = engineModeHidden.getSelectedId();
+    // LCO (id EngineMode::Lco+1 = 4) lays out identically to plain Wavetable.
+    const bool isWavetable = engineId == 2 || engineId == EngineMode::Lco + 1;
+    const bool isFreeze = engineId == 3;
+    // Csound (id EngineMode::Csound+1 = 5) is not scan-driven, so it gets its
+    // own `else if (isCsound)` layout branch below (same waveH reservation,
+    // same waveformDisplay.setScanVisible(false), but only octave + noise in
+    // the controls row — updateVisibility() hid the rest for LRO).
+    const bool isCsound = (engineId == EngineMode::Csound + 1);
+    jassertquiet(!isCsound || (!isWavetable && !isFreeze));
+
     // ── Engine mode + Voice count: compact switchboxes ──
     auto modeRow = area.removeFromTop(rowH);
     {
-        int cellW = juce::roundToInt(f * 5.0f);
-        samplerBtn.setBounds(modeRow.removeFromLeft(cellW));
-        wavetableBtn.setBounds(modeRow.removeFromLeft(cellW));
-        freezeBtn.setBounds(modeRow.removeFromLeft(cellW));
-        engineSwitchBounds = samplerBtn.getBounds().getUnion(freezeBtn.getBounds());
+        // The 3 buttons are hidden for LRO (updateVisibility) — entered only
+        // via MainPanel's oscModeToggle, never through them — so their width
+        // isn't reserved either; voice count + tuning shift left to fill the
+        // row instead of leaving a stranded gap.
+        if (! isCsound)
+        {
+            int cellW = juce::roundToInt(f * 5.0f);
+            samplerBtn.setBounds(modeRow.removeFromLeft(cellW));
+            wavetableBtn.setBounds(modeRow.removeFromLeft(cellW));
+            freezeBtn.setBounds(modeRow.removeFromLeft(cellW));
+            engineSwitchBounds = samplerBtn.getBounds().getUnion(freezeBtn.getBounds());
+            modeRow.removeFromLeft(juce::roundToInt(f * 1.5f)); // gap
+        }
 
-        modeRow.removeFromLeft(juce::roundToInt(f * 1.5f)); // gap
         int vcW = juce::roundToInt(f * 2.8f);
         for (int i = 0; i < kNumVoiceBtns; ++i)
             voiceBtns[i].setBounds(modeRow.removeFromLeft(vcW));
@@ -2740,16 +2917,6 @@ void SynthPanel::resized()
     // Calculate height needed below: sampler/WT controls + filter + mod + LFO + drift
     // Always reserve same space for engine controls (max of sampler/WT)
     // so waveform height stays stable when switching modes
-    const int engineId = engineModeHidden.getSelectedId();
-    // LCO (id EngineMode::Lco+1 = 4) lays out identically to plain Wavetable.
-    const bool isWavetable = engineId == 2 || engineId == EngineMode::Lco + 1;
-    const bool isFreeze = engineId == 3;
-    // Csound (id EngineMode::Csound+1 = 5) is not scan-driven, so it falls
-    // into the `else` layout branch below (same as Sampler), which already
-    // calls waveformDisplay.setScanVisible(false) — the WT display stays
-    // non-scan-gated for Csound. isCsound documents this deliberately.
-    const bool isCsound = (engineId == EngineMode::Csound + 1);
-    jassertquiet(!isCsound || (!isWavetable && !isFreeze));
     const int waveformReserveH = juce::roundToInt(WaveformDisplay::HANDLE_RADIUS * 2.0f + 4.0f);
     int samplerCtrlH = waveformReserveH + rowH + gap * 2; // waveform handles + one controls row
     int filterH = headerH + headerGap + rowH + gap + rowH * 2 + gap; // advanced filter height, folded into Easy block
@@ -2865,6 +3032,37 @@ void SynthPanel::resized()
             area.removeFromTop(gap);
             engineCardBottom = juce::jmax(smoothToggle.getBottom(), noiseLevelRow->getBottom());
         }
+    }
+    else if (isCsound)
+    {
+        // ── LRO: waveform card has no baked table or loaded sample to draw
+        // (reconcileWaveformDisplayMode blanks its region label above), and
+        // the row below carries only what updateVisibility left visible for
+        // Csound: OCTAVE (feeds tunedHz(shiftedNote) into csoundFreq_) and the
+        // shared NOISE strip. Loop icons/Opt/Xfade/HF/Norm reprocess a
+        // captured Sampler/Freeze/Wavetable BUFFER a live Csound voice never
+        // has, so they take no space here (updateVisibility already hid them).
+        int handleLineH = waveformReserveH;
+        waveformDisplay.setBottomReserve(handleLineH);
+        waveformDisplay.setScanVisible(false);
+        waveformDisplay.setBounds(area.removeFromTop(waveH + handleLineH));
+        area.removeFromTop(gap);
+
+        auto csRow = area.removeFromTop(rowH);
+        layoutNoiseStrip(csRow);
+
+        // Octave sits at the right, next to the noise strip — same position
+        // as the Granular branch above, so it doesn't jump sides when
+        // switching between engine modes.
+        const int oCellW = juce::roundToInt(f * 2.5f);
+        auto octaveArea = csRow.removeFromRight(oCellW * kNumOctBtns);
+        for (int i = 0; i < kNumOctBtns; ++i)
+            octBtns[i].setBounds(octaveArea.removeFromLeft(oCellW));
+        octaveSwitchBounds = octBtns[0].getBounds().getUnion(octBtns[kNumOctBtns - 1].getBounds());
+
+        area.removeFromTop(gap);
+        engineCardBottom = juce::jmax(octBtns[0].getBottom(), noiseLevelRow->getBottom());
+        frameCountLabel.setBounds(-1000, -1000, 10, 10);
     }
     else
     {

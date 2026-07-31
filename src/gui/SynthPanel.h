@@ -42,6 +42,19 @@ private:
     juce::TextButton freezeBtn { "Granular" };
     juce::ComboBox engineModeHidden;
     WaveformDisplay waveformDisplay;
+    // LRO (Csound): the "PROMPT ORCHESTRA" mask painted over the (otherwise
+    // stale) waveform card also names the curated instruments from
+    // lco_library.json, so the card reads as the library the coding LLM
+    // already consults — never a menu, just the same orientation it reads
+    // (project_lco_llm_authors_csound). Kept as the KEYS, not a pre-joined
+    // sentence: paintOverChildren lays them out as a real multi-column list at
+    // a real font size, which a single run-on string cannot be. Loaded once
+    // from disk in updateVisibility() (retried while empty — the backend may
+    // not have launched yet) and only ever READ in paintOverChildren(), never
+    // loaded there: a paint callback doing file I/O on every repaint is
+    // exactly the idle-CPU regression class docs/PERFORMANCE_GUIDE.md warns
+    // about.
+    juce::StringArray lroInstrumentNames_;
 
     // ── Voice count ──
     // 7 visible buttons (Mono, 4, 6, 8, 12, 16, 64). The 128-voice option
