@@ -1394,6 +1394,37 @@ The SNAP slots below <strong>Generate</strong> work here too — see
 <a href="#perform">Playing and Performing</a>.
 </p>
 
+<h3>How the written instrument plays</h3>
+<p>
+Three things about an LRO voice differ from the T5 side, and all three are
+audible.
+</p>
+<ul>
+  <li>
+    <strong>Sixteen voices, whatever the Voices selector says.</strong> The
+    orchestra is a fixed sixteen-channel affair, so in LRO mode the polyphony
+    limit is whatever you chose <em>or</em> 16, whichever is lower. Setting 64
+    or 128 changes nothing here.
+  </li>
+  <li>
+    <strong>The body holds; the envelope shapes it.</strong> Most written
+    bodies are standing tones — they come up and stay at the level they were
+    written at for as long as the voice is alive. Attack, decay and release all
+    come from <strong>ENV&nbsp;1 → DCA</strong> downstream, which is why an LRO
+    patch with a slow attack fades in and one with a long release keeps ringing
+    after you let go: the voice's gate stays open for the whole release, so the
+    tail is never cut off mid-fall.
+  </li>
+  <li>
+    <strong>Some bodies fall away by themselves.</strong> A struck body — an
+    electric piano, a bar, a plucked string — carries its own decay, and the
+    envelope <em>cannot</em> hold it up. Holding the key on one of those gives
+    you the note dying at its own rate, not a sustained tone. If a patch will
+    not sustain no matter what you do to ENV&nbsp;1, that is the body, not a
+    fault.
+  </li>
+</ul>
+
 <h3>Re-Prompt</h3>
 <p>
 Above <strong>Generate</strong> sits a RE-PROMPT card with the same
@@ -2534,8 +2565,8 @@ removed at the end of each generation. The C++ side never sees them
   <li>
     <strong>Sampler-step counter</strong> — the pipeline's
     <code>DiTWrapper.forward</code> is replaced with a closure that
-    increments a counter <code>state["calls"]</code> after every call.
-    Because the wrapper is invoked exactly once per sampler step
+    counts its own calls. Because the wrapper is invoked exactly once per
+    sampler step
     (with both CFG halves batched), the counter equals the current
     step index. Late-step modes compare it against
     <code>transition_step = max(1, round(steps · injection_transition_at))</code>
