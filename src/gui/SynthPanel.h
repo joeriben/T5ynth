@@ -131,9 +131,16 @@ private:
     // never relabelled with a guess.
     static constexpr int kNumLroKnobs = 12;
     std::array<std::unique_ptr<SliderRow>, kNumLroKnobs> lroKnobRows;
+    // One LEVEL per column, above that column's knobs. Not a library parameter
+    // and never named by one: it is the part's own attenuator, on the scaffold's
+    // `osc1vol`..`osc3vol` that every authored body already reads as `kvolN`.
+    static constexpr int kNumLroLevels = 3;
+    std::array<std::unique_ptr<SliderRow>, kNumLroLevels> lroLevelRows;
     // Declared AFTER the rows: attachments must die before what they point at.
     std::array<std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment>,
                kNumLroKnobs> lroKnobA;
+    std::array<std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment>,
+               kNumLroLevels> lroLevelA;
     // The panel's copy of what the processor holds, refreshed when the
     // processor's revision moves (timerCallback) rather than re-read per paint.
     LroControls lroControls;

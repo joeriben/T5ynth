@@ -311,6 +311,14 @@ namespace PID {
     static constexpr const char* lroP3b           = "lro_p3b";
     static constexpr const char* lroP3c           = "lro_p3c";
     static constexpr const char* lroP3d           = "lro_p3d";
+    // One level per PART — the column's own attenuator. The orchestra scaffold
+    // has always named these ("osc1vol".."osc3vol"), the system prompt has
+    // always told the author that layer N must be scaled by `kvolN`, and every
+    // authored body does it; nothing ever wrote the channels, so all three sat
+    // at the head's constant 1.0. Default 1.0 keeps that exactly.
+    static constexpr const char* lroLvl1          = "lro_lvl1";
+    static constexpr const char* lroLvl2          = "lro_lvl2";
+    static constexpr const char* lroLvl3          = "lro_lvl3";
     static constexpr const char* noiseLevel       = "noise_level";
     static constexpr const char* noiseType        = "noise_type";
     static constexpr const char* wtFrames         = "wt_frames";

@@ -3255,7 +3255,11 @@ void MainPanel::restoreLcoSnapshot(const LcoSnapshot& snapshot)
         static constexpr const char* kLroKnobIds[] = {
             PID::lroP1a, PID::lroP1b, PID::lroP1c, PID::lroP1d,
             PID::lroP2a, PID::lroP2b, PID::lroP2c, PID::lroP2d,
-            PID::lroP3a, PID::lroP3b, PID::lroP3c, PID::lroP3d };
+            PID::lroP3a, PID::lroP3b, PID::lroP3c, PID::lroP3d,
+            // The parts' levels belong to the recalled instrument exactly as its
+            // knobs do: a snapshot that brought back the sound but not the
+            // balance between its parts would recall a different mix every time.
+            PID::lroLvl1, PID::lroLvl2, PID::lroLvl3 };
         for (auto* id : kLroKnobIds)
             restoreParameterFromState(apvts, snapshot.parameters, id);
     }

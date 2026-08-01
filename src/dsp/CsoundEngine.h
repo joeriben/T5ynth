@@ -112,8 +112,14 @@ public:
      *
      *  A body that reads none of them is not a special case — the channels
      *  exist in every orchestra the host wraps, and writing an unread channel
-     *  costs a store. */
-    static constexpr int kNumGlobalControls = 12;
+     *  costs a store.
+     *
+     *  After the knobs come THREE MORE: one level per part, on the scaffold's
+     *  own `osc1vol`…`osc3vol`, which every authored body already reads as
+     *  `kvol1`…`kvol3`. They were constants in the orchestra head until now. */
+    static constexpr int kNumKnobControls   = 12;
+    static constexpr int kNumPartLevels     = 3;
+    static constexpr int kNumGlobalControls = kNumKnobControls + kNumPartLevels;
     void setGlobalControls (const float* values);
     // Renders forward so that at least `upToSample+1` samples (block-relative) exist in every
     // per-voice buffer; carries ksmps surplus internally across calls and blocks.

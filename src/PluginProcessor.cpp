@@ -1462,6 +1462,19 @@ juce::AudioProcessorValueTreeState::ParameterLayout T5ynthProcessor::createParam
                              static_cast<juce::juce_wchar>("abcd"[i % 4])),
                 juce::NormalisableRange<float>(0.0f, 1.0f, 0.001f), 0.5f));
     }
+    // One level per part, on the scaffold's `osc1vol`…`osc3vol`. Default 1.0 is
+    // not a taste: it is the constant those channels held while nothing wrote
+    // them, so every preset and every already-authored orchestra sounds exactly
+    // as before until the player moves one.
+    {
+        static constexpr const char* kLvlIds[] = {
+            PID::lroLvl1, PID::lroLvl2, PID::lroLvl3 };
+        for (int i = 0; i < 3; ++i)
+            params.push_back(std::make_unique<juce::AudioParameterFloat>(
+                juce::ParameterID{kLvlIds[i], 1},
+                "LRO Level " + juce::String(1 + i),
+                juce::NormalisableRange<float>(0.0f, 1.0f, 0.001f), 1.0f));
+    }
     params.push_back(std::make_unique<juce::AudioParameterChoice>(
         juce::ParameterID{PID::freezeTexture, 1}, "Granular Texture",
         toChoices(FreezeTexture::kEntries), FreezeTexture::Silk));
@@ -4385,7 +4398,9 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
                 paramCache.lroP2a->load(), paramCache.lroP2b->load(),
                 paramCache.lroP2c->load(), paramCache.lroP2d->load(),
                 paramCache.lroP3a->load(), paramCache.lroP3b->load(),
-                paramCache.lroP3c->load(), paramCache.lroP3d->load() };
+                paramCache.lroP3c->load(), paramCache.lroP3d->load(),
+                paramCache.lroLvl1->load(), paramCache.lroLvl2->load(),
+                paramCache.lroLvl3->load() };
 
             csoundEngines_[csoundActiveIdxNow].setGlobalControls(lroKnobs);
             csoundEngines_[csoundActiveIdxNow].startBlock(numSamples);

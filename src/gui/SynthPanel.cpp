@@ -799,6 +799,21 @@ SynthPanel::SynthPanel(T5ynthProcessor& processor)
             lroKnobRows[i]->onRightClick = [this, id = juce::String(kLroIds[i])]
                 (juce::Point<int> pos) { showMidiLearnMenu(processorRef, id, pos); };
         }
+        static constexpr const char* kLvlIds[kNumLroLevels] = {
+            PID::lroLvl1, PID::lroLvl2, PID::lroLvl3 };
+        for (int i = 0; i < kNumLroLevels; ++i)
+        {
+            // Named here and not from the instrument: a part's level is the
+            // host's, not something the library declared, so it is the one row
+            // in this card whose word does not travel with the sound.
+            lroLevelRows[i] = std::make_unique<SliderRow>("Level", fmtF2, kImpulseA);
+            addChildComponent(*lroLevelRows[i]);
+            lroLevelA[i] = std::make_unique<SA>(apvts, kLvlIds[i],
+                                                lroLevelRows[i]->getSlider());
+            lroLevelRows[i]->updateValue();
+            lroLevelRows[i]->onRightClick = [this, id = juce::String(kLvlIds[i])]
+                (juce::Point<int> pos) { showMidiLearnMenu(processorRef, id, pos); };
+        }
     }
 
     // ── Wavetable controls: frame count switchbox ──
@@ -1465,6 +1480,9 @@ void SynthPanel::layoutLroKnobs()
         for (auto& r : lroKnobRows)
             if (r != nullptr)
                 r->setBounds(-1000, -1000, 10, 10);
+        for (auto& r : lroLevelRows)
+            if (r != nullptr)
+                r->setBounds(-1000, -1000, 10, 10);
         return;
     }
 
@@ -1488,11 +1506,11 @@ void SynthPanel::layoutLroKnobs()
 
     // Rows are the panel's own row height, but never taller than the card can
     // hold: four declared knobs must still fit, since four is what the contract
-    // allows. The label column is forced to the SAME width in every column so
-    // the tracks line up across the grid — the rows are the same component the
-    // rest of the synth uses, and this is the only thing that has to be said
-    // about them here.
-    const int maxRows = 4;
+    // allows, and the part's LEVEL sits above them, so five. The label column is
+    // forced to the SAME width in every column so the tracks line up across the
+    // grid — the rows are the same component the rest of the synth uses, and
+    // this is the only thing that has to be said about them here.
+    const int maxRows = 5;
     const int rowH = juce::jlimit(juce::roundToInt(f * 0.9f), juce::roundToInt(f * 1.5f),
                                   card.getHeight() / maxRows);
 
@@ -1502,6 +1520,19 @@ void SynthPanel::layoutLroKnobs()
                                        ? card.getWidth() : colW);
         lroColumnBounds.add(col);
         auto inner = col.reduced(gutter / 2, 0);
+
+        // The part's LEVEL first, so it reads as belonging to the column rather
+        // than as one more of its parameters, and so a column's knob rows keep
+        // the same order the body wrote them in.
+        const int partIdx = lroControls.parts[c].number - 1;
+        if (partIdx >= 0 && partIdx < kNumLroLevels && lroLevelRows[static_cast<size_t>(partIdx)] != nullptr)
+        {
+            auto& lvl = *lroLevelRows[static_cast<size_t>(partIdx)];
+            auto r = inner.removeFromTop(rowH);
+            lvl.setBounds(r);
+            lvl.setForcedLabelWidth(juce::jmin(r.getWidth() / 2,
+                                               juce::roundToInt(f * 5.5f)));
+        }
 
         const auto knobs = lroControls.knobsOf(lroControls.parts[c].number);
         for (const auto& k : knobs)
@@ -1669,6 +1700,17 @@ void SynthPanel::updateVisibility()
             row.getLabel().setText(found->name, juce::dontSendNotification);
             row.getSlider().setTooltip(found->gloss);
         }
+    }
+    // A part's level exists exactly as long as the part does. Shown for the
+    // parts this instrument HAS, so a column that is not on screen does not
+    // leave a stray fader where its heading used to be.
+    for (int i = 0; i < kNumLroLevels; ++i)
+    {
+        bool has = false;
+        for (const auto& p : lroControls.parts)
+            if (p.number == i + 1)
+                has = true;
+        lroLevelRows[static_cast<size_t>(i)]->setVisible(isCsound && has);
     }
 
     // Re-read the curated instruments on every panel update while the LRO is

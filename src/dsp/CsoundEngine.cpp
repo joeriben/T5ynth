@@ -844,7 +844,16 @@ bool CsoundEngine::prepare (double sampleRate, int maxBlockSize, const char* orc
     for (int i = 0; i < kNumGlobalControls; ++i)
     {
         char name[16];
-        std::snprintf(name, sizeof(name), "lroP%d%c", 1 + i / 4, "abcd"[i % 4]);
+        // The last three are the per-part LEVELS, and they carry the scaffold's
+        // own names rather than a new set: every orchestra ever written by this
+        // path already reads "osc1vol".."osc3vol" as `kvol1`..`kvol3`, because
+        // the author is told to scale layer N by `kvolN`. So an instrument
+        // authored long before these were driven gains its column levels by
+        // being loaded — nothing about it has to change.
+        if (i >= kNumKnobControls)
+            std::snprintf(name, sizeof(name), "osc%dvol", 1 + i - kNumKnobControls);
+        else
+            std::snprintf(name, sizeof(name), "lroP%d%c", 1 + i / 4, "abcd"[i % 4]);
         if (! impl->resolveGlobalPtr(name, impl->globalPtr[i]))
             impl->globalPtr[i] = nullptr;
     }
