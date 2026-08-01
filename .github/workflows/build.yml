@@ -34,6 +34,17 @@ jobs:
           pip install pyinstaller
           pip install -r backend/requirements.txt
 
+      # The author's own words must survive the wire. requests decodes a
+      # charset-less `text/event-stream` as ISO-8859-1, which turned every dash
+      # and apostrophe the model wrote into mojibake in the panel -- so this runs
+      # both transports against a real charset-less SSE server and compares byte
+      # for byte. Here, right after the install, because it is a property of the
+      # RESOLVED requests version and a dependency bump is one of the ways it can
+      # come back. Its C++ counterpart (tools/source_charset_gate.py) needs no
+      # step: it is a pre-build target and runs inside every platform's build.
+      - name: Gate the author API encoding
+        run: python tools/author_api_encoding_gate.py
+
       - name: Bundle Python backend (PyInstaller)
         working-directory: backend
         run: pyinstaller pipe_inference.spec --noconfirm

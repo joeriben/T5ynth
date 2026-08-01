@@ -1440,10 +1440,22 @@ def _repair_mojibake(text):
     "â" (U+00E2, Latin-1's reading of the E2 lead byte) followed by two
     invisible C1 controls (U+0080, U+0099, Latin-1's reading of the two UTF-8
     continuation bytes) — so the panel shows "bottleâs" with the ’ gone and an
-    orphaned â in its place. The exact upstream step that does this decode is
-    NOT confirmed (llama-cpp-python's own streaming path was read and
-    exercised live twice against the shipped GGUF without reproducing it), so
-    this repairs the SYMPTOM, not a diagnosed cause: the three-character shape
+    orphaned â in its place.
+
+    THE CAUSE IS NOW KNOWN AND FIXED UPSTREAM (2026-08-01), so do not go
+    hunting for it again: it was `requests`, in author_api.py, on the EXTERNAL
+    author path only — which is why the two live reproductions against the
+    local GGUF both came out clean and the hunt kept failing.
+    `get_encoding_from_headers` applies HTTP/1.1's ISO-8859-1 default to any
+    `text/*` type carrying no charset parameter, and SSE is `text/event-stream`;
+    a provider that spelled out `charset=utf-8` was clean and one that did not
+    corrupted every dash and apostrophe. author_api._post now pins UTF-8 and
+    author_api._sse_lines decodes the bytes itself, with
+    tools/author_api_encoding_gate.py holding it there.
+
+    This stays as a FLOOR, not as the fix: a provider can still hand us prose
+    that was already mangled on its own side, and the repair is cheap and
+    narrow. The three-character shape
     is exactly what Latin-1-decoding those three UTF-8 bytes produces, and
     reversing the two encodes recovers the original character (the same
     technique the `ftfy` library calls `fix_encoding`, scoped down to the one

@@ -78,6 +78,28 @@ def _post(url, headers, payload, host, stream=False):
     except requests.exceptions.RequestException as exc:
         raise AuthorAPIError(f"{host}: request failed ({exc.__class__.__name__})") from exc
 
+    # WHAT ENCODING THE ANSWER IS IN IS NOT A GUESS -- both wire formats this
+    # module speaks mandate UTF-8 (JSON: RFC 8259 §8.1; server-sent events:
+    # WHATWG HTML §9.2, "event streams are always decoded as UTF-8"). requests
+    # does not know that: `get_encoding_from_headers` applies the HTTP/1.1
+    # default of ISO-8859-1 to ANY `text/*` type that carries no charset
+    # parameter, and `text/event-stream` is one -- measured here, requests
+    # 2.34.2:
+    #
+    #     'text/event-stream'                  -> 'ISO-8859-1'
+    #     'text/event-stream; charset=utf-8'   -> 'utf-8'
+    #
+    # So whether the author's prose survives depended on whether the provider
+    # happened to spell out the charset. Where it did not, every curly
+    # apostrophe, en dash and ellipsis the model wrote arrived as its UTF-8
+    # bytes read one-byte-one-character: "I'm" as "I" + an a-circumflex + two
+    # invisible C1 controls. That is the corruption BJ reported six times.
+    #
+    # Pinned here rather than at each call site, because `resp.text` is read by
+    # _truncated_body for provider ERROR bodies too, and a provider's own error
+    # message is exactly where non-ASCII shows up unannounced.
+    resp.encoding = "utf-8"
+
     if resp.status_code >= 400:
         # Read+raise inside a finally-close regardless of `stream`: a rejected
         # call never reaches the caller's own iter_lines()/resp.close() path,
@@ -98,6 +120,30 @@ def _post(url, headers, payload, host, stream=False):
             resp.close()
     return resp
 
+
+def _sse_lines(resp):
+    r"""The response's server-sent-event lines, decoded as UTF-8 by this module
+    rather than by requests.
+
+    `resp.encoding` is pinned in _post and that alone fixes the charset. This
+    goes around requests' unicode path anyway, for a second failure that has
+    nothing to do with charset: `iter_lines(decode_unicode=True)` splits TEXT,
+    and `str.splitlines()` breaks on U+2028, U+2029, U+0085, \v and \f as well
+    as on newlines. An author that writes any of those inside its reasoning
+    would have one SSE frame cut in two, the half-JSON would fail to parse, and
+    the `except ValueError: continue` below would drop the frame in silence --
+    prose missing from the panel with nothing logged anywhere. BYTES split only
+    on \r and \n, neither of which can ever be a byte of a multi-byte UTF-8
+    sequence (those are all >= 0x80), so a line here is always a whole number of
+    whole characters.
+
+    errors="replace" rather than strict: one malformed byte from a provider
+    marks itself as U+FFFD instead of aborting a generation that is otherwise
+    fine -- and a visible replacement character is a bug report, where a silent
+    Latin-1 misread is not."""
+    for raw in resp.iter_lines(decode_unicode=False):
+        if raw:
+            yield raw.decode("utf-8", errors="replace")
 
 
 # ── What a call cost ───────────────────────────────────────────────────
@@ -223,7 +269,7 @@ def call_openai_compatible(base_url, api_key, model, text, system_prompt,
     resp = _post(url, headers, payload, host=base_url, stream=True)
     _LAST_USAGE["served"] = True
     try:
-        for line in resp.iter_lines(decode_unicode=True):
+        for line in _sse_lines(resp):
             if not line or not line.startswith("data:"):
                 continue
             data = line[len("data:"):].strip()
@@ -315,7 +361,7 @@ def call_anthropic(api_key, model, text, system_prompt, max_new_tokens=None,
     resp = _post(_ANTHROPIC_URL, headers, payload, host=_ANTHROPIC_HOST, stream=True)
     _LAST_USAGE["served"] = True
     try:
-        for line in resp.iter_lines(decode_unicode=True):
+        for line in _sse_lines(resp):
             if not line or not line.startswith("data:"):
                 continue
             data = line[len("data:"):].strip()
