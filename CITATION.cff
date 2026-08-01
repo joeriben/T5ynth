@@ -43,15 +43,20 @@ keywords:
   - language-model-generated synthesis code
   - defensive publication
 
-# Third-party identifiers. Fill each in as it is issued; they are what makes the
-# public date rest on something other than this repository's own history.
-# identifiers:
-#   - type: doi
-#     value: "10.5281/zenodo.XXXXXXX"          # <- Zenodo, on the v3.0.0 tag
-#     description: "Archived release (Zenodo)"
-#   - type: swh
-#     value: "swh:1:snp:XXXXXXXX"              # <- Software Heritage snapshot
-#     description: "Archived source (Software Heritage)"
+# Third-party identifiers. They are what makes the public date rest on something
+# other than this repository's own history.
+identifiers:
+  - type: swh
+    value: "swh:1:snp:79f24a3fbb9ff8f43cefd2942d0d5081a4304cba"
+    description: "Archived source, Software Heritage, 2026-08-01"
+  - type: swh
+    value: "swh:1:rev:3728a42feea1cd076503712e80811ab423a2dec1"
+    description: >-
+      Archived commit at which the language model first writes the synthesis
+      program (Software Heritage)
+  # - type: doi
+  #   value: "10.5281/zenodo.XXXXXXX"          # <- Zenodo, on the v3.0.0 tag
+  #   description: "Archived release (Zenodo)"
 
 references:
   - type: report

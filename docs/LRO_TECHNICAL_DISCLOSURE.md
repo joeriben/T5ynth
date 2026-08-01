@@ -278,7 +278,22 @@ These exist so the date does not rest on the repository alone.
 
 | Archive | Identifier | Status |
 |---|---|---|
+| Software Heritage (source) | `swh:1:snp:79f24a3fbb9ff8f43cefd2942d0d5081a4304cba` | archived 2026-08-01, visit status *full* |
 | Zenodo (DOI, via the GitHub–Zenodo integration on a tagged release) | — | to be issued with v3.0.0 |
-| Software Heritage (permanent SWHID for the archived source) | — | archiving requested 2026-08-01 (save request 2407668) |
 
-When each is issued, its identifier belongs in this table and in `CITATION.cff`.
+Software Heritage holds the full history, not only the head, so **every commit in
+the table above is independently addressable and resolvable there** in the form
+`swh:1:rev:<commit>` — for instance the commit at which the language model first
+writes the synthesis program:
+
+    swh:1:rev:3728a42feea1cd076503712e80811ab423a2dec1
+
+All eight commits listed above were confirmed resolvable in the archive on
+2026-08-01. That is the point of this section: the dates no longer depend on this
+repository's own metadata, which its author can set, but on a third party's
+independent record of when it saw them.
+
+A citable PDF of this document is `LRO_TECHNICAL_DISCLOSURE.pdf` beside it,
+rendered from this Markdown by `tools/render_disclosure_pdf.py`.
+
+When the DOI is issued, it belongs in this table and in `CITATION.cff`.
