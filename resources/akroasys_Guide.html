@@ -363,29 +363,31 @@ without whom AI4ArtsEd would not have come into being.
     <li class="sub"><a href="#setup">Setup: Installing What You Need</a></li>
     <li><strong>The Two Oscillators</strong></li>
     <li class="sub"><a href="#gen">1. The T5 Oscillator</a></li>
-    <li class="sub" style="margin-left:2.4rem"><a href="#axes">2. Sound-Character Axes</a></li>
-    <li class="sub" style="margin-left:2.4rem"><a href="#dimex">3. Dimension Explorer</a></li>
-    <li class="sub" style="margin-left:2.4rem"><a href="#engine">4. Engine Modes: Sampler, Wavetable &amp; Granular</a></li>
-    <li class="sub" style="margin-left:2.4rem"><a href="#drift">5. Drift &amp; Regenerate</a></li>
-    <li class="sub" style="margin-left:2.4rem"><a href="#resynth">6. Resynth</a></li>
-    <li class="sub"><a href="#lro">7. The Language-Resonant Oscillator (LRO)</a></li>
-    <li class="sub" style="margin-left:2.4rem"><a href="#lrocontrols">8. The Written Instrument's Controls</a></li>
+    <li class="sub" style="margin-left:2.4rem"><a href="#axes">1.1 Sound-Character Axes</a></li>
+    <li class="sub" style="margin-left:2.4rem"><a href="#dimex">1.2 Dimension Explorer</a></li>
+    <li class="sub" style="margin-left:2.4rem"><a href="#engine">1.3 Engine Modes: Sampler, Wavetable &amp; Granular</a></li>
+    <li class="sub" style="margin-left:2.4rem"><a href="#drift">1.4 Drift &amp; Regenerate</a></li>
+    <li class="sub" style="margin-left:2.4rem"><a href="#resynth">1.5 Resynth</a></li>
+    <li class="sub"><a href="#lro">2. The Language-Resonant Oscillator (LRO)</a></li>
+    <li class="sub" style="margin-left:2.4rem"><a href="#lrocontrols">2.1 The Written Instrument's Controls</a></li>
     <li><strong>Part I — The Synth</strong></li>
-    <li class="sub"><a href="#synth">9. Classic Synth Elements</a></li>
-    <li class="sub"><a href="#fx">10. Effects</a></li>
-    <li class="sub"><a href="#seq">11. Step Sequencer</a></li>
-    <li class="sub"><a href="#genseq">12. Generative Sequencer</a></li>
-    <li class="sub"><a href="#arp">13. Arpeggiator</a></li>
-    <li class="sub"><a href="#perform">14. Playing and Performing</a></li>
-    <li class="sub"><a href="#presets">15. Presets</a></li>
-    <li class="sub"><a href="#sessionlog">16. Session Log: Recording &amp; Replay</a></li>
-    <li class="sub"><a href="#sweetspots">17. Strategies for Finding Sweet Spots</a></li>
+    <li class="sub"><a href="#synth">3. Classic Synth Elements</a></li>
+    <li class="sub"><a href="#fx">4. Effects</a></li>
+    <li class="sub"><a href="#seq">5. Step Sequencer</a></li>
+    <li class="sub"><a href="#genseq">6. Generative Sequencer</a></li>
+    <li class="sub"><a href="#arp">7. Arpeggiator</a></li>
+    <li class="sub"><a href="#perform">8. Playing and Performing</a></li>
+    <li class="sub"><a href="#presets">9. Presets</a></li>
+    <li class="sub"><a href="#sessionlog">10. Session Log: Recording &amp; Replay</a></li>
+    <li class="sub"><a href="#sweetspots">11. Strategies for Finding Sweet Spots</a></li>
     <li><strong>Part II — Background</strong></li>
-    <li class="sub"><a href="#bg-axes">18. How Semantic Axes Work</a></li>
-    <li class="sub"><a href="#bg-dimex">19. The DimExplorer In Depth</a></li>
-    <li class="sub"><a href="#bg-genseq">20. Principles of the Generative Sequencer</a></li>
-    <li class="sub"><a href="#bg-pipeline">21. The Inference Pipeline</a></li>
-    <li class="sub"><a href="#bg-injection">22. How Injection Modes Work</a></li>
+    <li class="sub"><a href="#bg-axes">12. How Semantic Axes Work</a></li>
+    <li class="sub"><a href="#bg-dimex">13. The DimExplorer In Depth</a></li>
+    <li class="sub"><a href="#bg-genseq">14. Principles of the Generative Sequencer</a></li>
+    <li class="sub"><a href="#bg-pipeline">15. The Inference Pipeline</a></li>
+    <li class="sub"><a href="#bg-injection">16. How Injection Modes Work</a></li>
+    <li class="sub"><a href="#bg-csound">17. What Csound Is, and Where It Comes From</a></li>
+    <li class="sub"><a href="#bg-library">18. The Code Library the Author Consults</a></li>
     <li><strong>Legal</strong></li>
     <li class="sub"><a href="#license">License</a></li>
     <li class="sub"><a href="#thirdparty">Third-Party Components</a></li>
@@ -547,7 +549,7 @@ On first launch, the status bar shows backend connection status. Once you see <s
 
 <!-- ═══════════════════════════════════════════ -->
 <div class="part-label" style="margin-top:3rem">The Two Oscillators</div>
-<p style="color:var(--text-dim); margin:0 0 1.2rem;">Chapters&nbsp;1&ndash;6 are the T5 Oscillator and the controls that belong to it alone; chapters&nbsp;7&ndash;8 are the LRO and the controls that belong to it. From chapter&nbsp;9 on, everything is shared &mdash; whichever oscillator is making the sound, it is played through the same synth.</p>
+<p style="color:var(--text-dim); margin:0 0 1.2rem;">Chapter&nbsp;1 and its five subchapters are the T5 Oscillator; chapter&nbsp;2 and its one subchapter are the LRO. From chapter&nbsp;3 on, everything is shared &mdash; whichever oscillator is making the sound, it is played through the same synth.</p>
 <h2 id="gen">1. The T5 Oscillator</h2>
 
 <p>
@@ -784,7 +786,7 @@ disables those buttons and keeps <em>Linear</em> active.
 <!-- ═══════════════════════════════════════════ -->
 <!-- ═══════════════════════════════════════════ -->
 <!-- ═══════════════════════════════════════════ -->
-<h2 id="axes">2. Sound-Character Axes</h2>
+<h2 id="axes">1.1 Sound-Character Axes</h2>
 
 <p>
 Below the A/B area, three dropdown slots let you apply <strong>sound-character axes</strong> — continuous sliders between two conceptual poles (in the UI and technical background also called <em>semantic axes</em>). Each one pushes the current latent space along a direction the model ties to a word like <em>grainy</em> or <em>rhythmic</em>. That push has two sides. It is a <strong>reliable way to bring coherent, non-chaotic movement</strong> into the sound — it steers along one consistent direction, so the motion is repeatable rather than scattered. But it is <strong>not a literal control over the named quality</strong>: pushing toward <em>grainy</em> reliably shifts the character without reliably making the sound measurably grainier.
@@ -829,7 +831,7 @@ Each slider runs from &minus;1.0 to +1.0. Multiple axes are interrelated — the
 <!-- ═══════════════════════════════════════════ -->
 <!-- ═══════════════════════════════════════════ -->
 <!-- ═══════════════════════════════════════════ -->
-<h2 id="dimex">3. Dimension Explorer</h2>
+<h2 id="dimex">1.2 Dimension Explorer</h2>
 
 <p>
 The Dimension Explorer gives you direct access to all <strong>768 internal control dimensions</strong> that steer the model. While the A/B text fields and sound-character axes are readable handles, the DimExplorer lets you see and manipulate the raw numbers.
@@ -862,7 +864,7 @@ This is the most granular level of control akróasys offers. It bypasses languag
 <!-- ═══════════════════════════════════════════ -->
 <!-- ═══════════════════════════════════════════ -->
 <!-- ═══════════════════════════════════════════ -->
-<h2 id="engine">4. Engine Modes: Sampler, Wavetable &amp; Granular</h2>
+<h2 id="engine">1.3 Engine Modes: Sampler, Wavetable &amp; Granular</h2>
 
 <p>
 A generated fragment is not yet a playable voice. These three modes are how it
@@ -950,7 +952,7 @@ Mono, 4, 6, 8, 12, 16, 64 or 128 voices; the default is 8. Gain auto-scales per 
 <!-- ═══════════════════════════════════════════ -->
 <!-- ═══════════════════════════════════════════ -->
 <!-- ═══════════════════════════════════════════ -->
-<h2 id="drift">5. Drift &amp; Regenerate</h2>
+<h2 id="drift">1.4 Drift &amp; Regenerate</h2>
 
 <div style="background:linear-gradient(135deg, rgba(233,69,96,0.15), rgba(255,152,0,0.15)); border:2px solid var(--accent); border-radius:8px; padding:1.2rem 1.5rem; margin-bottom:1.2rem;">
 <p style="font-size:1.1rem; margin:0;">
@@ -1082,7 +1084,7 @@ The <strong>coupling</strong> switch sets how far the rewrite reaches into your 
 <!-- ═══════════════════════════════════════════ -->
 <!-- ═══════════════════════════════════════════ -->
 <!-- ═══════════════════════════════════════════ -->
-<h2 id="resynth">6. Resynth</h2>
+<h2 id="resynth">1.5 Resynth</h2>
 
 <p>
 Re-Prompt closes the loop through language: the machine listens to its own
@@ -1242,7 +1244,7 @@ Resynth amounts can it settle onto one sound.
 <!-- ═══════════════════════════════════════════ -->
 <!-- ═══════════════════════════════════════════ -->
 <!-- ═══════════════════════════════════════════ -->
-<h2 id="lro">7. The Language-Resonant Oscillator (LRO)</h2>
+<h2 id="lro">2. The Language-Resonant Oscillator (LRO)</h2>
 
 <p>
 The <strong>Language-Resonant Oscillator</strong>, or LRO, is an
@@ -1463,7 +1465,7 @@ to, since the LRO has no A/B pair to couple.
 
 <!-- ═══════════════════════════════════════════ -->
 <!-- ═══════════════════════════════════════════ -->
-<h2 id="lrocontrols">8. The Written Instrument's Controls</h2>
+<h2 id="lrocontrols">2.1 The Written Instrument's Controls</h2>
 
 <p>
 A written instrument brings its own knobs, and they appear in the
@@ -1517,7 +1519,7 @@ knowledge.
 
 <!-- ═══════════════════════════════════════════ -->
 <div class="part-label" style="margin-top:3rem">Part I — The Synth</div>
-<h2 id="synth">9. Classic Synth Elements</h2>
+<h2 id="synth">3. Classic Synth Elements</h2>
 
 <h3>Filter</h3>
 <p>
@@ -1657,7 +1659,7 @@ the bar is held.
 <!-- ═══════════════════════════════════════════ -->
 <!-- ═══════════════════════════════════════════ -->
 <!-- ═══════════════════════════════════════════ -->
-<h2 id="fx">10. Effects</h2>
+<h2 id="fx">4. Effects</h2>
 
 <h3>Delay</h3>
 <table>
@@ -1704,7 +1706,7 @@ is what stands between a loud generation and your monitors.
 <!-- ═══════════════════════════════════════════ -->
 <!-- ═══════════════════════════════════════════ -->
 <!-- ═══════════════════════════════════════════ -->
-<h2 id="seq">11. Step Sequencer</h2>
+<h2 id="seq">5. Step Sequencer</h2>
 
 <p>
 A traditional step sequencer of 2 to 32 steps, 16 by default. Each step has:
@@ -1765,7 +1767,7 @@ Click a one-shot slot to cycle Normal / Accent / Mute. The step's <strong>On</st
 <!-- ═══════════════════════════════════════════ -->
 <!-- ═══════════════════════════════════════════ -->
 <!-- ═══════════════════════════════════════════ -->
-<h2 id="genseq">12. Generative Sequencer</h2>
+<h2 id="genseq">6. Generative Sequencer</h2>
 
 <p>
 Press the <strong>GEN</strong> button to switch from the manual step sequencer to the generative mode. This is a <strong>self-evolving pattern engine</strong> that combines Euclidean rhythms with Turing Machine–style melodic mutation.
@@ -1884,7 +1886,7 @@ Strands run independently inside themselves; this control governs how, or whethe
 <!-- ═══════════════════════════════════════════ -->
 <!-- ═══════════════════════════════════════════ -->
 <!-- ═══════════════════════════════════════════ -->
-<h2 id="arp">13. Arpeggiator</h2>
+<h2 id="arp">7. Arpeggiator</h2>
 
 <p>
 The arpeggiator sits <strong>after</strong> both the step sequencer and the
@@ -1912,7 +1914,7 @@ stutter.
 <!-- ═══════════════════════════════════════════ -->
 <!-- ═══════════════════════════════════════════ -->
 <!-- ═══════════════════════════════════════════ -->
-<h2 id="perform">14. Playing and Performing</h2>
+<h2 id="perform">8. Playing and Performing</h2>
 
 <p>
 Everything in this chapter works the same whichever oscillator is active.
@@ -2007,7 +2009,7 @@ nothing to configure.
 <!-- ═══════════════════════════════════════════════════════════════ -->
 <!-- ═══════════════════════════════════════════ -->
 <!-- ═══════════════════════════════════════════ -->
-<h2 id="presets">15. Presets</h2>
+<h2 id="presets">9. Presets</h2>
 
 <p>
 akróasys uses <code>.t5p</code> preset files — a binary container that stores:
@@ -2041,7 +2043,7 @@ refreshes the curated <em>UCDCAE AI Lab</em> bank in place from
 <!-- ═══════════════════════════════════════════ -->
 <!-- ═══════════════════════════════════════════ -->
 <!-- ═══════════════════════════════════════════ -->
-<h2 id="sessionlog">16. Session Log: Recording &amp; Replay</h2>
+<h2 id="sessionlog">10. Session Log: Recording &amp; Replay</h2>
 
 <p>
 akróasys can keep a <strong>session log</strong> of what you do — never of the
@@ -2076,7 +2078,7 @@ ends the tape; your own workspace beneath was never touched.
 <!-- ═══════════════════════════════════════════ -->
 <!-- ═══════════════════════════════════════════ -->
 <!-- ═══════════════════════════════════════════ -->
-<h2 id="sweetspots">17. Strategies for Finding Sweet Spots</h2>
+<h2 id="sweetspots">11. Strategies for Finding Sweet Spots</h2>
 
 <div class="tip">
   <strong>akróasys is not a sweet-spot synth.</strong> Unlike subtractive synths where most parameter combinations produce usable sound, akróasys's generation process is exploratory and unpredictable. Many combinations produce nothing interesting. That's by design — the instrument rewards patient exploration, not preset-surfing.
@@ -2184,7 +2186,11 @@ A preset carries the sound itself — the generated audio on the T5 side, the au
 <!-- ═══════════════════════════════════════════════════════════════ -->
 <!-- ═══════════════════════════════════════════ -->
 <div class="part-label" style="margin-top:3rem">Part II — Background</div>
-<h2 id="bg-axes">18. How Semantic Axes Work</h2>
+<p style="color:var(--text-dim); margin:0 0 1.2rem;">None of this is needed to play
+the instrument. Chapters&nbsp;12&ndash;16 are the machinery behind the T5
+Oscillator's controls; chapters&nbsp;17&ndash;18 are what the LRO is built on and
+what it reads from.</p>
+<h2 id="bg-axes">12. How Semantic Axes Work</h2>
 
 <p>
 akróasys's semantic axes are directions in the 768-dimensional embedding space of the T5 text encoder. Here's how they are constructed:
@@ -2241,10 +2247,10 @@ On SA3's t5gemma encoder a single-word pole is too weak to move the sound — me
 <!-- ═══════════════════════════════════════════ -->
 <!-- ═══════════════════════════════════════════ -->
 <!-- ═══════════════════════════════════════════ -->
-<h2 id="bg-dimex">19. The DimExplorer In Depth</h2>
+<h2 id="bg-dimex">13. The DimExplorer In Depth</h2>
 
 <p>
-The DimExplorer (see <a href="#dimex">chapter 3</a> for basic usage) operates on the <strong>mean-pooled</strong> encoder output — the 768-dimensional vector obtained by averaging across the token sequence dimension. This is the same representation the diffusion model uses for conditioning.
+The DimExplorer (see <a href="#dimex">chapter 1.2</a> for basic usage) operates on the <strong>mean-pooled</strong> encoder output — the 768-dimensional vector obtained by averaging across the token sequence dimension. This is the same representation the diffusion model uses for conditioning.
 </p>
 
 <h4>Why Sorted by Magnitude?</h4>
@@ -2272,7 +2278,7 @@ Individual T5 dimensions do not correspond to human-interpretable audio features
 <!-- ═══════════════════════════════════════════ -->
 <!-- ═══════════════════════════════════════════ -->
 <!-- ═══════════════════════════════════════════ -->
-<h2 id="bg-genseq">20. Principles of the Generative Sequencer</h2>
+<h2 id="bg-genseq">14. Principles of the Generative Sequencer</h2>
 
 <p>
 The generative sequencer combines three layers of musical algorithm:
@@ -2327,7 +2333,7 @@ All drift is bounded and reversible — parameters oscillate rather than running
 
 <h3>Layer 4: Polyphonic Strands</h3>
 <p>
-Up to five <strong>Strands</strong> run in parallel, each with its own Euclidean DNA, drift state, role, and tempo multiplier. Strands are not voices in a chord — they are independent agents sharing one pitch space. The polyrhythmic interplay arises naturally from the sorted <code>Div×</code> multipliers (1/16×, 1/8×, 1/5×, 1/4×, 1/3×, 1/2×, 1×, 2×, 3×, 4×, 5×, 8×, 16×), which create non-coincident downbeats; cycle boundaries only realign on the lowest common multiple. Each strand runs the same internal pipeline as Strand&nbsp;1 (Euclidean rhythm + Turing degree-walk + quantization to its register); the role choice only sets default character. How strands interact (or don't) is decided by the <em>Coordination Mode</em>; see <a href="#genseq">chapter 12</a>. With four secondary strands available, every role (Anchor, Line, Density, Gesture) can be assigned uniquely if desired.
+Up to five <strong>Strands</strong> run in parallel, each with its own Euclidean DNA, drift state, role, and tempo multiplier. Strands are not voices in a chord — they are independent agents sharing one pitch space. The polyrhythmic interplay arises naturally from the sorted <code>Div×</code> multipliers (1/16×, 1/8×, 1/5×, 1/4×, 1/3×, 1/2×, 1×, 2×, 3×, 4×, 5×, 8×, 16×), which create non-coincident downbeats; cycle boundaries only realign on the lowest common multiple. Each strand runs the same internal pipeline as Strand&nbsp;1 (Euclidean rhythm + Turing degree-walk + quantization to its register); the role choice only sets default character. How strands interact (or don't) is decided by the <em>Coordination Mode</em>; see <a href="#genseq">chapter 6</a>. With four secondary strands available, every role (Anchor, Line, Density, Gesture) can be assigned uniquely if desired.
 </p>
 <p>
 Each strand's <em>Role</em> selects a different note-picking strategy from the shared field:
@@ -2356,7 +2362,7 @@ The field evolves on Strand 1's cycle boundary at the chosen <em>Rate</em> (1–
   <li><strong>Pivot</strong> — transposes the entire pc-set by the configured Pivot interval (m3, M3, Tritone, P5) each tick, accumulating shift over time. After enough cycles the field returns to its origin (e.g.&nbsp;four cycles at m3 = full octave).</li>
 </ul>
 <p>
-Because all strands share the same field, harmonic coherence is provided at the field level alone: a Drift swap or Transform tick changes what every strand can play. There is no per-event harmonic check between strands &mdash; that question is delegated to the <em>Coordination Mode</em> (<a href="#genseq">chapter 12</a>), which currently caps simultaneous voices via priority displacement (DensityBudget). The listener perceives one evolving texture because the strands draw from the same evolving pitch set, not because each note is negotiated against the others.
+Because all strands share the same field, harmonic coherence is provided at the field level alone: a Drift swap or Transform tick changes what every strand can play. There is no per-event harmonic check between strands &mdash; that question is delegated to the <em>Coordination Mode</em> (<a href="#genseq">chapter 6</a>), which currently caps simultaneous voices via priority displacement (DensityBudget). The listener perceives one evolving texture because the strands draw from the same evolving pitch set, not because each note is negotiated against the others.
 </p>
 
 <div class="note">
@@ -2366,7 +2372,7 @@ Because all strands share the same field, harmonic coherence is provided at the 
 <!-- ═══════════════════════════════════════════ -->
 <!-- ═══════════════════════════════════════════ -->
 <!-- ═══════════════════════════════════════════ -->
-<h2 id="bg-pipeline">21. The Inference Pipeline</h2>
+<h2 id="bg-pipeline">15. The Inference Pipeline</h2>
 
 <p>
 Understanding the inference pipeline helps explain why certain controls interact the way they do.
@@ -2474,7 +2480,7 @@ Modes enter the path; the detailed mode mechanics follow in the next section.
     │                                     │   (empty side → 2·emb_neutral − other)
     │                                     │
     ├─ Injection Mode ─────────────────── Select conditioning path
-    │                                     │   (details in section 18)
+    │                                     │   (details in chapter 12)
     │                                     │
     ├─ A/B / mode slider ────────────── Control selected path
     │                                     │
@@ -2521,7 +2527,7 @@ Key observations from this flow:
 <!-- ═══════════════════════════════════════════════════════════════ -->
 <!-- ═══════════════════════════════════════════ -->
 <!-- ═══════════════════════════════════════════ -->
-<h2 id="bg-injection">22. How Injection Modes Work</h2>
+<h2 id="bg-injection">16. How Injection Modes Work</h2>
 
 <p>
 The user-facing injection-mode buttons (<a href="#injection-modes">chapter 1</a>) are a thin UI on top of
@@ -2672,6 +2678,123 @@ log/preset legibility.
 <!-- ═══════════════════════════════════════════════════════════════ -->
 <!-- LEGAL / LICENSE -->
 <!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- ═══════════════════════════════════════════ -->
+<h2 id="bg-csound">17. What Csound Is, and Where It Comes From</h2>
+
+<p>
+The LRO's output is a <strong>Csound orchestra</strong>. Csound is a programming
+language for sound: you write instrument definitions in text, and the language
+compiles and runs them. It is not a plugin format and not an internal format of
+this app — the orchestra stored in an akróasys preset is ordinary Csound source
+that any Csound installation compiles.
+</p>
+
+<h3>The MUSIC-N line</h3>
+<p>
+Csound is the current end of the oldest continuous line in computer music. In
+1957 at Bell Labs, <strong>Max Mathews</strong> wrote MUSIC I, the first program
+that made a computer produce sound from a written description rather than from a
+circuit. Its third version, MUSIC III (1960), introduced the
+<strong>unit generator</strong>: a small signal-processing block — an
+oscillator, an envelope, a filter — that you name in text and wire to other
+blocks. Every module in every modular patch since is a descendant of that idea,
+and it is still literally how a Csound orchestra is written.
+</p>
+<p>
+The same design split the work into an <strong>orchestra</strong> (what the
+instruments are) and a <strong>score</strong> (what they play). akróasys keeps
+the split and divides it between the two of you: the language model writes the
+orchestra, and your keyboard, sequencer and MIDI are the score.
+</p>
+<p>
+<strong>Barry Vercoe</strong> carried the line to MIT — Music 11, written for the
+PDP-11 in 1973 — and rewrote it in C in 1986 so it would run on anything C runs
+on. That rewrite is Csound. It has been developed continuously for forty years
+since, and is free software.
+</p>
+
+<h3>Why the LRO is built on it</h3>
+<p>
+Because the substrate already knows the domain. Forty years of accumulation left
+Csound with instrument mechanics built in: waveguide physical models
+(<code>wgbow</code>, <code>wgflute</code>, <code>wgclar</code>,
+<code>wgbrass</code>, <code>wgpluck</code>), finite-difference models of bars and
+plates (<code>barmodel</code>, <code>platerev</code>, <code>prepiano</code>),
+modal banks (<code>mode</code>, <code>marimba</code>, <code>vibes</code>),
+FM operators, waveshaping, granular engines, particle models for shaken and
+scraped things, and stochastic generators. The author does not have to invent a
+mechanism from nothing — it reaches for one that already exists and has been
+tested by other people for decades.
+</p>
+<p>
+Csound travels inside akróasys on macOS, Windows and Linux — version 6.18.1,
+linked dynamically and replaceable, which is what its LGPL&nbsp;2.1 licence asks
+for. There is nothing to install.
+</p>
+
+<!-- ═══════════════════════════════════════════ -->
+<h2 id="bg-library">18. The Code Library the Author Consults</h2>
+
+<p>
+The language model does not write an orchestra out of nothing, and it does not
+pick one from a list. Between the two sits a library of Csound code that the
+author can ask to have <strong>opened</strong>.
+</p>
+
+<h3>What is in it</h3>
+<p>
+Three kinds of entry, and they are combined, not chosen between:
+</p>
+<ul>
+  <li><strong>30 instrument bodies</strong> — the sounding mechanism. A bell, a
+    plucked string, a blown bottle, a three-operator FM voice, a divider organ, a
+    waveshaper.</li>
+  <li><strong>51 sound words</strong> — bright, hollow, nasal, buzzy, glassy,
+    raspy, velvety. Each is a piece of code that does something specific to a
+    signal, not an adjective the model is left to interpret.</li>
+  <li><strong>17 motions</strong> — how the sound changes while it lasts: opens
+    up, closes, sweeps, wobbles, breathes, evolves, settles, snaps.</li>
+</ul>
+<p>
+Every entry carries its code and a <strong>why</strong>: the synthesis method it
+comes from and the published source for that method. An entry whose method
+cannot be named and sourced does not go in.
+</p>
+
+<h3>Orientation, not a menu</h3>
+<p>
+The author names what it wants opened; nothing is matched for it by keyword, and
+nothing restricts it to what it opened. It can combine any number of methods in
+one orchestra, layer bodies, or write something the library does not contain at
+all. The <strong>OPENED</strong> station in the authoring trace
+(<a href="#lro">chapter 2</a>) tells you what it asked for on this run — and
+"the author named no entry" is a normal, legitimate reading.
+</p>
+<p>
+The library is also where your knobs come from. A parameter line in an opened
+entry carries a name, a one-line gloss and a range; if that line survives into
+the body the author actually writes, it becomes a control on the panel with the
+library's name and range and the author's chosen value
+(<a href="#lrocontrols">chapter 2.1</a>).
+</p>
+
+<h3>Curated, and not yet curated</h3>
+<p>
+Three of the thirty instrument bodies — <em>electric piano</em>,
+<em>singing bowl</em> and <em>transistor organ/string machine</em> — carry a
+sign-off recorded in the library file itself. Sign-off means the entry was
+rendered to disk, compared by ear against the nearest thing the library already
+had, and accepted. By ear: no meter decides it, because a meter built by the
+same hand that built the instrument agrees with itself and proves nothing.
+</p>
+<p>
+The other twenty-seven are working material. Their method and source are written
+down and they compile and sound, but nobody has yet sat down with a reference
+and accepted them. That is worth knowing while you play, because the author
+reaches into both: a body you find dull may be one that has not had its hearing
+yet.
+</p>
+
 <!-- ═══════════════════════════════════════════ -->
 <div class="part-label" style="margin-top:3rem">Legal</div>
 <h2 id="license">License</h2>
