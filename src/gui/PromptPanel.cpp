@@ -499,7 +499,9 @@ PromptPanel::PromptPanel(T5ynthProcessor& processor)
         dcoSetsParamsBtn.setClickingTogglesState(true);
         dcoSetsParamsBtn.setTooltip("Let an authored instrument set the synth's own controls too: "
                                     "filter, envelopes, LFOs, drift, aftertouch. It prefers targets "
-                                    "nothing is using. Off: they stay yours.");
+                                    "nothing is using. Off: they stay yours - the instrument still "
+                                    "writes its settings, and they go on the patch the moment you "
+                                    "switch this on.");
         addAndMakeVisible(dcoSetsParamsBtn);
         dcoSetsParamsBtnA = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(
             processorRef.getValueTreeState(), PID::lcoSetsParams, dcoSetsParamsBtn);
@@ -776,6 +778,19 @@ void PromptPanel::timerCallback()
         populateModelSelector();
         // Don't stop timer — continue for drift regen polling + ghost updates
     }
+
+    // The KNOBS station follows the switch, which moves from anywhere — a click,
+    // host automation, a MIDI CC — and is acted on one async hop later. Polled
+    // on the PROCESSOR's revision rather than on the switch itself, so the card
+    // is re-read after the knobs were actually taken or given back rather than
+    // on the switch's word. A flip back within one tick can still be seen with
+    // the give-back done and the re-take queued, which reads as "took nothing"
+    // for that tick and corrects itself on the next. Two int reads a tick while
+    // a trace is on screen, nothing at all otherwise.
+    if (dcoKnobsKnown_
+        && (dcoKnobsRev_ != processorRef.getAuthorSettingsRevision()
+            || dcoKnobsGen_ != processorRef.getAuthorSettingsGeneration()))
+        refreshLcoKnobStation();
 
     // Ghost indicators for drift-modulated sliders — update every tick.
     auto& mv0 = processorRef.modulatedValues;
@@ -2213,6 +2228,65 @@ void PromptPanel::triggerLcoGenerate()
         triggerDcoBake();
 }
 
+// The KNOBS station, re-read from the processor. Called at the publish and then
+// again on every change of the borrow — the switch is an A/B and the same
+// settings are on the patch or waiting for it depending on where it stands, so
+// a station written once would go on claiming "waiting" over knobs that are
+// live. What is drawn is never composed here: the lines come from the processor
+// (read back off the parameters while they stand, from the request while they
+// wait) and only the sentence that says WHY they wait is decided here, because
+// only this side knows whether it was the switch or the oscillator.
+void PromptPanel::refreshLcoKnobStation()
+{
+    if (! dcoKnobsKnown_) return;
+    dcoKnobsRev_ = processorRef.getAuthorSettingsRevision();
+
+    // A preset or a restored session replaced the patch, so the processor no
+    // longer holds THIS card's request and what it does hold is not this sound's
+    // to report. The lines stay — they are the record of what was authored —
+    // and the station says plainly that they are no longer on the synth. Read as
+    // a live answer instead, the station reported "the author took nothing"
+    // under a card whose author had taken three.
+    if (processorRef.getAuthorSettingsGeneration() != dcoKnobsGen_)
+    {
+        // No disclaimer where there is nothing to disclaim: an authoring that
+        // never had a landable setting reads as "took nothing", which stays true
+        // across any number of patches.
+        dcoTraceView.setKnobs(dcoKnobsAsked_, dcoKnobsRefused_,
+                              dcoKnobsAsked_.isEmpty()
+                                  ? juce::String()
+                                  : juce::String("a different patch has been loaded - "
+                                                 "this is no longer on the synth"));
+        // Drawn ONCE and then final: the record cannot become live again, and a
+        // poll that kept matching would relayout the card ten times a second for
+        // the rest of the session.
+        dcoKnobsKnown_ = false;
+        return;
+    }
+
+    T5ynthProcessor::AuthorKnobStand stand{};
+    auto lines = processorRef.describeAuthorSettings(stand);
+    juce::String pending;
+    switch (stand)
+    {
+        case T5ynthProcessor::AuthorKnobStand::onThePatch:
+            break;   // live: the lines are what stands there
+        case T5ynthProcessor::AuthorKnobStand::notSounding:
+            pending = "another oscillator is playing - nothing of this instrument "
+                      "stands on the patch";
+            break;
+        case T5ynthProcessor::AuthorKnobStand::switchOff:
+            pending = "KNOBS is off - this is what the instrument asks of the synth, "
+                      "and it goes on the patch the moment you switch it on";
+            break;
+    }
+    // The record half: kept so the station can still show what was authored once
+    // the live half stops being about this sound.
+    if (! lines.isEmpty())
+        dcoKnobsAsked_ = lines;
+    dcoTraceView.setKnobs(lines, dcoKnobsRefused_, pending);
+}
+
 // Route status/error text into both the logical holder (dcoStatusLabel — kept
 // for the many call sites that already write it) and the visible trace view,
 // which doubles as the LCO status/error channel until an actual trace exists.
@@ -2237,6 +2311,12 @@ void PromptPanel::setLcoStatus(const juce::String& text, const juce::String& too
     // the error the user was just shown.
     ++dcoBakeSeq_;
     dcoSelfCheck_.clear();
+    // The card is gone, so the station it carried has no trace to sit in and the
+    // poll above must stop writing one. (The processor keeps the settings: the
+    // sound that asked for them is still playing.)
+    dcoKnobsKnown_ = false;
+    dcoKnobsAsked_.clear();
+    dcoKnobsRefused_.clear();
 }
 
 // The compile window's report — see the declaration comment. Writes the logical
@@ -2431,28 +2511,27 @@ void PromptPanel::triggerDcoBake()
     const unsigned long long bakeSeq = ++dcoBakeSeq_;
     // Read off the APVTS HERE — this is the message thread; the worker below is
     // not, and juce::var is not something to build off it.
-    const bool maySetParams = processorRef.getValueTreeState()
-                                  .getRawParameterValue(PID::lcoSetsParams)->load() > 0.5f;
-    const juce::var synthParams = maySetParams ? processorRef.buildAuthorParamIndex()
-                                               : juce::var();
-    // Carried into the trace so the card can say whether the author was shown
-    // the synth's controls AT ALL. It is the state at this instant that decides
-    // it, and an authoring runs for minutes — reading the switch again at
-    // publish time would report where it stands then, which is a different
-    // question and the one that misled for a day.
-    const bool knobsWereOffered = maySetParams;
-    std::thread([safeThis, pipePtr, text, bakeSeq, synthParams, knobsWereOffered]() mutable
+    //
+    // The shelf goes out ALWAYS, and deliberately not only when the KNOBS switch
+    // is on (BJ, 2026-08-01: "Ist der Button deaktiviert, kann dennoch eine
+    // virtuelle Einstellung vorgenommen werden. Sie wird halt nur erst aktiv
+    // wenn user knobs aktiviert"). The switch says what may be TOUCHED, not what
+    // may be WRITTEN: withholding the shelf made the author write a different,
+    // smaller instrument — one with no filter and no envelopes — so turning the
+    // switch on afterwards had nothing to turn on. Now every authoring describes
+    // its whole sound and the switch decides when that reaches the patch.
+    const juce::var synthParams = processorRef.buildAuthorParamIndex();
+    std::thread([safeThis, pipePtr, text, bakeSeq, synthParams]() mutable
     {
       // Publishing ONE attempt — engine swap, card, Re-Prompt bookkeeping. The
       // first authoring and every correction publish identically (a correction IS
       // the sound now, not a preview), so this is one lambda rather than two
       // copies that could drift apart.
-      auto publish = [safeThis, text, knobsWereOffered]
+      auto publish = [safeThis, text]
                      (const PipeInference::CsoundAuthorResult& authored,
                       int attempt, bool moreToCome)
       {
-        juce::MessageManager::callAsync([safeThis, authored, text, attempt, moreToCome,
-                                         knobsWereOffered]()
+        juce::MessageManager::callAsync([safeThis, authored, text, attempt, moreToCome]()
         {
             auto* self = safeThis.getComponent();
             if (self == nullptr) return;   // panel gone — nothing to write
@@ -2571,30 +2650,21 @@ void PromptPanel::triggerDcoBake()
             // nothing else — there is nothing of the player's to borrow here.
             self->processorRef.setCsoundControls(
                 LroControls::fromVar(authored.controls), /*applyValues=*/true);
-            // The knobs the author asked for, out on the synth itself. Empty
-            // unless the switch was on when this authoring started — and the
-            // switch is read again HERE, so turning it off while an authoring
-            // runs still means "not on my patch".
-            // Same gate as the engine swap above: authoring runs for minutes and
-            // the paradigm toggle stays live, so a user who has moved on to
-            // T5osc must not have their filter and envelopes rewritten under a
-            // neural panel by a sound that is not playing.
-            const bool mayApply = ! self->easyMode_
-                               && self->processorRef.getValueTreeState()
-                                      .getRawParameterValue(PID::lcoSetsParams)->load() > 0.5f;
-            juce::StringArray landed;
-            if (mayApply)
-                landed = self->processorRef.applyAuthorSettings(authored.settings);
-            // No else: the switch's own transition already handed the knobs
-            // back, wherever it was flipped from.
+            // The knobs the author asked of the synth itself. Handed over
+            // WHOLE, whichever way the KNOBS switch stands: the processor keeps
+            // the request and puts it on the patch only while the player allows
+            // it and this instrument is the sounding oscillator (see
+            // setAuthorSettings / reconcileAuthorSettings). So a sound written
+            // with the switch off is complete and waits, and turning the switch
+            // on later is what makes it audible — instead of the request being
+            // dropped and the previous sound's staying on record in its place.
+            self->processorRef.setAuthorSettings(authored.settings);
 
-            // The KNOBS station, told the truth rather than the request. `landed`
-            // comes back from the apply and is read off the parameters
-            // afterwards, so a line the backend passed and this side then refused
-            // cannot be reported as set. Everything that did NOT land is listed
-            // as refused, with the reason — including the whole request when the
-            // switch was withdrawn while the authoring ran, which is otherwise
-            // indistinguishable from an author that asked for nothing.
+            // The KNOBS station. What LANDED is read back off the parameters by
+            // the apply, so a line the backend passed and this side then refused
+            // cannot be reported as set; what is only WAITING is shown as the
+            // request. Everything that will never land is listed as refused,
+            // with the reason.
             {
                 juce::StringArray refused;
                 if (auto* arr = authored.settings.getArray())
@@ -2608,13 +2678,15 @@ void PromptPanel::triggerDcoBake()
                         refused.add(name + "  " + val + " - "
                                     + (note.isEmpty() ? juce::String("not set") : note));
                     }
-                if (! mayApply && knobsWereOffered)
-                    refused.insert(0, self->easyMode_
-                        ? "the oscillator was switched away while this was being written "
-                          "- nothing was set"
-                        : "the switch went off while this was being written "
-                          "- nothing was set");
-                self->dcoTraceView.setKnobs(knobsWereOffered, landed, refused);
+                self->dcoKnobsRefused_ = refused;
+                self->dcoKnobsAsked_.clear();
+                self->dcoKnobsKnown_   = true;
+                // The generation this card's station belongs to: the request
+                // just handed over. Anything that replaces it — a preset, a
+                // restored session — is a different patch, and the station says
+                // so instead of reporting that patch's answer as this one's.
+                self->dcoKnobsGen_ = self->processorRef.getAuthorSettingsGeneration();
+                self->refreshLcoKnobStation();
             }
             self->dcoTraceView.setBody(authored.paramsText);   // the back of the card
 
@@ -2848,6 +2920,12 @@ void PromptPanel::setLcoRecalledTrace(const juce::String& prompt, const juce::St
 {
     ++dcoBakeSeq_;
     dcoSelfCheck_.clear();
+    // A recalled preset carries no answer about the synth's own controls, so the
+    // station is left out entirely rather than filled from whatever the live
+    // processor happens to hold from an earlier authoring.
+    dcoKnobsKnown_ = false;
+    dcoKnobsAsked_.clear();
+    dcoKnobsRefused_.clear();
     LcoTraceView::Trace t;
     t.prompt  = prompt;
     t.reading = reading;

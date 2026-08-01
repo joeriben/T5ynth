@@ -560,7 +560,7 @@ You have already reasoned about the sound in the first turn. Do not reason it ou
 
 
 _PARAMS_HEAD = """
-THE SYNTH'S OWN CONTROLS — the player has allowed you to set them
+THE SYNTH'S OWN CONTROLS — write what this sound needs, the player decides when it lands
 Your oscillator sits inside a real instrument: a filter, five envelopes, three
 LFOs, three slow drift LFOs, aftertouch amounts, noise, an amplifier chain
 (distortion, chorus, phaser, tremolo) and two effects (delay, reverb). For this
@@ -568,6 +568,11 @@ sound you may set them. Use them for what belongs OUT THERE rather than inside
 your body — a filter the words ask for, an envelope that opens something, an LFO
 that moves it. What you build in Csound is still the spectrum; these are the
 instrument around it.
+
+Whether your settings actually move anything is not your decision and not your
+worry: a switch called KNOBS puts them on the player's patch, and while it is
+off they are kept and wait for it. So write them either way — describe the whole
+sound, not the part that happens to be permitted at this moment.
 
 This ADDS one thing to the fence rule above: besides the oscillator body and
 the READING line, the fence may now also carry SET lines. Nothing else changes.

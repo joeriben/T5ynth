@@ -7030,6 +7030,43 @@ void T5ynthProcessor::releaseAuthorSettings()
             if (std::abs(prm->getValue() - prev.appliedNorm) < 1.0e-6f)
                 setParam(parameters, prev.id, prev.before);
     authorSetParams_.clear();
+    // Nothing of the author's stands on the patch now, so the station's live
+    // half is empty — and anything showing it has to be told, since the give-back
+    // can happen minutes after the authoring and from a switch on another thread.
+    authorAppliedLines_.clear();
+    ++authorSettingsRevision_;
+}
+
+T5ynthProcessor::AuthorKnobStand T5ynthProcessor::authorKnobStand() const
+{
+    // Both conditions read live, in ONE place: the take, the give-back and the
+    // report all ask this, and a second copy of the test is how they would come
+    // to describe different patches — a panel that re-read only the switch would
+    // promise "turn KNOBS on and these land" while another oscillator is playing.
+    if (static_cast<int>(paramCache.engineMode->load()) != EngineMode::Csound)
+        return AuthorKnobStand::notSounding;
+    if (! (parameters.getRawParameterValue(PID::lcoSetsParams)->load() > 0.5f))
+        return AuthorKnobStand::switchOff;
+    return AuthorKnobStand::onThePatch;
+}
+
+bool T5ynthProcessor::authorMayHoldSettings() const
+{
+    return authorKnobStand() == AuthorKnobStand::onThePatch;
+}
+
+void T5ynthProcessor::dropAuthorSettings()
+{
+    // No give-back: the caller is a patch replacement whose own values are about
+    // to be written over every one of these knobs, and putting the previous
+    // patch's values back first would only be a detour. The bookkeeping is the
+    // point of the function — done by hand at the one call site, it was left out
+    // and the KNOBS station went on showing the previous sound's answer.
+    authorSetParams_.clear();
+    authorSettings_ = juce::var();
+    authorAppliedLines_.clear();
+    ++authorSettingsRevision_;
+    ++authorSettingsGeneration_;
 }
 
 void T5ynthProcessor::reconcileAuthorSettings()
@@ -7043,12 +7080,97 @@ void T5ynthProcessor::reconcileAuthorSettings()
     // controls SHOW is the only one that cannot be stale. Re-applying is
     // idempotent — applyAuthorSettings releases first — so a redundant call
     // costs nothing and a missed one cannot leave the patch half-borrowed.
-    const bool allowed = parameters.getRawParameterValue(PID::lcoSetsParams)->load() > 0.5f;
-    const bool sounding = static_cast<int>(paramCache.engineMode->load()) == EngineMode::Csound;
-    if (allowed && sounding)
+    if (authorMayHoldSettings())
         applyAuthorSettings(authorSettings_);   // a no-op while nothing is authored
     else
         releaseAuthorSettings();
+}
+
+void T5ynthProcessor::setAuthorSettings(const juce::var& settings)
+{
+    // The PREVIOUS sound's borrow goes back first, and its request is replaced
+    // here whether or not either of them may stand on the patch right now. That
+    // is the half that used to be missing: with the switch off nothing was
+    // stored at all, so the last sound's request stayed on record and flipping
+    // the switch on put THAT instrument's filter and envelopes on the patch.
+    releaseAuthorSettings();
+    authorSettings_ = settings;
+    ++authorSettingsGeneration_;   // a different instrument is asking now
+
+    // Only the TAKING is gated. A sound authored while the switch is off is
+    // written complete — its settings are made, they simply wait — and the
+    // switch takes them when it arrives, through reconcileAuthorSettings.
+    if (authorMayHoldSettings())
+        applyAuthorSettings(authorSettings_);   // bumps the revision itself
+    else
+        ++authorSettingsRevision_;              // a new request is waiting: say so
+}
+
+bool T5ynthProcessor::resolveAuthorSetting(const juce::var& e,
+                                           juce::RangedAudioParameter*& prm,
+                                           float& target) const
+{
+    // The backend already checked this against the shelf it was handed and says
+    // so. Checked AGAIN here, against the shelf itself, because the reply
+    // crosses a process boundary: a REJECTED line still travels (it carries the
+    // reason, for showing), and "the parameter exists" is not the same question
+    // as "it was on the shelf" — amp_target exists.
+    //
+    // ONE resolver for the apply and for the report, so a line shown as waiting
+    // is exactly a line that will land, and every refusal is refused in both.
+    prm = nullptr;
+    target = 0.0f;
+    if (! static_cast<bool>(e.getProperty("ok", juce::var(false)))) return false;
+    const auto id = e.getProperty("id", juce::var()).toString();
+    if (! onAuthorParamShelf(id)) return false;
+    prm = parameters.getParameter(id);
+    if (prm == nullptr || ! e.hasProperty("value")) { prm = nullptr; return false; }
+
+    const auto raw = e.getProperty("value", juce::var());
+    if (dynamic_cast<juce::AudioParameterBool*>(prm) != nullptr)
+    {
+        const auto w = raw.toString().trim().toLowerCase();
+        if (w != "on" && w != "off") { prm = nullptr; return false; }
+        target = (w == "on") ? 1.0f : 0.0f;
+    }
+    else if (auto* ch = dynamic_cast<juce::AudioParameterChoice*>(prm))
+    {
+        const int idx = ch->choices.indexOf(raw.toString(), /*ignoreCase=*/true);
+        if (idx < 0) { prm = nullptr; return false; }   // a label this parameter does not have
+        target = static_cast<float>(idx);
+    }
+    else
+    {
+        // A number, and only a number: a juce::var holding a STRING converts
+        // to a float silently, which is how a value the backend refused
+        // ("0.5-0.7") would land as 0.5 anyway.
+        if (! (raw.isDouble() || raw.isInt() || raw.isInt64())) { prm = nullptr; return false; }
+        const auto& r = prm->getNormalisableRange();
+        target = juce::jlimit(r.start, r.end, static_cast<float>(raw));
+    }
+    return true;
+}
+
+juce::StringArray T5ynthProcessor::describeAuthorSettings(AuthorKnobStand& stand) const
+{
+    stand = authorKnobStand();
+    if (stand == AuthorKnobStand::onThePatch)
+        return authorAppliedLines_;   // what actually stands, read back by the apply
+
+    // Waiting: the same lines the apply would write, formatted from the request
+    // itself. Only the resolver decides which they are, so this list cannot
+    // promise a knob the switch would then refuse.
+    juce::StringArray asked;
+    if (auto* arr = authorSettings_.getArray())
+        for (const auto& e : *arr)
+        {
+            juce::RangedAudioParameter* prm = nullptr;
+            float target = 0.0f;
+            if (! resolveAuthorSetting(e, prm, target)) continue;
+            asked.add(authorShelfName(e.getProperty("id", juce::var()).toString().toRawUTF8(), *prm)
+                      + "  " + prm->getText(prm->convertTo0to1(target), 0));
+        }
+    return asked;
 }
 
 void T5ynthProcessor::forgetAuthorSettings()
@@ -7058,6 +7180,7 @@ void T5ynthProcessor::forgetAuthorSettings()
     // nothing left able to return them.
     releaseAuthorSettings();
     authorSettings_ = juce::var();
+    ++authorSettingsGeneration_;   // a different patch: this request is nobody's now
 }
 
 juce::StringArray T5ynthProcessor::applyAuthorSettings(const juce::var& settings)
@@ -7080,47 +7203,24 @@ juce::StringArray T5ynthProcessor::applyAuthorSettings(const juce::var& settings
     // keep standing in for it. The guard is for the re-take, which passes this
     // very member back in.
     if (&settings != &authorSettings_)
+    {
         authorSettings_ = settings;
+        // A foreign request REPLACES the standing one, so it is a new generation
+        // like any other replacement. Both call sites today pass authorSettings_
+        // itself and never reach this, but the guard exists for the other case,
+        // and a replacement that left the generation alone is exactly how a
+        // panel comes to report one sound's answer under another's card.
+        ++authorSettingsGeneration_;
+    }
 
     auto* arr = settings.getArray();
-    if (arr == nullptr) return applied;
-
-    for (const auto& e : *arr)
-    {
-        // The backend already checked this against the shelf it was handed and
-        // says so. Checked AGAIN here, against the shelf itself, because the
-        // reply crosses a process boundary: a REJECTED line still travels (it
-        // carries the reason, for showing), and "the parameter exists" is not
-        // the same question as "it was on the shelf" — amp_target exists.
-        if (! static_cast<bool>(e.getProperty("ok", juce::var(false)))) continue;
-        const auto id = e.getProperty("id", juce::var()).toString();
-        if (! onAuthorParamShelf(id)) continue;
-        auto* prm = parameters.getParameter(id);
-        if (prm == nullptr || ! e.hasProperty("value")) continue;
-
-        const auto raw = e.getProperty("value", juce::var());
+    if (arr != nullptr)
+      for (const auto& e : *arr)
+      {
+        juce::RangedAudioParameter* prm = nullptr;
         float target = 0.0f;
-        if (dynamic_cast<juce::AudioParameterBool*>(prm) != nullptr)
-        {
-            const auto w = raw.toString().trim().toLowerCase();
-            if (w != "on" && w != "off") continue;
-            target = (w == "on") ? 1.0f : 0.0f;
-        }
-        else if (auto* ch = dynamic_cast<juce::AudioParameterChoice*>(prm))
-        {
-            const int idx = ch->choices.indexOf(raw.toString(), /*ignoreCase=*/true);
-            if (idx < 0) continue;      // a label this parameter does not have
-            target = static_cast<float>(idx);
-        }
-        else
-        {
-            // A number, and only a number: a juce::var holding a STRING converts
-            // to a float silently, which is how a value the backend refused
-            // ("0.5-0.7") would land as 0.5 anyway.
-            if (! (raw.isDouble() || raw.isInt() || raw.isInt64())) continue;
-            const auto& r = prm->getNormalisableRange();
-            target = juce::jlimit(r.start, r.end, static_cast<float>(raw));
-        }
+        if (! resolveAuthorSetting(e, prm, target)) continue;
+        const auto id = e.getProperty("id", juce::var()).toString();
 
         AuthorSetParam rec;
         rec.id     = id;
@@ -7130,12 +7230,18 @@ juce::StringArray T5ynthProcessor::applyAuthorSettings(const juce::var& settings
         authorSetParams_.push_back(rec);
 
         // What the panel reports, taken from AFTER the write rather than from
-        // the reply that asked for it. Every `continue` above is a line the
-        // backend passed and this side still refused, and each of them would
-        // otherwise be shown as landed.
+        // the reply that asked for it. Every line the resolver refuses is one
+        // the backend passed and this side still would not write, and each of
+        // them would otherwise be shown as landed.
         applied.add(authorShelfName(id.toRawUTF8(), *prm)
                     + "  " + prm->getCurrentValueAsText());
-    }
+      }
+
+    // The station's live half, and the one signal that says it changed. Set on
+    // every path, including the empty one: an authoring that asked for nothing
+    // has to erase the previous sound's lines rather than leave them standing.
+    authorAppliedLines_ = applied;
+    ++authorSettingsRevision_;
     return applied;
 }
 
@@ -7757,8 +7863,7 @@ bool T5ynthProcessor::importJsonPreset(const juce::String& json)
         // The record is DROPPED rather than released: the file's own values are
         // about to be written over every one of these knobs anyway, and putting
         // the previous patch's values back first would only be a detour.
-        authorSetParams_.clear();
-        authorSettings_ = juce::var();
+        dropAuthorSettings();
         setParam(parameters, PID::engineMode,
                  static_cast<float>(choiceFromKey(engine->getProperty("mode").toString(), EngineMode::kEntries)));
         // Old .t5p files predate voiceCount / tuning being saved; guard

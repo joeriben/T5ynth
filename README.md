@@ -1,31 +1,31 @@
 # akróasys
 
-**Resonance with meaning.**
+**ἀ·κρό·α·σις** [aˈkro.a.sis]: *listening, paying attention, hearing*
 
-akróasys opens hidden spaces of possible sound. Two short impulses mark the poles
-of a space of meaning you define. The synth lets you explore what can become
-audible between them. Set those poles as
-textures, transients, patterns, sonic and musical fragments, field recordings,
-everyday noises, orchestral gestures, alien voices, human emotional
-expressions, or impossible hybrids.
+akróasys uses generative AI very differently: as the **oscillator** of a playable
+instrument, not as a generator that returns finished audio. The model sits where
+a sine or a saw would sit in the signal path, and what it resonates with is what
+you say: **resonance with meaning**.
 
-The fields labeled **Impulse A** and **Impulse B** are not two samples, two song
-requests, or two oscillators. They are two markers for the space you want to
-explore. You can pull between the markers, push the space harder or softer,
-disturb it, bend it along sound qualities, open individual dimensions, change
-where one idea enters the other, and let the space drift over time while it
-remains open as a space of possibilities.
+There are two such oscillators. The **T5 Oscillator** reaches into a diffusion
+model's space of possible sound *before* that space has become audio: two short
+impulses mark it out, and you move through what can become audible between them
+— textures, transients, patterns, sonic and musical fragments, field recordings,
+everyday noises, orchestral gestures, alien voices, human emotional expressions,
+or impossible hybrids. The **Language-Resonant Oscillator** has no such space to
+reach into: you describe an instrument, and a language model running on your
+machine writes the Csound orchestra for it, so your words become the oscillator
+itself.
 
-Most AI audio tools hide that space and only return an audio result. akróasys
-turns this space of possible sound into the instrument. Generation is not a
-separate AI step after the synth; the synth reaches into the generation process itself.
-The rendered fragment is one stage in a signal path that continues through
-sampler or wavetable playback, filters, envelopes, LFOs, sequencing, delay,
-reverb, and limiting.
+Most AI audio tools keep the model behind a render button and hand back finished
+audio. In akróasys, generation is not a separate AI step after the synth: the
+synth reaches into the model itself, and what comes out is one stage in a signal
+path that continues through sampler or wavetable playback, filters, envelopes,
+LFOs, sequencing, delay, reverb, and limiting.
 
 Links:
 
-- User guide: bundled and rendered inside the app; source HTML lives at [`resources/T5ynth_Guide.html`](resources/T5ynth_Guide.html)
+- User guide: bundled and rendered inside the app; source HTML lives at [`resources/akroasys_Guide.html`](resources/akroasys_Guide.html)
 - Preset collection: [`joeriben/T5ynth-Presets`](https://github.com/joeriben/T5ynth-Presets)
 - Latest release: [`v2.5.3-beta.1`](https://github.com/joeriben/akroasys/releases/tag/v2.5.3-beta.1) — still published as **T5ynth**. `v3.0.0` will be the first release under the new name.
 
@@ -110,6 +110,12 @@ running on your machine writes a Csound orchestra for exactly that description.
 The code is compiled and run live, and it is what every voice sounds. Nothing is
 sampled and nothing is baked: the source code is the sound.
 
+And it is real, portable Csound — the same language any Csound system compiles,
+not an internal format of this app. The orchestra is stored with the preset, and
+the panel shows it. Every authoring is a fresh piece of writing, so the
+oscillator you keep can be one of a kind: a real digital instrument that exists
+nowhere else.
+
 The panel shows the whole path rather than a progress bar. What the model was
 given, which entries it asked to have opened from the code library, its
 reasoning as it streams, the orchestra it wrote, a repair round if the first
@@ -123,17 +129,20 @@ the authoring model (Gemma 4 12B QAT, about 7 GB, ungated, Apache-2.0), which
 installs from the Settings page. Install neither and the rest of the instrument
 is unaffected.
 
-About the name: **akróasys** comes from the Greek *akróasis* (ἀκρόασις) —
-listening, the act of hearing something out. The ending is spelled `-sys` so
-that the synth is in the word.
+About the name: **akróasys** is the Greek *akróasis* above, its ending spelled
+`-sys` so that the synth is in the word.
+
+The word names the act, not the actor. Greek has an agent noun as well —
+ἀκροατής, the listener — and it is deliberately not the name here: ἀκροάομαι is
+a middle verb with no ordinary active form, so hearing is not something a
+subject performs on an object. It happens in the between, and whoever hears is
+part of it. *akróasis* is the noun of that act.
 
 It replaces **T5ynth**. That name pointed at T5, the text encoder the Stable
 Audio engines use to turn a phrase into control data for the audio model, and
 it was accurate while there was one engine. It is not any more: Stable Audio 3
-carries its own encoder, and the Language-Resonant Oscillator has none at all —
-there a language model writes a Csound instrument, and your words become the
-oscillator itself rather than a marker inside a diffusion model. What every
-path still has in common is the thing T5 was only ever a means to: you say
+carries its own encoder, and the Language-Resonant Oscillator has none at all.
+What every path still has in common is the thing T5 was only ever a means to: you say
 something, and then you listen to what the machine makes of it. Releases up to
 **T5ynth 2.5.3** keep the old name and do not have the new oscillator; the
 first release called akróasys is **3.0.0**.

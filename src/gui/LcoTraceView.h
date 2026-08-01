@@ -69,14 +69,15 @@ public:
         int libraryEntryCount = 0;
         // The synth's own controls. `knobsKnown` says an authoring was RECORDED
         // for this trace at all, exactly as consultationKnown does above — a
-        // recalled preset carries no answer and gets no station. `knobsOffered`
-        // is whether the shelf actually went out with the request, which is a
-        // different question from whether the author used it: the switch is read
-        // when GENERATE is pressed, so an authoring can run with the switch on
-        // screen and still have been sent without it. Silence here was the whole
-        // reason the feature looked broken for a day.
-        bool knobsKnown = false, knobsOffered = false;
-        juce::StringArray knobsSet;      // "Filter Cutoff  400" — what landed
+        // recalled preset carries no answer and gets no station. `knobsPending`
+        // is empty while `knobsSet` is what STANDS on the patch, and otherwise
+        // says in one line why it does not stand yet: the author writes its
+        // settings whatever the KNOBS switch says, and the switch decides only
+        // when they land. Silence here was the whole reason the feature looked
+        // broken for a day.
+        bool knobsKnown = false;
+        juce::String knobsPending;       // "" = live; else why these are waiting
+        juce::StringArray knobsSet;      // "Filter Cutoff  400" — landed, or waiting
         juce::StringArray knobsRefused;  // "master_vol - no such control" — and why
         juce::StringArray repairs;      // compiler errors repaired past, first-seen order
         int attempts = 0;               // 1 = compiled on the first pass
@@ -150,17 +151,20 @@ public:
      *  setTrace because the answer is not known when the trace is: the trace is
      *  shown as soon as the reply lands, and whether the knobs actually moved is
      *  decided a few lines later by the apply — which refuses lines the backend
-     *  passed, and does not run at all if the switch went off meanwhile.
+     *  passed. Called again whenever the KNOBS switch moves, because the same
+     *  settings are on the patch or waiting depending on where it stands.
      *
-     *  @param offered  the shelf really went out with the request. Captured when
-     *                  GENERATE was pressed, NOT re-read here: the switch decides
-     *                  at the trigger and an authoring runs for minutes.
-     *  @param set      one line per control that actually moved, read back off it.
-     *  @param refused  everything that did not, each with its reason. */
-    void setKnobs(bool offered, juce::StringArray set, juce::StringArray refused)
+     *  @param set      one line per control, read back off it while they are on
+     *                  the patch and taken from the request while they wait.
+     *  @param refused  everything that will never land, each with its reason.
+     *  @param pending  empty while `set` is live; otherwise the one line that
+     *                  says why it is not — the switch is off, or this is not
+     *                  the sounding oscillator. */
+    void setKnobs(juce::StringArray set, juce::StringArray refused,
+                  juce::String pending = {})
     {
         trace_.knobsKnown   = true;
-        trace_.knobsOffered = offered;
+        trace_.knobsPending = std::move(pending);
         trace_.knobsSet     = std::move(set);
         trace_.knobsRefused = std::move(refused);
         relayout();
@@ -554,13 +558,12 @@ private:
             if (! trace_.knobsSet.isEmpty())
                 rubric << "  " << trace_.knobsSet.size();
             juce::StringArray lines;
-            if (! trace_.knobsOffered)
-                lines.add("the switch was off when this was asked for - the author "
-                          "was not shown the synth's controls");
-            else if (trace_.knobsSet.isEmpty())
-                lines.add("offered, and the author took nothing");
-            else
+            if (trace_.knobsPending.isNotEmpty())
+                lines.add(trace_.knobsPending);
+            if (! trace_.knobsSet.isEmpty())
                 lines.addArray(trace_.knobsSet);
+            else if (trace_.knobsPending.isEmpty())
+                lines.add("offered, and the author took nothing");
             lines.addArray(trace_.knobsRefused);
             out.add(rubric + "\n" + lines.joinIntoString("\n"));
         }
@@ -1031,36 +1034,40 @@ private:
         });
 
         // ── KNOBS ────────────────────────────────────────────────────────────
-        // What the author did with the synth's own controls, and — the case this
-        // exists for — whether it was ever offered them. All three outcomes are
-        // drawn, because the two silent ones are the ones that look identical
-        // from outside: an authoring that ran with the switch off, and one that
-        // was offered the shelf and took nothing, both leave the patch untouched.
-        // Left out only for a trace that has no answer (a recalled preset).
+        // What the author asked of the synth's own controls, and whether it is
+        // on the patch. All three outcomes are drawn, because two of them are
+        // silent from outside and look identical: an authoring that took nothing
+        // and one whose settings are waiting for the switch both leave the patch
+        // untouched. Left out only for a trace that has no answer (a recalled
+        // preset).
         if (trace_.knobsKnown)
         {
             const bool took = ! trace_.knobsSet.isEmpty();
+            const bool live = took && trace_.knobsPending.isEmpty();
             juce::String rubric("KNOBS");
             if (took) rubric << "  " << trace_.knobsSet.size();
             // hasNext is TRUE unconditionally: RUNNING always follows, and this
             // argument draws the rail hairline down to it, not the station's own
             // emphasis. (It was `took`, which broke the rail for exactly the two
             // silent outcomes this station exists to show.)
-            station(took ? kImpulseB : kTextDisabled, rubric, kTextDisabled, true, [&](float ww)
+            station(live ? kImpulseB : kTextDisabled, rubric, kTextDisabled, true, [&](float ww)
             {
                 const float y0 = y;
                 float yy = y;
-                if (! trace_.knobsOffered)
-                    yy += paragraph(g, "the switch was off when this was asked for - "
-                                       "the author was not shown the synth's controls",
-                                    fHint, kDim, static_cast<float>(textX()), yy, ww);
-                else if (! took)
+                // The reason first, whenever there is one — a caller that hands
+                // one in gets it drawn, with or without lines under it. Waiting
+                // lines are dim: they are real settings this instrument asks
+                // for, and the only thing missing is the player's permission.
+                if (trace_.knobsPending.isNotEmpty())
+                    yy += paragraph(g, trace_.knobsPending, fHint, kDim,
+                                    static_cast<float>(textX()), yy, ww) + 2.0f;
+                if (took)
+                    for (const auto& s : trace_.knobsSet)
+                        yy += paragraph(g, s, fHint, live ? kImpulseB : kDim,
+                                        static_cast<float>(textX()), yy, ww) + 2.0f;
+                else if (trace_.knobsPending.isEmpty())
                     yy += paragraph(g, "offered, and the author took nothing",
                                     fHint, kDim, static_cast<float>(textX()), yy, ww);
-                else
-                    for (const auto& s : trace_.knobsSet)
-                        yy += paragraph(g, s, fHint, kImpulseB,
-                                        static_cast<float>(textX()), yy, ww) + 2.0f;
                 // A refused line is the author asking for something the synth
                 // does not have, or a value it could not read. Shown in the
                 // warning ink next to what did land, so a half-applied authoring

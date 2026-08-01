@@ -203,67 +203,75 @@
 
 <h1>akróasys</h1>
 <p class="subtitle">
-  Resonance with meaning.
+  <span style="color:var(--accent3); font-size:1.15rem; letter-spacing:0.5px;">&#7936;&middot;&kappa;&rho;&#8057;&middot;&alpha;&middot;&sigma;&iota;&sigmaf;</span>
+  <span>[a&#712;kro.a.sis]:</span>
+  <em>listening, paying attention, hearing</em>
 </p>
 
 <!-- ═══════════════════════════════════════════ PREAMBLE -->
 <div style="background:var(--bg2); border:1px solid var(--border); border-radius:8px; padding:1.2rem 1.5rem; margin-bottom:2rem;">
 <p>
-akróasys opens hidden spaces of possible sound. Two short impulses mark the poles
-of a space of meaning you define. The synth lets you explore what can become
-audible between them. Set those poles as
-textures, transients, patterns, sonic and musical fragments, field recordings,
-everyday noises, orchestral gestures, alien voices, human emotional
-expressions, or impossible hybrids.
+akróasys uses generative AI very differently: as the <strong>oscillator</strong> of a
+playable instrument, not as a generator that returns finished audio. The model sits
+where a sine or a saw would sit in the signal path, and what it resonates with is
+what you say: <strong>resonance with meaning</strong>.
 </p>
 <p style="margin-top:0.6rem;">
-Impulse A and Impulse B are not two samples, two song requests, or two
-oscillators. They are two markers for the space you want to explore. You can
-pull between the markers, push the space harder or softer, disturb it, bend it
-along sound qualities, open individual dimensions, change where one idea enters
-the other, and let the space drift over time while it remains open as a space
-of possibilities.
+There are two such oscillators. The <strong>T5 Oscillator</strong> reaches into a
+diffusion model's space of possible sound <em>before</em> that space has become audio:
+two short impulses mark it out, and you move through what can become audible between
+them &mdash; textures, transients, patterns, sonic and musical fragments, field
+recordings, everyday noises, orchestral gestures, alien voices, human emotional
+expressions, or impossible hybrids. The <strong>Language-Resonant Oscillator</strong>
+has no such space to reach into: you describe an instrument, and a language model
+running on your machine writes the Csound orchestra for it, so your words become the
+oscillator itself.
 </p>
 <p style="margin-top:0.6rem;">
-Most AI audio tools hide that space and only return an audio result. akróasys
-turns this space of possible sound into the instrument. Generation is not a
-separate AI step after the synth; the synth reaches into the generation process
-itself. The rendered fragment is one stage in a signal path that continues through
-sampler, wavetable, or granular playback, filters, envelopes, LFOs, sequencing, delay,
-and reverb.
+Most AI audio tools keep the model behind a render button and hand back finished
+audio. In akróasys, generation is not a separate AI step after the synth: the synth
+reaches into the model itself, and what comes out is one stage in a signal path
+that continues through sampler, wavetable, or granular playback, filters, envelopes,
+LFOs, sequencing, delay, and reverb.
 </p>
 <p style="margin-top:0.6rem;">
-That space is not abstract: it was produced by a specific training corpus — recordings,
-archive material, sound libraries — and encodes the model's learned map of which sounds
-are similar, what counts as "music" or "noise", which combinations it renders fluently
-and which are absent. akróasys deconstructs that map directly: operating on the embedding rather
-than on words reaches sound regions that prompting alone cannot access. The instrument
-dynamizes this access through embedding manipulation modes, Sound-Character Axes, and
-Drift — and closes it back on itself through Re-Prompt (language &rarr; next inference)
-and Resynth (audio &rarr; next inference), while the Generative Sequencer provides an
-independently self-evolving melodic layer that drives the voice engine. What emerges is
-a self-recursive,
-musically playable instrument built around the model's learned representation of sound,
-rather than a tool that returns audio results.
+Neither oscillator's model is neutral. The diffusion model's space of possible sound
+was produced by a specific training corpus — recordings, archive material, sound
+libraries — and encodes a learned map of which sounds are similar, what counts as
+"music" or "noise", which combinations render fluently and which are absent. The
+T5 Oscillator deconstructs that map directly: operating on the embedding rather than
+on words reaches sound regions that prompting alone cannot access, dynamized through
+embedding manipulation modes, Sound-Character Axes, and Drift, and closed back on
+itself through Re-Prompt (language &rarr; next inference) and Resynth (audio &rarr;
+next inference). The language model behind the LRO carries a map of the same kind —
+what it takes "a bowed cello" or "a hollow wooden pulse" to be is learned culture —
+and there the map becomes legible: the oscillator arrives as real, portable
+Csound code you can read and keep. The Generative Sequencer adds an independently self-evolving melodic layer
+that drives the voice engine. What emerges is a self-recursive, musically playable
+instrument built around the models' learned representations of sound, rather than a
+tool that returns audio results.
 </p>
 <p style="margin-top:0.6rem;">
-That the embedding is a trained cultural map — encoding assumptions about what "music" or
-"noise" means, which sonic combinations feel "distant" or "familiar" — is not incidental.
-akróasys is designed as a critical-aesthetic and pedagogical instrument: not oriented toward
-"more" or "better" material, but toward a different relationship to the machine's own
-listening.
+That both models are trained cultural maps — encoding assumptions about what "music"
+or "noise" means, what an instrument is, which sonic combinations feel "distant" or
+"familiar" — is not incidental. akróasys is designed as a critical-aesthetic and
+pedagogical instrument: not oriented toward "more" or "better" material, but toward
+a different relationship to the machine's own listening.
 </p>
 <p style="margin-top:0.6rem;">
-<strong>About the name.</strong> <em>akróasys</em> comes from the Greek
-<em>akróasis</em> (&#7936;&kappa;&rho;&#8057;&alpha;&sigma;&iota;&sigmaf;) &mdash;
-listening, the act of hearing something out. The ending is spelled
-<code>-sys</code> so that the synth is in the word. It replaces the earlier
-name <strong>T5ynth</strong>, which pointed at T5, the text encoder the Stable
+<strong>About the name.</strong> <em>akróasys</em> is the Greek
+<em>akróasis</em> above, its ending spelled <code>-sys</code> so that the synth
+is in the word. The word names the act, not the actor: Greek has an agent noun
+as well &mdash; &#7936;&kappa;&rho;&omicron;&alpha;&tau;&#942;&sigmaf;, the
+listener &mdash; and it is deliberately not the name here.
+&#7936;&kappa;&rho;&omicron;&#940;&omicron;&mu;&alpha;&iota; is a middle verb
+with no ordinary active form, so hearing is not something a subject performs on
+an object. It happens in the between, and whoever hears is part of it.
+<em>akróasis</em> is the noun of that act. The name
+replaces the earlier <strong>T5ynth</strong>, which pointed at T5, the text encoder the Stable
 Audio engines use to turn a phrase into control data for the audio model. That
 was accurate while there was one engine. It is not any more: Stable Audio 3
-carries its own encoder, and the Language-Resonant Oscillator has none at all
-&mdash; there a language model writes a Csound instrument, and your words
-become the oscillator itself rather than a marker inside a diffusion model.
+carries its own encoder, and the Language-Resonant Oscillator has none at all.
 What every path still has in common is the thing T5 was only ever a means to:
 you say something, and then you listen to what the machine makes of it.
 Releases up to <strong>T5ynth&nbsp;2.5.3</strong> keep the old name and do not
@@ -332,20 +340,26 @@ without whom AI4ArtsEd would not have come into being.
 
 <p>
 If you come from synthesizers, the clearest mental model is simple:
-<strong>akróasys begins before the oscillator has become audio.</strong> On
-another synth you might select "saw", load a sample, or scan a wavetable. In
-akróasys you enter short impulses such as <em>"steady clean saw wave, C3"</em>
-and <em>"120 bpm syncopated transient pattern"</em>. Those impulses mark a
-hidden sound space inside the selected audio model.
+<strong>in akróasys, language takes the place of the oscillator section.</strong>
+On another synth you might select "saw", load a sample, or scan a wavetable. In
+akróasys you say what should sound, and one of two oscillators answers, each in
+its own medium. The <strong>T5 Oscillator</strong> begins before the sound has
+become audio: short impulses such as <em>"steady clean saw wave, C3"</em> and
+<em>"120 bpm syncopated transient pattern"</em> mark a hidden sound space inside
+the selected audio model, and playing means moving through that space. The
+<strong>Language-Resonant Oscillator</strong> begins before the <em>instrument</em>
+exists: you describe one, and a language model writes the Csound orchestra that
+becomes your voice source — it has <a href="#lro">its own chapter</a>. The rest
+of this section is about the T5 Oscillator.
 </p>
 
 <p>
-You do not need to know what "T5" is to use the instrument. In practice, T5 is
-the text-reading part inside the model: it turns words into numbers the audio
-model can respond to. akróasys opens up musical control over the hidden space
-where the model decides what sound can become. You are not operating a black
-box and waiting for a result; you are exploring the model's space of
-possibilities.
+You do not need to know what "T5" is to use the instrument. The name survives
+from the text encoder that reads the impulses: the part inside the model that
+turns words into numbers the audio model can respond to. What matters is what
+that opens up: musical control over the hidden space where the model decides
+what sound can become. You are not operating a black box and waiting for a
+result; you are exploring the model's space of possibilities.
 </p>
 
 <p>
@@ -513,6 +527,15 @@ oscillator's voice for every note you play. It is not a preset and not a
 rendered sample: it is source code, written for this one prompt.
 </p>
 
+<div class="tip">
+  <strong>The code is real.</strong> What the LRO writes is genuine, portable
+  Csound — the same language any Csound system compiles, not an internal
+  format of this app. The orchestra is stored with your preset, and the panel
+  shows it (hold the panel to read the code). And because every authoring is a
+  fresh piece of writing, the oscillator you keep can be one of a kind: a real
+  digital instrument that exists nowhere else.
+</div>
+
 <h3>Switching to the LRO</h3>
 <p>
 The toggle at the top right of the Generation column's header switches
@@ -532,7 +555,7 @@ dimmed rather than removed.
 </p>
 <p>
 Type a description into the prompt field at the top of the panel — its
-placeholder reads <strong>"Describe the oscillator to bake"</strong> — and
+placeholder reads <strong>"Describe the oscillator to craft"</strong> — and
 press <strong>Generate</strong>. A single tab above the prompt field names
 the language model that will do the writing; see Requirements, below.
 </p>
@@ -2428,7 +2451,7 @@ AudioLDM2 is licensed for <strong>non-commercial use only</strong>. There is no 
 <strong>URL:</strong> <a href="https://juce.com">juce.com</a>.
 </p>
 <p>
-akróasys uses JUCE under the AGPLv3. The JUCE source is vendored in the <code>JUCE/</code> directory of the T5ynth repository. JUCE itself includes additional third-party components documented in <code>JUCE/LICENSE.md</code> (AudioUnitSDK, Oboe, FLAC, Ogg Vorbis, VST3 SDK, LV2, and others).
+akróasys uses JUCE under the AGPLv3. The JUCE source is vendored in the <code>JUCE/</code> directory of the akróasys repository. JUCE itself includes additional third-party components documented in <code>JUCE/LICENSE.md</code> (AudioUnitSDK, Oboe, FLAC, Ogg Vorbis, VST3 SDK, LV2, and others).
 </p>
 
 <h3>EMT 140 Plate Reverb Impulse Responses</h3>

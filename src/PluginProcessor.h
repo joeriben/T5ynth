@@ -332,6 +332,46 @@ public:
      *  landed and anything reporting to the player has to use this instead. */
     juce::StringArray applyAuthorSettings (const juce::var& settings);
 
+    /** Take on what an authoring asked the synth to set. The request is KEPT
+     *  whichever way the KNOBS switch stands, and only the TAKING is gated: it
+     *  goes on the patch while the player allows it and this instrument is the
+     *  sounding oscillator, and otherwise waits for reconcileAuthorSettings to
+     *  take it when the switch arrives (BJ, 2026-08-01: with the switch off the
+     *  setting is still made, it only becomes active when the player turns KNOBS
+     *  on). What this replaces: the shelf was withheld from the author whenever
+     *  the switch was off, so the sound was written without its filter and its
+     *  envelopes at all and turning the switch on afterwards had nothing to take
+     *  — and the previous sound's request stayed standing in its place.
+     *  Message thread. */
+    void setAuthorSettings (const juce::var& settings);
+
+    /** Where the last authoring's settings stand. Not a bool, because the two
+     *  ways of NOT standing want different sentences: the switch is one word
+     *  from putting them on the patch, the oscillator is not. Sounding is asked
+     *  FIRST — while another oscillator plays, "turn KNOBS on" would be a false
+     *  promise whichever way the switch happens to sit. */
+    enum class AuthorKnobStand { onThePatch, notSounding, switchOff };
+    AuthorKnobStand authorKnobStand() const;
+
+    /** The last authoring's settings, as the KNOBS station shows them: one
+     *  "Name  value" line each. `stand` says which list this is — on the patch,
+     *  what the apply read back off the parameters; otherwise the request, i.e.
+     *  what will be put there once it may be. Message thread. */
+    juce::StringArray describeAuthorSettings (AuthorKnobStand& stand) const;
+
+    /** Bumped whenever the author's settings are taken, given back or replaced.
+     *  A panel re-reads the station on a change of this rather than polling the
+     *  switch itself: the switch moves on any thread and is acted on one async
+     *  hop later, so its value is true before the knobs are actually taken. */
+    int getAuthorSettingsRevision() const { return authorSettingsRevision_; }
+
+    /** Bumped only when the REQUEST itself is replaced or dropped — a new
+     *  authoring, a preset, a restored session. A take and a give-back leave it
+     *  alone. It is what lets a panel tell "my sound's settings, wherever they
+     *  currently stand" from "a different patch's", which the revision above
+     *  cannot: both look like a change there. */
+    int getAuthorSettingsGeneration() const { return authorSettingsGeneration_; }
+
     /** Give back every knob the last authoring borrowed and still holds — what
      *  pressing the switch OFF means, and what an authoring the player no longer
      *  allows leaves behind otherwise. Message thread. */
@@ -643,6 +683,25 @@ private:
     // what is currently borrowed and is emptied by the give-back, which is
     // precisely the moment this has to survive. Message thread only.
     juce::var authorSettings_;
+    // What that request actually put on the patch, read back off the parameters
+    // — the KNOBS station's live half. Kept here rather than handed to the panel
+    // once, because the switch can take and give back long after the authoring
+    // and the station has to be able to ask again. Message thread only.
+    juce::StringArray authorAppliedLines_;
+    int authorSettingsRevision_ = 0;
+    int authorSettingsGeneration_ = 0;
+    // May the author's settings stand on the patch right now: the player allows
+    // it AND the authored orchestra is the sounding oscillator. Both read live,
+    // in ONE place (authorKnobStand), so the take and the report cannot disagree
+    // about it.
+    bool authorMayHoldSettings() const;
+    // Drop the request outright, without giving anything back: for a patch
+    // replacement, whose own values are about to be written over these knobs.
+    void dropAuthorSettings();
+    // One entry of a SET list resolved against the shelf: the parameter it names
+    // and the value it asks for, or false where THIS side refuses the line.
+    bool resolveAuthorSetting (const juce::var& entry,
+                               juce::RangedAudioParameter*& prm, float& target) const;
 
     // Csound-authored parametrisation text cached for preset save (see setCsoundParamsText).
     juce::String csoundParamsText_;

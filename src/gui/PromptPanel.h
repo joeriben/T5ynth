@@ -555,6 +555,23 @@ private:
     // declared after the button (reverse destruction order).
     juce::TextButton dcoSetsParamsBtn { "KNOBS" };
     std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> dcoSetsParamsBtnA;
+    // The card's KNOBS station, re-read whenever the borrow changes.
+    //   known    the trace on screen has an answer at all (a recalled preset has
+    //            none, and it also goes false once the record is final)
+    //   rev      the processor revision the station was last drawn from
+    //   gen      the processor GENERATION it belongs to: once a preset or a
+    //            restored session replaces the request, this no longer matches
+    //            and the live half of the station stops being about this sound
+    //   asked    the lines as last drawn — the record, shown after that point
+    //   refused  the part of the station that belongs to the authoring rather
+    //            than to the live patch, so it is kept here
+    // Message thread only.
+    void refreshLcoKnobStation();
+    bool dcoKnobsKnown_ = false;
+    int  dcoKnobsRev_ = -1;
+    int  dcoKnobsGen_ = -1;
+    juce::StringArray dcoKnobsAsked_;
+    juce::StringArray dcoKnobsRefused_;
     juce::String dcoLastMachineReading_, dcoLastFlagsLine_, dcoLoopLast_;
     // DEPRECATED (self-check deactivated 2026-07-21): the disabled
     // T5YNTH_LCO_SELFCHECK loop was its only writer, so it now stays empty and no
