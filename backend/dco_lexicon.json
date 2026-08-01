@@ -1,5 +1,5 @@
 {
- "lexicon_version": 30,
+ "lexicon_version": 31,
  "techniques": [
   {
    "key": "sine",
@@ -2059,7 +2059,7 @@
      "pick": "kein Unterschied -- gemessen: beim ausgelieferten 0.185 liegt die Kerbe ZWISCHEN dem 5. und 6. Teilton, also wird gar kein Teilton ausgelöscht (1,8 bis 10,0 dB je nach Lage, geschlossene Form 6,6 dB -- gegenüber 34 bis 46 dB dort, wo die Kerbe auf einem Teilton sitzt). Die Achse steht jetzt als Code im Körper, Bereich 0.10..0.50",
      "damp": "zweimal falsch verdrahtet gewesen. Erst gar kein Code (der Autor erfand die Zeile), dann `streson`s Rückkopplung -- die ist flach über alle Teiltöne, senkt man sie, verschwindet die Resonanz und `balance` hebt den rohen Breitband-Antrieb an: Centroid 3099 -> 4924 Hz statt herunter. Genau BJs Höreindruck. Jetzt die Grenzfrequenz des Filters VOR dem Resonator -- ausdrücklich NICHT in der Schleife, die gibt `streson` nicht her, und deshalb sättigt die Achse: 1,58 Oktaven Reiseweg bei 110 Hz, aber nur 0,48 bei 880 und 0,26 bei 1760. Unterhalb C5 brauchbar, darüber weniger als `bow`, das BJ schon kaum gehört hat. NOCH NICHT GEHÖRT."
     },
-    "offen": "BJ 2026-08-02: \"immer noch deutlich hörbares geklingel in einer ca. 1,5-sekündigen leicht unregelmäßigen Periode\". Gemessen: die Helligkeitsmodulation lag bei 0,51 Hz = 2,0 s, das ist `kbrth poscil 0.353, 0.447` -- ±35 % auf die Filtergrenzfrequenz, langsam genug, dass die oberen Teiltöne periodisch durchkommen und wieder verschwinden. Jetzt 0.120 bei 1.900 Hz in allen Körpern: gleiche Unruhe, keine hörbare Periode mehr. NOCH NICHT GEHÖRT. Das Rumpeln unter dem Grundton (Breitbandantrieb, 38,4 dB bei A2 bis 27,8 dB bei C6) ist davon unberührt und weiter offen."
+    "offen": "BJ 2026-08-02: \"immer noch deutlich hörbares geklingel in einer ca. 1,5-sekündigen leicht unregelmäßigen Periode\". Gemessen: die Helligkeitsmodulation lag bei 0,51 Hz = 2,0 s, das ist `kbrth poscil 0.353, 0.447` -- ±35 % auf die Filtergrenzfrequenz, langsam genug, dass die oberen Teiltöne periodisch durchkommen und wieder verschwinden. Jetzt 0.120 bei 1.900 Hz in allen Körpern: gleiche Unruhe, keine hörbare Periode mehr. NOCH NICHT GEHÖRT. Das Rumpeln unter dem Grundton (Breitbandantrieb, 38,4 dB bei A2 bis 27,8 dB bei C6) ist davon unberührt und weiter offen. -- Zweitens, latent und nur zufällig entschärft: solange die drei `bow=*`-Anker ihre eigenen, tiefen `kbrth`-Amplituden trugen (bis 0.600), lief `bow=1.0` bei Damp ab 0.95 in den 60-Hz-Boden des `limit` -- 17 % der Note bei Damp 1.0. Weggefallen, weil alle Körper jetzt auf `poscil 0.120, 1.900` stehen, NICHT weil es geprüft wurde. Wer `kbrth` wieder tiefer stellt, holt es zurück: 441 * 0.15 liegt bei 66 Hz, und der Rest der Formel schwankt darunter."
    }
   },
   {
