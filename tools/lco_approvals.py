@@ -19,6 +19,15 @@ SOUND — `code`, `params`, `anchor_code`. Change one and the recorded version
 stops matching; the build tool then withholds the entry and it leaves the panel
 by itself, until BJ has heard the new version and it is restamped.
 
+AND A NUMBER HE CAN SAY OUT LOUD.  BJ, 2026-08-02, approving `string`: „ich
+hatte angeordnet eine versionsnummer zu vergeben, das wäre dann 0.8 oder so."
+The hash answers "is this still the sound he heard"; it cannot answer "how far
+along is this instrument", and that was half of what „inkl. versionsverwaltung"
+asked for. `heard.versionsnummer` is that half: a number BJ names when he
+approves, so an entry can be approved AND openly unfinished — `string` is
+approved at 0.8 with its damp axis known to saturate above C5. It is his to
+give, never derived, so `--restamp` requires it in the same breath as his words.
+
 Prose does NOT invalidate an approval: rewriting `why`, adding a surface form
 or correcting a listening note changes nothing about what he heard.
 
@@ -79,7 +88,14 @@ def state_of(entry):
     if recorded != current:
         return "STALE", (f"approved on {recorded}, current sound is {current} — the "
                          f"body changed after he heard it")
-    return "OK", f"{h.get('datum', '?')}  {current}"
+    number = h.get("versionsnummer")
+    if not number:
+        # Reported, not failed. The four approvals that predate BJ's order carry no
+        # number and inventing one for them would be exactly the thing this file
+        # exists to stop: a version nobody said out loud.
+        return "OK (no number)", (f"{h.get('datum', '?')}  {current}  — approved before "
+                                  f"the version number existed; BJ has not named one")
+    return "OK", f"v{number}  {h.get('datum', '?')}  {current}"
 
 
 def main():
@@ -90,6 +106,9 @@ def main():
     ap.add_argument("--restamp", metavar="KEY",
                     help="bind KEY's approval to its CURRENT sound (only after BJ heard it)")
     ap.add_argument("--by", help="BJ's own words approving this version — required with --restamp")
+    ap.add_argument("--version-number", metavar="N",
+                    help="the version number BJ named for this sound, e.g. 0.8 — "
+                         "required with --restamp; never derived, only quoted")
     args = ap.parse_args()
 
     lex = load()
@@ -106,21 +125,28 @@ def main():
                      f"A tool does not approve an instrument; only BJ does.")
         if not args.by:
             sys.exit("--restamp needs --by with BJ's own words about THIS version.")
+        if not args.version_number:
+            sys.exit("--restamp needs --version-number with the number BJ named. It is "
+                     "his to give and this tool does not derive one.")
         h["version"] = version_of(entry)
         h["version_bj"] = args.by
+        h["versionsnummer"] = args.version_number
         entry["heard"] = h
         save(lex)
-        print(f"{key}: bound to {h['version']}")
+        print(f"{key}: v{h['versionsnummer']}, bound to {h['version']}")
         return 0
 
     rows = [(k, *state_of(e)) for k, e in entries.items()]
     rows = [r for r in rows if r[1] is not None]
-    bad = 0
+    # A missing version number is a gap in the RECORD, not in the sound: those three
+    # were approved before BJ ordered a number and only he can name one. It prints and
+    # does not fail, or every CI run would go red on something no tool may repair.
+    bad = [r for r in rows if r[1] not in ("OK", "OK (no number)")]
+    unnumbered = [r for r in rows if r[1] == "OK (no number)"]
     for key, state, detail in sorted(rows, key=lambda r: (r[1] != "OK", r[0])):
-        print(f"  {state:12} {key:16} {detail}")
-        if state != "OK":
-            bad += 1
-    print(f"\n{len(rows) - bad} approved and current, {bad} needing attention")
+        print(f"  {state:14} {key:16} {detail}")
+    print(f"\n{len(rows) - len(bad)} approved and current, {len(bad)} needing attention"
+          + (f"; {len(unnumbered)} carry no version number yet" if unnumbered else ""))
     return 1 if bad else 0
 
 
