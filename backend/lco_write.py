@@ -551,6 +551,7 @@ EVERY SUCH LINE YOU KEEP IN YOUR BODY BECOMES A SLIDER under the player's hands.
 - THE NUMBER IS YOURS, and it is the only part that is. It is where the knob STARTS, so write the value this sound wants; the player hears that first and moves away from it. Use the range in the brackets and stay inside it.
 - KEEP WHAT IS WORTH PLAYING for the sound you are writing, and let the rest go: a parameter you have no use for can be folded into your code as a plain number with no comment. Three per body is a good instrument; twelve is a wall.
 - The player sees COLUMNS, one per library entry you took a line from, in the order they appear in your body. At most three columns of four knobs. Anything past that is dropped.
+- A LINE YOU KEEP MUST CHANGE THE SOUND. Keeping it is a promise to the player that this control does what the library says it does, so the variable has to reach the synthesis and move it. Two ways of breaking that promise have shipped: keeping `kstrings` and then never mentioning it again, and writing `aout = a * kwave + a * (1 - kwave)`, which is `a` at every setting — a crossfade between one signal and itself, written for a second generator that was never built. If you have no use for the parameter, fold it into your code as a plain number with no comment; a knob that cannot be felt is worse than one that is not there.
 - INVENTING ONE GIVES THE PLAYER NOTHING. A line whose name the library does not declare for that body is not a knob — the names, the ranges and the words under them are the library's.
 - Do not go looking for a knob for level, octave, pitch, attack, decay or filter cutoff. The synth already has those.
 
@@ -824,6 +825,9 @@ def read_controls(body):
     Refused, and reported rather than silently dropped:
       * a name the library does not declare. That is the author inventing a knob,
         and an invented one is exactly what this path exists to make impossible.
+      * a line whose variable nothing in the body reads. Keeping the line buys
+        the wiring, not a use for it, and a knob nothing reads is a slider under
+        the player's hand that moves nothing.
       * a bracket that disagrees with the range the owning entry declares. The
         range is the library's, not the author's: a `pick [0.25..0.35]` line
         widened to `[0.0..1.0]` wires a slider that takes the instrument down
@@ -838,6 +842,42 @@ def read_controls(body):
     hits = _param_lines(code)
     if not hits:
         return {"parts": [], "params": [], "refused": []}
+
+    # THE BODY MUST ACTUALLY READ THE VARIABLE. Keeping the line guarantees the
+    # wiring, not that anything downstream looks at it, and an author that keeps
+    # a line for its NAME and then writes its own synthesis around it leaves a
+    # slider that moves nothing — the exact thing this construction claims to
+    # make impossible. Measured on a shipped instrument (2026-08-01):
+    # `kstringsD = 0 + 1 * kp2a ; strings [0..1]: …` was declared once and read
+    # zero times, and the panel showed a Strings slider under the player's hand.
+    #
+    # A use that stands only in a comment does not count, so comments come off
+    # first — and in THIS order, because a `;` comment is the outer one: a body
+    # that writes `; the split follows Table I /* see the entry` has no block
+    # comment in it at all, and blanking `/*…*/` first swallowed the real code
+    # that followed. A `;` inside a string is not a comment either.
+    def uncomment(line):
+        q = False
+        for i, ch in enumerate(line):
+            if ch == '"':
+                q = not q
+            elif ch == ";" and not q:
+                return line[:i]
+        return line
+
+    bare = [uncomment(l) for l in code.split("\n")]
+    bare = re.sub(r"/\*.*?\*/", lambda m: re.sub(r"[^\n]", " ", m.group(0)),
+                  "\n".join(bare), flags=re.S).split("\n")
+
+    # `split("\n")`, not `splitlines()`, and the same split on both sides of this
+    # index: `splitlines()` also breaks on \x0c, \x85, U+2028 and four more, so a
+    # single stray control character above a declaration shifted every line
+    # number, let the declaration match ITSELF, and passed every knob in the
+    # body. A gate that fails open on one bad byte is not a gate, and the
+    # author's text has arrived mis-decoded before now (`_repair_mojibake`).
+    def is_read(var, decl_line):
+        pat = re.compile(rf"\b{re.escape(var)}\b")
+        return any(pat.search(l) for n, l in enumerate(bare) if n != decl_line)
 
     shelf = _shelf_params()
     present = {m.group("name").strip() for m in hits}
@@ -899,6 +939,10 @@ def read_controls(body):
         if lo == hi:
             refused.append(f"{name} — its range is a single point ({lo:g}), "
                            f"so there is nothing to turn")
+            continue
+        if not is_read(m.group("var"), code[:m.start()].count("\n")):
+            refused.append(f"{name} — nothing in the body reads "
+                           f"{m.group('var')}, so the slider would move nothing")
             continue
         rec = owner_of(name, lo, hi, m.group("gloss").strip())
         if rec is None:
