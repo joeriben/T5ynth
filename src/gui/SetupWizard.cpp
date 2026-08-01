@@ -337,7 +337,7 @@ static const KnownModel kKnownModels[] = {
       "- Non-commercial use: free\n"
       "- Commercial use under $1M annual revenue: free (register at stability.ai)\n"
       "- Commercial use over $1M: enterprise license required\n\n"
-      "akr\xc3\xb3" "asys does not provide the weights; they download from the ungated\n"
+      "akr\xc3\xb3" "asys does not provide the weights; they download from the ungated\n"  // charset-ok: const char* payload, decoded with fromUTF8 at its one reader (showLicenseDialog)
       "Comfy-Org repository. By downloading you accept the license terms and take\n"
       "responsibility for compliance. A copy is written into the model folder.\n\n"
       "This engine also installs the T5-Base text encoder (Apache-2.0,\n"
@@ -354,7 +354,7 @@ static const KnownModel kKnownModels[] = {
       "- Non-commercial use: free\n"
       "- Commercial use under $1M annual revenue: free (register at stability.ai)\n"
       "- Commercial use over $1M: enterprise license required\n\n"
-      "akr\xc3\xb3" "asys does not provide the weights; they download from an ungated mirror\n"
+      "akr\xc3\xb3" "asys does not provide the weights; they download from an ungated mirror\n"  // charset-ok: const char* payload, decoded with fromUTF8 at its one reader (showLicenseDialog)
       "that redistributes the official weights unmodified. By downloading you accept\n"
       "the license terms and take responsibility for compliance. A copy is written\n"
       "into the model folder.\n\n"
@@ -366,14 +366,14 @@ static const KnownModel kKnownModels[] = {
       "This model is licensed under CC BY-NC-SA 4.0.\n\n"
       "- Non-commercial use only (no revenue threshold, no exceptions)\n"
       "- Commercial use is NOT permitted under this license\n\n"
-      "akr\xc3\xb3" "asys does not provide the model weights. By downloading, you accept\n"
+      "akr\xc3\xb3" "asys does not provide the model weights. By downloading, you accept\n"  // charset-ok: const char* payload, decoded with fromUTF8 at its one reader (showLicenseDialog)
       "the license terms and take responsibility for compliance.", true, true,
       nullptr, 0 },
     { "t5-base",                 "T5-Base text encoder",       "t5-base", nullptr,
       "https://www.apache.org/licenses/LICENSE-2.0",
       "T5-base is licensed under Apache License 2.0 (open, no restrictions).\n\n"
       "Required by the Stable Audio Open engines (1.0 and Small) as the text\n"
-      "encoder. " "akr\xc3\xb3" "asys does not provide the weights. By downloading you accept\n"
+      "encoder. " "akr\xc3\xb3" "asys does not provide the weights. By downloading you accept\n"  // charset-ok: const char* payload, decoded with fromUTF8 at its one reader (showLicenseDialog)
       "the Apache 2.0 license.", true, false,
       kT5BaseGhFiles,
       static_cast<int>(sizeof(kT5BaseGhFiles) / sizeof(kT5BaseGhFiles[0])) },
@@ -390,7 +390,7 @@ static const KnownModel kKnownModels[] = {
       "   - Commercial use over $1M: enterprise license required\n\n"
       "2) The t5gemma text encoder -- Google Gemma Terms of Use and the Gemma\n"
       "   Prohibited Use Policy (ai.google.dev/gemma/terms).\n\n"
-      "akr\xc3\xb3" "asys does not provide the weights; they download from the ungated\n"
+      "akr\xc3\xb3" "asys does not provide the weights; they download from the ungated\n"  // charset-ok: const char* payload, decoded with fromUTF8 at its one reader (showLicenseDialog)
       "Comfy-Org repository. By downloading you accept BOTH licenses and take\n"
       "responsibility for compliance. Copies are written into the model folder.", true, true,
       nullptr, 0, "t5gemma-b-b-ul2", kSa3MusicAssets, 2 },
@@ -408,7 +408,7 @@ static const KnownModel kKnownModels[] = {
       "   - Commercial use over $1M: enterprise license required\n\n"
       "2) The t5gemma text encoder -- Google Gemma Terms of Use and the Gemma\n"
       "   Prohibited Use Policy (ai.google.dev/gemma/terms).\n\n"
-      "akr\xc3\xb3" "asys does not provide the weights; they download from the ungated\n"
+      "akr\xc3\xb3" "asys does not provide the weights; they download from the ungated\n"  // charset-ok: const char* payload, decoded with fromUTF8 at its one reader (showLicenseDialog)
       "Comfy-Org repository. By downloading you accept BOTH licenses and take\n"
       "responsibility for compliance. Copies are written into the model folder.", true, true,
       nullptr, 0, "t5gemma-b-b-ul2", kSa3SfxAssets, 2 },
@@ -429,7 +429,7 @@ static const KnownModel kKnownModels[] = {
       "2) The t5gemma text encoder -- Google Gemma Terms of Use and the Gemma\n"
       "   Prohibited Use Policy (ai.google.dev/gemma/terms).\n\n"
       "This is the larger SA3 checkpoint (~9.2 GB download, ~16 GB memory to run).\n"
-      "akr\xc3\xb3" "asys does not provide the weights; they download from the ungated\n"
+      "akr\xc3\xb3" "asys does not provide the weights; they download from the ungated\n"  // charset-ok: const char* payload, decoded with fromUTF8 at its one reader (showLicenseDialog)
       "Comfy-Org repository. By downloading you accept BOTH licenses and take\n"
       "responsibility for compliance. Copies are written into the model folder.", true, true,
       nullptr, 0, "t5gemma-b-b-ul2", kSa3MediumAssets, 2 },
@@ -453,9 +453,12 @@ static const KnownModel kKnownModels[] = {
     // Ungated (no HuggingFace account needed) and Apache-2.0.
     { "coder/gemma-4-12b-it-qat-q4_0", "Gemma 4 12B",
       "google/gemma-4-12B-it-qat-q4_0-gguf", nullptr,
-      "https://www.apache.org/licenses/LICENSE-2.0",
-      "Gemma 4 12B (QAT, 4-bit) is licensed under Apache License 2.0 (open, no "
-      "restrictions).\n\n"
+      "https://ai.google.dev/gemma/terms",
+      "Gemma 4 12B (QAT, 4-bit) is governed by the Google Gemma Terms of Use and\n"
+      "   the Gemma Prohibited Use Policy (ai.google.dev/gemma/terms). It is\n"
+      "   ungated -- no account, no approval -- but it is NOT an open licence:\n"
+      "   the Terms restrict what you may use the model for and require you to\n"
+      "   pass them on with any redistribution.\n\n"
       "This is the language model behind the LRO -- the oscillator you play by "
       "describing a sound in words: the model writes the Csound code that becomes "
       "your sound. The same model translates prompts to English (the EN button) "
@@ -465,8 +468,8 @@ static const KnownModel kKnownModels[] = {
       // ASCII-only (see ProductName.h) -- the accented form renders as
       // "akrÃ³asys". productName() cannot be used: this table is static.
       "akroasys does not provide the weights; they download from HuggingFace "
-      "(ungated, no account). By downloading you accept the Apache 2.0 "
-      "license.", true, false,
+      "(ungated, no account). By downloading you accept the Gemma Terms of Use "
+      "and the Gemma Prohibited Use Policy.", true, false,
       nullptr, 0 },
 };
 static constexpr int kNumKnownModels = sizeof(kKnownModels) / sizeof(kKnownModels[0]);
@@ -2423,8 +2426,8 @@ static bool extractSpieceModel(const juce::File& safetensors,
     const juce::int64 length   = end - start;
     if (absStart + length > safetensors.getSize())
     {
-        err = "The `spiece_model` tensor extends past the end of the t5gemma "
-              "weights — the download is incomplete.";
+        err = juce::String::fromUTF8("The `spiece_model` tensor extends past the end of the "
+                                     "t5gemma weights \xe2\x80\x94 the download is incomplete.");
         return false;
     }
     if (! in.setPosition(absStart) || in.getPosition() != absStart)
@@ -3733,8 +3736,8 @@ void SettingsPage::updateStatus()
                 "your sound. It also translates your prompt to English in the "
                 "background when you enable the EN button (your typed text is "
                 "never changed), and it drives Re-Prompt. About 7 GB. Ungated, no "
-                "HuggingFace account. License: Apache 2.0 (open, no "
-                "restrictions).\n"
+                "HuggingFace account. License: Google Gemma Terms of Use and "
+                "Prohibited Use Policy -- ungated, but not an open licence.\n"
                 "  Target: " + targetPath);
         return;
     }
@@ -4472,7 +4475,8 @@ juce::String LroAuthorSettingsPage::localDetailText()
         "The language model runs on this computer. Nothing you type ever leaves the "
         "machine, no internet connection is needed once it is installed, and no sound "
         "you make costs anything.\n\n"
-        "Gemma 4 12B, Apache 2.0, fetched from HuggingFace without an account. It needs "
+        "Gemma 4 12B, under the Google Gemma Terms of Use and Prohibited Use Policy, "
+        "fetched from HuggingFace without an account. It needs "
         "about 7 GB of free disk space and works on a 16 GB machine. If your computer "
         "cannot spare that, set Author engine to External API above and use a provider "
         "instead.";
