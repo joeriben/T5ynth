@@ -1023,6 +1023,61 @@ _CTRL_TOKEN = re.compile(r"<\|[^<>]{0,40}\|?>|<[^<>|]{0,40}\|>")
 # The channel NAME left behind once its marker is gone, alone on its line.
 _CHANNEL_NAME = re.compile(r"^\s*(?:thought|thinking|analysis|final|message)\s*$",
                            re.IGNORECASE)
+# C0/C1 control bytes (outside \t\n\r) have no legitimate place in the author's
+# prose — a floor under _repair_mojibake below, for whatever it cannot
+# reconstruct.
+_STRAY_CONTROL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]")
+
+
+# U+2000-U+203F (general punctuation: the dashes/quotes/ellipsis an LLM
+# reaches for constantly) is the ENTIRE block whose UTF-8 lead byte is E2 and
+# second byte 80 — verified against the block's own bit layout, not assumed.
+# Deliberately narrow, not "any multi-byte run": an earlier, broader version
+# of this repair (any \x80-\xff run, reversed if it happened to be valid
+# UTF-8) was caught by review before it shipped — "4×\xa0oversampling" (a
+# real multiplication sign next to a real non-breaking space, both <= U+00FF)
+# round-trips to valid-looking nonsense (a Hebrew letter) because byte
+# validity alone can't tell a genuine adjacent pair from a mangled one; only
+# the SPECIFIC block this bug was actually observed in is safe to reverse
+# blind. A real "â" letter followed by two bytes that happen to look like
+# UTF-8 continuation bytes is the same theoretical risk, but nothing in this
+# app's English prose has ever had a reason to write â directly next to a C1
+# control range byte, so the residual is accepted rather than eliminated.
+_MOJIBAKE_PUNCT = re.compile(r"\xe2\x80[\x80-\xbf]")
+
+
+def _repair_mojibake(text):
+    """Undo a UTF-8-decoded-as-Latin-1 mangling of typographic punctuation,
+    if `text` contains one.
+
+    Observed repeatedly on the streamed reasoning: an apostrophe the author
+    wrote as U+2019 (bytes E2 80 99) arrives as three separate characters —
+    "â" (U+00E2, Latin-1's reading of the E2 lead byte) followed by two
+    invisible C1 controls (U+0080, U+0099, Latin-1's reading of the two UTF-8
+    continuation bytes) — so the panel shows "bottleâs" with the ’ gone and an
+    orphaned â in its place. The exact upstream step that does this decode is
+    NOT confirmed (llama-cpp-python's own streaming path was read and
+    exercised live twice against the shipped GGUF without reproducing it), so
+    this repairs the SYMPTOM, not a diagnosed cause: the three-character shape
+    is exactly what Latin-1-decoding those three UTF-8 bytes produces, and
+    reversing the two encodes recovers the original character (the same
+    technique the `ftfy` library calls `fix_encoding`, scoped down to the one
+    Unicode block this bug is known to touch).
+
+    Matched three bytes at a time, at the exact E2 80 xx shape — not any run
+    of high bytes — so it cannot merge two unrelated adjacent characters into
+    something that happens to decode (see _MOJIBAKE_PUNCT's comment for the
+    concrete case that ruled out the broader version). `decode('utf-8')`
+    still guards each match: a triplet that isn't itself valid UTF-8 (the
+    third byte outside a continuation shape doesn't reach the regex at all,
+    but this keeps the contract explicit) is left exactly as it arrived."""
+    def fix(match):
+        run = match.group(0)
+        try:
+            return run.encode("latin-1").decode("utf-8")
+        except UnicodeDecodeError:
+            return run
+    return _MOJIBAKE_PUNCT.sub(fix, text)
 
 
 def _clean_thinking(prose):
@@ -1030,7 +1085,8 @@ def _clean_thinking(prose):
     crumbs off, runs of blank lines collapsed, ends trimmed. Never paraphrased
     and never truncated — it is a quotation, and a quotation that has been
     improved is no longer evidence of anything."""
-    prose = _READING.sub("", prose or "")
+    prose = _repair_mojibake(prose or "")
+    prose = _READING.sub("", prose)
     # Only the MARKER lines go, never what stood between them. A block the author
     # quoted mid-thought ("the library's saw idiom is: ```…``` but a struck bar
     # is closer") is part of the sentence; deleting it leaves a sentence with its
@@ -1038,6 +1094,7 @@ def _clean_thinking(prose):
     prose = _FENCE_MARK.sub("", prose)
     prose = prose.replace("```", "")
     prose = _CTRL_TOKEN.sub("", prose)
+    prose = _STRAY_CONTROL.sub("", prose)
     prose = "\n".join(ln for ln in prose.splitlines() if not _CHANNEL_NAME.match(ln))
     lines, out, blanks = prose.splitlines(), [], 0
     for ln in lines:
@@ -1349,7 +1406,10 @@ def sanitize(raw):
     reading = ""
     rm = _READING.search(txt) or _READING.search(raw_txt)
     if rm:
-        reading = rm.group(1).strip()
+        # Same author's-words surface as `thinking`, same known corruption —
+        # see _repair_mojibake. Not compiler input (that guard is for `txt`
+        # below, which stays untouched), so nothing stops applying it here too.
+        reading = _repair_mojibake(rm.group(1).strip())
     txt = _READING.sub("", txt)
 
     kept, captured_out = [], None
