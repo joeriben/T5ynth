@@ -166,9 +166,12 @@ void SynthVoice::prepare(double sampleRate, int samplesPerBlock)
     csoundFreq_.reset(sampleRate, 0.0);
     csoundFreq_.setCurrentAndTargetValue(baseFrequency);
 
-    // Key gate: closed until a note arrives.
+    // Key gate: closed until a note arrives. A host prepareToPlay can land on a
+    // HELD note, though — re-arm the ramp for the new rate, but do not close a
+    // gate the player still has down, or the note would duck to silence and
+    // ramp back in. (reset() is the path that genuinely clears it.)
     keyGate_.reset(sampleRate, KEY_GATE_MS * 0.001);
-    keyGate_.setCurrentAndTargetValue(0.0f);
+    keyGate_.setCurrentAndTargetValue(noteHeld ? 1.0f : 0.0f);
 }
 
 void SynthVoice::reset()
@@ -773,6 +776,17 @@ void SynthVoice::renderBlock(float* output, float* outputRight, const BlockParam
         return;
     }
 
+    // Which of this voice's envelopes drive something OUTSIDE it — the delay,
+    // the reverb, an LFO rate or depth? The processor reads ALL FIVE off the
+    // newest active voice (PluginProcessor.cpp, `envSrc`: the amp envelope and
+    // ENV 2..5 land in one array and feed the same targets), so any of them
+    // still moving keeps the slot held. Constant for the block, so it is asked
+    // once here rather than per sample in the voice-free test below.
+    const bool ampOutsideVoice = EnvTarget::isOutsideTheVoice(p.ampTarget);
+    bool modOutsideVoice[kNumModEnvs];
+    for (int m = 0; m < kNumModEnvs; ++m)
+        modOutsideVoice[m] = EnvTarget::isOutsideTheVoice(p.modEnv[m].target);
+
     // Per-voice Trig-mode LFOs — sync rate/waveform from global, fill the
     // voice's own buffer (reset at note-on by VoiceManager), then steer the
     // function-local pointers so all downstream readers see the per-voice
@@ -1152,17 +1166,20 @@ void SynthVoice::renderBlock(float* output, float* outputRight, const BlockParam
             // land first, or a zero-release amp envelope would chop the gate's
             // fall mid-slope and click.
             //
-            // MODULATION: an amp envelope routed to the delay, the reverb or an
-            // LFO drives something OUTSIDE this voice, which the processor reads
-            // off the newest active voice — so it keeps mattering long after the
-            // voice has gone quiet, and the slot stays held for it. Against the
-            // voice's OWN targets (filter, pitch, scan, noise) there is nothing
-            // to wait for: they are inaudible the moment the level is zero.
+            // MODULATION: an envelope routed to the delay, the reverb or an LFO
+            // drives something OUTSIDE this voice, which the processor reads off
+            // the newest active voice — so it keeps mattering long after the
+            // voice has gone quiet, and the slot stays held for it. ALL FIVE
+            // envelopes count, not just the amp one: the processor feeds them
+            // into those targets through the same array. Against the voice's OWN
+            // targets (filter, pitch, scan, noise) there is nothing to wait for:
+            // they are inaudible the moment the level is zero.
             const bool levelDone = (p.ampTarget == EnvTarget::DCA)
                                  ? ampEnv.isIdle()
                                  : ! keyGate_.isSmoothing();
-            const bool stillModulating = EnvTarget::isOutsideTheVoice(p.ampTarget)
-                                      && ! ampEnv.isIdle();
+            bool stillModulating = ampOutsideVoice && ! ampEnv.isIdle();
+            for (int m = 0; m < kNumModEnvs && ! stillModulating; ++m)
+                stillModulating = modOutsideVoice[m] && ! modEnvs[m].isIdle();
             if (levelDone && !stillModulating && !noteHeld)
             {
                 active = false;
