@@ -2,7 +2,8 @@
 
 **ἀ·κρό·α·σις** [aˈkro.a.sis]: *listening, paying attention, hearing*
 
-akróasys uses generative AI very differently: as the **oscillator** of a playable
+akróasys is a sonic device that uses generative AI very differently: as the
+**oscillator** of a playable
 instrument, not as a generator that returns finished audio. The model sits where
 a sine or a saw would sit in the signal path, and what it resonates with is what
 you say: **resonance with meaning**.
