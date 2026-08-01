@@ -534,7 +534,9 @@ akróasys auto-detects the best available compute device:
   <li><strong>No GPU</strong> → CPU fallback (works, but slow)</li>
 </ul>
 <p>
-The device toggle in the T5 Oscillator column overrides the choice: GPU or CPU.
+The device is chosen by the backend &mdash; Metal on Apple Silicon, CUDA where
+it exists, otherwise CPU &mdash; and cannot be overridden from the UI. The
+generation read-out names the one in use.
 </p>
 
 <h3>First Generation</h3>
@@ -710,7 +712,7 @@ the session: capacity and audio entries travel with the preset.
 
 <h3>Model &amp; Device</h3>
 <p>
-Five model slots sit above the impulse fields: Stable Audio 3 Small Music, Stable Audio 3 Small SFX, Stable Audio Open 1.0, Stable Audio Open Small, and AudioLDM2 <em>(experimental, CC BY-NC-SA 4.0 — non-commercial only)</em>. <strong>Stable Audio 3 Medium</strong> has no slot of its own: with both tiers installed, clicking an already-selected SA3 slot a second time toggles that slot between Small and Medium, shown by a small <code>s</code>/<code>m</code> marker. The device toggle switches between GPU (MPS on Apple Silicon, CUDA on Linux or Windows 11) and CPU. GPU is typically 3× faster on Apple Silicon.
+Five model slots sit above the impulse fields, labelled <code>SA3mus</code> (Stable Audio 3 Small Music), <code>SA3sfx</code> (Small SFX), <code>SA1open</code> (Stable Audio Open 1.0), <code>SA1small</code> (Open Small) and <code>AudioLDM2</code> <em>(experimental, CC BY-NC-SA 4.0 — non-commercial only)</em>. <strong>Stable Audio 3 Medium</strong> has no slot of its own: with both tiers installed, clicking an already-selected SA3 slot a second time toggles that slot between Small and Medium, shown by a small <code>s</code>/<code>m</code> marker. The device is not a control: the backend takes Metal on Apple Silicon, CUDA where it exists, and CPU otherwise, and the generation read-out names the one it took.
 </p>
 
 <div class="note">
@@ -952,7 +954,7 @@ All three operate on the generated buffer, not on the real-time voice signal: re
 
 <h4>Voice Count</h4>
 <p>
-Mono, 4, 6, 8, 12, 16, 64 or 128 voices; the default is 8. Gain auto-scales per voice count, and the oldest notes are stolen when the limit is reached. The two large settings are there for dense generative sequencing and long release tails, not for keyboard play.
+Seven buttons: Mono, 4, 6, 8, 12, 16, 64; the default is 8. (A 128-voice setting exists as an automatable parameter but has no button.) Gain follows how many notes are actually sounding, not the setting &mdash; a gentle 1/N<sup>0.1</sup>, about &minus;0.9&nbsp;dB at eight held notes. When the limit is reached, releasing voices are taken first, oldest first; if none are releasing, the <em>quietest</em> held voice goes, with age only as a tiebreaker, and a note held by the sequencer is never taken. 64 is there for dense generative sequencing and long release tails, not for keyboard play.
 </p>
 
 <!-- ═══════════════════════════════════════════ -->
@@ -1008,7 +1010,7 @@ inside the sound space opened by the two impulses.
 Meanwhile, the conventional synth chain (filter, envelopes, LFOs, effects, sequencer) continues to process the output in real time. You are simultaneously shaping the sound <em>and</em> the process that creates the sound.
 </p>
 <p>
-The Drift section provides three slow LFOs (0.001–2.0 Hz) designed for organic, evolving textures. Unlike the main LFOs, drift can target <strong>generation-level parameters</strong> — A/B, the three sound-character axes, Noise, and Magnitude. This is what makes drift unique: it doesn't just modulate how the sound is played back, it modulates <em>what sound is generated</em>.
+The Drift section provides three slow LFOs (1/128&nbsp;Hz – 2.0&nbsp;Hz) designed for organic, evolving textures. Unlike the main LFOs, drift can target <strong>generation-level parameters</strong> — A/B, the three sound-character axes, Noise, and Magnitude. This is what makes drift unique: it doesn't just modulate how the sound is played back, it modulates <em>what sound is generated</em>.
 </p>
 
 <div class="note">
@@ -1018,13 +1020,12 @@ The Drift section provides three slow LFOs (0.001–2.0 Hz) designed for organic
 <h4>Drift LFOs (3×)</h4>
 <table>
   <tr><th>Parameter</th><th>Range</th><th>Notes</th></tr>
-  <tr><td><strong>Drift Enable</strong></td><td>on / off</td><td>Master on/off for all three drift LFOs</td></tr>
-  <tr><td><strong>Rate</strong></td><td>1/128 Hz – 2.0 Hz</td><td>Very slow by design — think minutes, not seconds; default 0.25 Hz. Below 1 Hz the readout switches to the period in seconds per cycle, which is the useful number here. Active when Clock is Off.</td></tr>
+  <tr><td><strong>Rate</strong></td><td>1/128 Hz – 2.0 Hz</td><td>Very slow by design — think minutes, not seconds; default 0.25 Hz. The free-run read-out is always the period in seconds per cycle, which is the useful number at these rates. Active when Clock is Off.</td></tr>
   <tr><td><strong>Clock</strong></td><td>Off / Sync</td><td>Toggle (clock-icon button). When Sync is on, the Rate slider is replaced by a Division stepper. Same BPM resolution as the LFO Clock above.</td></tr>
   <tr><td><strong>Division</strong></td><td>64/1 … 1/4</td><td>Active when Clock is Sync; nine settings, default 2/1, no triplets or quintuplets — drift is meant to breathe over bars, not subdivide beats. The slow end (64/1, 32/1, 16/1) is where it usually belongs.</td></tr>
   <tr><td><strong>Depth</strong></td><td>0.0 – 1.0</td><td>How far the LFO pushes the target parameter</td></tr>
   <tr><td><strong>Waveform</strong></td><td>Sin / Tri / Saw / Sq / S&amp;H / SawD</td><td></td></tr>
-  <tr><td><strong>Target</strong></td><td>Dropdown</td><td>A/B, Chaos, Magnitude, Axis 1/2/3, Resynth, Scan, Filter, Pitch, Dly Time / FB / Mix, Rev Mix, ENV1&ndash;5 Amt</td></tr>
+  <tr><td><strong>Target</strong></td><td>Dropdown</td><td><code>---</code> (off, and the default) · A/B · Emb. Noise · Magnitude · Axis 1 / 2 / 3 · Resynth · Scan · Filter · Pitch · Dly Time / FB / Mix · Rev Mix · ENV1&ndash;5 Amt</td></tr>
 </table>
 
 <p>
@@ -1580,9 +1581,12 @@ sequencers, arpeggiator.
 <p>
 Five ADSR envelopes, picked with the <strong>ENV1 … ENV5</strong> tabs. They are
 identical in shape and controls and differ only in where they go.
-<strong>ENV 1 is the amplitude envelope</strong>: its destination is the DCA and
-is not selectable. <strong>ENV 2 &ndash; ENV 5</strong> each carry a
-<strong>Target</strong> dropdown and can be routed anywhere in the list below.
+<strong>ENV 1 is the amplitude envelope</strong>: it starts on the DCA, which is
+why a patch makes a sound at all. Its <strong>Target</strong> dropdown is a
+normal one and you can move it elsewhere &mdash; do that and nothing shapes the
+amplitude any more. Copy and paste is the one thing barred: an envelope's target
+never travels to or from ENV&nbsp;1. <strong>ENV 2 &ndash; ENV 5</strong> start
+off (<code>---</code>) and route anywhere in the list below.
 </p>
 <table>
   <tr><th>Parameter</th><th>Range</th><th>Notes</th></tr>
@@ -1593,8 +1597,8 @@ is not selectable. <strong>ENV 2 &ndash; ENV 5</strong> each carry a
   <tr><td><strong>A / D / R Curve</strong></td><td>Log / SLog / Lin / SExp / Exp</td><td>Per-stage slope shape. Each of the three stages (Attack, Decay, Release) has its own 5-position selector, so an envelope can e.g. be linear on the way up but exponential on release. Minimum ramp 3&nbsp;ms on every stage. Defaults: A = Lin, D = Lin, R = Exp. See the <em>Curve shapes</em> note below the table.</td></tr>
   <tr><td><strong>Amount</strong></td><td>0.0 – 1.0</td><td>Envelope ceiling — the maximum level the envelope can reach. Drag the peak handle on the ADSR graph vertically; the whole shape scales proportionally. At 1.0 the envelope reaches full range; at 0.5 it peaks at half regardless of ADSR times.</td></tr>
   <tr><td><strong>A / D / R Vel Sens</strong></td><td>−1.0 – +1.0</td><td>Per-stage velocity sensitivity for <em>timing</em>. Positive: harder hits shorten the stage (snappier attack or decay). Negative: harder hits lengthen it. 0 = fixed timing. Held-phase (pressure) response is handled by the <strong>AT</strong> panel.</td></tr>
-  <tr><td><strong>Loop</strong></td><td>on / off</td><td>Re-triggers attack when sustain is reached</td></tr>
-  <tr><td><strong>Target</strong></td><td>Dropdown</td><td>ENV 2&ndash;5 only. DCA, Filter, Scan, Pitch, Dly Time / FB / Mix, Rev Mix, Noise Lvl, LFO1/2/3 Rate, LFO1/2/3 Amt</td></tr>
+  <tr><td><strong>Loop</strong></td><td>on / off</td><td>Runs the envelope as an A&ndash;D&ndash;Hold&ndash;R cycle. In loop mode <strong>Sustain stops being a level</strong> and sets the hold time of each cycle.</td></tr>
+  <tr><td><strong>Target</strong></td><td>Dropdown</td><td><code>---</code> (off) · DCA · Filter · Scan · Pitch · Dly Time / FB / Mix · Rev Mix · Noise Lvl · LFO1 Rate · LFO1 Amt · LFO2 Rate · LFO2 Amt · LFO3 Rate · LFO3 Amt</td></tr>
 </table>
 
 <p>
@@ -1627,7 +1631,7 @@ affects stage timing, bipolar (−1.0…+1.0).
   <tr><td><strong>Depth</strong></td><td>0.0 – 1.0</td><td></td></tr>
   <tr><td><strong>Waveform</strong></td><td>Sin / Tri / Saw / Sq / S&amp;H / SawD</td><td>S&amp;H holds a new random value each cycle; SawD is the falling saw.</td></tr>
   <tr><td><strong>Mode</strong></td><td>Free / Trigger</td><td>Free runs continuously; Trigger resets on note-on (per-voice phase)</td></tr>
-  <tr><td><strong>Target</strong></td><td>Dropdown</td><td>Filter, Scan, Pitch, Dly Time / FB / Mix, Rev Mix, Noise Lvl, ENV1&ndash;5 Amt, Drift1/2/3 Amt</td></tr>
+  <tr><td><strong>Target</strong></td><td>Dropdown</td><td><code>---</code> (off) · Filter · Scan · Pitch · Dly Time / FB / Mix · Rev Mix · Noise Lvl · ENV1 Amt · ENV2 Amt · ENV3 Amt · Drift1 / 2 / 3 Amt · ENV4 Amt · ENV5 Amt &mdash; ENV4 and ENV5 sit after the Drift entries, not with ENV1&ndash;3</td></tr>
 </table>
 
 <h3>Aftertouch (AT)</h3>
@@ -1695,12 +1699,17 @@ The signal chain runs <strong>Delay → Reverb → Limiter → Master Volume</st
 The limiter wraps JUCE <code>dsp::Limiter</code> and is always in the path — it
 is what stands between a loud generation and your monitors.
 </p>
-<table>
-  <tr><th>Parameter</th><th>Range</th><th>Notes</th></tr>
-  <tr><td><strong>Limiter Threshold</strong></td><td>−30 … 0 dB</td><td>Default −3 dB.</td></tr>
-  <tr><td><strong>Limiter Release</strong></td><td>1 – 500 ms</td><td>Default 100 ms.</td></tr>
-  <tr><td><strong>Master Volume</strong></td><td>−60 … 0 dB</td><td>The instrument's output level.</td></tr>
-</table>
+<p>
+Neither of the limiter's two settings has a control on screen: the threshold sits
+at &minus;3&nbsp;dB and the release at 100&nbsp;ms. A host can automate both.
+</p>
+<p>
+<strong>Master Volume</strong> is not in the Effects panel either. It is the
+vertical slider captioned <strong>Vol</strong> at the right-hand edge of the
+window, and it runs from &minus;60 to 0&nbsp;dB. It is also the one control that
+a preset does <em>not</em> store, so loading a preset never changes your output
+level.
+</p>
 <div class="note">
   <strong>Amp-chain effects without a panel.</strong> Distortion (drive, mix),
   tremolo (rate, depth, stereo), chorus (rate, depth, mix) and phaser (rate,
@@ -1718,7 +1727,7 @@ is what stands between a loud generation and your monitors.
 A traditional step sequencer of 2 to 32 steps, 16 by default. Each step has:
 </p>
 <ul>
-  <li><strong>Note</strong> — MIDI note 0–127 (draggable vertical slider)</li>
+  <li><strong>Note</strong> — C2 to C6 (MIDI 36–84), dragged vertically in the step</li>
   <li><strong>Velocity</strong> — 0.0–1.0 (bar at bottom)</li>
   <li><strong>Enable</strong> — toggle the step on/off</li>
   <li><strong>Bind / Glide</strong> — one button, cycling <em>Off → Bind → Glide → Off</em>. <strong>Bind</strong> suppresses the note-off so the step ties into the next one; <strong>Glide</strong> ties it and ramps the pitch across, over the global <em>Glide Time</em>. Glide is drawn brighter than Bind.</li>
@@ -1760,7 +1769,7 @@ Click a one-shot slot to cycle Normal / Accent / Mute. The step's <strong>On</st
   <tr><td><strong>Division</strong></td><td>1/1, 1/2, 1/4, 1/8, 1/16</td><td>Step duration relative to a quarter note</td></tr>
   <tr><td><strong>Gate</strong></td><td>0.1 – 1.0</td><td>Fraction of step duration that the note sustains</td></tr>
   <tr><td><strong>Shuffle</strong></td><td>0 – 75%</td><td>Pairwise swing: complete even/odd step pairs are long/short, while an unpaired final step in odd-length patterns stays straight</td></tr>
-  <tr><td><strong>Glide Time</strong></td><td>10 – 500 ms</td><td>How long the pitch ramp takes on a step set to <em>Glide</em>.</td></tr>
+  <tr><td><strong>Glide ramp</strong></td><td>—</td><td>Not a control. The ramp follows the tempo: a quarter of the step's length, clamped between 10 and 200&nbsp;ms.</td></tr>
   <tr><td><strong>Octave Shift</strong></td><td>-2 … +2</td><td>Transposes all steps</td></tr>
   <tr><td><strong>Presets</strong></td><td>10 built-in patterns</td><td>Octave Bounce, Wide Leap, Off-Beat Minor, Glide Groove, Sparse Stab, Rising Arc, Scatter, Chromatic, Bass Walk, Gated Pulse</td></tr>
   <tr><td><strong>Save / Load</strong></td><td>S / L buttons</td><td>Patterns are stored separately from presets, as <code>.t5seq</code> files in the app's <code>sequences</code> folder. <strong>L</strong> opens a Sequence Library with rename and delete.</td></tr>
