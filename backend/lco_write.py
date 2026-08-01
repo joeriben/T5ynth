@@ -747,11 +747,14 @@ def _shelf_params(sel=None):
             declared = entry.get("params") or {}
             if not declared:
                 continue
-            # The entry's own line for each parameter, for its SHORT description.
-            # `params[name]["note"]` is the measurement and runs to a paragraph;
-            # this is the same sentence written for a reader.
+            # The entry's own line for each parameter, for its SHORT description
+            # — and, because the author is told to keep a kept line whole, for
+            # RECOGNISING a line as this entry's. `params[name]["note"]` is the
+            # measurement and runs to a paragraph; this is the same sentence
+            # written for a reader. Thirteen declared parameters across five
+            # entries have no line at all, and stay unrecognisable this way.
             glosses = {m.group("name").strip(): m.group("gloss").strip()
-                       for m in _LIBPARAM.finditer(entry.get("code") or "")}
+                       for m in _param_lines(entry.get("code") or "")}
             names = set(declared)
             for name, spec in declared.items():
                 rng = (spec or {}).get("range") or []
@@ -842,22 +845,46 @@ def read_controls(body):
     # `plucked_wire`'s and `string`'s, `ring` belongs to four. This decides the
     # COLUMN and its caption, and which declared range the line must match.
     #
-    # COUNT FIRST: the entry whose other parameters this body also carries is the
+    # WHAT THE LINE SAYS, first of all. The author is told to keep a kept line
+    # WHOLE, so a sentence reproduced word for word is not a coincidence: it is
+    # the entry the line was copied out of, and no amount of circumstantial
+    # agreement outweighs it. Nothing else separates the three entries that each
+    # write a `ring` line — "how long the metal takes" is not "how long the drive
+    # holds" — and counting siblings first gets those wrong in both directions: a
+    # body holding `metallic_fm`'s and `supersaw`'s real lines side by side has
+    # three of `fm_bell`'s parameter NAMES in it, and hands both entries' knobs to
+    # a bell that was never opened. Checked against the library: no two entries
+    # say the same sentence for the same name, so this never ties. A reworded
+    # comment simply falls through to the terms below.
+    #
+    # THEN COUNT: the entry whose other parameters this body also carries is the
     # one it was written from. Not the fraction of that entry's own parameters —
     # normalising by entry size hands `drive` to the two-parameter `driven_metal`
     # over the five-parameter `analog_osc` whose other axis is right there, and
-    # splits one oscillator across two columns. Then a matching bracket, which
-    # discriminates the three names whose entries declare different ranges; then
-    # the fraction; then the library's own order.
-    def owner_of(name, lo, hi):
+    # splits one oscillator across two columns.
+    #
+    # THEN a matching bracket, which discriminates the three names whose entries
+    # declare different ranges (`pick`, `stretch`, `age`); then the fraction; then
+    # the library's own order.
+    #
+    # THE BRACKET MUST NOT OUTRANK THE COUNT, however tempting: the refusal below
+    # compares the line's bracket against the range of whichever entry wins here,
+    # so a vote that PREFERS the entry agreeing with the bracket can only ever
+    # refuse a name no entry declares that way. Tried, and it made exactly the
+    # three names the check exists for unrefusable: a `plucked_wire` body with
+    # `pick` widened from 0.25..0.35 to 0..1 was handed to `string`, accepted, and
+    # wired the pickup position over its whole travel.
+    def owner_of(name, lo, hi, gloss):
         cands = shelf.get(name) or []
         if not cands:
             return None
         def score(r):
             hit = len(r["siblings"] & present)
+            said = 1 if (r["gloss"] and r["gloss"] == gloss) else 0
             same = 1 if (abs(r["range"][0] - lo) < 1e-9
                          and abs(r["range"][1] - hi) < 1e-9) else 0
-            return (hit, same, hit / max(1, len(r["siblings"])), -r["order"])
+            return (said, hit, same,
+                    hit / max(1, len(r["siblings"])), -r["order"])
         return max(cands, key=score)
 
     parts, params, refused, column = [], [], [], {}
@@ -873,7 +900,7 @@ def read_controls(body):
             refused.append(f"{name} — its range is a single point ({lo:g}), "
                            f"so there is nothing to turn")
             continue
-        rec = owner_of(name, lo, hi)
+        rec = owner_of(name, lo, hi, m.group("gloss").strip())
         if rec is None:
             refused.append(f"{m.group('var')} — `{name}` is not a library parameter; "
                            f"only what the library declares becomes a knob")
