@@ -1287,7 +1287,26 @@ private:
 
         const double prop = juce::jlimit(0.0, 1.0,
             slider.valueToProportionOfLength(slider.getValue()));
-        if (prop > 0.0)
+
+        if (slider.getMinimum() < 0.0 && slider.getMaximum() > 0.0)
+        {
+            // BIPOLAR range: the fill grows OUT OF the zero point, not out of
+            // the left edge. A phaser feedback of 0 is off, and a bar that is
+            // half full at 0 says the opposite — the one reading a bar can give
+            // that a thumb on a track never gave wrongly.
+            const double zero = juce::jlimit(0.0, 1.0, slider.valueToProportionOfLength(0.0));
+            const float zx = b.getX() + b.getWidth() * static_cast<float>(zero);
+            const float vx = b.getX() + b.getWidth() * static_cast<float>(prop);
+            if (std::abs(vx - zx) >= 1.0f)
+            {
+                g.setColour(trackCol);
+                g.fillRect(juce::Rectangle<float>(juce::jmin(zx, vx), b.getY(),
+                                                  std::abs(vx - zx), b.getHeight()));
+            }
+            g.setColour(trackCol.withAlpha(0.55f));   // the centre it grows from
+            g.fillRect(juce::Rectangle<float>(zx - 0.5f, b.getY(), 1.0f, b.getHeight()));
+        }
+        else if (prop > 0.0)
         {
             g.setColour(trackCol);
             g.fillRect(b.withWidth(static_cast<float>(static_cast<double>(b.getWidth()) * prop)));
@@ -1384,6 +1403,12 @@ private:
         auto sb = slider.getBounds();
         double norm = slider.valueToProportionOfLength(static_cast<double>(v));
         norm = juce::jlimit(0.0, 1.0, norm);
+        // An inline bar has no thumb: paintInlineBar fills edge to edge, so the
+        // ghost has to use the same mapping or the modulation dot and the fill
+        // edge disagree by half a thumb (10 px at a 20 px row) near the ends.
+        if (inlineLabel)
+            return static_cast<float>(sb.getX())
+                 + static_cast<float>(sb.getWidth()) * static_cast<float>(norm);
         int thumbW = slider.getLookAndFeel().getSliderThumbRadius(slider) * 2;
         return static_cast<float>(sb.getX() + thumbW / 2)
              + static_cast<float>(sb.getWidth() - thumbW) * static_cast<float>(norm);
