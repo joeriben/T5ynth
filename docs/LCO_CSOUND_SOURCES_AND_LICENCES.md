@@ -34,7 +34,18 @@ what this library has to be, for three reasons:
    The studies each entry stands on are listed in one table in
    `docs/LCO_CODE_PROVENANCE.md`, *The measurement sources the entries are built from* —
    Szabo's measurement of the Roland JP-8000 for `supersaw`, ffitch and Lazzarini's
-   `repluck.c` plus Järveläinen & Tolonen for `plucked_wire`.
+   `repluck.c` plus Järveläinen & Tolonen for `plucked_wire`, Smith's ICMC 1986 bow-string
+   formulation plus Woodhouse's *Euphonics* §5.3 signature modes for the bowed string.
+
+   **A source can be closed for its text and open for its numbers, and the bowed string is
+   the case.** [euphonics.org](https://euphonics.org/5-3-signature-modes-and-formants/) is
+   CC BY-NC-SA 4.0 — the same NonCommercial clause that puts McCurdy's Csound archive out
+   of reach — so not a sentence, a figure or a line of code from it may enter this tree.
+   The violin's A0/CBR/B1−/B1+ frequencies and its bridge hill are a different kind of
+   thing: somebody measured a violin, and a measurement is a fact. Take those, write your
+   own `mode` bank, cite where they were measured. What must NOT travel with them is
+   borrowed authority for numbers the source does not give — the entry's Q values are its
+   own and say so.
 2. **The bodies here have to satisfy constraints no published collection was written for.**
    Every entry must hold ONE loudness across its whole parameter cube and the whole keyboard
    (§4 of `docs/LCO_CONCEPT.md`), must write into `asig` inside this host's scaffold, and
