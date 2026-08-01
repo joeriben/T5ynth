@@ -224,7 +224,7 @@ has become audio. Two short impulses mark two points in it, and the controls mov
 the point that is rendered &mdash; between them, and well past both, into regions
 no phrase can name: textures, transients, patterns, field recordings, everyday
 noises, orchestral gestures, alien voices, human emotional expressions, impossible
-hybrids. Reaching what a prompt cannot reach is the point of it, not a side effect.
+hybrids. Reaching what a prompt cannot reach is what this oscillator is for.
 The <strong>Language-Resonant Oscillator</strong> works the other way round: you
 describe an instrument, a language model writes the Csound orchestra for it, and
 that code — compiled and run live — is what every voice sounds. Your words become
@@ -597,7 +597,7 @@ akróasys is where you find out what that marker can become.
 </p>
 <h4>Leaving a field empty</h4>
 <p>
-An empty field is a decision, not a gap. akróasys reads the empty side as an
+akróasys reads an empty side as an
 <strong>echo chamber</strong> for the impulse that is there: a reflection of it
 through the model's neutral point (<code>2·neutral − other</code>). The A/B
 slider then runs from your impulse, through that neutral midpoint, out to the
@@ -863,7 +863,7 @@ Drag any bar vertically to apply a per-dimension <strong>offset</strong>. Edited
 
 <h4>What This Means</h4>
 <p>
-This is the most granular level of control akróasys offers. It bypasses language entirely — you are directly sculpting the 768-dimensional control vector that guides the diffusion model. What each dimension "does" sonically is largely opaque: the model was not built as a documented audio control surface. Small changes may do nothing, or they may radically alter the output. This is a research tool for probing the space, not a precision instrument.
+This bypasses language entirely — you are directly sculpting the 768-dimensional control vector that guides the diffusion model. What each dimension "does" sonically is largely opaque: the model was not built as a documented audio control surface. Small changes may do nothing, or they may radically alter the output. This is a research tool for probing the space, not a precision instrument.
 </p>
 
 <div class="note">
@@ -876,9 +876,8 @@ This is the most granular level of control akróasys offers. It bypasses languag
 <h2 id="engine">1.3 Engine Modes: Sampler, Wavetable &amp; Granular</h2>
 
 <p>
-A generated fragment is not yet a playable voice. These three modes are how it
-becomes one — three different answers to what should happen when you press a key
-that is not the key it was rendered at.
+These three modes are three different answers to what should happen when you
+press a key that is not the key the fragment was rendered at.
 </p>
 
 <h3>The waveform display</h3>
@@ -1271,9 +1270,8 @@ itself, written for this one prompt.
   <strong>The code is real.</strong> What the LRO writes is genuine, portable
   Csound — the same language any Csound system compiles, not an internal
   format of this app. The orchestra is stored with your preset, and the panel
-  shows it (hold the panel to read the code). And because every authoring is a
-  fresh piece of writing, the oscillator you keep can be one of a kind: a real
-  digital instrument that exists nowhere else.
+  shows it (hold the panel to read the code). Every authoring is a fresh piece of
+  writing, so the oscillator you keep is likely one of a kind.
 </div>
 
 <h3>Switching to the LRO</h3>
@@ -1944,10 +1942,6 @@ On the left, the <strong>ring</strong> plots the current pattern around a circle
 GEN runs up to <strong>five parallel Strands</strong> (Strand&nbsp;1 is always active; Strands&nbsp;2&ndash;5 enable individually). Each strand owns its own Euclidean pattern (steps, pulses, rotation, mutation, fix flags), an octave shift, a tempo multiplier, and a textural <em>Role</em>. All strands run the same internal pipeline as Strand&nbsp;1 (Euclidean rhythm &rarr; Turing-machine degree walk &rarr; quantization), differing only in their parameters and their pitch source: Strand&nbsp;1 quantizes to the global Scale, Strands&nbsp;2&ndash;5 draw from the shared <strong>Pitch Field</strong>. Four secondary strands plus the reference voice means each of the four roles (Anchor / Line / Density / Gesture) can be assigned to its own strand alongside Strand&nbsp;1, without having to drop one. Inter-strand interaction is governed by the <strong>Coordination Mode</strong> (see below) &mdash; not by per-event harmonic checks inside each strand.
 </p>
 
-<p>
-The result is closer to a small ensemble than to a chord arpeggiator: rhythms cross-relate, registers separate, and the pitch material drifts as a whole.
-</p>
-
 <h4>Per-Strand Controls</h4>
 
 <table>
@@ -2059,7 +2053,7 @@ and the current preset's name, and carries the controls that belong to no panel:
   <tr><td><strong>Export</strong></td><td>Three items: <strong>Export WAV…</strong> writes the current sound to a file (the item always reads that; only the file-chooser's own title says <em>Export Wavetable</em> in Wavetable mode); <strong>Save Session Log…</strong> and <strong>Play Session Log…</strong> are the two ends of the <a href="#sessionlog">session log</a>.</td></tr>
   <tr><td><strong>Settings</strong></td><td>The three-tab panel described in <a href="#setup">Setup</a>. It carries an accent dot when an update is available.</td></tr>
   <tr><td><strong>Manual</strong></td><td>This document.</td></tr>
-  <tr><td><strong>Panic</strong></td><td>All notes off, immediately. The one button worth knowing before you need it.</td></tr>
+  <tr><td><strong>Panic</strong></td><td>All notes off, immediately.</td></tr>
   <tr><td><strong>Kbd</strong></td><td>Computer-keyboard note input on or off (also <strong>Ctrl/Cmd+K</strong>).</td></tr>
   <tr><td><strong>Ext.Clock</strong></td><td>Sync the tempo to incoming MIDI clock, overriding both the host transport and the Seq BPM field. In the standalone this control lives in the MIDI/Audio Settings dialog instead.</td></tr>
 </table>
@@ -2207,7 +2201,7 @@ ends the tape; your own workspace beneath was never touched.
 <h2 id="sweetspots">11. Strategies for Finding Sweet Spots</h2>
 
 <div class="tip">
-  <strong>akróasys is not a sweet-spot synth.</strong> Unlike subtractive synths where most parameter combinations produce usable sound, akróasys's generation process is exploratory and unpredictable. Many combinations produce nothing interesting. That's by design — the instrument rewards patient exploration, not preset-surfing.
+  <strong>Many combinations produce nothing interesting.</strong> On a subtractive synth most parameter settings give you something usable; here they do not, and the instrument is built to reward patient exploration.
 </div>
 
 <h3>With the T5 Oscillator</h3>
@@ -2426,10 +2420,10 @@ The <em>Rotation</em> parameter shifts this pattern circularly, changing which b
 Pulses are assigned pitches using a <strong>stride permutation</strong> through the selected scale. The stride value (<code>max(1, steps − pulses)</code>) determines how many scale degrees to skip between successive notes, chosen to be coprime with the total number of degrees so the melody visits as many pitches as possible before repeating.
 </p>
 <p>
-The traversal follows a <strong>triangle wave</strong> (ascending then descending), creating bidirectional melodic motion rather than monotonic climbing. This produces melodies that feel more natural and song-like.
+The traversal follows a <strong>triangle wave</strong> (ascending then descending), so the line turns instead of climbing monotonically.
 </p>
 <p>
-Velocity is derived from the rhythmic gaps — notes after longer rests receive higher velocity, creating natural accents at the start of rhythmic phrases.
+Velocity is derived from the rhythmic gaps: a note after a longer rest is louder, which puts the accent at the start of a phrase.
 </p>
 
 <h3>Layer 3: Turing Machine Mutation</h3>
