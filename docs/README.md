@@ -1,6 +1,6 @@
-# T5ynth Developer Documentation
+# akróasys Developer Documentation
 
-Developer documentation for T5ynth. User-facing documentation lives in the in-app Manual (statusbar → Manual) and in `/README.md` at the repo root.
+Developer documentation for akróasys (released as **T5ynth** through v2.5.3). User-facing documentation lives in the in-app Manual (statusbar → Manual) and in `/README.md` at the repo root.
 
 This directory contains two kinds of files: current contributor reference material, and archived Claude-session snapshots kept only for historical context. Only the "active" section below should be treated as authoritative.
 

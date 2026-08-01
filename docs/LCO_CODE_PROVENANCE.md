@@ -1,4 +1,8 @@
-# Where the oscillator's Csound may come from
+# Where the LRO's Csound may come from
+
+> The oscillator is the **Language-Resonant Oscillator (LRO)**. The `LCO_`
+> file names and the `LCO` identifiers in the code are the older name, kept
+> so links and history stay valid.
 
 akróasys is **GPLv3**. Every instrument body in `backend/dco_lexicon.json` ships
 inside that licence and is put in front of a language model as an exemplar to

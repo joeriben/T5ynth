@@ -1,4 +1,8 @@
-# Where LCO instrument code may come from, and where it may not
+# Where LRO instrument code may come from, and where it may not
+
+> The oscillator is the **Language-Resonant Oscillator (LRO)**. The `LCO_` file
+> names and the `LCO` identifiers in the code are the older name, kept so links
+> and history stay valid.
 
 BJ's instruction on extending the library was explicit: *„Wo nötig wirst Du recherchieren um
 die sonischen qualitäten und sinnvolle parametrisierungen oder weniger bekannt bibliotheken
@@ -15,7 +19,7 @@ two files disagree; this one is the practice that follows from it.
 
 | Source | Licence found | Usable in this library? |
 |---|---|---|
-| Csound itself (the opcodes) | **LGPL 2.1 or later** — stated in the manual's copyright notice | Yes. Calling `vco2`, `mode`, `gbuzz` is use of the software, not copying of code. This is the whole basis of the LCO. |
+| Csound itself (the opcodes) | **LGPL 2.1 or later** — stated in the manual's copyright notice | Yes. Calling `vco2`, `mode`, `gbuzz` is use of the software, not copying of code. This is the whole basis of the LRO. |
 | The Canonical Csound Reference Manual, **including its example orchestras** | **GFDL 1.3, with no "or later" grant.** Verbatim from `csound/manual`, `docs/intro/copyright-notice.md`: "This version of the Csound Manual ("The Canonical Csound Manual") is released under the [GNU Free Documentation Licence]" — the prose names no version and the link is `fdl-1.3.html`. The notice says nothing separate about the `.csd` examples, so they inherit the documentation licence | **No.** The GFDL is a documentation licence and is not GPL-compatible; there is no clean path from a GFDL example orchestra into a GPLv3 binary. |
 | Amsterdam Catalog of Csound Computer Instruments (Gather, 1995; ~100 instruments incl. all 25 Risset Bell Labs ones) | **None found — and the primary source could not be reached at all.** Its home at `music.buffalo.edu/hiller/accci/` now redirects to the university root and the codemist mirror refuses connections; the Haskell port `spell-music/amsterdam` was cloned and carries no LICENSE, COPYING or copyright grant | **No.** Neither a stated licence nor a reachable source to check one in. |
 | The Csound Book CD-ROMs (Boulanger, MIT Press 2000) | **None found — csounds.com unreachable**, so the instrument files were never inspected | **No.** Same reason, and it is a commercial publication. |

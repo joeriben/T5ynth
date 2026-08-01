@@ -385,7 +385,7 @@ knobs.
 
 - **`"csound_compile"`** (`backend/pipe_inference.py`, beside `csound`): compiles
   a body somebody EDITED, with no model involved — the authoring path with the
-  author replaced by a person, which is what makes the Csound shown in the LCO
+  author replaced by a person, which is what makes the Csound shown in the LRO
   panel editable. Reads `body`; responds with a **text frame** (`\x03`) carrying
   the same shape authoring returns: `{"ok": true, "orchestra": "...",
   "params_text": "..."}`, or `{"ok": false, "error": "..."}`. The host scaffold

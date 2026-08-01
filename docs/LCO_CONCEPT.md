@@ -1,4 +1,8 @@
-# The LCO — concept, direction, and current state
+# The LRO — concept, direction, and current state
+
+> The oscillator is the **Language-Resonant Oscillator (LRO)**, and the
+> instrument is **akróasys**. `LCO` is the older name; it survives in file
+> names, identifiers and the text below so links and history stay valid.
 
 **Status: authoritative.** This document supersedes every earlier description of the LCO in `docs/` (the `DCO_*` and `HANDOVER_DCO_*` files describe the predecessor and are historical). Written 2026-07-19, at BJ's instruction, after a session in which the direction had to be corrected four times because it was not written down anywhere.
 
