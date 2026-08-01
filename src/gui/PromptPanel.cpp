@@ -386,7 +386,7 @@ PromptPanel::PromptPanel(T5ynthProcessor& processor)
         dcoPromptEditor.setColour(juce::TextEditor::outlineColourId, kBorder);
         dcoPromptEditor.setColour(juce::TextEditor::focusedOutlineColourId, kImpulseA);
         dcoPromptEditor.setColour(juce::TextEditor::highlightColourId, kImpulseA.withAlpha(0.30f));
-        dcoPromptEditor.setTextToShowWhenEmpty("Describe the oscillator to bake", kImpulseAText.withAlpha(0.45f));
+        dcoPromptEditor.setTextToShowWhenEmpty("Describe the oscillator to craft", kImpulseAText.withAlpha(0.45f));
         dcoPromptEditor.onReturnKey = [this] { triggerLcoGenerate(); };
         // No onTextChange mirror to the processor: the DCO prompt is
         // panel-local for now (preset persistence is a documented open seam).
@@ -467,7 +467,7 @@ PromptPanel::PromptPanel(T5ynthProcessor& processor)
         dcoStanceBar.setTooltip(
             "LRO Re-Prompt stance: the machine listens to the oscillator it just "
             "built and rewrites the LRO prompt from what it heard, before the next "
-            "bake. Hover a glyph for its movement type.");
+            "one is crafted. Hover a glyph for its movement type.");
         dcoStanceBar.setPositionTooltips({
             "Off - Re-Prompt loop disabled.",
             // "hears", like the neural list: since 2026-07-28 this stance works on a
@@ -2452,7 +2452,8 @@ void PromptPanel::triggerDcoBake()
     // the retired path's identical replay guard.
     if (processorRef.isReplayActive())
     {
-        if (onStatusChanged) onStatusChanged("replay running — stop it to bake", false);
+        if (onStatusChanged) onStatusChanged(juce::String::fromUTF8(
+            "replay running \xe2\x80\x94 stop it to craft"), false);
         return;
     }
 
