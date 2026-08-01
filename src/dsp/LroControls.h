@@ -55,6 +55,18 @@ struct LroControls
      *  stay in the backend's response and do not travel at all. */
     juce::StringArray refused;
 
+    /** Which LAYERS the body has — the subset of 1..3 whose `kvolN` it reads.
+     *
+     *  NOT the parts above, and never to be counted with the same number. A part
+     *  is a library entry a parameter line survived from; a layer is one of the
+     *  scaffold's three mix variables, which the author is told to scale each
+     *  layer by. The two cross both ways: an `a > b` transition is one layer and
+     *  can be two entries, two layers built from one entry are one column. Taken
+     *  from the body by `read_controls`, because the `kvolN` names are the
+     *  scaffold's and fixed — where "which entry is layer 2" is not decidable at
+     *  all. */
+    std::vector<int> layers;
+
     bool isEmpty() const { return knobs.empty(); }
 
     /** Knobs of one part, in the order their lines stand in the body. */
@@ -110,6 +122,13 @@ struct LroControls
             if (auto* arr = obj->getProperty("refused").getArray())
                 for (auto& e : *arr)
                     out.refused.add(e.toString());
+            if (auto* arr = obj->getProperty("layers").getArray())
+                for (auto& e : *arr)
+                {
+                    const int n = static_cast<int>(e);
+                    if (n >= 1 && n <= 3)
+                        out.layers.push_back(n);
+                }
         }
         // A part nobody has a knob in is a heading over nothing.
         for (int i = static_cast<int>(out.parts.size()) - 1; i >= 0; --i)
@@ -143,9 +162,13 @@ struct LroControls
         }
         for (const auto& r : refused)
             refusedArr.add(r);
+        juce::Array<juce::var> layerArr;
+        for (int n : layers)
+            layerArr.add(n);
         obj->setProperty("parts", partArr);
         obj->setProperty("params", knobArr);
         obj->setProperty("refused", refusedArr);
+        obj->setProperty("layers", layerArr);
         return juce::var(obj);
     }
 };

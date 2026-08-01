@@ -1471,7 +1471,7 @@ void SynthPanel::layoutLroKnobs()
     lroColumnBounds.clearQuick();
 
     const bool showing = engineModeHidden.getSelectedId() == EngineMode::Csound + 1
-                      && ! lroControls.isEmpty();
+                      && (! lroControls.isEmpty() || ! lroControls.layers.empty());
     if (! showing)
     {
         // Off-screen rather than merely hidden: a hidden component still owns
@@ -1488,14 +1488,12 @@ void SynthPanel::layoutLroKnobs()
 
     const float f = fs();
     auto card = lroCardBounds();
-    // The two lines above the columns — the author's own READING across the
-    // card, then the part names over their columns. Both are drawn in
-    // paintOverChildren; both heights come from the same two expressions there,
-    // so a row can never start inside a heading.
+    // The author's own READING across the card. Kept, not recomputed in the
+    // paint pass: the two used to be derived independently from the same
+    // expressions and drifted into each other.
     const float capFs  = juce::jlimit(11.0f, 14.0f, f * 0.85f);
     const float partFs = juce::jlimit(10.0f, 13.0f, f * 0.8f);
-    card.removeFromTop(juce::roundToInt(capFs * 1.7f));
-    card.removeFromTop(juce::roundToInt(partFs * 1.6f));
+    lroCaptionBounds = card.removeFromTop(juce::roundToInt(capFs * 1.7f));
 
     const int nCols = juce::jmax(1, static_cast<int>(lroControls.parts.size()));
     // Columns divide the card evenly and a single part uses the whole width:
@@ -1506,13 +1504,47 @@ void SynthPanel::layoutLroKnobs()
 
     // Rows are the panel's own row height, but never taller than the card can
     // hold: four declared knobs must still fit, since four is what the contract
-    // allows, and the part's LEVEL sits above them, so five. The label column is
-    // forced to the SAME width in every column so the tracks line up across the
-    // grid — the rows are the same component the rest of the synth uses, and
-    // this is the only thing that has to be said about them here.
-    const int maxRows = 5;
+    // allows, plus the band of layer levels above them when there is one. The
+    // part-name strip is taken out FIRST — it is text, not a row, and dividing
+    // the card as though it were pushed the fourth knob off the bottom of the
+    // smallest window. The label column is forced to the SAME width in every
+    // column so the tracks line up across the grid — the rows are the same
+    // component the rest of the synth uses, and this is the only thing that has
+    // to be said about them here.
+    const int nLayers  = static_cast<int>(lroControls.layers.size());
+    const int nameH    = juce::roundToInt(partFs * 1.6f);
+    const int rowsHigh = 4 + (nLayers > 0 ? 1 : 0);
     const int rowH = juce::jlimit(juce::roundToInt(f * 0.9f), juce::roundToInt(f * 1.5f),
-                                  card.getHeight() / maxRows);
+                                  (card.getHeight() - nameH) / rowsHigh);
+
+    // ── the layer levels, ACROSS the card and not inside a column ──
+    // They cannot sit in a column, because a column is a library entry and a
+    // layer is a `kvolN` the body reads, and neither decides the other: an
+    // `a > b` transition shares `kvol1` across two entries, two layers can come
+    // out of one entry. Placing one level per column drove `kvol2` from a
+    // heading that had nothing to do with it. So the levels stand together,
+    // above the columns, in the instrument's own layer order.
+    if (nLayers > 0)
+    {
+        auto band = card.removeFromTop(rowH);
+        const int cellW = band.getWidth() / nLayers;
+        for (int i = 0; i < nLayers; ++i)
+        {
+            const int layer = lroControls.layers[static_cast<size_t>(i)];
+            if (layer < 1 || layer > kNumLroLevels
+                || lroLevelRows[static_cast<size_t>(layer - 1)] == nullptr)
+                continue;
+            auto cell = (i + 1 == nLayers) ? band : band.removeFromLeft(cellW);
+            auto& lvl = *lroLevelRows[static_cast<size_t>(layer - 1)];
+            lvl.setBounds(cell.reduced(gutter / 2, 0));
+            lvl.setForcedLabelWidth(juce::jmin(lvl.getWidth() / 2,
+                                               juce::roundToInt(f * 5.5f)));
+        }
+    }
+
+    // The part names sit directly over their columns, BELOW the level band, so
+    // a heading stands on the knobs it names.
+    lroPartNameBounds = card.removeFromTop(nameH);
 
     for (size_t c = 0; c < lroControls.parts.size(); ++c)
     {
@@ -1520,19 +1552,6 @@ void SynthPanel::layoutLroKnobs()
                                        ? card.getWidth() : colW);
         lroColumnBounds.add(col);
         auto inner = col.reduced(gutter / 2, 0);
-
-        // The part's LEVEL first, so it reads as belonging to the column rather
-        // than as one more of its parameters, and so a column's knob rows keep
-        // the same order the body wrote them in.
-        const int partIdx = lroControls.parts[c].number - 1;
-        if (partIdx >= 0 && partIdx < kNumLroLevels && lroLevelRows[static_cast<size_t>(partIdx)] != nullptr)
-        {
-            auto& lvl = *lroLevelRows[static_cast<size_t>(partIdx)];
-            auto r = inner.removeFromTop(rowH);
-            lvl.setBounds(r);
-            lvl.setForcedLabelWidth(juce::jmin(r.getWidth() / 2,
-                                               juce::roundToInt(f * 5.5f)));
-        }
 
         const auto knobs = lroControls.knobsOf(lroControls.parts[c].number);
         for (const auto& k : knobs)
@@ -1701,16 +1720,20 @@ void SynthPanel::updateVisibility()
             row.getSlider().setTooltip(found->gloss);
         }
     }
-    // A part's level exists exactly as long as the part does. Shown for the
-    // parts this instrument HAS, so a column that is not on screen does not
-    // leave a stray fader where its heading used to be.
+    // A layer's level exists exactly as long as the layer does — and a layer is
+    // a `kvolN` the BODY reads, not a column. A body that kept no library line
+    // at all still has layers, and still gets their levels.
     for (int i = 0; i < kNumLroLevels; ++i)
     {
-        bool has = false;
-        for (const auto& p : lroControls.parts)
-            if (p.number == i + 1)
-                has = true;
-        lroLevelRows[static_cast<size_t>(i)]->setVisible(isCsound && has);
+        const bool has = std::find(lroControls.layers.begin(), lroControls.layers.end(),
+                                   i + 1) != lroControls.layers.end();
+        auto& lvl = *lroLevelRows[static_cast<size_t>(i)];
+        lvl.setVisible(isCsound && has);
+        // Numbered only when the instrument has more than one — a single-layer
+        // body has nothing to tell apart.
+        lvl.getLabel().setText(lroControls.layers.size() > 1
+                                   ? "Level " + juce::String(i + 1) : juce::String("Level"),
+                               juce::dontSendNotification);
     }
 
     // Re-read the curated instruments on every panel update while the LRO is
@@ -2882,23 +2905,20 @@ void SynthPanel::paintOverChildren(juce::Graphics& g)
             // are real components laid out in layoutLroKnobs — what is painted
             // here is only what a component cannot be: the author's READING as
             // the card's caption, and the part names over their columns.
-            if (! lroControls.isEmpty() && ! lroColumnBounds.isEmpty())
+            if (! lroControls.isEmpty() || ! lroControls.layers.empty())
             {
-                // TWO strips, not one. The READING runs the width of the card
-                // and a part name sits over its own column, so sharing a strip
-                // put the instrument's own sentence through the middle of the
-                // column headings. `layoutLroKnobs` removes both, from the same
-                // two expressions, so the first row starts below them.
+                // Every rectangle here comes from layoutLroKnobs. Deriving them
+                // a second time from the same expressions is what once drew the
+                // instrument's own sentence through the middle of its column
+                // headings, and the levels moved a strip since.
                 const float capFs  = juce::jlimit(11.0f, 14.0f, f * 0.85f);
                 const float partFs = juce::jlimit(10.0f, 13.0f, f * 0.8f);
-                auto capArea  = card.removeFromTop(juce::roundToInt(capFs * 1.7f));
-                auto partArea = card.removeFromTop(juce::roundToInt(partFs * 1.6f));
 
                 const auto reading = processorRef.getCsoundReading().trim();
                 g.setColour(kImpulseA.withAlpha(0.75f));
                 g.setFont(juce::FontOptions(capFs));
                 g.drawText(reading.isNotEmpty() ? reading : juce::String("PROMPT ORCHESTRA"),
-                           capArea, juce::Justification::centred, true);
+                           lroCaptionBounds, juce::Justification::centred, true);
 
                 for (int c = 0; c < lroColumnBounds.size(); ++c)
                 {
@@ -2906,10 +2926,12 @@ void SynthPanel::paintOverChildren(juce::Graphics& g)
                     if (c > 0)
                     {
                         // A thin rule between the parts — they are different
-                        // instruments, not one list of twelve knobs.
+                        // instruments, not one list of twelve knobs. It starts
+                        // at the part names, so it never crosses the level band
+                        // above them, which belongs to the whole instrument.
                         g.setColour(kBorder);
                         g.drawVerticalLine(col.getX(),
-                                           static_cast<float>(partArea.getY()),
+                                           static_cast<float>(lroPartNameBounds.getY()),
                                            static_cast<float>(card.getBottom()));
                     }
                     if (c < static_cast<int>(lroControls.parts.size()))
@@ -2917,7 +2939,8 @@ void SynthPanel::paintOverChildren(juce::Graphics& g)
                         g.setColour(kImpulseA.withAlpha(0.95f));
                         g.setFont(juce::FontOptions(partFs, juce::Font::bold));
                         g.drawText(lroControls.parts[static_cast<size_t>(c)].name.toUpperCase(),
-                                   col.withY(partArea.getY()).withHeight(partArea.getHeight())
+                                   col.withY(lroPartNameBounds.getY())
+                                      .withHeight(lroPartNameBounds.getHeight())
                                       .reduced(juce::roundToInt(f * 0.5f), 0),
                                    juce::Justification::centredLeft, true);
                     }

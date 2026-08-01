@@ -343,7 +343,8 @@ starts:
   "params": [{"ch": "lroP1a", "part": 1, "slot": "a", "name": "Bowl",
               "value": 0.5, "gloss": "which measured bowl the mode series is",
               "note": "", "line": 0, "lo": 0.0, "hi": 1.0}],
-  "refused": ["kgrit — `grit` is not a library parameter; only what the library declares becomes a knob"]
+  "refused": ["kgrit — `grit` is not a library parameter; only what the library declares becomes a knob"],
+  "layers": [1, 2]
 }
 ```
 
@@ -365,11 +366,20 @@ draws it today, so a refused line reaches the player as a knob that is simply no
 there. `note` says when a starting value was clamped into the parameter's range;
 it stays in this response and does not travel further.
 
+`layers` is the subset of 1..3 whose `kvolN` the body actually reads — the
+scaffold's three mix variables, which the author is told to scale each layer by.
+It is a DIFFERENT decomposition from `parts` and neither decides the other: an
+`a > b` transition is one layer and can be two entries, and two layers built out
+of one entry are one column. So the client draws one level per LAYER, and asking
+`parts` how many levels there are drives a channel the body never reads. Unlike
+`parts`/`params`, a body that keeps no library line can still have layers, so
+this list can be non-empty while both of those are empty.
+
 Everything in `controls` is a function of the BODY alone — never of which library
 entries an authoring turn happened to open. That is what makes `csound_compile`
 of an unedited body return the same knobs on the same channels as the authoring
-that wrote it; a client may rely on it. A body that keeps no library line yields empty
-lists, which is a legitimate answer and not an error. A client older than this
+that wrote it; a client may rely on it. A body that keeps no library line yields
+empty `parts`/`params`, which is a legitimate answer and not an error. A client older than this
 field ignores it; a backend older than it omits it, and the panel then shows no
 knobs.
 

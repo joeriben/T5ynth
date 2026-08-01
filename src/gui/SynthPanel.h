@@ -145,9 +145,13 @@ private:
     // processor's revision moves (timerCallback) rather than re-read per paint.
     LroControls lroControls;
     int lroControlsSeen = -1;
-    // Column geometry, computed in resized() and drawn in paintOverChildren:
-    // one rect per shown part, in the order the parts are drawn.
+    // Card geometry, computed ONCE in layoutLroKnobs and read by
+    // paintOverChildren — never derived a second time from the same
+    // expressions, which is how the caption and the part names came to be drawn
+    // into each other. One rect per shown part, in the order they are drawn.
     juce::Array<juce::Rectangle<int>> lroColumnBounds;
+    juce::Rectangle<int> lroCaptionBounds;    // the author's READING
+    juce::Rectangle<int> lroPartNameBounds;   // the row the part names sit in
 
     // ── Section headers ──
     juce::Label engineHeader, filterHeader, modHeader, lfoHeader, driftHeader;

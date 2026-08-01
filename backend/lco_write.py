@@ -840,8 +840,6 @@ def read_controls(body):
     deliverable."""
     code = body or ""
     hits = _param_lines(code)
-    if not hits:
-        return {"parts": [], "params": [], "refused": []}
 
     # THE BODY MUST ACTUALLY READ THE VARIABLE. Keeping the line guarantees the
     # wiring, not that anything downstream looks at it, and an author that keeps
@@ -878,6 +876,25 @@ def read_controls(body):
     def is_read(var, decl_line):
         pat = re.compile(rf"\b{re.escape(var)}\b")
         return any(pat.search(l) for n, l in enumerate(bare) if n != decl_line)
+
+    # WHICH LAYERS THIS BODY HAS, which is a different question from which
+    # columns it has and must not be answered with the same number. A COLUMN is a
+    # library entry a parameter line survived from; a LAYER is `kvol1`/`kvol2`/
+    # `kvol3`, the scaffold's own mix variables, and the author is told to scale
+    # layer N by `kvolN`. The two decompositions cross: an `a > b` transition is
+    # ONE layer sharing `kvol1` and can easily be TWO entries, and two layers
+    # built out of one entry are one column. Answering "how many columns" with
+    # "how many layers" put a level under a column heading that drove a variable
+    # the body never read, and left a real layer with no level at all.
+    #
+    # So this is read off the body directly. The names are the scaffold's, fixed
+    # and known, which is exactly why this one is decidable where "which entry is
+    # layer 2" is not.
+    layers = [n for n in (1, 2, 3)
+              if any(re.search(rf"\bkvol{n}\b", l) for l in bare)]
+
+    if not hits:
+        return {"parts": [], "params": [], "refused": [], "layers": layers}
 
     shelf = _shelf_params()
     present = {m.group("name").strip() for m in hits}
@@ -996,7 +1013,8 @@ def read_controls(body):
                        # `line` is the ordinal among `_param_lines`, and lo/hi the
                        # bracket the knob's 0..1 is mapped back onto.
                        "line": index, "lo": lo, "hi": hi})
-    return {"parts": parts, "params": params, "refused": refused}
+    return {"parts": parts, "params": params, "refused": refused,
+            "layers": layers}
 
 
 def wire_controls(body, controls):
@@ -1820,10 +1838,12 @@ _HEAD = (
     # Short decaying harmonic burst: the mallet contact for struck models, which
     # take their strike argument as a TABLE NUMBER, not a scalar.
     "giImp  ftgen 4, 0, 256, 10, 1, 0.5, 0.3, 0.2, 0.1\n"
-    # Starting values for the player's mix/octave knobs. Nothing in the plugin
-    # writes these two channels today — the head's value is all they ever carry
-    # — so this is also what the running instrument mixes at. (The twelve knob
-    # channels below are different: processBlock writes them every block.)
+    # Starting values for the player's mix/octave knobs. The three `oscNvol`
+    # channels ARE driven from the plugin — processBlock writes them every
+    # block from the panel's layer levels, alongside the twelve knob channels —
+    # so what stands here is only where they start. The three `oscNoct` are not
+    # written by anything today, so for those the head's value is all they ever
+    # carry and is what the running instrument transposes by.
     "chnset 1.0000, \"osc1vol\"\n"
     "chnset 1.0000, \"osc1oct\"\n"
     "chnset 1.0000, \"osc2vol\"\n"
