@@ -452,12 +452,21 @@ for full license details, URLs, and attribution notes.
 
 ### Citation
 
-If you use akróasys in academic work:
+If you use akróasys in academic work, cite it from
+[`CITATION.cff`](CITATION.cff), which GitHub renders as a citation block in the
+sidebar and which tools read directly:
 
 ```text
-Prof. Dr. Benjamin Jörissen / UNESCO Chair in Digital Culture and Arts in Education — UCDCAE AI Lab
+Jörissen, B. (2026). akróasys (Version 3.0.0) [Computer software].
+UNESCO Chair in Digital Culture and Arts in Education (UCDCAE),
+Friedrich-Alexander-Universität Erlangen-Nürnberg.
 https://github.com/joeriben/akroasys
 ```
+
+For the oscillator itself rather than the software, cite
+[`docs/LRO_TECHNICAL_DISCLOSURE.md`](docs/LRO_TECHNICAL_DISCLOSURE.md) — the
+standalone technical description of the Language-Resonant Oscillator, written
+for a reader outside the project.
 
 ### Documentation Note
 

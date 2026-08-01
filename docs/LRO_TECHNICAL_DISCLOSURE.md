@@ -256,9 +256,14 @@ on that branch:
 | 2026-07-22 | `3728a42f` | The language model writes the Csound orchestra; library-consulted authoring (`backend/lco_write.py`) |
 | 2026-07-24 | `e79031ae` | The two-turn consultation: the model names what it wants opened |
 | 2026-07-25 | `f394b5a9` | Public prose description of the oscillator in `README.md` |
+| 2026-08-01 | `a8b45824`, `0e7f9709` | Control-surface derivation of §6: a library parameter surviving into the written body becomes a player-facing control |
+| 2026-08-01 | `8c36dc13` | Per-part level controls derived the same way |
+| 2026-08-01 | `7f2b3d42` | The negative case: a parameter line the body never reads does not become a control |
 
-The control-surface derivation of §6 was implemented after the last push above
-and becomes publicly available together with this document.
+The repository has been public since its creation on 2026-03-28 and every commit
+above was pushed to its default branch. Commit dates are settable by the author;
+the load-bearing evidence is GitHub's own push record for this repository, and
+the third-party archive copies listed below.
 
 Reference implementation, for enablement: `backend/lco_write.py` (library
 rendering, consultation, authoring, scaffold, compile-repair loop, control
@@ -266,3 +271,14 @@ derivation and wiring), `backend/lco_library.json` and `backend/dco_lexicon.json
 (the library), `src/dsp/CsoundEngine.{h,cpp}` (live execution), and
 `src/inference/PipeInference.cpp` with `docs/IPC_PROTOCOL.md` (the transport
 between the plugin and the model process).
+
+### Third-party archive copies
+
+These exist so the date does not rest on the repository alone.
+
+| Archive | Identifier | Status |
+|---|---|---|
+| Zenodo (DOI, via the GitHub–Zenodo integration on a tagged release) | — | to be issued with v3.0.0 |
+| Software Heritage (permanent SWHID for the archived source) | — | to be requested |
+
+When each is issued, its identifier belongs in this table and in `CITATION.cff`.
