@@ -1350,11 +1350,13 @@ press <strong>Generate</strong>. A single tab above the prompt field names
 the language model that will do the writing; it is installed or configured in <a href="#setup-lm">Setup</a>.
 </p>
 <p>
-The toggle <strong>pulses gently</strong> when the column you are not looking at
-is holding a non-default value that still shapes what you hear — a Semantic Axis
-left standing while the LRO is showing, or Dimension Explorer offsets while the
-T5 Oscillator is. Switch over, and either reset the control or accept it; the
-pulse stops either way.
+The toggle <strong>pulses gently</strong> when something you cannot currently
+see is holding a non-default value that still shapes what you hear. In LRO mode
+that is a Semantic Axis left standing in the hidden T5 column. In T5 mode it is
+Dimension Explorer offsets — which live behind the Semantic Axes / Dim Explorer
+switch in the column you <em>are</em> looking at, so the fix there is to flip
+that switch rather than the oscillator toggle. Reset the control or accept it;
+the pulse stops either way.
 </p>
 
 <h3>What you see while it writes</h3>
@@ -1805,7 +1807,7 @@ affects stage timing, bipolar (−1.0…+1.0).
   <tr><td><strong>Division</strong></td><td>16/1 … 1/32 (incl. T &amp; Q)</td><td>Active when Clock is Sync. Effective Hz = factor × (BPM/60) / 4. Sync source resolves as: live host transport &gt; running in-app sequencer &gt; last-seen host BPM &gt; the Seq BPM field as fallback.</td></tr>
   <tr><td><strong>Depth</strong></td><td>0.0 – 1.0</td><td></td></tr>
   <tr><td><strong>Waveform</strong></td><td>Sin / Tri / Saw / Sq / S&amp;H / SawD</td><td>S&amp;H holds a new random value each cycle; SawD is the falling saw.</td></tr>
-  <tr><td><strong>Mode</strong></td><td>Free / Trigger</td><td>Free runs continuously; Trigger resets on note-on (per-voice phase)</td></tr>
+  <tr><td><strong>Note reset</strong></td><td>Padlock icon</td><td>Unlocked = free-running; locked = the LFO's phase resets on every note-on. The words <em>Free</em> and <em>Trig</em> are not drawn — the padlock is the control.</td></tr>
   <tr><td><strong>Target</strong></td><td>Dropdown</td><td><code>---</code> (off) · Filter · Scan · Pitch · Dly Time / FB / Mix · Rev Mix · Noise Lvl · ENV1 Amt · ENV2 Amt · ENV3 Amt · Drift1 / 2 / 3 Amt · ENV4 Amt · ENV5 Amt &mdash; ENV4 and ENV5 sit after the Drift entries, not with ENV1&ndash;3</td></tr>
 </table>
 
@@ -1857,7 +1859,7 @@ not one per envelope.
 <h3>Delay</h3>
 <table>
   <tr><th>Parameter</th><th>Range</th><th>Notes</th></tr>
-  <tr><td><strong>Type</strong></td><td>Off / Digital / Ping-Pong / Tape Clean / Tape Warm / Tape Wild / Tape Old / BBD Clean / BBD Warm / BBD Degraded</td><td><strong>Digital</strong> is the clean dual-mono line. <strong>Ping-Pong</strong> sums to mono in and crosses the feedback. The four <strong>Tape</strong> characters model a three-head tape echo (RE-201 1:2:3 head spacing) with rising amounts of wow and flutter — Clean, then Warm (a subtle 9.7&nbsp;Hz zitter), then Wild (heavy wow plus 6.0 and 9.7&nbsp;Hz flutter); <strong>Tape Old</strong> is an earlier, physically wrong wobble kept as its own flavour. The three <strong>BBD</strong> characters model a bucket-brigade line: Clean is bright with little grit, Warm dark and steep, Degraded dark with heavy grit and warble.</td></tr>
+  <tr><td><strong>Type</strong></td><td>Five cells: <strong>OFF · Dig · PP · Tape · BBD</strong>. Tape and BBD open a dropdown and then relabel themselves to the character you picked (<em>Tp Clean / Tp Warm / Tp Wild / Tp Old</em>, <em>BBD Clean / BBD Warm / BBD Degrd</em>), so there are ten delays behind five buttons.</td><td><strong>Digital</strong> is the clean dual-mono line. <strong>Ping-Pong</strong> sums to mono in and crosses the feedback. The four <strong>Tape</strong> characters model a three-head tape echo (RE-201 1:2:3 head spacing) with rising amounts of wow and flutter — Clean, then Warm (a subtle 9.7&nbsp;Hz zitter), then Wild (heavy wow plus 6.0 and 9.7&nbsp;Hz flutter); <strong>Tape Old</strong> is an earlier, physically wrong wobble kept as its own flavour. The three <strong>BBD</strong> characters model a bucket-brigade line: Clean is bright with little grit, Warm dark and steep, Degraded dark with heavy grit and warble.</td></tr>
   <tr><td><strong>Time</strong></td><td>1 – 2000 ms</td><td>Logarithmic scaling. Active when Clock is Off. Can be modulated.</td></tr>
   <tr><td><strong>Clock</strong></td><td>Off / Sync</td><td>Toggle (clock-icon button). When Sync is on, the Time slider is replaced by a Division stepper. Same BPM resolution as the LFO/Drift Clock.</td></tr>
   <tr><td><strong>Division</strong></td><td>16/1 … 1/32 (incl. T &amp; Q)</td><td>Active when Clock is Sync. Effective ms = (60000/BPM) × (4/factor).</td></tr>
@@ -1869,7 +1871,7 @@ not one per envelope.
 <h3>Reverb</h3>
 <table>
   <tr><th>Parameter</th><th>Range</th><th>Notes</th></tr>
-  <tr><td><strong>Type</strong></td><td>Off / Plate Dk / Plate Md / Plate Br / Freeverb / Freeverb+</td><td>The three <strong>Plate</strong> settings are convolution (JUCE <code>dsp::Convolution</code>) on EMT 140 plate impulse responses by <a href="https://oramics.github.io/sampled/IR/EMT140-Plate/">Greg Hopkins</a> (CC BY) — dark, medium and bright. <strong>Freeverb</strong> wraps JUCE <code>dsp::Reverb</code>; <strong>Freeverb+</strong> is the same algorithm with a longer, denser tail. Both are far cheaper on CPU than the plates.</td></tr>
+  <tr><td><strong>Type</strong></td><td>Three cells: <strong>OFF · Plate · Freeverb</strong>, each of the latter two opening a dropdown (Plate Dk / Md / Br, Freeverb / Freeverb+).</td><td>The three <strong>Plate</strong> settings are convolution (JUCE <code>dsp::Convolution</code>) on EMT 140 plate impulse responses by <a href="https://oramics.github.io/sampled/IR/EMT140-Plate/">Greg Hopkins</a> (CC BY) — dark, medium and bright. <strong>Freeverb</strong> wraps JUCE <code>dsp::Reverb</code>; <strong>Freeverb+</strong> is the same algorithm with a longer, denser tail. Both are far cheaper on CPU than the plates.</td></tr>
   <tr><td><strong>Mix</strong></td><td>0.0 – 1.0</td><td>True dry/wet crossfade: 0 = dry, 1 = reverb only. The Freeverb types use a slightly curved wet response; the plates stay linear.</td></tr>
   <tr><td><strong>Room Size</strong></td><td>0.0 – 1.0</td><td>Default 0.7. Freeverb / Freeverb+ only — greyed out and inactive on the plates.</td></tr>
   <tr><td><strong>Damping</strong></td><td>0.0 – 1.0</td><td>Default 0.4. Freeverb / Freeverb+ only — greyed out on the plates.</td></tr>
@@ -2000,7 +2002,7 @@ Press the <strong>GEN</strong> button to switch from the manual step sequencer t
   <tr><td><strong>Steps</strong></td><td>2 – 32</td><td>Total timeline slots for the Euclidean pattern</td></tr>
   <tr><td><strong>Pulses</strong></td><td>1 – 32</td><td>Number of active beats distributed across the steps</td></tr>
   <tr><td><strong>Rotation</strong></td><td>0 – 31</td><td>Circular shift of the pattern</td></tr>
-  <tr><td><strong>Mutation</strong></td><td>0.0 – 1.0</td><td>How aggressively the melody evolves each cycle. 0 = frozen. 0.8 = highly fluid.</td></tr>
+  <tr><td><strong>Evolve</strong></td><td>0.0 – 1.0</td><td>Labelled <em>Evolve</em> on the panel; a host sees it as <em>Gen Mutation</em>. How aggressively the melody changes each cycle. 0 = frozen. 0.8 = highly fluid.</td></tr>
   <tr><td><strong>Range</strong></td><td>1 – 4 octaves</td><td>Pitch range for melodic generation</td></tr>
   <tr><td><strong>Scale Root</strong></td><td>C – B</td><td>Tonic note</td></tr>
   <tr><td><strong>Scale Type</strong></td><td>28 scales</td><td>Quantizes notes to scale degrees. <strong>Chromatic</strong> (the first entry) means no quantization. Then Major, Minor, Penta, Dorian, Harm.Min, WhlTone, Mixolyd, Phrygian, Lydian, Locrian, MinPent, Blues, Mel.Min, Hirajoshi, In-sen, Iwato, Kumoi, Ryukyu, Hijaz, DblHarm, R.Todi, R.Purvi, Persian, Hung.Min, Neap.Min, Pelog, Slendro.</td></tr>
@@ -2008,7 +2010,7 @@ Press the <strong>GEN</strong> button to switch from the manual step sequencer t
 
 <h4>FIX Toggles</h4>
 <p>
-Each Euclidean parameter (Steps, Pulses, Rotation, Mutation) has a lock toggle. When unlocked, that parameter itself drifts over time — the pattern length, density, rotation, and mutation rate all evolve. Lock what you want stable, unlock what you want to breathe.
+Each Euclidean parameter (Steps, Pulses, Rotation, Evolve) has a <strong>FIX</strong> toggle. Steps and Evolve start locked; Pulses and Rotation start unlocked. When unlocked, that parameter itself drifts over time — the pattern length, density, rotation, and mutation rate all evolve. Lock what you want stable, unlock what you want to breathe.
 </p>
 
 <h3>Core Monitor</h3>
@@ -2049,7 +2051,7 @@ GEN runs up to <strong>five parallel Strands</strong> (Strand&nbsp;1 is always a
   <tr><td><strong>Octave</strong></td><td>&minus;2 &hellip; +2</td><td>Register offset. Use to separate strands vertically.</td></tr>
   <tr><td><strong>Div&times;</strong></td><td>1/16&times; … 16&times;</td><td>Tempo multiplier relative to the global division; thirteen ratios: 1/16, 1/8, <strong>1/5</strong>, 1/4, <strong>1/3</strong>, 1/2, 1, 2, <strong>3</strong>, 4, <strong>5</strong>, 8, 16. The binary ratios layer nested-subdivision grids (three strands at 1&times; / 2&times; / 4&times; give a quarter / eighth / sixteenth stack). The ternary and quintuple ratios are for true cross-rhythms — 1&times; against 3&times; for 3-against-1, 2&times; against 3&times; for hemiola, 1&times; against 5&times; for five over one.</td></tr>
   <tr><td><strong>Gravity</strong></td><td>0.0 &ndash; 1.0</td><td>How strongly the strand snaps to the field's center pitch on strong beats. 0 = pure Turing-machine drift; higher = more tonal anchoring.</td></tr>
-  <tr><td><strong>Steps / Pulses / Rotation / Mutation</strong></td><td>same as monophonic</td><td>Each strand carries its own Euclidean DNA and Fix toggles in the preset. In the GEN panel, though, the Steps / Pulses / Rotation / Evolve sliders edit <strong>Strand&nbsp;1</strong>; Strands&nbsp;2&ndash;5 take these values from the preset or host automation, while in the panel you shape those strands through Role, Div&times;, Octave, and Gravity.</td></tr>
+  <tr><td><strong>Steps / Pulses / Rotation / Evolve</strong></td><td>same as monophonic</td><td>Each strand carries its own Euclidean DNA and Fix toggles in the preset. In the GEN panel, though, the Steps / Pulses / Rotation / Evolve sliders edit <strong>Strand&nbsp;1</strong>; Strands&nbsp;2&ndash;5 take these values from the preset or host automation, while in the panel you shape those strands through Role, Div&times;, Octave, and Gravity.</td></tr>
 </table>
 
 <h4>The Four Roles</h4>
@@ -2108,7 +2110,11 @@ Strands run independently inside themselves; this control governs how, or whethe
 
 <p>
 The arpeggiator sits <strong>after</strong> both the step sequencer and the
-generative sequencer — the chain is always: Sequencer → Arp → Synth Engine. It
+generative sequencer: Sequencer → Arp → Synth Engine. Three things break that
+chain, all of them deliberate — Arp Mode set to Off bypasses it entirely; in GEN
+mode only strand 1 passes through the arp while strands 2–5 go straight to the
+engine; and a key you are holding outranks the sequencer as the arp's base note.
+It
 does not read a held chord. It takes one incoming lead note as the current base
 note: the latest live MIDI note when no sequencer is running, the step-sequencer
 note in step mode, or the lead strand of GEN mode. Secondary GEN strands pass
@@ -2175,9 +2181,19 @@ What a slot holds depends on which oscillator was active when you stored it.
 From the <a href="#gen">T5 Oscillator</a>: the generated audio, both prompts,
 the seed and random state, the model choice, the generation parameters, the
 Semantic Axes, the Dimension Explorer offsets, the engine parameters, and the
-<strong>S</strong> / <strong>[</strong> / <strong>]</strong> handles with their lock state. From the
+<strong>S</strong> / <strong>[</strong> / <strong>]</strong> handles with their lock state,
+the injection mode with its intensity and split, the A/B embeddings themselves,
+and the wavetable extract range. "The engine parameters" is literal: the whole
+parameter tree goes in, not a selection from it. From the
 <a href="#lro">LRO</a>: the prompt, the authored Csound, and the sound it makes
 &mdash; a recalled slot recompiles and plays at once.
+</p>
+<p>
+The number keys are ignored while a text field has focus and while Settings, the
+Manual, the Library or the Sequence Library is open, so typing a prompt with a
+"2" in it never fires a snapshot. Under session-log replay they are swallowed
+entirely. The same gates apply to <kbd>Shift</kbd>+<kbd>Return</kbd> and to
+<kbd>Ctrl/Cmd</kbd>+<kbd>S</kbd>.
 </p>
 <p>
 Two ways this is used in practice: four contrasting oscillator states switched
@@ -2481,7 +2497,7 @@ This direction vector is then scaled by the slider value and added to the curren
 
 <h4>Step 4: Validation</h4>
 <p>
-Not all conceptual oppositions produce audible differences. The 8 axes included in akróasys were validated by generating audio at each pole and measuring <strong>Mel-spectrogram cosine distance</strong>. Only axes with a distance above 0.70 at 1-second duration survived. PCA-based axes (derived from variance in the embedding space rather than semantic opposition) were tested but found to collapse at short durations — they produce near-identical audio regardless of slider position.
+Not all conceptual oppositions produce audible differences. The 8 axes included in akróasys were validated by generating audio at each pole and measuring <strong>Mel-spectrogram cosine distance</strong>. Only axes whose poles separated clearly at 1-second duration survived; the strongest scored above 0.80. PCA-based axes (derived from variance in the embedding space rather than semantic opposition) were tested but found to collapse at short durations — they produce near-identical audio regardless of slider position.
 </p>
 
 <div class="note">
@@ -2521,7 +2537,7 @@ Individual T5 dimensions do not correspond to human-interpretable audio features
 
 <h4>Technical Details</h4>
 <ul>
-  <li>Offsets are applied as <code>manipulated[:, :, idx] += offset_value</code> — broadcast across all tokens in the sequence</li>
+  <li>An offset is added to its dimension across every token in the sequence, not to one token</li>
   <li>Only non-zero offsets are transmitted to the inference engine (sparse representation)</li>
   <li>Offsets persist across generations until explicitly reset</li>
   <li>The edit history (undo/redo) stores complete offset state snapshots</li>
@@ -2918,9 +2934,8 @@ listening-test findings below were made:
 </ul>
 <p>
 These bands are subject to revision as more listening data accrues.
-The <code>backend/pipe_inference.py</code> handler is the
-authoritative source; the C++ side sends matching values purely for
-log/preset legibility.
+The backend computes the bands and the C++ side sends matching values purely
+for log and preset legibility, so the two can never drift apart.
 </p>
 
 <h3>What stays unchanged</h3>
@@ -3231,8 +3246,7 @@ informed our understanding (no code copied):
 <a href="https://github.com/surge-synthesizer/surge">github.com/surge-synthesizer/surge</a>.
 </p>
 <p>
-The <code>Warp</code> filter algorithm (<code>src/dsp/CutoffWarpFilter.h</code>)
-is an original implementation inspired by the Cutoff Warp filter pioneered
+The <code>Warp</code> filter algorithm is an original implementation inspired by the Cutoff Warp filter pioneered
 in Surge XT. The ZDF 4-pole ladder topology is a standard digital filter
 formulation and not copyrightable in itself; the specific idea of a
 style-switchable per-feedback nonlinearity as a musical character parameter
