@@ -84,12 +84,22 @@ def run(prompt, llm, stats, measure=False, freq=220.0, dur=4.0):
            "reading": r.get("reading"),
            "thinking": r.get("thinking"),
            "body": r.get("params_text"),
+           # The knobs the author gave the player for this body, and every
+           # declaration that was refused — whether a model of this size writes
+           # the two lines at all is the open question the panel work rests on,
+           # and it is only answerable by running it.
+           "controls": r.get("controls"),
            "error": r.get("error"),
            "consultation": r.get("consultation"),
            "secs_total": round(time.time() - t0, 1),
            "inferences": list(stats)}
     if measure and out["ok"] and out["body"]:
         import lco_measure as M
+        # The body as authored, which is Csound throughout and needs nothing
+        # taken out of it: every knob stands in it as its own library line, at
+        # the number the author chose. So this measures the sound the author
+        # described — the plugin's `kp` wiring belongs to the orchestra the host
+        # wraps, and this scaffold is not that host.
         y, err = M.render(out["body"], dur=dur, freq=freq)
         out["measured"] = {"error": err} if y is None else dict(
             M.measure(y, freq), warning=err)
@@ -137,6 +147,16 @@ def main():
               f"attempts={r.get('attempts')} {r.get('secs_total')}s  {prompt!r}"
               f"{moved}" + ("" if r.get("ok") else f"\n    {r.get('error')}"),
               flush=True)
+        c = r.get("controls") or {}
+        if c.get("params") or c.get("refused"):
+            for part in c.get("parts", []):
+                print(f"    {part['name']}: " + ", ".join(
+                    f"{p['name']!r}={p['value']:g}"
+                    for p in c["params"] if p["part"] == part["n"]), flush=True)
+            if not c.get("params"):
+                print("    knobs: none", flush=True)
+            for line in c.get("refused", []):
+                print(f"    refused: {line}", flush=True)
         if args.out:
             Path(args.out).write_text(json.dumps(results, indent=1, ensure_ascii=False))
 
@@ -144,6 +164,16 @@ def main():
     tries = [r.get("attempts") for r in results if r.get("attempts")]
     print(f"\n{n_ok}/{len(results)} authored"
           + (f", {sum(tries) / len(tries):.2f} attempts each" if tries else ""))
+
+    # Did the author declare the player's knobs? A body with none is legal and
+    # the panel handles it, but a corpus with none says the contract is not
+    # reaching the model — which is a finding about the PROMPT, not about the
+    # panel that shows the result.
+    withc = [r for r in results if (r.get("controls") or {}).get("params")]
+    n_knobs = sum(len(r["controls"]["params"]) for r in withc)
+    n_ref = sum(len((r.get("controls") or {}).get("refused") or []) for r in results)
+    print(f"{len(withc)}/{n_ok} authored instruments declared knobs "
+          f"({n_knobs} in total, {n_ref} declarations refused)")
 
     # llama.cpp's Metal backend asserts while freeing the device at __cxa_finalize
     # (pipe_inference documents the same abort), so a clean run would exit 134.

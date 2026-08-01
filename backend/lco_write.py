@@ -506,6 +506,8 @@ AVAILABLE IN SCOPE
          chord does not move in lockstep: `ivph = frac(ivoice * 0.6180339887)`.
   kvol1 kvol2 kvol3                per-layer mix (player knobs)
   koct1 koct2 koct3                per-layer octave multiplier (player knobs)
+  (the player's sliders are not variables you write — see THE KNOBS THE PLAYER
+   GETS below: they are the library's own parameter lines, kept in your body)
   giSine (sine table)  giCos (cosine table, for gbuzz/buzz)
   giCheb (Chebyshev transfer table)  giImp (short strike impulse table)
   sr kr ksmps                      Csound's own globals, usable in an expression —
@@ -526,11 +528,30 @@ Write NO code in this first turn. No fence, no Csound lines. The shelf is a list
 SECOND TURN: the entries you named arrive, quoted in full. NOW write the orchestra body, in exactly ONE fenced block:
 
 ```csound
-<your Csound lines>
+<your Csound lines, with the library's parameter lines kept as they stand:>
+kbowl   = 0.50   ; bowl[0.0..1.0]: which measured bowl the mode series is
+kring   = 0.60   ; ring[0.0..1.0]: how long the shell holds
+<the rest of the body>
+asig    = abowl * kvol1
 READING: <a short plain-language description of what you built, 5-12 words>
 ```
 
 Inside the fence goes ONLY the oscillator body and that final READING line: no <CsoundSynthesizer>, no <CsInstruments>, no header (sr/ksmps/nchnls/0dbfs), no `instr`/`endin`, no `ftgen`, no score, no `out`/`outs`/`outch`. The host supplies all of it. Everything OUTSIDE the fence is your thinking and is discarded — so the fence must be there, and there must be exactly one.
+
+THE KNOBS THE PLAYER GETS — you do not invent them, you KEEP them
+The library declares what is playable about each of its bodies, and you can see it: a line that is at the same time the value your code uses and the name, range and gloss a player reads.
+
+    kbowl   = 0.50   ; bowl[0.0..1.0]: which measured bowl the mode series is
+
+EVERY SUCH LINE YOU KEEP IN YOUR BODY BECOMES A SLIDER under the player's hands. The host connects it to the slider itself — you never write `kp` anything, you never declare anything after READING. Write the line and it is wired.
+
+- KEEP THE LINE WHOLE: the variable, a plain NUMBER, and the comment `; name[lo..hi]: what it does`, exactly as the library wrote it. Delete the comment and the sound is unchanged but the player loses the knob. Replace the number with an expression and the same is true — a knob is a number somebody can turn.
+- KEEP IT WHERE THE LIBRARY PUT IT: at the TOP, ABOVE every line that reads the variable. Csound runs your body from the first line to the last, and a variable used before the line that sets it does not compile — `Variable 'kwidth' used before defined`. Collecting these lines at the end of the body, as if they were a declaration block, is the one way to lose a whole orchestra to this.
+- THE NUMBER IS YOURS, and it is the only part that is. It is where the knob STARTS, so write the value this sound wants; the player hears that first and moves away from it. Use the range in the brackets and stay inside it.
+- KEEP WHAT IS WORTH PLAYING for the sound you are writing, and let the rest go: a parameter you have no use for can be folded into your code as a plain number with no comment. Three per body is a good instrument; twelve is a wall.
+- The player sees COLUMNS, one per library entry you took a line from, in the order they appear in your body. At most three columns of four knobs. Anything past that is dropped.
+- INVENTING ONE GIVES THE PLAYER NOTHING. A line whose name the library does not declare for that body is not a knob — the names, the ranges and the words under them are the library's.
+- Do not go looking for a knob for level, octave, pitch, attack, decay or filter cutoff. The synth already has those.
 
 You have already reasoned about the sound in the first turn. Do not reason it out again in the second: choose, and write.
 """
@@ -688,6 +709,239 @@ def read_settings(raw, params):
             num = max(lo, min(hi, num))
         out.append({"id": pid, "name": entry.get("name", pid), "value": num,
                     "ok": True, "note": note})
+    return out
+
+
+# The player's knobs for the written body: three parts, four places each.
+# FIXED, not derived from what the author wrote: the orchestra head then looks
+# the same for every sound, so an offline render plays exactly what the plugin
+# plays, and the host can resolve twelve channel pointers once instead of after
+# every authoring.
+LRO_PARTS = 3
+LRO_SLOTS = "abcd"
+LRO_CHANNELS = tuple(f"{n}{s}" for n in range(1, LRO_PARTS + 1) for s in LRO_SLOTS)
+# What a channel nothing reads sits at. Nothing hears it — a `kp` the wiring did
+# not put into the body is an unused variable — but the head still writes it, so
+# that the twelve `chnset` lines keep one shape whatever was authored.
+LRO_DEFAULT = 0.5
+
+
+def _shelf_params(sel=None):
+    """Every parameter the library DECLARES, by name: what may become a knob.
+
+    One record per (entry, parameter), in library order, carrying what the panel
+    shows — the entry's display name for the column, the range the entry declares
+    and the short gloss the entry's code line gives it. `note` and `anchors` are
+    deliberately left behind: they are pages long, and the knob is a slider.
+
+    The declared range is here to IDENTIFY the entry a line came from, not to
+    wire it: what a knob is wired to is the bracket in the line itself (see
+    `read_controls`). A name can belong to more than one entry (`ring` to four of
+    them today), so the caller resolves the owner against what the body actually
+    carries; this only lays out the shelf."""
+    lib = sel if sel is not None else _load_library()
+    shelf, order = {}, 0
+    for section in ("instruments", "adjectives", "motions"):
+        for entry in (lib.get(section) or ()):
+            declared = entry.get("params") or {}
+            if not declared:
+                continue
+            # The entry's own line for each parameter, for its SHORT description.
+            # `params[name]["note"]` is the measurement and runs to a paragraph;
+            # this is the same sentence written for a reader.
+            glosses = {m.group("name").strip(): m.group("gloss").strip()
+                       for m in _LIBPARAM.finditer(entry.get("code") or "")}
+            names = set(declared)
+            for name, spec in declared.items():
+                rng = (spec or {}).get("range") or []
+                if len(rng) != 2:
+                    continue
+                try:
+                    lo, hi = float(rng[0]), float(rng[1])
+                except (TypeError, ValueError):
+                    continue
+                if lo == hi:
+                    continue
+                order += 1
+                shelf.setdefault(name, []).append(
+                    {"key": entry["key"], "entry": entry.get("name") or entry["key"],
+                     "param": name, "range": (lo, hi),
+                     "gloss": glosses.get(name, ""), "siblings": names, "order": order})
+    return shelf
+
+
+def _knob_label(name):
+    """A library parameter name as the player reads it: `ratio 2` -> `Ratio 2`.
+
+    Only the first letter of each word, never `.title()`: that would rewrite
+    `finetune` as `Finetune` (right) and any future `pwm` as `Pwm` (wrong)."""
+    return " ".join(w[:1].upper() + w[1:] for w in str(name).split())
+
+
+def _param_lines(code):
+    """Every library parameter line in a body, in order, ignoring commented-out
+    ones.
+
+    THE ONE ENUMERATION both `read_controls` and `wire_controls` walk, so a knob's
+    `line` ordinal means the same thing to both. If they counted differently the
+    wiring would land on the wrong line, which is the one failure here that would
+    be silent and audible at once.
+
+    `/* … */` matters because a parameter line inside one is not code: it would
+    otherwise give the player a slider over a body that never reads the variable
+    — exactly the dead knob this whole construction exists to make impossible.
+    Nothing in the library uses block comments today; this is what keeps that
+    from being an assumption about the author."""
+    text = code or ""
+    blocks = [m.span() for m in re.finditer(r"/\*.*?\*/", text, re.S)]
+    return [m for m in _LIBPARAM.finditer(text)
+            if not any(a <= m.start() < b for a, b in blocks)]
+
+
+def read_controls(body, sel=None):
+    """The library parameters that survived into the body — the player's knobs.
+
+    A knob is not something the author declares. It is a line of the library's
+    own shape (`_LIBPARAM`) standing in the written body, and the author's only
+    say in it is the NUMBER: where the knob starts. The name, the range and the
+    words under it come from the entry that declares the parameter, so the panel
+    shows the library's vocabulary and cannot show anything else.
+
+    `sel` is what `open_entries` put in front of the author; None means the whole
+    library, which is what a hand-edited body gets — there was no authoring turn
+    to have opened anything.
+
+    Refused, and reported rather than silently dropped:
+      * a name no opened entry declares. That is the author inventing a knob,
+        and an invented one is exactly what this path exists to make impossible.
+      * a fourth column, or a fifth knob in a column: three parts of four is what
+        the panel holds.
+    A starting value outside its own bracket is CLAMPED with a note, the same way
+    `read_settings` treats one — the number is a position, the knob is the
+    deliverable."""
+    code = body or ""
+    hits = _param_lines(code)
+    if not hits:
+        return {"parts": [], "params": [], "refused": []}
+
+    shelf = _shelf_params(sel)
+    present = {m.group("name").strip() for m in hits}
+    # WHICH ENTRY a name belongs to, when several declare it — `pick` is both
+    # `plucked_wire`'s and `string`'s, `ring` belongs to four. This decides the
+    # COLUMN and its caption. It does NOT decide the wire: that is the bracket in
+    # the line itself, which stands beside the code that reads the value and is
+    # therefore the only range that is safe to map onto (an earlier version wired
+    # the winning ENTRY's declared range instead, and a `pick [0.25..0.35]` line
+    # captured by `string`'s 0..1 lost 45 dB at both ends of its own slider).
+    #
+    # The vote is the FRACTION of an entry's parameters the body carries, not the
+    # count: an entry all of whose axes are present is the one that was opened
+    # and used, while a big entry that happens to share two names is not. A
+    # matching bracket outranks both — it is direct evidence of where the line
+    # was copied from. Ties fall to the entry the library lists first.
+    def owner_of(name, lo, hi):
+        cands = shelf.get(name) or []
+        if not cands:
+            return None
+        def score(r):
+            same = 1 if (abs(r["range"][0] - lo) < 1e-9
+                         and abs(r["range"][1] - hi) < 1e-9) else 0
+            covered = len(r["siblings"] & present) / max(1, len(r["siblings"]))
+            return (same, covered, len(r["siblings"] & present), -r["order"])
+        return max(cands, key=score)
+
+    parts, params, refused, column = [], [], [], {}
+    for index, m in enumerate(hits):
+        name = m.group("name").strip()
+        try:
+            lo = float(m.group("lo").replace(",", "."))
+            hi = float(m.group("hi").replace(",", "."))
+        except ValueError:                                   # pragma: no cover
+            refused.append(f"{name} — {m.group('lo')}..{m.group('hi')} is not a range")
+            continue
+        if lo == hi:
+            refused.append(f"{name} — its range is a single point ({lo:g}), "
+                           f"so there is nothing to turn")
+            continue
+        rec = owner_of(name, lo, hi)
+        if rec is None:
+            refused.append(f"{m.group('var')} — `{name}` is not a library parameter; "
+                           f"only what the library declares becomes a knob")
+            continue
+        if rec["key"] not in column:
+            if len(parts) >= LRO_PARTS:
+                refused.append(f"{name} — {rec['entry']} would be a "
+                               f"{len(parts) + 1}th column; only {LRO_PARTS} fit")
+                continue
+            column[rec["key"]] = len(parts) + 1
+            parts.append({"n": len(parts) + 1, "name": rec["entry"]})
+        n = column[rec["key"]]
+        taken = sum(1 for p in params if p["part"] == n)
+        if taken >= len(LRO_SLOTS):
+            refused.append(f"{name} — {rec['entry']} already has {len(LRO_SLOTS)} "
+                           f"knobs, which is all a column holds")
+            continue
+        try:
+            v = float(m.group("value").replace(",", "."))
+        except ValueError:                                   # pragma: no cover
+            refused.append(f"{name} — {m.group('value')!r} is not a number")
+            continue
+        pos, note = (v - lo) / (hi - lo), ""
+        if pos < 0.0 or pos > 1.0:
+            note = f"the body set {v:g}, outside its own {lo:g}..{hi:g}"
+            pos = max(0.0, min(1.0, pos))
+        # The line's own bracket against the one the library declares. They agree
+        # whenever the line was kept as it stands, which is the normal case; when
+        # they do not, the line still wins — it is what the code beside it was
+        # written for — and the disagreement is said out loud rather than
+        # resolved in silence.
+        dlo, dhi = rec["range"]
+        if abs(dlo - lo) > 1e-9 or abs(dhi - hi) > 1e-9:
+            note = (note + "; " if note else "") + \
+                   f"the line reads {lo:g}..{hi:g} where {rec['entry']} declares " \
+                   f"{dlo:g}..{dhi:g}; the line stands"
+        slot = LRO_SLOTS[taken]
+        params.append({"ch": f"lroP{n}{slot}", "part": n, "slot": slot,
+                       "name": _knob_label(name), "value": pos,
+                       # The library's own words when the line still carries the
+                       # range they were written about; the line's otherwise,
+                       # because then they describe different travel.
+                       "gloss": (rec["gloss"] if (rec["gloss"] and not note)
+                                 else m.group("gloss").strip() or rec["gloss"]),
+                       "note": note,
+                       # For `wire_controls`, which rewrites exactly these lines:
+                       # `line` is the ordinal among `_param_lines`, and lo/hi the
+                       # bracket the knob's 0..1 is mapped back onto.
+                       "line": index, "lo": lo, "hi": hi})
+    return {"parts": parts, "params": params, "refused": refused}
+
+
+def wire_controls(body, controls):
+    """The body with each knob's number replaced by the knob.
+
+    THE AUTHOR NEVER WIRES ANYTHING — this does, and that is the whole point of
+    reading the knobs off the library instead of off a declaration: a model that
+    writes a perfect contract and then leaves its own fixed numbers in the code
+    (measured, and the reason this path was rebuilt) can no longer produce a
+    slider that moves nothing.
+
+        kbowl   = 0.50   ; bowl[0.0..1.0]: …   ->   kbowl   = 0 + 1 * kp1a   ; bowl[0.0..1.0]: …
+
+    Only the number changes. The comment stays exactly as it was, so the wired
+    orchestra still says what each line is, and ONE line stays one line —
+    `_BODY_OFFSET` maps Csound's error lines back onto what the author wrote."""
+    knobs = {k["line"]: k for k in (controls or {}).get("params", ())}
+    text = body or ""
+    if not knobs:
+        return text
+    # Back to front, so an earlier rewrite cannot move a later match's offsets.
+    out = text
+    for index, m in reversed(list(enumerate(_param_lines(text)))):
+        k = knobs.get(index)
+        if k is None:
+            continue
+        expr = f"{k['lo']:g} + {k['hi'] - k['lo']:g} * kp{k['part']}{k['slot']}"
+        out = out[:m.start("value")] + expr + out[m.end("value"):]
     return out
 
 
@@ -864,6 +1118,31 @@ _STRIP = re.compile(
 # arm above); it is read back out of the raw reply by `read_settings`.
 _SET = re.compile(r"^\s*SET\s*:\s*([A-Za-z0-9_]+)\s*=\s*(.+?)\s*$",
                   re.IGNORECASE | re.MULTILINE)
+
+# The library's own way of declaring a playable parameter, and the ONE source of
+# a knob. It is real Csound — the value the body uses — and its comment is the
+# declaration:
+#
+#     kbowl   = 0.50   ; bowl[0.0..1.0]: which measured bowl the mode series is
+#
+# The variable belongs to whoever wrote the body; the NAME after the `;` is the
+# library's, and `params` in the entry is where it is declared with its range,
+# its measurement and its anchors. So the knob is neither invented by the author
+# nor reconstructed from the code: it is a library parameter that survived into
+# the written body, and the author's only say is the NUMBER — where the knob
+# starts.
+#
+# All four shapes in the library today are read: a name against the bracket
+# (`bowl[0.0..1.0]`) or spaced off it (`refl [0.70..0.85]`), a name with a space
+# in it (`ratio 2`), and a range that is neither 0..1 nor positive
+# (`finetune [-50..50]`, `age [0..3]`).
+_LIBPARAM = re.compile(
+    r'^(?P<indent>[ \t]*)(?P<var>k\w+)(?P<eq>[ \t]*=[ \t]*)'
+    r'(?P<value>[-+]?[0-9]*[.,]?[0-9]+)(?P<semi>[ \t]*;[ \t]*)'
+    r'(?P<name>[A-Za-z][A-Za-z0-9_]*(?:[ \t]+[A-Za-z0-9_]+)*)[ \t]*'
+    r'\[[ \t]*(?P<lo>[-+]?[0-9]*[.,]?[0-9]+)[ \t]*\.\.[ \t]*'
+    r'(?P<hi>[-+]?[0-9]*[.,]?[0-9]+)[ \t]*\][ \t]*:[ \t]*(?P<gloss>.*?)[ \t]*$',
+    re.MULTILINE)
 
 # A fence marker on its OWN line. Markers are found individually and never
 # PAIRED: pairing is what mis-binds a stray ``` to the wrong block, and the
@@ -1458,15 +1737,23 @@ _HEAD = (
     # Short decaying harmonic burst: the mallet contact for struck models, which
     # take their strike argument as a TABLE NUMBER, not a scalar.
     "giImp  ftgen 4, 0, 256, 10, 1, 0.5, 0.3, 0.2, 0.1\n"
-    # Starting values for the player's mix/octave knobs. The plugin overwrites
-    # these from its parameters on the next block; an offline render or a host
-    # that never writes them plays exactly what was authored.
+    # Starting values for the player's mix/octave knobs. Nothing in the plugin
+    # writes these two channels today — the head's value is all they ever carry
+    # — so this is also what the running instrument mixes at. (The twelve knob
+    # channels below are different: processBlock writes them every block.)
     "chnset 1.0000, \"osc1vol\"\n"
     "chnset 1.0000, \"osc1oct\"\n"
     "chnset 1.0000, \"osc2vol\"\n"
     "chnset 1.0000, \"osc2oct\"\n"
     "chnset 1.0000, \"osc3vol\"\n"
     "chnset 1.0000, \"osc3oct\"\n"
+    # The twelve player knobs for this body. Always all twelve, always in this
+    # order, whatever the body carries: the head keeps one shape, _BODY_OFFSET
+    # stays a constant, and the host resolves twelve channel pointers once
+    # instead of after every authoring. `wrap` substitutes the starting value of
+    # each knob that was wired; the rest stay at LRO_DEFAULT and are read by
+    # nothing.
+    + "".join(f"chnset %LRO{c.upper()}%, \"lroP{c}\"\n" for c in LRO_CHANNELS) +
     "\n"
     "instr 1\n"
     "  ivoice   = p4\n"
@@ -1488,6 +1775,7 @@ _HEAD = (
     "  koct2    chnget \"osc2oct\"\n"
     "  kvol3    chnget \"osc3vol\"\n"
     "  koct3    chnget \"osc3oct\"\n"
+    + "".join(f"  kp{c:<7} chnget \"lroP{c}\"\n" for c in LRO_CHANNELS) +
     "  kgate    portk kgateraw, 0.001\n"
     "  kfreq    limit kfreqraw, 20, 12000\n"
     "  kpresGain = 1.0 + 0.15 * kpres\n"
@@ -1523,11 +1811,22 @@ _SCORE = "".join(f"i 1 0 360000 {v}\n" for v in range(1, NCHNLS + 1)) \
          + "e 360000\n</CsScore>\n</CsoundSynthesizer>\n"
 
 
-def wrap(body):
-    """Authored body -> the full orchestra the engine compiles."""
+def wrap(body, controls=None):
+    """Authored body -> the full orchestra the engine compiles.
+
+    `controls` is `read_controls`'s result, or None. Its starting values go into
+    the head's `chnset` lines, so an offline render — or a host that never
+    writes the channels — plays the sound the author actually described, with
+    every knob where the author put it. The plugin overwrites them from its own
+    parameters on the next block."""
+    values = {p["ch"]: p["value"] for p in (controls or {}).get("params", [])}
+    head = _HEAD
+    for c in LRO_CHANNELS:
+        head = head.replace(f"%LRO{c.upper()}%",
+                            f"{values.get(f'lroP{c}', LRO_DEFAULT):.4f}")
     indented = "\n".join(("  " + l) if not l.startswith(" ") else l
                          for l in body.splitlines())
-    return _HEAD + indented + _TAIL + _SCORE
+    return head + indented + _TAIL + _SCORE
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -2107,7 +2406,13 @@ def compile_body(body):
     if _csound_binary() is None and _csound_library() is None:
         return {"ok": False, "error": NO_COMPILER}
 
-    orchestra = wrap(body)
+    # The person editing is the author now, and the knobs come from the same
+    # place: the library parameter lines standing in the text. So editing one
+    # line of Csound cannot silently take a slider away, and writing a library
+    # line into the editor by hand gives one — with no library selection to
+    # consult, the WHOLE library declares what a knob may be.
+    controls = read_controls(body)
+    orchestra = wrap(wire_controls(body, controls), controls)
     try:
         ok, err = syntax_check(orchestra)
     except CompilerUnavailable as exc:
@@ -2117,7 +2422,8 @@ def compile_body(body):
     ok, err = perform_check(orchestra)
     if not ok:
         return {"ok": False, "error": err}
-    return {"ok": True, "orchestra": orchestra, "params_text": body}
+    return {"ok": True, "orchestra": orchestra, "params_text": body,
+            "controls": controls}
 
 
 def build_csound_response(text, llm, correction="", previous="",
@@ -2268,7 +2574,12 @@ def build_csound_response(text, llm, correction="", previous="",
             turn = _continue(base, prev_raw, seen_errors)
             continue
 
-        orchestra = wrap(body)
+        # The knobs BEFORE the compile, because they are part of what compiles:
+        # the wiring rewrites the body's own lines, and their starting values are
+        # the head's `chnset` lines — so what is checked is the wired orchestra
+        # at the position the author put each knob, not a different body at 0.5.
+        controls = read_controls(body, sel)
+        orchestra = wrap(wire_controls(body, controls), controls)
         try:
             ok, err = syntax_check(orchestra)
         except CompilerUnavailable as exc:
@@ -2290,10 +2601,21 @@ def build_csound_response(text, llm, correction="", previous="",
                     # author was never told the controls exist) or when the
                     # author wanted nothing out there.
                     "settings": read_settings(raw, synth_params),
+                    # The knobs THIS body gives the player: `parts` are the
+                    # columns — one per library entry it drew a parameter line
+                    # from — `params` the sliders, `refused` every line that was
+                    # not the library's to give. The panel shows exactly this and
+                    # invents nothing (§1 of docs/plans/PLAN_lro_param_panel.md).
+                    "controls": controls,
                     # The panel's transparency surface. Under the write-path the
                     # honest answer to "what did the machine build?" is the code
                     # the model actually wrote -- not a list of keys it picked,
-                    # because it picks none.
+                    # because it picks none. UNWIRED, which is also the shape a
+                    # person can edit: each knob stands in it as the library's
+                    # own line, a number with its name and range beside it, and
+                    # `compile_body` reads the knobs back out of exactly this
+                    # text. The `kp` wiring is the host's and belongs to the
+                    # orchestra, not to the authorship.
                     "params_text": body,
                     # The author's own reasoning, verbatim: the plain-language
                     # paragraph HOW TO ANSWER asks for BEFORE the fence -- what

@@ -320,6 +320,53 @@ valid.
   tooling (`tools/clap_llm_loop.py`) and wired into the JUCE client as
   `PipeInference::interpret()`.
 
+**`controls` (response side, `mode:"csound"` and `mode:"csound_compile"`).** The
+knobs the written body gives the player. They come from the LIBRARY, not from the
+author: a library entry declares what is playable about its body as a line that
+is at once the value the code uses and its own description —
+
+```csound
+kbowl   = 0.50   ; bowl[0.0..1.0]: which measured bowl the mode series is
+```
+
+— and every such line the author keeps in the body it writes becomes a knob.
+`lco_write.read_controls` reads them out of the body and resolves each name
+against the `params` of the entries that were opened for that authoring;
+`wire_controls` then rewrites that one line so the value comes from the channel
+(`kbowl = 0 + 1 * kp1a`), which is why a knob can never be a label on a number
+nobody can turn. The author's only say is the number, and it is where the knob
+starts:
+
+```json
+"controls": {
+  "parts":  [{"n": 1, "name": "singing bowl"}],
+  "params": [{"ch": "lroP1a", "part": 1, "slot": "a", "name": "Bowl",
+              "value": 0.5, "gloss": "which measured bowl the mode series is",
+              "note": "", "line": 0, "lo": 0.0, "hi": 1.0}],
+  "refused": ["kgrit — `grit` is not a library parameter; only what the library declares becomes a knob"]
+}
+```
+
+`ch` is the Csound control channel the orchestra head declares (twelve of them,
+`lroP1a`…`lroP3d`, always all twelve whatever the body carries) and, in this
+project's parameter spelling, the APVTS id that holds it (`lro_p1a`). `value` is
+the author's number expressed in 0..1 over the library's declared range, and it
+is also the `chnset` default in the head, so an offline render plays the sound as
+described. `line`/`lo`/`hi` are the wiring's own record — which `_LIBPARAM` match
+the knob is and what range its 0..1 maps back onto — and the client ignores them.
+A column is one library entry, under the name the library gives it, and the
+grid holds three of four. `refused` carries every line that was thrown away and
+why: a name the library does not declare (the author inventing a knob), a fourth
+column, a fifth knob in a column. It travels with the sound — into the preset —
+but no client draws it today, so a refused line reaches the player as a knob that
+is simply not there. `note` says when a starting value was clamped into its own
+bracket, or when that bracket disagrees with the one the library declares (the
+line wins, because it is what the code beside it was written for); it stays in
+this response and does not travel further. A body that keeps no library line yields empty
+lists, which is a legitimate answer and not an error. A client older than this
+field ignores it; a backend older than it omits it, and the panel then shows no
+knobs.
+
 - **`"csound_compile"`** (`backend/pipe_inference.py`, beside `csound`): compiles
   a body somebody EDITED, with no model involved — the authoring path with the
   author replaced by a person, which is what makes the Csound shown in the LCO
