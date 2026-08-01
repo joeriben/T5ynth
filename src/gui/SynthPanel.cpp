@@ -1421,6 +1421,10 @@ void SynthPanel::reconcileWaveformDisplayMode()
     // LRO (Csound): no baked table, no loaded sample — "Loop interval" would
     // name a Sampler concept a live-rendered voice doesn't have.
     const bool isCsoundEngine = engineModeHidden.getSelectedId() == EngineMode::Csound + 1;
+    // The library list is PAINTED OVER this widget (paintOverChildren), but the
+    // widget underneath still holds the last sampler buffer and its markers: a
+    // click on the LRO card would drag P1/P2/P3 and move a loop nobody can see.
+    waveformDisplay.setInert(isCsoundEngine);
     waveformDisplay.setRegionLabel(showWtTable        ? "Wavetable"
                                  : processorRef.isWavetableMode() ? "Extraction region"
                                  : processorRef.isFreezeMode()    ? "Granular position"
@@ -1561,8 +1565,16 @@ void SynthPanel::updateVisibility()
     hfBoostBtn.setVisible(!isCsound);
     hfBoostBtn.setConnectedEdges(isWavetable ? 0 : juce::Button::ConnectedOnRight);
     normalizeToggle.setConnectedEdges(juce::Button::ConnectedOnLeft);
+    // OCTAVE: shown in EVERY engine, because it acts in every engine —
+    // SynthVoice::noteOn shifts the note before the pitch reaches the sampler,
+    // the wavetable (SynthVoice.cpp:807), granular and the Csound voice alike.
+    // WAVETABLE was the one mode that hid it (`isSampler` above is
+    // !isWavetable && !isFreeze, so LRO was never in the hidden set), which
+    // left the transpose live and unreachable there; and now that the buttons
+    // sit in the shared top bar, hiding them would leave a hole exactly where
+    // the same five stand in the other three modes.
     for (int i = 0; i < kNumOctBtns; ++i)
-        octBtns[i].setVisible(isSampler || isFreeze);
+        octBtns[i].setVisible(true);
 
     // Scan controls drive Wavetable frame position or Granular hold position.
     scanRow->setVisible(isWavetable || isFreeze);
@@ -2661,13 +2673,16 @@ void SynthPanel::paintOverChildren(juce::Graphics& g)
             // (feedback_juce_nonascii_strings).
             const float headFs = juce::jlimit(11.0f, 14.0f, f * 0.85f);
             const float nameFs = juce::jlimit(12.0f, 17.0f, f * 1.0f);
+            const int headLineH = juce::roundToInt(headFs * 1.7f);
 
-            g.setColour(kImpulseA.withAlpha(0.75f));
-            g.setFont(juce::FontOptions(headFs));
-            g.drawText("PROMPT ORCHESTRA - curated instruments; the coding agent "
-                       "will use these or invent its own code",
-                       card.removeFromTop(juce::roundToInt(headFs * 1.7f)),
-                       juce::Justification::centred);
+            // The caption and the list are ONE block, centred in the card. The
+            // card grew when the controls row below it went away (its octave
+            // and noise strip now live in the panel's top bar), and a block
+            // pinned to the top of it leaves the rest of the card an empty
+            // rectangle. Measured first, drawn after, so the header moves with
+            // the list instead of the list hanging under a fixed header.
+            auto content = card;
+            auto headArea = content.removeFromTop(headLineH);
 
             if (! lroInstrumentNames_.isEmpty())
             {
@@ -2721,7 +2736,7 @@ void SynthPanel::paintOverChildren(juce::Graphics& g)
                 // Fewest rows (so the widest, flattest block) that still fits
                 // the card's width; if none does, use every row the height
                 // affords and let the longest names ellipsize.
-                const int rowsMax = juce::jlimit(1, n, card.getHeight() / blockH);
+                const int rowsMax = juce::jlimit(1, n, content.getHeight() / blockH);
                 juce::Array<int> widths;
                 int rows = rowsMax;
                 for (int r = 1; r <= rowsMax; ++r)
@@ -2729,14 +2744,20 @@ void SynthPanel::paintOverChildren(juce::Graphics& g)
                     widthsFor(r, widths);
                     int sum = -gutter;
                     for (auto v : widths) sum += v;
-                    if (sum <= card.getWidth()) { rows = r; break; }
+                    if (sum <= content.getWidth()) { rows = r; break; }
                 }
                 widthsFor(rows, widths);
 
                 int total = -gutter;
                 for (auto v : widths) total += v;
 
-                int x = card.getX() + juce::jmax(0, (card.getWidth() - total) / 2);
+                // Caption and list centred together in the card.
+                const int listH = rows * blockH;
+                const int slack = juce::jmax(0, content.getHeight() - listH);
+                headArea = headArea.withY(headArea.getY() + slack / 2);
+                const int listY = headArea.getBottom();
+
+                int x = content.getX() + juce::jmax(0, (content.getWidth() - total) / 2);
                 juce::Graphics::ScopedSaveState clipToCard(g);
                 g.reduceClipRegion(card);
 
@@ -2748,7 +2769,7 @@ void SynthPanel::paintOverChildren(juce::Graphics& g)
                         // across, the way a printed index does.
                         const int i = c * rows + r;
                         if (i >= n) break;
-                        const juce::Rectangle<int> block { x, card.getY() + r * blockH,
+                        const juce::Rectangle<int> block { x, listY + r * blockH,
                                                            widths[c] - gutter, blockH };
 
                         g.setColour(kImpulseA.withAlpha(0.95f));
@@ -2758,6 +2779,19 @@ void SynthPanel::paintOverChildren(juce::Graphics& g)
                     x += widths[c];
                 }
             }
+            else
+            {
+                // No list yet (library unreadable, or nothing approved): the
+                // caption is the whole block, so it centres on its own instead
+                // of hanging at the top of an otherwise empty card.
+                headArea = headArea.withY(card.getCentreY() - headLineH / 2);
+            }
+
+            g.setColour(kImpulseA.withAlpha(0.75f));
+            g.setFont(juce::FontOptions(headFs));
+            g.drawText("PROMPT ORCHESTRA - curated instruments; the coding agent "
+                       "will use these or invent its own code",
+                       headArea, juce::Justification::centred);
         }
     }
 
@@ -2885,30 +2919,94 @@ void SynthPanel::resized()
     const bool isCsound = (engineId == EngineMode::Csound + 1);
     jassertquiet(!isCsound || (!isWavetable && !isFreeze));
 
-    // ── Engine mode + Voice count: compact switchboxes ──
+    // A CONTROL KEEPS ITS PLACE IN EVERY MODE. BJ, 2026-07-31, on the engine
+    // switchboxes sliding left the moment the LRO came on: "Das hier, das
+    // herumflippen ansonsten identischer UI-Elemente, ist ein HARTES NoGo."
+    // So a control that is hidden in one mode leaves its SLOT behind and the
+    // row is never re-flowed to close the hole. This is why every group below
+    // is placed against a fixed edge of the row and never against its
+    // neighbour's end.
+    // ── Engine mode + Voice count + Octave + Noise: the panel's one top bar ──
+    //
+    // OCTAVE and the NOISE strip belong to every engine, so they belong to the
+    // bar every engine shares: "das hier kommt in beiden Panels in die obere
+    // Leiste" (BJ, 2026-07-31). They used to sit in each branch's own controls
+    // row, at three different x positions.
+    //
+    // THE BAR HAS ITS OWN UNIT, because every group in it is a fixed multiple
+    // of `f` and nothing in it stretches. It now carries 80.7 units where it
+    // carried 43.1, and the row below used to absorb any shortfall in
+    // `crossfadeRow` / `freezeStereoRow`, which do stretch. Whatever does not
+    // fit lands on whatever is placed LAST — voice count and the tuning box —
+    // and JUCE clamps a negative width to zero, so the failure mode is a
+    // control that is silently GONE, not one that looks cramped.
+    //
+    // At the shapes the editor actually takes it fits: PluginEditor pins a 3:2
+    // aspect ratio, `f` follows the panel's HEIGHT, and the tightest point in
+    // the whole 1200x800..2400x1600 range still has ~15% headroom, so `fb == f`
+    // there and this scale is dormant. It is the guard for the two ways that
+    // ends: a host that resizes the editor past the constrainer (at 1200x1000
+    // the pre-scale bar wants 872 px in an 864 px row and the temperament
+    // control disappears), and anything added to this bar later. The scale
+    // reads the row's WIDTH and nothing else — never the engine mode — so the
+    // bar shrinks as a whole and every control still sits at the same x in
+    // every mode.
     auto modeRow = area.removeFromTop(rowH);
     {
-        // The 3 buttons are hidden for LRO (updateVisibility) — entered only
-        // via MainPanel's oscModeToggle, never through them — so their width
-        // isn't reserved either; voice count + tuning shift left to fill the
-        // row instead of leaving a stranded gap.
-        if (! isCsound)
+        const float uEngine = 5.0f, uGap = 1.5f, uVoice = 2.8f, uTune = 5.5f;
+        const float uOct = 2.5f, uNoise = 4.0f, uLevel = 11.5f, uTight = 0.8f;
+        const float wanted = uEngine * 3 + uGap + uVoice * kNumVoiceBtns + uGap + uTune
+                           + uOct * kNumOctBtns + uTight
+                           + uNoise * kNumNoiseBtns + uLevel + uTight;
+        const float fb = f * juce::jmin(1.0f, static_cast<float>(modeRow.getWidth())
+                                              / juce::jmax(1.0f, wanted * f));
+        auto cells = [fb](float u) { return juce::jmax(1, juce::roundToInt(fb * u)); };
+
+        // The three engine buttons are hidden for LRO (updateVisibility) — it
+        // is entered only through MainPanel's oscModeToggle, never through
+        // them — but their SLOT stays reserved, so voice count and tuning sit
+        // at the same x whichever engine is on.
         {
-            int cellW = juce::roundToInt(f * 5.0f);
-            samplerBtn.setBounds(modeRow.removeFromLeft(cellW));
-            wavetableBtn.setBounds(modeRow.removeFromLeft(cellW));
-            freezeBtn.setBounds(modeRow.removeFromLeft(cellW));
-            engineSwitchBounds = samplerBtn.getBounds().getUnion(freezeBtn.getBounds());
-            modeRow.removeFromLeft(juce::roundToInt(f * 1.5f)); // gap
+            const int cellW = cells(uEngine);
+            auto engineArea = modeRow.removeFromLeft(cellW * 3);
+            if (! isCsound)
+            {
+                samplerBtn.setBounds(engineArea.removeFromLeft(cellW));
+                wavetableBtn.setBounds(engineArea.removeFromLeft(cellW));
+                freezeBtn.setBounds(engineArea.removeFromLeft(cellW));
+                engineSwitchBounds = samplerBtn.getBounds().getUnion(freezeBtn.getBounds());
+            }
+            modeRow.removeFromLeft(cells(uGap));
         }
 
-        int vcW = juce::roundToInt(f * 2.8f);
+        // Right edge first: it is the card's and does not move, so the two
+        // groups anchored to it cannot drift when the row's left half changes.
+        {
+            const int nCellW = cells(uNoise);
+            auto noiseArea = modeRow.removeFromRight(
+                juce::jmin(nCellW * kNumNoiseBtns + cells(uLevel), modeRow.getWidth()));
+            modeRow.removeFromRight(cells(uTight));
+            for (int i = 0; i < kNumNoiseBtns; ++i)
+                noiseBtns[i].setBounds(noiseArea.removeFromLeft(nCellW));
+            noiseSwitchBounds = noiseBtns[0].getBounds()
+                                    .getUnion(noiseBtns[kNumNoiseBtns - 1].getBounds());
+            noiseLevelRow->setBounds(noiseArea);
+        }
+
+        const int oCellW = cells(uOct);
+        auto octaveArea = modeRow.removeFromRight(oCellW * kNumOctBtns);
+        modeRow.removeFromRight(cells(uTight));
+        for (int i = 0; i < kNumOctBtns; ++i)
+            octBtns[i].setBounds(octaveArea.removeFromLeft(oCellW));
+        octaveSwitchBounds = octBtns[0].getBounds().getUnion(octBtns[kNumOctBtns - 1].getBounds());
+
+        const int vcW = cells(uVoice);
         for (int i = 0; i < kNumVoiceBtns; ++i)
             voiceBtns[i].setBounds(modeRow.removeFromLeft(vcW));
         voiceSwitchBounds = voiceBtns[0].getBounds().getUnion(voiceBtns[kNumVoiceBtns - 1].getBounds());
 
-        modeRow.removeFromLeft(juce::roundToInt(f * 1.5f)); // same gap
-        tuningBox.setBounds(modeRow.removeFromLeft(juce::roundToInt(f * 5.5f)));
+        modeRow.removeFromLeft(cells(uGap));
+        tuningBox.setBounds(modeRow.removeFromLeft(cells(uTune)));
         tuningBox.setJustificationType(juce::Justification::centred);
     }
     area.removeFromTop(gap);
@@ -2932,20 +3030,20 @@ void SynthPanel::resized()
     int belowWave = samplerCtrlH + filterH + modH + advancedModBodyH;
     int waveH = juce::jmax(0, area.getHeight() - belowWave);
 
-    auto layoutNoiseStrip = [&](juce::Rectangle<int>& row)
+    // HF boost and Normalize are the same two buttons in every mode that has
+    // them, so they get one place: hard against the row's right edge, with
+    // Normalize's slot reserved where it is hidden (Wavetable). Laying HF out
+    // from the LEFT there put it a third of the row away from where the other
+    // two modes draw it.
+    auto layoutHfNorm = [&](juce::Rectangle<int>& row, bool withNormalize)
     {
-        const int desiredCellW = juce::roundToInt(f * 4.0f);
-        const int minLevelW = juce::roundToInt(f * 11.5f);
-        const int desiredStripW = desiredCellW * kNumNoiseBtns + minLevelW;
-        const int stripW = juce::jmin(desiredStripW, row.getWidth());
-        auto noiseArea = row.removeFromRight(stripW);
-        row.removeFromRight(juce::roundToInt(f * 0.8f));
-
-        const int nCellW = juce::jmax(1, juce::jmin(desiredCellW, noiseArea.getWidth() / kNumNoiseBtns));
-        for (int i = 0; i < kNumNoiseBtns; ++i)
-            noiseBtns[i].setBounds(noiseArea.removeFromLeft(nCellW));
-        noiseSwitchBounds = noiseBtns[0].getBounds().getUnion(noiseBtns[kNumNoiseBtns - 1].getBounds());
-        noiseLevelRow->setBounds(noiseArea);
+        const int normW = juce::roundToInt(f * 4.0f);
+        const int hfW = juce::roundToInt(f * 2.8f);
+        auto normArea = row.removeFromRight(normW);
+        if (withNormalize)
+            normalizeToggle.setBounds(normArea);
+        hfBoostBtn.setBounds(row.removeFromRight(hfW));
+        row.removeFromRight(juce::roundToInt(f * 1.5f));
     };
 
     if (isWavetable || isFreeze)
@@ -2966,22 +3064,12 @@ void SynthPanel::resized()
 
         if (isFreeze)
         {
-            // ── Granular: position dot + texture + stereo + HF/Norm + octave + fixed noise strip ──
+            // ── Granular: position dot + texture + stereo + HF/Norm ──
+            //    (octave and the noise strip are in the top bar, one place for
+            //     every engine)
             auto granularRow = area.removeFromTop(rowH);
-            layoutNoiseStrip(granularRow);
-
-            const int oCellW = juce::roundToInt(f * 2.5f);
-            auto octaveArea = granularRow.removeFromRight(oCellW * kNumOctBtns);
-            granularRow.removeFromRight(juce::roundToInt(f * 0.8f));
-            for (int i = 0; i < kNumOctBtns; ++i)
-                octBtns[i].setBounds(octaveArea.removeFromLeft(oCellW));
-            octaveSwitchBounds = octBtns[0].getBounds().getUnion(octBtns[kNumOctBtns - 1].getBounds());
-
-            const int normW = juce::roundToInt(f * 4.0f);
-            const int hfW = juce::roundToInt(f * 2.8f);
-            normalizeToggle.setBounds(granularRow.removeFromRight(normW));
-            hfBoostBtn.setBounds(granularRow.removeFromRight(hfW));
-            granularRow.removeFromRight(juce::roundToInt(f * 0.8f));
+            const int granularRowBottom = granularRow.getBottom();
+            layoutHfNorm(granularRow, true);
 
             const int tCellW = juce::roundToInt(f * 3.8f);
             for (int i = 0; i < kNumFreezeTextureBtns; ++i)
@@ -2993,17 +3081,24 @@ void SynthPanel::resized()
 
             frameCountLabel.setBounds(-1000, -1000, 10, 10);
             area.removeFromTop(gap);
-            engineCardBottom = juce::jmax(freezeStereoRow->getBottom(), noiseLevelRow->getBottom());
+            engineCardBottom = granularRowBottom;
         }
         else
         {
-            // [→][↻][⇄] [Nf] [32|64|128|256] [Smooth] [Auto] [HF] | [White|Pink|Brown] Lvl[===]
+            // [→][↻][⇄] [Nf] [32|64|128|256] [Smooth] [Auto] ......... [HF][ ]
             auto wtRow = area.removeFromTop(rowH);
-            layoutNoiseStrip(wtRow);
+            const int wtRowBottom = wtRow.getBottom();
+            // Normalize is hidden here, and its slot stays empty rather than
+            // pulling HF across the row.
+            layoutHfNorm(wtRow, false);
             auto leftCol = wtRow;
 
             // ── Left column: loop icons + frame switchbox + smooth ──
-            int iconW = juce::roundToInt(f * 2.6f);
+            // Same width as in the Sampler branch below: these are the SAME
+            // three buttons, so they must not change size or x when the engine
+            // changes. They were f*2.6 here and f*2.8 there, which moved the
+            // ping-pong icon and the drawn switchbox border on every switch.
+            int iconW = juce::roundToInt(f * 2.8f);
             oneshotBtn.setBounds(leftCol.removeFromLeft(iconW));
             loopModeBtn.setBounds(leftCol.removeFromLeft(iconW));
             pingpongBtn.setBounds(leftCol.removeFromLeft(iconW));
@@ -3025,43 +3120,33 @@ void SynthPanel::resized()
             leftCol.removeFromLeft(juce::roundToInt(f * 0.25f));
             int autoW = juce::jmin(juce::roundToInt(f * 3.8f), leftCol.getWidth());
             autoScanToggle.setBounds(leftCol.removeFromLeft(autoW));
-            leftCol.removeFromLeft(juce::roundToInt(f * 0.35f));
-            int hfW = juce::jmin(juce::roundToInt(f * 2.8f), leftCol.getWidth());
-            hfBoostBtn.setBounds(leftCol.removeFromLeft(hfW));
 
             area.removeFromTop(gap);
-            engineCardBottom = juce::jmax(smoothToggle.getBottom(), noiseLevelRow->getBottom());
+            engineCardBottom = wtRowBottom;
         }
     }
     else if (isCsound)
     {
-        // ── LRO: waveform card has no baked table or loaded sample to draw
-        // (reconcileWaveformDisplayMode blanks its region label above), and
-        // the row below carries only what updateVisibility left visible for
-        // Csound: OCTAVE (feeds tunedHz(shiftedNote) into csoundFreq_) and the
-        // shared NOISE strip. Loop icons/Opt/Xfade/HF/Norm reprocess a
-        // captured Sampler/Freeze/Wavetable BUFFER a live Csound voice never
-        // has, so they take no space here (updateVisibility already hid them).
+        // ── LRO: the waveform card has no baked table and no loaded sample to
+        // draw (reconcileWaveformDisplayMode blanks its region label above),
+        // and NOTHING is left for a controls row: octave and the noise strip
+        // moved up into the top bar, and the loop icons, Opt, Xfade, HF and
+        // Normalize all reprocess a captured Sampler/Freeze/Wavetable BUFFER
+        // that a live Csound voice never has (updateVisibility hid them).
+        //
+        // So the row's height goes to the card, which is what BJ asked for
+        // when he moved the strip up: "So gewinnen wir die untere Zeile,
+        // entweder als Raum oder als Statusanzeige" (2026-07-31). Space, for
+        // now — a status display is UI that has not been ordered yet. The
+        // sections BELOW keep their place either way, because the card's total
+        // reservation (samplerCtrlH) is the same in every mode.
         int handleLineH = waveformReserveH;
         waveformDisplay.setBottomReserve(handleLineH);
         waveformDisplay.setScanVisible(false);
-        waveformDisplay.setBounds(area.removeFromTop(waveH + handleLineH));
-        area.removeFromTop(gap);
-
-        auto csRow = area.removeFromTop(rowH);
-        layoutNoiseStrip(csRow);
-
-        // Octave sits at the right, next to the noise strip — same position
-        // as the Granular branch above, so it doesn't jump sides when
-        // switching between engine modes.
-        const int oCellW = juce::roundToInt(f * 2.5f);
-        auto octaveArea = csRow.removeFromRight(oCellW * kNumOctBtns);
-        for (int i = 0; i < kNumOctBtns; ++i)
-            octBtns[i].setBounds(octaveArea.removeFromLeft(oCellW));
-        octaveSwitchBounds = octBtns[0].getBounds().getUnion(octBtns[kNumOctBtns - 1].getBounds());
+        waveformDisplay.setBounds(area.removeFromTop(waveH + handleLineH + gap + rowH));
 
         area.removeFromTop(gap);
-        engineCardBottom = juce::jmax(octBtns[0].getBottom(), noiseLevelRow->getBottom());
+        engineCardBottom = waveformDisplay.getBottom();
         frameCountLabel.setBounds(-1000, -1000, 10, 10);
     }
     else
@@ -3073,18 +3158,13 @@ void SynthPanel::resized()
         waveformDisplay.setBounds(area.removeFromTop(waveH + handleLineH));
         area.removeFromTop(gap);  // spacing to controls
 
-        // [→][↻][⇄] [Opt] Xfade[========] [HF][Norm] [-2|-1|0|+1|+2] | [White|Pink|Brown] Lvl[===]
+        // [→][↻][⇄] [Opt] Xfade[========] ................... [HF][Norm]
         auto loopRow = area.removeFromTop(rowH);
-        layoutNoiseStrip(loopRow);
+        const int loopRowBottom = loopRow.getBottom();
 
-        // ── Left column: loop icons + Opt + Xfade + HF/Norm + Octave ──
+        // ── Left column: loop icons + Opt + Xfade ──
         auto leftCol = loopRow;
-        const int oCellW = juce::roundToInt(f * 2.5f);
-        auto octaveArea = leftCol.removeFromRight(oCellW * kNumOctBtns);
-        leftCol.removeFromRight(juce::roundToInt(f * 0.8f));
-        for (int i = 0; i < kNumOctBtns; ++i)
-            octBtns[i].setBounds(octaveArea.removeFromLeft(oCellW));
-        octaveSwitchBounds = octBtns[0].getBounds().getUnion(octBtns[kNumOctBtns - 1].getBounds());
+        layoutHfNorm(leftCol, true);
 
         int iconW = juce::roundToInt(f * 2.8f);
         oneshotBtn.setBounds(leftCol.removeFromLeft(iconW));
@@ -3097,18 +3177,10 @@ void SynthPanel::resized()
         loopOptimizeBtn.setBounds(leftCol.removeFromLeft(optW));
         leftCol.removeFromLeft(2);
 
-        // HF + Norm at the right end of left column (gap to noise switchbox)
-        leftCol.removeFromRight(juce::roundToInt(f * 1.5f));
-        int normW = juce::roundToInt(f * 4.0f);
-        int hfW = juce::roundToInt(f * 2.8f);
-        normalizeToggle.setBounds(leftCol.removeFromRight(normW));
-        hfBoostBtn.setBounds(leftCol.removeFromRight(hfW));
-        leftCol.removeFromRight(2);
-
         crossfadeRow->setBounds(leftCol);
 
         area.removeFromTop(gap);
-        engineCardBottom = juce::jmax(oneshotBtn.getBottom(), noiseLevelRow->getBottom());
+        engineCardBottom = loopRowBottom;
 
         // Hide wavetable-only controls in sampler mode
         frameCountLabel.setBounds(-1000, -1000, 10, 10);

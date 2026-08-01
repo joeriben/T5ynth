@@ -406,8 +406,24 @@ void WaveformDisplay::setWaveform(const float* data, int numSamples)
     }
     // Back to the interactive sample view (sampler / freeze / neural wavetable):
     // brackets draggable, lock button shown. Idempotent when already a sample.
-    setInterceptsMouseClicks(true, true);
-    lockButton.setVisible(true);
+    applyMouseInterception(true);
+    lockButton.setVisible(! inert);
+}
+
+void WaveformDisplay::applyMouseInterception(bool allowClicksOnChildren)
+{
+    setInterceptsMouseClicks(! inert, ! inert && allowClicksOnChildren);
+}
+
+void WaveformDisplay::setInert(bool shouldBeInert)
+{
+    if (inert == shouldBeInert) return;
+    inert = shouldBeInert;
+    // Leaving inert restores whatever the current data mode wants: a baked
+    // table takes clicks itself (scan strip) and keeps its children out of the
+    // way, a sample view takes them everywhere.
+    applyMouseInterception(! wtMode);
+    lockButton.setVisible(! inert && ! wtMode);
 }
 
 void WaveformDisplay::setWavetableFrames(const juce::AudioBuffer<float>& strip, int frameSize)
@@ -442,8 +458,8 @@ void WaveformDisplay::setWavetableFrames(const juce::AudioBuffer<float>& strip, 
     // scan strip (mouseDown → Scan drag); children stay click-through (the hidden
     // lock button). On a degenerate strip (ok == false) fall back to the fully
     // interactive sample view.
-    setInterceptsMouseClicks(true, ! ok);
-    lockButton.setVisible(! ok);
+    applyMouseInterception(! ok);
+    lockButton.setVisible(! inert && ! ok);
     wtFanDirty = true;   // new table → rebuild the cached fan on next paint
     repaint();
 }
@@ -457,8 +473,8 @@ void WaveformDisplay::exitWavetableMode()
         wtFrames.clear();
     }
     wtFanCache = juce::Image();   // release the cached fan
-    setInterceptsMouseClicks(true, true);
-    lockButton.setVisible(true);
+    applyMouseInterception(true);
+    lockButton.setVisible(! inert);
     repaint();
 }
 

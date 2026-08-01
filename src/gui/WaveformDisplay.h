@@ -104,8 +104,22 @@ public:
     /** Access the lock button (owner wires onToggled + setLocked from preset). */
     LockButton& getLockButton() { return lockButton; }
 
+    /** Make the widget inert: no clicks on it or its children, no lock button.
+     *  For the LRO, where the owner PAINTS OVER this area (library list) and the
+     *  display underneath still holds the last sampler buffer — without this, a
+     *  click on that card silently drags P1/P2/P3 and moves a loop the user
+     *  cannot see. Sticky: it survives setWaveform / setWavetableFrames /
+     *  exitWavetableMode, which each restore interaction when data arrives. */
+    void setInert(bool shouldBeInert);
+    bool isInert() const { return inert; }
+
 private:
     void timerCallback() override;
+
+    /** The one place that decides whether clicks land: `inert` always wins.
+     *  Argument as in juce::Component: allowClicksOnChildComponents. */
+    void applyMouseInterception(bool allowClicksOnChildren);
+    bool inert = false;
 
     std::vector<float> waveformData;
     juce::CriticalSection dataLock;
