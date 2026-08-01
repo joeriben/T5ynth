@@ -8,6 +8,19 @@ This directory contains two kinds of files: current contributor reference materi
 
 ## Active contributor documentation
 
+**The Language-Resonant Oscillator (LRO)** — a language model writes the Csound
+orchestra for a described instrument, which is compiled and run live as the voice
+source. Read these in order:
+
+- [`LRO_TECHNICAL_DISCLOSURE.md`](LRO_TECHNICAL_DISCLOSURE.md) — What the oscillator is, for a reader outside the project. The citable description, and the record of public disclosure.
+- [`LCO_CONCEPT.md`](LCO_CONCEPT.md) — **Authoritative** for the goal, the architecture and the platform invariants every instrument must obey. (Files carry the older `LCO` name; the oscillator is the LRO.)
+- [`plans/HANDOVER_LCO.md`](plans/HANDOVER_LCO.md) — The implementation as it actually runs today, the measured facts, and what is open.
+- [`CSOUND_INTEGRATION.md`](CSOUND_INTEGRATION.md) — How Csound ships inside the app on macOS and Windows, and what proves a build carries a working one.
+- [`LCO_CODE_PROVENANCE.md`](LCO_CODE_PROVENANCE.md) — **The licence record per Csound source.** Read before taking instrument code from anywhere.
+- [`LCO_CSOUND_SOURCES_AND_LICENCES.md`](LCO_CSOUND_SOURCES_AND_LICENCES.md) — The authoring practice that follows from that record ("take physics, not code").
+- [`LCO_TIMBRE_SEMANTICS.md`](LCO_TIMBRE_SEMANTICS.md) — The source record for the library's other half, the sound-character words.
+- [`LCO_TEST_POLICY.md`](LCO_TEST_POLICY.md) — What may be tested, and what a green suite does not prove.
+
 Files in this directory:
 
 - [`DEV_BUILD.md`](DEV_BUILD.md) — Cross-platform build setup (macOS, Linux, Windows 11).

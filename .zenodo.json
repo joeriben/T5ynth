@@ -1,0 +1,34 @@
+{
+  "title": "akróasys",
+  "description": "<p><strong>akróasys</strong> is a synthesizer that uses generative AI as an <em>oscillator</em> rather than as a generator of finished audio. It carries two such oscillators.</p><p>The <strong>T5 Oscillator</strong> operates inside the text-embedding space of a diffusion audio model, before that space has been rendered to sound, and makes the embedding itself playable: two short text impulses mark out a region, and the instrument moves through, past and around it under continuous control.</p><p>The <strong>Language-Resonant Oscillator (LRO)</strong> takes a description in ordinary language and has a locally running language model <em>write</em> a complete Csound orchestra for it, consulting a curated library of parametrised synthesis code with measured parameter ranges and perceptual anchors. The emitted program is compiled and executed live as the instrument's voice source. There is no deterministic fallback: without the language model there is no oscillator.</p><p>akróasys is developed as a critical-aesthetic and pedagogical instrument for making machine listening audible and playable. Published as <em>T5ynth</em> up to and including version 2.5.3.</p>",
+  "upload_type": "software",
+  "license": "GPL-3.0-or-later",
+  "access_right": "open",
+  "creators": [
+    {
+      "name": "Jörissen, Benjamin",
+      "affiliation": "UNESCO Chair in Digital Culture and Arts in Education (UCDCAE), Friedrich-Alexander-Universität Erlangen-Nürnberg"
+    }
+  ],
+  "keywords": [
+    "synthesizer",
+    "generative audio",
+    "text-to-audio",
+    "diffusion model",
+    "text embedding",
+    "large language model",
+    "program synthesis",
+    "Csound",
+    "sound synthesis",
+    "digital musical instrument",
+    "arts education",
+    "machine listening"
+  ],
+  "related_identifiers": [
+    {
+      "identifier": "https://github.com/joeriben/akroasys",
+      "relation": "isSupplementTo",
+      "scheme": "url"
+    }
+  ]
+}

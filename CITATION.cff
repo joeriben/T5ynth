@@ -1,0 +1,41 @@
+cff-version: 1.2.0
+message: "If you use akróasys in academic work, please cite it as below."
+type: software
+title: "akróasys"
+abstract: >-
+  akróasys is a synthesizer that uses generative AI as an oscillator rather than
+  as a generator of finished audio. It carries two such oscillators. The T5
+  Oscillator operates inside the text-embedding space of a diffusion audio model,
+  before that space has been rendered to sound, and makes the embedding itself
+  playable. The Language-Resonant Oscillator (LRO) takes a description in ordinary
+  language and has a locally running language model write a complete Csound
+  orchestra for it, against a curated library of parametrised synthesis code; the
+  resulting program is compiled and executed live as the instrument's voice source.
+  akróasys is developed as a critical-aesthetic and pedagogical instrument for
+  making machine listening audible and playable.
+authors:
+  - family-names: "Jörissen"
+    given-names: "Benjamin"
+    name-prefix: "Prof. Dr."
+    affiliation: >-
+      UNESCO Chair in Digital Culture and Arts in Education (UCDCAE),
+      Friedrich-Alexander-Universität Erlangen-Nürnberg
+    # orcid: "https://orcid.org/0000-0000-0000-0000"   # <- BJ: bitte eintragen
+repository-code: "https://github.com/joeriben/akroasys"
+url: "https://github.com/joeriben/akroasys"
+license: GPL-3.0-or-later
+version: "3.0.0"
+# date-released: 2026-08-01   # <- setzen, wenn v3.0.0 getaggt wird
+keywords:
+  - synthesizer
+  - generative audio
+  - text-to-audio
+  - diffusion model
+  - text embedding
+  - large language model
+  - program synthesis
+  - Csound
+  - sound synthesis
+  - digital musical instrument
+  - arts education
+  - machine listening
