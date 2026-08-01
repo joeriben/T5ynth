@@ -298,19 +298,20 @@ akróasys can play a generated fragment three ways:
 
 ## Feature Overview
 
-- **Oscillators:** T5 Oscillator (diffusion-model sound space) and
+- **Oscillators:** T5 Oscillator (a diffusion model's latent space) and
   Language-Resonant Oscillator (a language model writes the Csound orchestra),
   switched from the Generation column's header.
 - **Generation:** Impulse A/B, the A/B slider, Magnitude, Noise, Duration,
   Seed, Start Position, HF Boost.
 - **Source controls:** Sound-character axes, 768-dimension explorer, Linear/
   Step-in/Layer/Combo injection modes.
-- **Playback engine:** Sampler and Wavetable modes, loop optimization,
-  wavetable scan, noise source.
-- **Synthesis:** 16-voice voice manager, assignable envelopes, multimode
-  filter algorithms, keyboard tracking, drive, modulation ghost indicators.
-- **Modulation:** 3 ADSR envelopes, 3 LFOs, 3 Drift LFOs, free or clock-synced
-  rates, free/trigger LFO mode.
+- **Playback engine:** Sampler, Wavetable and Granular modes, loop
+  optimization, wavetable scan, noise source.
+- **Synthesis:** voice manager from 1 to 128 voices (16 in LRO mode),
+  assignable envelopes, multimode filter algorithms, keyboard tracking, drive,
+  modulation ghost indicators.
+- **Modulation:** 5 ADSR envelopes (ENV 1 is the DCA and is not reassignable),
+  3 LFOs, 3 Drift LFOs, free or clock-synced rates, free/trigger LFO mode.
 - **Sequencing:** Step sequencer, arpeggiator, polyphonic generative sequencer
   with up to five strands and a shared pitch field.
 - **Effects:** Tempo-syncable delay, convolution and algorithmic reverb,
