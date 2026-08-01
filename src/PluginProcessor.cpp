@@ -77,6 +77,20 @@ const char* const kAftertouchAmtPid[AftertouchTarget::kCount] = {
     PID::aftertouchAmtEnv5Sustain,        // Env5Sustain
 };
 
+/** The authored instrument's twelve knob positions, and its three layer levels.
+    Two lists, not one, because the two are owned by different people: a knob is
+    the AUTHOR's — it means what the instrument says it means, and baking a new
+    instrument resets it — while a level is the PLAYER's mix between the layers
+    and no authoring may seize it. The preset payload writes both and the preset
+    reader restores both; `setCsoundControls` walks only the knobs. Named here so
+    the places that do walk both cannot fall out of step with each other. */
+static constexpr const char* kLroKnobIds[] = {
+    PID::lroP1a, PID::lroP1b, PID::lroP1c, PID::lroP1d,
+    PID::lroP2a, PID::lroP2b, PID::lroP2c, PID::lroP2d,
+    PID::lroP3a, PID::lroP3b, PID::lroP3c, PID::lroP3d };
+static constexpr const char* kLroLevelIds[] = {
+    PID::lroLvl1, PID::lroLvl2, PID::lroLvl3 };
+
 /** Does any MOD envelope — ENV 2..5 — point at this target?
     Deliberately does NOT ask the amp envelope: some of the idle-gate predicates
     below include amp and some do not, and folding it in here would quietly
@@ -7139,12 +7153,10 @@ void T5ynthProcessor::setCsoundControls(const LroControls& c, bool applyValues)
     // different by that channel — the new sound would not be the sound the
     // author described, and nothing on screen would say why. Undeclared
     // channels go back to 0.5, which is what the orchestra head gives them.
-    static constexpr const char* kLroIds[] = {
-        PID::lroP1a, PID::lroP1b, PID::lroP1c, PID::lroP1d,
-        PID::lroP2a, PID::lroP2b, PID::lroP2c, PID::lroP2d,
-        PID::lroP3a, PID::lroP3b, PID::lroP3c, PID::lroP3d };
-
-    for (const auto* id : kLroIds)
+    // The layer LEVELS are deliberately not in this reset: they are the
+    // player's balance between the parts, a mixer and not a description of the
+    // sound, so a new instrument does not seize them.
+    for (const auto* id : kLroKnobIds)
     {
         float target = 0.5f;
         for (const auto& k : c.knobs)
@@ -7326,8 +7338,26 @@ juce::String T5ynthProcessor::exportJsonPreset() const
         // the library parameters its body kept. Structured, not a text blob:
         // the panel reads it straight, and only backend/lco_write.py ever reads
         // a parameter line out of Csound.
-        if (! csoundControls_.isEmpty())
+        // Layers count as content here even with no knob at all: a body that
+        // kept no library line still has its `kvolN` mix, and dropping the
+        // block would take its levels off the panel on reload.
+        if (! csoundControls_.isEmpty() || ! csoundControls_.layers.empty())
             engine->setProperty("csound_controls", csoundControls_.toVar());
+        // …and WHERE each of them stands. `csound_controls` carries only what a
+        // knob MEANS; the positions live in the twelve lro_p* parameters, and
+        // this payload is a hand-written list, so until now a saved preset came
+        // back with the right slider names under the player's hand and the
+        // author's starting values behind them. The three layer levels are here
+        // for the same reason. Written unconditionally: a value the player moved
+        // on an orchestra that declared no knob for it is still their setting.
+        {
+            juce::DynamicObject::Ptr knobs = new juce::DynamicObject();
+            for (const auto* id : kLroKnobIds)
+                knobs->setProperty(id, get(id));
+            for (const auto* id : kLroLevelIds)
+                knobs->setProperty(id, get(id));
+            engine->setProperty("csound_knob_values", knobs.get());
+        }
     }
     root->setProperty("engine", engine.get());
 
@@ -7817,13 +7847,44 @@ bool T5ynthProcessor::importJsonPreset(const juce::String& json)
             setCsoundParamsText(engine->hasProperty("csound_params_text")
                                  ? engine->getProperty("csound_params_text").toString()
                                  : juce::String());
-            // Names only. A .t5p carries the twelve values as ordinary
-            // parameters, so applying the author's starting positions here
-            // would overwrite what the preset actually stored. A preset written
-            // before this contract has no such block and gets no knobs, which
-            // is the truth about it.
+            // WHERE the file says its knobs stand decides which source is right,
+            // and the two blocks are not one contract: `csound_controls` is what
+            // each knob MEANS and has been written since the knobs existed;
+            // `csound_knob_values` is where the player left them and is new. A
+            // file with both is the player's patch and the values below are the
+            // truth. A file with only the names — every LRO preset written
+            // before this — has its positions nowhere else, so the AUTHOR's
+            // starting values, which travel inside `csound_controls`, are the
+            // truth, and `applyValues` fetches them. Reading neither would leave
+            // the twelve wherever the previous patch left them and play the
+            // saved instrument at a stranger's settings.
+            const bool haveValues = engine->hasProperty("csound_knob_values");
             setCsoundControls(LroControls::fromVar(
-                engine->getProperty("csound_controls")), /*applyValues=*/false);
+                engine->getProperty("csound_controls")), /*applyValues=*/! haveValues);
+            if (auto* kv = engine->getProperty("csound_knob_values").getDynamicObject())
+            {
+                auto restore = [&](const char* id)
+                {
+                    const auto v = kv->getProperty(id);
+                    if (! v.isVoid())
+                        setParam(parameters, id, static_cast<float>(static_cast<double>(v)));
+                };
+                for (const auto* id : kLroKnobIds)  restore(id);
+                for (const auto* id : kLroLevelIds) restore(id);
+            }
+            else
+            {
+                // The layer levels are the one thing `setCsoundControls` cannot
+                // supply, because no author ever declared them — they are the
+                // player's mix. A file that does not carry them was saved when
+                // nothing did, so unity is the state it was saved in. Without
+                // this they keep the previous patch's positions and silently
+                // scale a loaded preset — a Level left at 0.2 is 14 dB down on
+                // an instrument whose panel, for the same old file, shows no
+                // fader to find it with.
+                for (const auto* id : kLroLevelIds)
+                    setParamToLayoutDefault(parameters, id);
+            }
         }
     }
 
