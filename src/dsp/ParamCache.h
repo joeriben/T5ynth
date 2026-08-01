@@ -60,8 +60,10 @@
     X(filterResonance)     X(filterMix)     X(filterKbdTrack)     X(filterDrive) \
     X(filterDriveOs)     X(filterAlgorithm)     X(filterWarpStyle)     X(delayType) \
     X(delayTime)     X(delayFeedback)     X(delayMix)     X(delayDamp) \
+    X(fxDistOn)     X(fxChorusOn)     X(fxPhaserOn)     X(fxTremOn) \
     X(fxDistDrive)     X(fxDistMix)     X(fxTremRate)     X(fxTremDepth) \
-    X(fxTremStereo)     X(fxChorusRate)     X(fxChorusDepth)     X(fxChorusMix) \
+    X(fxTremStereo)     X(fxTremWave)       X(fxChorusRate)     X(fxChorusDepth) \
+    X(fxChorusMix) \
     X(fxPhaserRate)     X(fxPhaserDepth)     X(fxPhaserFeedback)     X(fxPhaserMix) \
     X(reverbType)     X(reverbMix)     X(algoRoom)     X(algoDamping) \
     X(algoWidth)     X(limiterThresh)     X(limiterRelease)     X(genAlpha) \

@@ -241,11 +241,24 @@ namespace PID {
     // The amplifier chain (src/dsp/AmpEffects.h), added 2026-07-31. Every one of
     // these defaults to OFF -- 0 dB of drive, 0 depth, 0 mix -- because adding a
     // parameter to a shipping synth may not change a single existing preset.
+    // Per-effect bypass for the amplifier chain. Delay and Reverb have OFF as a
+    // value of their own type parameter; these four have no type, so their OFF
+    // is a switch of its own. Default ON, which changes nothing about how a
+    // patch sounds — an effect at mix/depth 0 was already silent — so a preset
+    // written before these existed loads exactly as it did.
+    static constexpr const char* fxDistOn         = "fx_dist_on";
+    static constexpr const char* fxChorusOn       = "fx_chorus_on";
+    static constexpr const char* fxPhaserOn       = "fx_phaser_on";
+    static constexpr const char* fxTremOn         = "fx_trem_on";
     static constexpr const char* fxDistDrive      = "fx_dist_drive";
     static constexpr const char* fxDistMix        = "fx_dist_mix";
     static constexpr const char* fxTremRate       = "fx_trem_rate";
     static constexpr const char* fxTremDepth      = "fx_trem_depth";
     static constexpr const char* fxTremStereo     = "fx_trem_stereo";
+    // Sine / Tri / Soft / Square, T5ynthTremolo::Wave order. Default Sine, which
+    // is the shape the tremolo had before it could be chosen, so every patch
+    // written before this sounds unchanged.
+    static constexpr const char* fxTremWave       = "fx_trem_wave";
     static constexpr const char* fxChorusRate     = "fx_chorus_rate";
     static constexpr const char* fxChorusDepth    = "fx_chorus_depth";
     static constexpr const char* fxChorusMix      = "fx_chorus_mix";
@@ -932,6 +945,25 @@ namespace ReverbType {
     inline bool isAlgorithmic(int t) { return t == Algo || t == AlgoPlus; }
     /** The three tone colours of the one EMT-140 plate. */
     inline bool isPlate(int t) { return t == Dark || t == Medium || t == Bright; }
+}
+
+namespace TremWave {
+    // The tremolo's LFO shape. Order is mildest to hardest and MUST match
+    // T5ynthTremolo::Wave, which is the enum the DSP switches on. Sine is index
+    // 0 because it is the shape the tremolo had before it could be chosen, so a
+    // patch written without this parameter loads sounding exactly as it did.
+    // "Soft" is the rounded square real optical and bias tremolos actually make;
+    // "Square" is the fast-edged one, still continuous, because a gain that
+    // steps by the full depth twice a cycle is a click (src/dsp/AmpEffects.h).
+    enum : int { Sine = 0, Tri = 1, Soft = 2, Square = 3 };
+    static constexpr ChoiceEntry kEntries[] = {
+        { "sine",   "Sine"   },
+        { "tri",    "Tri"    },
+        { "soft",   "Soft"   },
+        { "square", "Square" }
+    };
+    static constexpr int kCount = sizeof(kEntries) / sizeof(kEntries[0]);
+    static_assert(Square + 1 == kCount, "TremWave out of sync.");
 }
 
 // ── FX Mix: wet-path normalisation + the dry/wet law ─────────────────────────

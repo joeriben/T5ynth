@@ -10,8 +10,12 @@ static juce::String fmtMs(double v)
     if (ms >= 1000) return juce::String(v / 1000.0, 2) + "s";
     return juce::String(ms) + "ms";
 }
-static juce::String fmtF2(double v)  { return juce::String(v, 2); }
+// Snap to the printed precision first: the phaser's feedback is bipolar and
+// lands on a tiny negative often enough that the read-out said "-0.00".
+static juce::String fmtF2(double v)  { return juce::String(std::abs(v) < 0.005 ? 0.0 : v, 2); }
 static juce::String fmtF3(double v)  { return juce::String(v, 3); }
+static juce::String fmtDb1(double v) { return juce::String(v, 1) + "dB"; }
+static juce::String fmtHz2(double v) { return juce::String(v, 2) + "Hz"; }
 
 static juce::String fmtDampPct(double v)
 {
@@ -41,13 +45,46 @@ static const int kAlgoFamily[]  = { ReverbType::Algo, ReverbType::AlgoPlus };
 static const char* kTapeVariantLbls[] = { "Tp Clean", "Tp Warm", "Tp Wild", "Tp Old" };
 static const char* kBbdVariantLbls[]  = { "BBD Warm", "BBD Clean", "BBD Degrd" };
 
+// The title row, in the order the signal takes: the amplifier chain first
+// (PluginProcessor's processBlock — the dirt on the note, the modulation on the
+// dirty note, the tremolo last, as in an amp), then delay and reverb, which run
+// serially after it with the reverb send taken behind the delay.
+static const char* kFxSelLabels[] = { "Dist", "Chor", "Phas", "Trem", "Dly", "Rev" };
+static const char* kFxSelTips[] = {
+    "Distortion - an overdriven amplifier, first in the chain",
+    "Chorus",
+    "Phaser",
+    "Tremolo - last of the amp chain, as in an amplifier's power stage",
+    "Delay",
+    "Reverb - its send is taken behind the delay"
+};
+
 FxPanel::FxPanel(juce::AudioProcessorValueTreeState& apvts, T5ynthProcessor& processor)
     : processorRef(processor)
 {
-    // ══════════ DELAY section ══════════
-    paintSectionHeader(delayHeader, "DELAY", kFxCol);
-    addAndMakeVisible(delayHeader);
+    // ══════════ The switch title row ══════════
+    // It is the card's heading and its navigation at once, which is what makes
+    // six effects fit where two cards used to be: no per-effect header strip,
+    // no per-effect switchbox row. A cell's TEXT reports whether that effect is
+    // running (see effectRunning), so the row states all six at a glance and the
+    // selection only decides which one is being edited.
+    for (int i = 0; i < kNumFxSel; ++i)
+    {
+        fxSelBtns[i].setButtonText(kFxSelLabels[i]);
+        fxSelBtns[i].setTooltip(kFxSelTips[i]);
+        styleSwitchButton(fxSelBtns[i], kFxCol);
+        fxSelBtns[i].setClickingTogglesState(false);
+        fxSelBtns[i].onClick = [this, i]
+        {
+            if (fxSelected_ == i) return;
+            fxSelected_ = i;
+            updateVisibility();
+            resized();     // a different effect fills the rows; this one DOES relayout
+        };
+        addAndMakeVisible(fxSelBtns[i]);
+    }
 
+    // ══════════ DELAY section ══════════
     // Delay type switchbox: 5 cells [OFF][Dig][PP][Tape][BBD].
     //
     // Tape and BBD are FAMILIES, not single voicings — each has character variants.
@@ -100,19 +137,17 @@ FxPanel::FxPanel(juce::AudioProcessorValueTreeState& apvts, T5ynthProcessor& pro
     // Off / Digital / Ping-Pong: no variants, simple select.
     for (int i = 0; i < 3; ++i)
         delayTypeBtns[i].onClick = [this, i] { delayTypeHidden.setSelectedId(i + 1); };
-    // Tape / BBD: the cell IS the dropdown for its family.
+    // Tape / BBD: the cell IS the dropdown for its family, and wears the corner
+    // triangle that says so — the same one every ComboBox here carries.
     delayTypeBtns[3].onClick = [this] { showDelayFamilyMenu(3, kTapeFamily, 4); };
     delayTypeBtns[4].onClick = [this] { showDelayFamilyMenu(4, kBbdFamily,  3); };
+    setSwitchMenuCell(delayTypeBtns[3]);
+    setSwitchMenuCell(delayTypeBtns[4]);
 
     delayTimeRow = std::make_unique<SliderRow>("Time", fmtMs, kFxCol);
     delayFbRow   = std::make_unique<SliderRow>("FB",   fmtF2, kFxCol);
     delayDampRow = std::make_unique<SliderRow>("Damp", fmtDampPct, kFxCol);
     delayMixRow  = std::make_unique<SliderRow>("Mix",  fmtF3, kFxCol);
-
-    // Unified label-band look (accent@0.7 + light text, like the RESYNTH
-    // left-title). Time/Division carry no text label — the clock band stands in.
-    for (auto* r : { delayFbRow.get(), delayDampRow.get(), delayMixRow.get() })
-        r->setLabelAsBand(true);
 
     // Division row swaps in for the Time slider when ClockMode == Sync.
     // Same screen rect, label "Time", but the value formatter returns
@@ -126,29 +161,12 @@ FxPanel::FxPanel(juce::AudioProcessorValueTreeState& apvts, T5ynthProcessor& pro
     delayDivisionRow->getSlider().setRange(
         0.0, static_cast<double>(ClockDivision::kCount - 1), 1.0);
 
-    // The Time/Division rows have no text label — the clock button on the
-    // left IS their label. We still RESERVE label-width on the row (sized
-    // dynamically in resized() to match Damp's natural label width) so
-    // the slider track left-edge aligns vertically with Damp below;
-    // the clock button is then positioned on top of that reserved area.
-    delayTimeRow->getLabel().setText({}, juce::dontSendNotification);
-    delayDivisionRow->getLabel().setText({}, juce::dontSendNotification);
-    // Lock value column widths so slider track RIGHT-edges align across
-    // rows within each pair-column. Hardcoded (not derived in resized()
-    // from current value text) because slider value changes don't trigger
-    // a relayout — the forced width must accommodate the widest possible
-    // text the formatter can produce.
-    //   LEFT  column (Time/Division/Damp): 56 fits "1500ms", "1/16T", "20.0k".
-    //   RIGHT column (FB/Mix):             48 fits "0.95" and "0.999".
-    delayTimeRow->setForcedValueWidth(56);
-    delayDivisionRow->setForcedValueWidth(56);
-    delayDampRow->setForcedValueWidth(56);
-    delayFbRow->setForcedValueWidth(48);
-    delayMixRow->setForcedValueWidth(48);
-
     for (auto* r : { delayTimeRow.get(), delayFbRow.get(), delayDampRow.get(),
                      delayMixRow.get(), delayDivisionRow.get() })
+    {
+        r->setInlineLabel(true);      // the standard bar — see the note above resized()
         addAndMakeVisible(*r);
+    }
 
     // BPM-sync clock button — sits left of the Time row. Hidden ComboBox
     // holds the APVTS state, click cycles it Off ↔ Sync.
@@ -192,8 +210,12 @@ FxPanel::FxPanel(juce::AudioProcessorValueTreeState& apvts, T5ynthProcessor& pro
         const bool sync = delayClockModeHidden.getSelectedId() == 2;
         delayClockBtn.setToggleState(sync, juce::dontSendNotification);
         delayClockBtn.repaint();
-        if (delayTimeRow)     delayTimeRow->setVisible(!sync);
-        if (delayDivisionRow) delayDivisionRow->setVisible(sync);
+        // The Time/Division swap goes through updateVisibility rather than
+        // setting the two rows here: since the title row, "which of the two" is
+        // no longer the whole question — the other five effects own these rows'
+        // space when one of them is selected, and a direct setVisible(true) here
+        // would put a delay slider on top of the phaser.
+        updateVisibility();
     };
 
     // Attach APVTS AFTER buttons are set up (triggers onChange → updateVisibility)
@@ -201,9 +223,6 @@ FxPanel::FxPanel(juce::AudioProcessorValueTreeState& apvts, T5ynthProcessor& pro
     delayClockModeA  = std::make_unique<CA>(apvts, PID::delayClockMode, delayClockModeHidden);
 
     // ══════════ REVERB section ══════════
-    paintSectionHeader(reverbHeader, "REVERB", kFxCol);
-    addAndMakeVisible(reverbHeader);
-
     // Reverb type switchbox: 3 cells [OFF][Plate][Freeverb].
     //
     // Dark/Med/Brt were never three reverbs — they are three IRs of the SAME
@@ -245,6 +264,8 @@ FxPanel::FxPanel(juce::AudioProcessorValueTreeState& apvts, T5ynthProcessor& pro
     reverbTypeBtns[0].onClick = [this] { reverbTypeHidden.setSelectedId(ReverbType::Off + 1); };
     reverbTypeBtns[1].onClick = [this] { showReverbFamilyMenu(1, kPlateFamily, 3); };
     reverbTypeBtns[2].onClick = [this] { showReverbFamilyMenu(2, kAlgoFamily,  2); };
+    setSwitchMenuCell(reverbTypeBtns[1]);
+    setSwitchMenuCell(reverbTypeBtns[2]);
 
     reverbMixRow  = std::make_unique<SliderRow>("Mix",   fmtF3, kFxCol);
     algoRoomRow   = std::make_unique<SliderRow>("Room",  fmtF2, kFxCol);
@@ -253,7 +274,7 @@ FxPanel::FxPanel(juce::AudioProcessorValueTreeState& apvts, T5ynthProcessor& pro
 
     for (auto* r : { reverbMixRow.get(), algoRoomRow.get(), algoDampRow.get(), algoWidthRow.get() })
     {
-        r->setLabelAsBand(true);   // unified label-band look (see Delay section)
+        r->setInlineLabel(true);
         addAndMakeVisible(*r);
     }
 
@@ -272,16 +293,167 @@ FxPanel::FxPanel(juce::AudioProcessorValueTreeState& apvts, T5ynthProcessor& pro
     algoDampRow->updateValue();
     algoWidthRow->updateValue();
 
+    // ══════════ The amplifier chain: distortion, chorus, phaser, tremolo ══════════
+    // Twelve parameters that have run in every block and saved into every preset
+    // since they were added, and that nothing in the GUI could reach.
+    //
+    // Their OFF is a bool of its own, because unlike delay and reverb they have
+    // no type parameter to hold an Off value. The visible cell is a plain button
+    // and the APVTS state sits on a hidden ToggleButton — the same shape the two
+    // type switchboxes above use with their hidden ComboBoxes, so the click path
+    // and the automation path stay separate here too.
+    for (int i = 0; i < kNumAmpFx; ++i)
+    {
+        styleSwitchButton(ampStateBtns[i], kFxCol);
+        ampStateBtns[i].setClickingTogglesState(false);
+        ampStateBtns[i].onClick = [this, i]
+        {
+            ampOnHidden[i].setToggleState(! ampOnHidden[i].getToggleState(),
+                                          juce::sendNotificationSync);
+        };
+        addAndMakeVisible(ampStateBtns[i]);
+        // The cell NAMES THE STATE IT IS IN, like every other switchbox here:
+        // the lit cell is what is currently true. A fixed "OFF" caption meant
+        // the one thing you had to click to switch an effect ON was the word
+        // OFF (BJ, 2026-08-01) — five cells away, delay's lit OFF means the
+        // delay IS off, so the same word was saying two opposite things on one
+        // card. With a single cell, its own text has to carry the state.
+        ampOnHidden[i].onStateChange = [this, i]
+        {
+            const bool on = ampOnHidden[i].getToggleState();
+            ampStateBtns[i].setButtonText(on ? "ON" : "OFF");
+            ampStateBtns[i].setToggleState(on, juce::dontSendNotification);
+            updateVisibility();
+        };
+        ampStateBtns[i].setButtonText("OFF");   // until the attachment reports in
+    }
+
+    distDriveRow   = std::make_unique<SliderRow>("Drive",  fmtDb1,  kFxCol);
+    distMixRow     = std::make_unique<SliderRow>("Mix",    fmtF2,   kFxCol);
+    chorRateRow    = std::make_unique<SliderRow>("Rate",   fmtHz2,  kFxCol);
+    chorAmtRow     = std::make_unique<SliderRow>("Amt",    fmtF2,   kFxCol);
+    chorMixRow     = std::make_unique<SliderRow>("Mix",    fmtF2,   kFxCol);
+    phasRateRow    = std::make_unique<SliderRow>("Rate",   fmtHz2,  kFxCol);
+    phasAmtRow     = std::make_unique<SliderRow>("Amt",    fmtF2,   kFxCol);
+    phasFbRow      = std::make_unique<SliderRow>("FB",     fmtF2,   kFxCol);
+    phasMixRow     = std::make_unique<SliderRow>("Mix",    fmtF2,   kFxCol);
+    tremRateRow    = std::make_unique<SliderRow>("Rate",   fmtHz2,  kFxCol);
+    tremAmtRow     = std::make_unique<SliderRow>("Amt",    fmtF2,   kFxCol);
+    tremStereoRow  = std::make_unique<SliderRow>("Stereo", fmtF2,   kFxCol);
+
+    for (auto* r : { distDriveRow.get(), distMixRow.get(),
+                     chorRateRow.get(), chorAmtRow.get(), chorMixRow.get(),
+                     phasRateRow.get(), phasAmtRow.get(), phasFbRow.get(), phasMixRow.get(),
+                     tremRateRow.get(), tremAmtRow.get(), tremStereoRow.get() })
+    {
+        r->setInlineLabel(true);
+        addChildComponent(*r);        // one effect at a time — see updateVisibility
+    }
+
+    distDriveA  = std::make_unique<SA>(apvts, PID::fxDistDrive,      distDriveRow->getSlider());
+    distMixA    = std::make_unique<SA>(apvts, PID::fxDistMix,        distMixRow->getSlider());
+    chorRateA   = std::make_unique<SA>(apvts, PID::fxChorusRate,     chorRateRow->getSlider());
+    chorAmtA    = std::make_unique<SA>(apvts, PID::fxChorusDepth,    chorAmtRow->getSlider());
+    chorMixA    = std::make_unique<SA>(apvts, PID::fxChorusMix,      chorMixRow->getSlider());
+    phasRateA   = std::make_unique<SA>(apvts, PID::fxPhaserRate,     phasRateRow->getSlider());
+    phasAmtA    = std::make_unique<SA>(apvts, PID::fxPhaserDepth,    phasAmtRow->getSlider());
+    phasFbA     = std::make_unique<SA>(apvts, PID::fxPhaserFeedback, phasFbRow->getSlider());
+    phasMixA    = std::make_unique<SA>(apvts, PID::fxPhaserMix,      phasMixRow->getSlider());
+    tremRateA   = std::make_unique<SA>(apvts, PID::fxTremRate,       tremRateRow->getSlider());
+    tremAmtA    = std::make_unique<SA>(apvts, PID::fxTremDepth,      tremAmtRow->getSlider());
+    tremStereoA = std::make_unique<SA>(apvts, PID::fxTremStereo,     tremStereoRow->getSlider());
+
+    // The tremolo's shape. The classic tremolos are often square, or nearly, but
+    // triangle and sine belong to the family just as much (BJ, 2026-08-01), so
+    // all four are on the panel rather than one being picked for the player.
+    // Mildest to hardest, the order the family menus use.
+    {
+        juce::StringArray waveItems;
+        for (const auto& e : TremWave::kEntries) waveItems.add(e.label);
+        tremWaveHidden.addItemList(waveItems, 1);
+    }
+    tremWaveHidden.onChange = [this]
+    {
+        const int w = tremWaveHidden.getSelectedId() - 1;
+        for (int i = 0; i < kNumTremWaveBtns; ++i)
+            tremWaveBtns[i].setToggleState(i == w, juce::dontSendNotification);
+    };
+    static const char* kTremWaveTips[kNumTremWaveBtns] = {
+        "Sine - the smooth one",
+        "Triangle",
+        "Soft square - the rounded switching of an optical tremolo",
+        "Square - fast-edged, still click-free"
+    };
+    for (int i = 0; i < kNumTremWaveBtns; ++i)
+    {
+        tremWaveBtns[i].setButtonText(TremWave::kEntries[i].label);
+        tremWaveBtns[i].setTooltip(kTremWaveTips[i]);
+        styleSwitchButton(tremWaveBtns[i], kFxCol);
+        tremWaveBtns[i].setClickingTogglesState(false);   // the parameter drives it
+        tremWaveBtns[i].onClick = [this, i] { tremWaveHidden.setSelectedId(i + 1); };
+        addChildComponent(tremWaveBtns[i]);
+    }
+
+    struct AmpRowPid { SliderRow* row; const char* pid; };
+    for (const auto& e : std::initializer_list<AmpRowPid>{
+             { distDriveRow.get(),  PID::fxDistDrive },
+             { distMixRow.get(),    PID::fxDistMix },
+             { chorRateRow.get(),   PID::fxChorusRate },
+             { chorAmtRow.get(),    PID::fxChorusDepth },
+             { chorMixRow.get(),    PID::fxChorusMix },
+             { phasRateRow.get(),   PID::fxPhaserRate },
+             { phasAmtRow.get(),    PID::fxPhaserDepth },
+             { phasFbRow.get(),     PID::fxPhaserFeedback },
+             { phasMixRow.get(),    PID::fxPhaserMix },
+             { tremRateRow.get(),   PID::fxTremRate },
+             { tremAmtRow.get(),    PID::fxTremDepth },
+             { tremStereoRow.get(), PID::fxTremStereo } })
+    {
+        const juce::String id(e.pid);
+        e.row->onRightClick = [this, id](juce::Point<int> p) { showMidiLearnMenu(processorRef, id, p); };
+        e.row->updateValue();
+    }
+
     addAndMakeVisible(wordmark);
 
     // Attach APVTS AFTER buttons are set up
     reverbTypeA = std::make_unique<CA>(apvts, PID::reverbType, reverbTypeHidden);
+    static constexpr const char* kAmpOnPid[kNumAmpFx] = {
+        PID::fxDistOn, PID::fxChorusOn, PID::fxPhaserOn, PID::fxTremOn };
+    for (int i = 0; i < kNumAmpFx; ++i)
+        ampOnA[i] = std::make_unique<BA>(apvts, kAmpOnPid[i], ampOnHidden[i]);
+    tremWaveA = std::make_unique<CA>(apvts, PID::fxTremWave, tremWaveHidden);
 
-    startTimerHz(30); // ghost slider updates
+    // The running lamps' parameters, resolved once (see the members).
+    static constexpr const char* kAmpWetPid[kNumAmpFx] = {
+        PID::fxDistMix, PID::fxChorusMix, PID::fxPhaserMix, PID::fxTremDepth };
+    for (int i = 0; i < kNumAmpFx; ++i)
+    {
+        runOnPtr_[i]  = apvts.getRawParameterValue(kAmpOnPid[i]);
+        runWetPtr_[i] = apvts.getRawParameterValue(kAmpWetPid[i]);
+    }
+
+    updateVisibility();
+    startTimerHz(30); // ghost slider updates + the title row's running lamps
 }
 
 void FxPanel::timerCallback()
 {
+    // The title row's running lamps FIRST, ahead of the audioIdle gate: a player
+    // pulling a Mix to zero on a silent synth still has to see the cell go dim,
+    // and this is six relaxed loads and an int compare — a repaint only follows
+    // when the six-bit picture actually changed. Everything below the gate is
+    // the expensive per-frame work and stays behind it
+    // (docs/PERFORMANCE_GUIDE.md).
+    int mask = 0;
+    for (int i = 0; i < kNumFxSel; ++i)
+        if (effectRunning(i)) mask |= (1 << i);
+    if (mask != fxRunningMask_)
+    {
+        fxRunningMask_ = mask;
+        updateVisibility();
+    }
+
     if (processorRef.audioIdle.load(std::memory_order_relaxed)) return;
     auto& mv = processorRef.modulatedValues;
     delayTimeRow->setGhostValue(mv.delayTime.load(std::memory_order_relaxed));
@@ -332,25 +504,119 @@ void FxPanel::showReverbFamilyMenu(int btnIndex, const int* types, int numTypes)
                     });
 }
 
+bool FxPanel::effectRunning(int sel) const
+{
+    // "Running" is the same question the DSP asks: the bypass is open AND the
+    // effect's own wet control is off zero (AmpEffects: each is bypassed at its
+    // own default and costs nothing there). For delay and reverb the type IS
+    // the switch, so Off is type 0.
+    if (sel >= 0 && sel < kNumAmpFx)
+    {
+        auto* on  = runOnPtr_[sel];
+        auto* wet = runWetPtr_[sel];
+        return on != nullptr && wet != nullptr
+            && on->load(std::memory_order_relaxed)  > 0.5f
+            && wet->load(std::memory_order_relaxed) > 0.0001f;
+    }
+    if (sel == SelDelay)  return delayTypeHidden.getSelectedId()  > 1;
+    if (sel == SelReverb) return reverbTypeHidden.getSelectedId() > 1;
+    return false;
+}
+
 void FxPanel::updateVisibility()
 {
     // Guard: called by APVTS attachment before all components are created
-    if (!reverbMixRow)
+    if (!reverbMixRow || !tremStereoRow)
         return;
 
     constexpr float dimAlpha = 0.3f;
+
+    // ── The title row: which cell is being edited, and which effects run ──
+    // Two different things on one cell, and they use two different channels so
+    // neither can be mistaken for the other: the FILL says what is selected, the
+    // TEXT COLOUR says what is running.
+    for (int i = 0; i < kNumFxSel; ++i)
+    {
+        const bool running = effectRunning(i);
+        fxSelBtns[i].setToggleState(i == fxSelected_, juce::dontSendNotification);
+        fxSelBtns[i].setColour(juce::TextButton::textColourOffId, running ? kFxCol : kDim);
+        // BOTH text colours, because the selected cell resolves textColourOnId
+        // and never looks at the Off one — writing only the Off colour left the
+        // one cell the player is actually looking at unable to report its own
+        // state, which is precisely what this row promises.
+        const auto ink = switchBoxSelectedTextColour(kFxCol);
+        fxSelBtns[i].setColour(juce::TextButton::textColourOnId,
+                               running ? ink : ink.withAlpha(0.45f));
+    }
+
+    // ── Which effect owns the rows ──
+    const bool showDist   = fxSelected_ == SelDist;
+    const bool showChorus = fxSelected_ == SelChorus;
+    const bool showPhaser = fxSelected_ == SelPhaser;
+    const bool showTrem   = fxSelected_ == SelTrem;
+    const bool showDelay  = fxSelected_ == SelDelay;
+    const bool showReverb = fxSelected_ == SelReverb;
+
+    for (int i = 0; i < kNumAmpFx; ++i)
+        ampStateBtns[i].setVisible(fxSelected_ == i);
+    for (auto* b : { &delayTypeBtns[0], &delayTypeBtns[1], &delayTypeBtns[2],
+                     &delayTypeBtns[3], &delayTypeBtns[4] })
+        b->setVisible(showDelay);
+    for (auto* b : { &reverbTypeBtns[0], &reverbTypeBtns[1], &reverbTypeBtns[2] })
+        b->setVisible(showReverb);
+    delayClockBtn.setVisible(showDelay);
+
+    for (auto* r : { distDriveRow.get(), distMixRow.get() })                        r->setVisible(showDist);
+    for (auto* r : { chorRateRow.get(), chorAmtRow.get(), chorMixRow.get() })       r->setVisible(showChorus);
+    for (auto* r : { phasRateRow.get(), phasAmtRow.get(), phasFbRow.get(),
+                     phasMixRow.get() })                                            r->setVisible(showPhaser);
+    for (auto* r : { tremRateRow.get(), tremAmtRow.get(), tremStereoRow.get() })    r->setVisible(showTrem);
+    for (auto& b : tremWaveBtns)                                                    b.setVisible(showTrem);
+    for (auto* r : { delayFbRow.get(), delayDampRow.get(), delayMixRow.get() })     r->setVisible(showDelay);
+    for (auto* r : { algoRoomRow.get(), algoDampRow.get(), algoWidthRow.get(),
+                     reverbMixRow.get() })                                          r->setVisible(showReverb);
+    // Time and Division are exclusive of each other AND of the other five
+    // effects; the clock mode decides which of the two, the selection whether
+    // either.
+    const bool sync = delayClockModeHidden.getSelectedId() == 2;
+    delayTimeRow->setVisible(showDelay && ! sync);
+    delayDivisionRow->setVisible(showDelay && sync);
+
+    // ── Dimming inside the selected effect ──
+    // DIMMED ONLY, never disabled. In this instrument a dimmed control means
+    // "does not act right now", never "cannot be touched": live, a parameter is
+    // set BEFORE its stage is switched on, and setEnabled(false) forces the
+    // opposite order — switch on with the old values, audibly, then correct
+    // (BJ, 2026-08-01). The rest of the tree still has to be swept.
+    for (int i = 0; i < kNumAmpFx; ++i)
+    {
+        const bool on = ampOnHidden[i].getToggleState();
+        const float a = on ? 1.0f : dimAlpha;
+        auto apply = [&](std::initializer_list<SliderRow*> rows)
+        {
+            for (auto* r : rows) r->setAlpha(a);
+        };
+        switch (i)
+        {
+            case SelDist:   apply({ distDriveRow.get(), distMixRow.get() }); break;
+            case SelChorus: apply({ chorRateRow.get(), chorAmtRow.get(), chorMixRow.get() }); break;
+            case SelPhaser: apply({ phasRateRow.get(), phasAmtRow.get(),
+                                    phasFbRow.get(), phasMixRow.get() }); break;
+            case SelTrem:   apply({ tremRateRow.get(), tremAmtRow.get(),
+                                    tremStereoRow.get() });
+                            for (auto& b : tremWaveBtns) b.setAlpha(a);
+                            break;
+            default: break;
+        }
+    }
 
     // Delay: always visible, dimmed when OFF
     bool delayOn = delayTypeHidden.getSelectedId() > 1;
     float delayAlpha = delayOn ? 1.0f : dimAlpha;
     for (auto* r : { delayTimeRow.get(), delayFbRow.get(), delayDampRow.get(),
                      delayMixRow.get(), delayDivisionRow.get() })
-    {
         r->setAlpha(delayAlpha);
-        r->setEnabled(delayOn);
-    }
     delayClockBtn.setAlpha(delayAlpha);
-    delayClockBtn.setEnabled(delayOn);
 
     // Reverb: always visible; dim params based on mode
     bool reverbOn = reverbTypeHidden.getSelectedId() > 1;
@@ -359,20 +625,18 @@ void FxPanel::updateVisibility()
     // Room/Damp/Width: active only for Algo, dimmed for Convolution and OFF
     float algoParamAlpha = algoOn ? 1.0f : dimAlpha;
     for (auto* r : { algoRoomRow.get(), algoDampRow.get(), algoWidthRow.get() })
-    {
         r->setAlpha(algoParamAlpha);
-        r->setEnabled(algoOn);
-    }
     // Mix: active whenever reverb is on
     reverbMixRow->setAlpha(reverbAlpha);
-    reverbMixRow->setEnabled(reverbOn);
 
-    // NOTE: no resized() here. This only changes visual state (alpha/enabled/
-    // toggle/label), none of which affects layout. Calling resized() on every
-    // type click re-derived headerH from getTopLevelComponent()->getHeight(),
-    // which (depending on when the window settled its size) could differ from
-    // the initial layout pass by a pixel or two — a visible header jump on the
-    // first click. The Time↔Division swap has its own setVisible handler.
+    // NOTE: no resized() here. This changes visual state (alpha/toggle/label/
+    // visibility), none of which affects the geometry. Calling resized()
+    // on every type click re-derived headerH from getTopLevelComponent()->
+    // getHeight(), which (depending on when the window settled its size) could
+    // differ from the initial layout pass by a pixel or two — a visible header
+    // jump on the first click. Choosing a different EFFECT does relayout, and
+    // calls resized() from the title cell itself for that reason; the rects it
+    // produces are the same ones every time, so nothing jumps there either.
     repaint();
 }
 
@@ -479,11 +743,12 @@ void FxPanel::paint(juce::Graphics& g)
     g.setColour(kBorder);
     g.drawVerticalLine(0, 0.0f, static_cast<float>(getHeight()));
 
-    // Framed module cards (Delay, Reverb) — same recipe as the synth easy-view
-    // module blocks (paintEasyBlock): a lighter fill so the card stands out on this
-    // kCard panel, plus a border. Drawn BEFORE the child controls so they sit on top;
-    // the accent header band is the top strip. (No module-colour left stripe — it was
-    // removed per design review.)
+    // The framed module card — same recipe as the synth easy-view module blocks
+    // (paintEasyBlock): a lighter fill so the card stands out on this kCard
+    // panel, plus a border. Drawn BEFORE the child controls so they sit on top.
+    // There is ONE now, and its top strip is the switch title row rather than an
+    // accent header band: the row names the effect it is showing, so a header
+    // that repeated the name would be the same word twice.
     auto paintFxCard = [&g](juce::Rectangle<int> b)
     {
         if (b.isEmpty()) return;
@@ -494,14 +759,26 @@ void FxPanel::paint(juce::Graphics& g)
         g.setColour(kBorder.withAlpha(0.82f));
         g.drawRect(b, 1);
     };
-    paintFxCard(delayCardBounds);
-    paintFxCard(reverbCardBounds);
+    paintFxCard(fxCardBounds);
 
-    // SwitchBox borders
-    paintSwitchBoxBorder(g, delayTypeSwitchBounds);
-    paintSwitchBoxBorder(g, reverbTypeSwitchBounds);
+    // SwitchBox borders — the title row always, and whichever state row the
+    // selected effect owns.
+    paintSwitchBoxBorder(g, fxSelSwitchBounds);
+    if (fxSelected_ == SelDelay)       paintSwitchBoxBorder(g, delayTypeSwitchBounds);
+    else if (fxSelected_ == SelReverb) paintSwitchBoxBorder(g, reverbTypeSwitchBounds);
+    else                               paintSwitchBoxBorder(g, ampStateBounds);
+    // The tremolo is the one amp effect with a second switchbox of its own.
+    if (fxSelected_ == SelTrem)        paintSwitchBoxBorder(g, tremWaveSwitchBounds);
 }
 
+// Every parameter here is a SliderRow in INLINE-BAR mode — the standard bar the
+// sequencer's Gate/Shuffle and the Poly-AT rows already use: one filled bar with
+// the name inside it on the left and the value inside it on the right. The FX
+// column was the last place still using the older side-cell form (label band |
+// track | value cell), which cost three separate widths per row and had to have
+// them forced to match across the column so the tracks would line up. A bar has
+// no such widths, so the pairs below are plain halves and the alignment problem
+// does not exist (BJ, 2026-08-01: overdue, cf. Sequencer).
 void FxPanel::resized()
 {
     auto area = getLocalBounds().reduced(6, 0);
@@ -512,135 +789,168 @@ void FxPanel::resized()
 
     int rowH = juce::jmin(juce::roundToInt(static_cast<float>(getHeight()) * 0.14f), 20);
     int gap = 2;
+    const int pairGap = 2;
 
-    // Each effect is a framed module card (same look as the synth easy-view
-    // blocks): an accent header strip on top, content inset so the value
-    // read-outs sit INSIDE the frame with padding — the Duration card template,
-    // adapted to this kCard panel. Net vertical cost is zero: each card's bottom
-    // pad is reclaimed from the old inter-section gap*2.
+    // ONE framed module card, four rows tall: the switch title row, then the
+    // selected effect's state row (OFF at the left, then whatever variants it
+    // has), then up to two rows of parameters. Four is what delay and reverb
+    // need and nothing needs more, and the card is that tall whichever effect is
+    // showing — a card that resized itself per effect would move the title row
+    // out from under the cursor that just clicked it.
     const int fxPad = juce::jmax(3, juce::roundToInt(f * 0.3f));
-    const int sectionBodyH = rowH * 3 + gap * 2;        // switchbox + 2 param rows
+    const int cardBodyH = rowH * 4 + gap * 3;
 
-    // ── DELAY card ──
-    auto delayCard = area.removeFromTop(headerH + gap + sectionBodyH + gap);
-    delayCardBounds = delayCard;
+    auto card = area.removeFromTop(gap + cardBodyH + gap);
+    fxCardBounds = card;
+
+    auto cc = card;
+    cc.removeFromTop(gap);
+    cc.removeFromBottom(gap);
+    cc.reduce(fxPad, 0);                 // side pad → value read-outs sit inside the frame
+
+    // ── Row 1: the switch title row ──
     {
-        auto dc = delayCard;
-        delayHeader.setFont(juce::FontOptions(f * 0.85f));
-        delayHeader.setBounds(dc.removeFromTop(headerH));   // full-width accent header strip
-        dc.removeFromTop(gap);
-        dc.removeFromBottom(gap);                            // bottom pad inside the card
-        dc.reduce(fxPad, 0);                                 // side pad → value read-outs sit inside the frame
-
-        // Delay type switchbox (5 buttons; Tape+BBD show char in label on cycle)
+        auto selRow = cc.removeFromTop(rowH);
+        const int cellW = selRow.getWidth() / kNumFxSel;
+        for (int i = 0; i < kNumFxSel; ++i)
         {
-            auto delaySwRow = dc.removeFromTop(rowH);
-            int delayCellW = delaySwRow.getWidth() / kNumDelayBtns;
-            for (int i = 0; i < kNumDelayBtns; ++i)
-            {
-                int edges = 0;
-                if (i > 0)                   edges |= juce::Button::ConnectedOnLeft;
-                if (i < kNumDelayBtns - 1)  edges |= juce::Button::ConnectedOnRight;
-                delayTypeBtns[i].setConnectedEdges(edges);
-                delayTypeBtns[i].setBounds(delaySwRow.removeFromLeft(delayCellW));
-            }
-            delayTypeSwitchBounds = delayTypeBtns[0].getBounds()
-                .getUnion(delayTypeBtns[kNumDelayBtns - 1].getBounds());
+            int edges = 0;
+            if (i > 0)                edges |= juce::Button::ConnectedOnLeft;
+            if (i < kNumFxSel - 1)    edges |= juce::Button::ConnectedOnRight;
+            fxSelBtns[i].setConnectedEdges(edges);
+            // The last cell takes the remainder so the row ends flush with the
+            // card's inner edge whatever the width does not divide by six.
+            fxSelBtns[i].setBounds(i == kNumFxSel - 1 ? selRow
+                                                      : selRow.removeFromLeft(cellW));
         }
-        dc.removeFromTop(gap);
+        fxSelSwitchBounds = fxSelBtns[0].getBounds()
+            .getUnion(fxSelBtns[kNumFxSel - 1].getBounds());
+    }
+    cc.removeFromTop(gap);
 
-        // Delay params — Time/Division/Damp share the LEFT label column; FB/Mix
-        // share the RIGHT. Both forced widths derive from natural-width maxima.
+    const int offW = juce::jmax(28, cc.getWidth() / kNumFxSel);
+    const int columnW = juce::jmax(0, (cc.getWidth() - pairGap) / 2);
+
+    // Every effect's rows are laid out, not only the selected one's: a rect a
+    // hidden row already owns costs nothing, and computing all of them here
+    // keeps this function a pure function of the geometry — updateVisibility
+    // decides what is SEEN, resized() only where. Rows 3 and 4 are the same two
+    // rects for all six.
+    auto stateRow = cc.removeFromTop(rowH);
+    cc.removeFromTop(gap);
+    auto paramRow1 = cc.removeFromTop(rowH);
+    cc.removeFromTop(gap);
+    auto paramRow2 = cc.removeFromTop(rowH);
+
+    // ── Delay: the state row is its type switchbox, all five cells ──
+    {
+        auto sw = stateRow;
+        const int cellW = sw.getWidth() / kNumDelayBtns;
+        for (int i = 0; i < kNumDelayBtns; ++i)
         {
-            const int delayPairGap = 2;
-            const int delayColumnW = juce::jmax(0, (dc.getWidth() - delayPairGap) / 2);
-
-            const int delayLeftLabelW = std::max({
-                delayTimeRow->getNaturalLabelWidthForAvailableWidth(delayColumnW),
-                delayDivisionRow->getNaturalLabelWidthForAvailableWidth(delayColumnW),
-                delayDampRow->getNaturalLabelWidthForAvailableWidth(delayColumnW)
-            });
-            const int delayRightLabelW = std::max({
-                delayFbRow->getNaturalLabelWidthForAvailableWidth(delayColumnW),
-                delayMixRow->getNaturalLabelWidthForAvailableWidth(delayColumnW)
-            });
-
-            for (auto* r : { delayTimeRow.get(), delayDivisionRow.get(), delayDampRow.get() })
-                r->setForcedLabelWidth(delayLeftLabelW);
-            for (auto* r : { delayFbRow.get(), delayMixRow.get() })
-                r->setForcedLabelWidth(delayRightLabelW);
-
-            auto row1 = dc.removeFromTop(rowH);
-            auto pair1 = layoutSliderRowPairBounds(row1, *delayTimeRow, *delayFbRow, delayPairGap);
-            delayTimeRow->setBounds(pair1[0]);
-            delayFbRow->setBounds(pair1[1]);
-            if (delayDivisionRow) delayDivisionRow->setBounds(pair1[0]);
-            // Overlay clock button on the (empty) reserved label slot at the
-            // start of pair1[0] so it sits in the same column as "Damp" below.
-            delayClockBtn.setBounds(pair1[0].withWidth(delayLeftLabelW));
-
-            dc.removeFromTop(gap);
-            auto row2 = dc.removeFromTop(rowH);
-            auto pair2 = layoutSliderRowPairBounds(row2, *delayDampRow, *delayMixRow, delayPairGap);
-            delayDampRow->setBounds(pair2[0]);
-            delayMixRow->setBounds(pair2[1]);
+            int edges = 0;
+            if (i > 0)                  edges |= juce::Button::ConnectedOnLeft;
+            if (i < kNumDelayBtns - 1)  edges |= juce::Button::ConnectedOnRight;
+            delayTypeBtns[i].setConnectedEdges(edges);
+            delayTypeBtns[i].setBounds(i == kNumDelayBtns - 1 ? sw : sw.removeFromLeft(cellW));
         }
+        delayTypeSwitchBounds = delayTypeBtns[0].getBounds()
+            .getUnion(delayTypeBtns[kNumDelayBtns - 1].getBounds());
+
+        // The clock button gets a cell of its own at the head of the LEFT
+        // column, and Damp below is indented by the same width so the two bars
+        // start on one line. It used to be overlaid on the Time row's reserved
+        // label slot; an inline bar has no such slot — the label is drawn inside
+        // the bar — so the button needs real space rather than borrowed space.
+        const int clockW = juce::jmin(rowH + 6, columnW / 3);
+
+        auto l1 = paramRow1.withWidth(columnW);
+        auto r1 = paramRow1.withTrimmedLeft(columnW + pairGap);
+        delayClockBtn.setBounds(l1.removeFromLeft(clockW));
+        l1.removeFromLeft(pairGap);
+        delayTimeRow->setBounds(l1);
+        delayDivisionRow->setBounds(l1);
+        delayFbRow->setBounds(r1);
+
+        auto l2 = paramRow2.withWidth(columnW).withTrimmedLeft(clockW + pairGap);
+        delayDampRow->setBounds(l2);
+        delayMixRow->setBounds(paramRow2.withTrimmedLeft(columnW + pairGap));
     }
 
-    area.removeFromTop(gap);
-
-    // ── REVERB card ──
-    auto reverbCard = area.removeFromTop(headerH + gap + sectionBodyH + gap);
-    reverbCardBounds = reverbCard;
+    // ── Reverb: the state row is its type switchbox ──
     {
-        auto rc = reverbCard;
-        reverbHeader.setFont(juce::FontOptions(f * 0.85f));
-        reverbHeader.setBounds(rc.removeFromTop(headerH));
-        rc.removeFromTop(gap);
-        rc.removeFromBottom(gap);
-        rc.reduce(fxPad, 0);
-
-        // Reverb type switchbox
-        auto revSwRow = rc.removeFromTop(rowH);
-        int revCellW = revSwRow.getWidth() / kNumReverbBtns;
+        auto sw = stateRow;
+        const int cellW = sw.getWidth() / kNumReverbBtns;
         for (int i = 0; i < kNumReverbBtns; ++i)
         {
             int edges = 0;
-            if (i > 0) edges |= juce::Button::ConnectedOnLeft;
-            if (i < kNumReverbBtns - 1) edges |= juce::Button::ConnectedOnRight;
+            if (i > 0)                   edges |= juce::Button::ConnectedOnLeft;
+            if (i < kNumReverbBtns - 1)  edges |= juce::Button::ConnectedOnRight;
             reverbTypeBtns[i].setConnectedEdges(edges);
-            reverbTypeBtns[i].setBounds(revSwRow.removeFromLeft(revCellW));
+            reverbTypeBtns[i].setBounds(i == kNumReverbBtns - 1 ? sw : sw.removeFromLeft(cellW));
         }
         reverbTypeSwitchBounds = reverbTypeBtns[0].getBounds()
             .getUnion(reverbTypeBtns[kNumReverbBtns - 1].getBounds());
-        rc.removeFromTop(gap);
 
-        // Reverb params — Room+Damp, Width+Mix. Column label widths matched like
-        // Delay so the slider tracks line up (Room over Width, Damp over Mix).
+        algoRoomRow->setBounds(paramRow1.withWidth(columnW));
+        algoDampRow->setBounds(paramRow1.withTrimmedLeft(columnW + pairGap));
+        algoWidthRow->setBounds(paramRow2.withWidth(columnW));
+        reverbMixRow->setBounds(paramRow2.withTrimmedLeft(columnW + pairGap));
+    }
+
+    // ── The four amp effects: OFF at the left of the state row, and the rest of
+    // that row is theirs. Distortion is finished in it; the other three take one
+    // parameter row, and only the phaser takes two.
+    {
+        auto rest = stateRow;
+        // OFF is one title cell wide, so the two switch columns line up down
+        // the card. It has no neighbour to connect to — the parameters that
+        // follow it are slider rows, not switch cells.
+        ampStateBounds = rest.removeFromLeft(offW);
+        for (int i = 0; i < kNumAmpFx; ++i)
         {
-            const int revPairGap = 2;
-            const int revColumnW = juce::jmax(0, (rc.getWidth() - revPairGap) / 2);
-            const int revLeftLabelW = std::max(
-                algoRoomRow->getNaturalLabelWidthForAvailableWidth(revColumnW),
-                algoWidthRow->getNaturalLabelWidthForAvailableWidth(revColumnW));
-            const int revRightLabelW = std::max(
-                algoDampRow->getNaturalLabelWidthForAvailableWidth(revColumnW),
-                reverbMixRow->getNaturalLabelWidthForAvailableWidth(revColumnW));
-            algoRoomRow->setForcedLabelWidth(revLeftLabelW);
-            algoWidthRow->setForcedLabelWidth(revLeftLabelW);
-            algoDampRow->setForcedLabelWidth(revRightLabelW);
-            reverbMixRow->setForcedLabelWidth(revRightLabelW);
+            ampStateBtns[i].setConnectedEdges(0);
+            ampStateBtns[i].setBounds(ampStateBounds);
+        }
+        rest.removeFromLeft(pairGap);
 
-            auto row1 = rc.removeFromTop(rowH);
-            auto pair1 = layoutSliderRowPairBounds(row1, *algoRoomRow, *algoDampRow, revPairGap);
-            algoRoomRow->setBounds(pair1[0]);
-            algoDampRow->setBounds(pair1[1]);
+        // Two bars in what is left of the state row, then the wider pair rows
+        // below. The four differ only in how many bars they need.
+        const int restColW = juce::jmax(0, (rest.getWidth() - pairGap) / 2);
+        auto restL = rest.withWidth(restColW);
+        auto restR = rest.withTrimmedLeft(restColW + pairGap);
+        auto row1L = paramRow1.withWidth(columnW);
+        auto row1R = paramRow1.withTrimmedLeft(columnW + pairGap);
 
-            rc.removeFromTop(gap);
-            auto row2 = rc.removeFromTop(rowH);
-            auto pair2 = layoutSliderRowPairBounds(row2, *algoWidthRow, *reverbMixRow, revPairGap);
-            algoWidthRow->setBounds(pair2[0]);
-            reverbMixRow->setBounds(pair2[1]);
+        distDriveRow->setBounds(restL);        // Distortion is finished in one row
+        distMixRow->setBounds(restR);
+
+        chorRateRow->setBounds(restL);
+        chorAmtRow->setBounds(restR);
+        chorMixRow->setBounds(row1L);
+
+        phasRateRow->setBounds(restL);         // the only one that needs both
+        phasAmtRow->setBounds(restR);
+        phasFbRow->setBounds(row1L);
+        phasMixRow->setBounds(row1R);
+
+        tremRateRow->setBounds(restL);
+        tremAmtRow->setBounds(restR);
+        tremStereoRow->setBounds(row1L);
+        {
+            auto sw = row1R;                       // the shape sits beside Stereo
+            const int cellW = sw.getWidth() / kNumTremWaveBtns;
+            for (int i = 0; i < kNumTremWaveBtns; ++i)
+            {
+                int edges = 0;
+                if (i > 0)                     edges |= juce::Button::ConnectedOnLeft;
+                if (i < kNumTremWaveBtns - 1)  edges |= juce::Button::ConnectedOnRight;
+                tremWaveBtns[i].setConnectedEdges(edges);
+                tremWaveBtns[i].setBounds(i == kNumTremWaveBtns - 1 ? sw
+                                                                   : sw.removeFromLeft(cellW));
+            }
+            tremWaveSwitchBounds = tremWaveBtns[0].getBounds()
+                .getUnion(tremWaveBtns[kNumTremWaveBtns - 1].getBounds());
         }
     }
 

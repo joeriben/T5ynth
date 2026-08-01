@@ -1292,6 +1292,18 @@ juce::AudioProcessorValueTreeState::ParameterLayout T5ynthProcessor::createParam
     // EVERY DEFAULT IS OFF. Adding parameters to a shipping synth may not change
     // one existing preset, and an APVTS default is what every preset written
     // before today will load. 0 dB of drive, 0 depth, 0 mix.
+    // The four bypasses. ON by default, which is the state every patch written
+    // before them was in: the chain's OFF has always been "mix or depth at 0",
+    // and that still holds — this switch only adds a way to silence an effect
+    // without moving its settings, which is what the panel's OFF cell needs.
+    params.push_back(std::make_unique<juce::AudioParameterBool>(
+        juce::ParameterID{PID::fxDistOn, 1}, "Dist On", true));
+    params.push_back(std::make_unique<juce::AudioParameterBool>(
+        juce::ParameterID{PID::fxChorusOn, 1}, "Chorus On", true));
+    params.push_back(std::make_unique<juce::AudioParameterBool>(
+        juce::ParameterID{PID::fxPhaserOn, 1}, "Phaser On", true));
+    params.push_back(std::make_unique<juce::AudioParameterBool>(
+        juce::ParameterID{PID::fxTremOn, 1}, "Trem On", true));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{PID::fxDistDrive, 1}, "Dist Drive",
         juce::NormalisableRange<float>(0.0f, 36.0f, 0.1f), 0.0f));
@@ -1307,6 +1319,15 @@ juce::AudioProcessorValueTreeState::ParameterLayout T5ynthProcessor::createParam
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{PID::fxTremStereo, 1}, "Trem Stereo",
         juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.0f));
+    // Sine first because that is what the tremolo was before it had a choice —
+    // the default has to leave every existing patch sounding as it did.
+    {
+        juce::StringArray tremWaveLabels;
+        for (const auto& e : TremWave::kEntries) tremWaveLabels.add(e.label);
+        params.push_back(std::make_unique<juce::AudioParameterChoice>(
+            juce::ParameterID{PID::fxTremWave, 1}, "Trem Wave",
+            tremWaveLabels, TremWave::Sine));
+    }
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{PID::fxChorusRate, 1}, "Chorus Rate",
         juce::NormalisableRange<float>(0.05f, 10.0f, 0.01f, 0.5f), 0.8f));
@@ -5151,18 +5172,32 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
     // (docs/PERFORMANCE_GUIDE.md), and four always-on effects behind the voice sum
     // would be four new per-block costs on a synth playing nothing.
     {
+        // The four bypasses go through the MIX (the tremolo through its depth),
+        // not around the processBlock call. AmpEffects.h documents why in as
+        // many words: "A GATE THAT OPENS AND SHUTS IS A CLICK", measured at
+        // -1.29 on the phaser against a signal whose own largest step is 0.0144,
+        // which is why each effect gates on its SMOOTHED value and keeps running
+        // until its ramp has arrived. Routing the switch into the same ramp
+        // inherits all of that; wrapping the call in an `if` would reintroduce
+        // exactly the defect that mechanism exists for.
+        const bool distOn   = paramCache.fxDistOn->load()   > 0.5f;
+        const bool chorusOn = paramCache.fxChorusOn->load() > 0.5f;
+        const bool phaserOn = paramCache.fxPhaserOn->load() > 0.5f;
+        const bool tremOn   = paramCache.fxTremOn->load()   > 0.5f;
+
         ampDistortion.setDrive(paramCache.fxDistDrive->load());
-        ampDistortion.setMix(paramCache.fxDistMix->load());
+        ampDistortion.setMix(distOn ? paramCache.fxDistMix->load() : 0.0f);
         ampChorus.setRate(paramCache.fxChorusRate->load());
         ampChorus.setDepth(paramCache.fxChorusDepth->load());
-        ampChorus.setMix(paramCache.fxChorusMix->load());
+        ampChorus.setMix(chorusOn ? paramCache.fxChorusMix->load() : 0.0f);
         ampPhaser.setRate(paramCache.fxPhaserRate->load());
         ampPhaser.setDepth(paramCache.fxPhaserDepth->load());
         ampPhaser.setFeedback(paramCache.fxPhaserFeedback->load());
-        ampPhaser.setMix(paramCache.fxPhaserMix->load());
+        ampPhaser.setMix(phaserOn ? paramCache.fxPhaserMix->load() : 0.0f);
         ampTremolo.setRate(paramCache.fxTremRate->load());
-        ampTremolo.setDepth(paramCache.fxTremDepth->load());
+        ampTremolo.setDepth(tremOn ? paramCache.fxTremDepth->load() : 0.0f);
         ampTremolo.setStereo(paramCache.fxTremStereo->load());
+        ampTremolo.setWave(static_cast<int>(paramCache.fxTremWave->load()));
 
         ampDistortion.processBlock(buffer);
         ampChorus.processBlock(buffer);
@@ -6919,8 +6954,9 @@ static const std::vector<const char*>& authorParamShelf()
             // author is allowed to set. The entry `ep_fm3` carries no effect of
             // its own -- a suitcase has ONE tremolo for the instrument, not one
             // per key -- so this is the only place those words can land.
+            PID::fxDistOn, PID::fxChorusOn, PID::fxPhaserOn, PID::fxTremOn,
             PID::fxDistDrive, PID::fxDistMix,
-            PID::fxTremRate, PID::fxTremDepth, PID::fxTremStereo,
+            PID::fxTremRate, PID::fxTremDepth, PID::fxTremStereo, PID::fxTremWave,
             PID::fxChorusRate, PID::fxChorusDepth, PID::fxChorusMix,
             PID::fxPhaserRate, PID::fxPhaserDepth, PID::fxPhaserFeedback,
             PID::fxPhaserMix,
@@ -7590,11 +7626,17 @@ juce::String T5ynthProcessor::exportJsonPreset() const
                     clockModeToString(static_cast<int>(get(PID::delayClockMode))));
     fx->setProperty("delayClockDivision",
                     clockDivisionToString(static_cast<int>(get(PID::delayClockDivision))));
+    fx->setProperty("distOn", get(PID::fxDistOn) > 0.5f);
+    fx->setProperty("chorusOn", get(PID::fxChorusOn) > 0.5f);
+    fx->setProperty("phaserOn", get(PID::fxPhaserOn) > 0.5f);
+    fx->setProperty("tremOn", get(PID::fxTremOn) > 0.5f);
     fx->setProperty("distDrive", get(PID::fxDistDrive));
     fx->setProperty("distMix", get(PID::fxDistMix));
     fx->setProperty("tremRate", get(PID::fxTremRate));
     fx->setProperty("tremAmt", get(PID::fxTremDepth));
     fx->setProperty("tremStereo", get(PID::fxTremStereo));
+    fx->setProperty("tremWave",
+                    choiceToKey(static_cast<int>(get(PID::fxTremWave)), TremWave::kEntries));
     fx->setProperty("chorusRate", get(PID::fxChorusRate));
     fx->setProperty("chorusAmt", get(PID::fxChorusDepth));
     fx->setProperty("chorusMix", get(PID::fxChorusMix));
@@ -8316,11 +8358,22 @@ bool T5ynthProcessor::importJsonPreset(const juce::String& json)
             return fx->hasProperty(key) ? static_cast<float>(fx->getProperty(key))
                                         : fallback;
         };
+        // The four bypasses fall back to ON, which is what a file without them
+        // was: their OFF state has always been a mix or depth of 0, and those
+        // are restored below from the file's own values.
+        setParam(parameters, PID::fxDistOn,         fxOr("distOn", 1.0f));
+        setParam(parameters, PID::fxChorusOn,       fxOr("chorusOn", 1.0f));
+        setParam(parameters, PID::fxPhaserOn,       fxOr("phaserOn", 1.0f));
+        setParam(parameters, PID::fxTremOn,         fxOr("tremOn", 1.0f));
         setParam(parameters, PID::fxDistDrive,      fxOr("distDrive", 0.0f));
         setParam(parameters, PID::fxDistMix,        fxOr("distMix", 0.0f));
         setParam(parameters, PID::fxTremRate,       fxOr("tremRate", 5.5f));
         setParam(parameters, PID::fxTremDepth,      fxOr("tremAmt", 0.0f));
         setParam(parameters, PID::fxTremStereo,     fxOr("tremStereo", 0.0f));
+        // A file without it was a sine, which is index 0 — and choiceFromKey
+        // returns 0 for an absent key, so the fallback is the same either way.
+        setParam(parameters, PID::fxTremWave, static_cast<float>(
+            choiceFromKey(fx->getProperty("tremWave").toString(), TremWave::kEntries)));
         setParam(parameters, PID::fxChorusRate,     fxOr("chorusRate", 0.8f));
         setParam(parameters, PID::fxChorusDepth,    fxOr("chorusAmt", 0.35f));
         setParam(parameters, PID::fxChorusMix,      fxOr("chorusMix", 0.0f));
