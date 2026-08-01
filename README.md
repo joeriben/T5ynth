@@ -100,13 +100,16 @@ brushed by fingers" gives the model acoustic handles. But the abstract phrase
 can still be used as a strange marker in the model's space. akróasys is where you
 find out what that marker can become.
 
-### The second oscillator
+### The alternative to the denoising paradigm
 
-Everything above describes the **T5 Oscillator**, which reaches into a diffusion
-model. There is a second one, and it answers in a different medium: the
-**Language-Resonant Oscillator (LRO)**. You describe an instrument — "a bowed
-cello", "bright shimmer degrading to a dark rumble" — and a language model
-running on your machine writes a Csound orchestra for exactly that description.
+Everything above describes the **T5 Oscillator**, which works inside the
+diffusion paradigm: sound arrives by denoising. The
+**Language-Resonant Oscillator (LRO)** is not a second mode of it but the
+alternative to that paradigm — sound arrives as *written software*. You
+describe an instrument — "a bowed
+cello", "bright shimmer degrading to a dark rumble" — and a language model —
+local by default, or an external provider with your API key — writes a Csound
+orchestra for exactly that description.
 The code is compiled and run live, and it is what every voice sounds. Nothing is
 sampled and nothing is baked: the source code is the sound.
 
@@ -125,25 +128,19 @@ oscillators; **Generate** and the four Snapshot slots stay where they are and
 drive whichever one is active.
 
 The LRO needs two things the T5 Oscillator does not: Csound on the machine, and
-the authoring model (Gemma 4 12B QAT, about 7 GB, ungated, Apache-2.0), which
-installs from the Settings page. Install neither and the rest of the instrument
-is unaffected.
+a language model — either the local Gemma 4 12B QAT (about 7 GB, ungated,
+Apache-2.0), which installs from the Settings page, or an external provider
+(OpenRouter, Mistral, IONOS, Mammouth, Anthropic, OpenAI, or a local Ollama)
+with an API key, where only the text step leaves the machine. Install neither
+and the rest of the instrument is unaffected.
 
-About the name: **akróasys** is the Greek *akróasis* above, its ending spelled
-`-sys` so that the synth is in the word.
-
-The word names the act, not the actor. Greek has an agent noun as well —
-ἀκροατής, the listener — and it is deliberately not the name here: ἀκροάομαι is
-a middle verb with no ordinary active form, so hearing is not something a
-subject performs on an object. It happens in the between, and whoever hears is
-part of it. *akróasis* is the noun of that act.
+About the name: in the ancient Greek language, ἀκροάομαι is a middle verb with
+no ordinary active form, so hearing is not something a subject performs on an
+object. It happens in the between, and whoever hears is part of it. *akróasis*
+is the noun of that act — and **akróasys** spells the synth into it.
 
 It replaces **T5ynth**. That name pointed at T5, the text encoder the Stable
-Audio engines use to turn a phrase into control data for the audio model, and
-it was accurate while there was one engine. It is not any more: Stable Audio 3
-carries its own encoder, and the Language-Resonant Oscillator has none at all.
-What every path still has in common is the thing T5 was only ever a means to: you say
-something, and then you listen to what the machine makes of it. Releases up to
+Audio engines use to turn a phrase into control data for the audio model. Releases up to
 **T5ynth 2.5.3** keep the old name and do not have the new oscillator; the
 first release called akróasys is **3.0.0**.
 
@@ -202,7 +199,7 @@ in Digital Culture and Arts in Education (UCDCAE),
 Friedrich-Alexander-Universität Erlangen-Nürnberg, and part of the
 [UCDCAE AI Lab Software Collection](https://github.com/joeriben/ucdcae-ai-lab).
 
-It is inspired by two research projects:
+It is inspired by the results of two of his research projects:
 
 - [AI for Arts Education (AI4ArtsEd)](https://kubi-meta.de/ai4artsed),
   conducted together with the University of Cologne and the German Research
@@ -219,8 +216,9 @@ into being.
 
 ## What Is New in 3.0.0
 
-- **A second oscillator: the Language-Resonant Oscillator (LRO).** Describe an
-  instrument in words and a local language model writes a Csound orchestra from
+- **An alternative to the denoising paradigm: the Language-Resonant Oscillator
+  (LRO).** Describe an
+  instrument in words and a language model writes a Csound orchestra from
   that description. The compiled code — not a sample, not a preset — is what
   every voice sounds. The panel discloses the whole path while it happens: what
   the model was given, which library entries it asked to have opened, its
@@ -230,9 +228,11 @@ into being.
   T5ynth 2.5.3 remains the last version under the old name and without the LRO,
   and it stays installable beside this one.
 - **Requirements for the LRO only.** Csound must be present on the machine, and
-  the authoring model (Gemma 4 12B QAT, about 7 GB, ungated, Apache-2.0)
-  installs from the Settings page like any other model. The T5 Oscillator and
-  everything downstream of it are unaffected if you install neither.
+  a language model must be reachable — the local authoring model (Gemma 4 12B
+  QAT, about 7 GB, ungated, Apache-2.0) installs from the Settings page like any
+  other model, or an external provider is used with an API key. The T5
+  Oscillator and everything downstream of it are unaffected if you install
+  neither.
 
 See [`CHANGELOG.md`](CHANGELOG.md) for the full release history.
 

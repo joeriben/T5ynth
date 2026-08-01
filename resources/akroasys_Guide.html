@@ -224,9 +224,77 @@ them &mdash; textures, transients, patterns, sonic and musical fragments, field
 recordings, everyday noises, orchestral gestures, alien voices, human emotional
 expressions, or impossible hybrids. The <strong>Language-Resonant Oscillator</strong>
 has no such space to reach into: you describe an instrument, and a language model
-running on your machine writes the Csound orchestra for it, so your words become the
+writes the Csound orchestra for it, so your words become the
 oscillator itself.
 </p>
+
+<div style="margin:0.9rem 0 0.2rem; overflow-x:auto;">
+<svg viewBox="0 0 720 128" style="display:block; min-width:640px; max-width:720px; margin:0 auto;" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="T5 Oscillator signal flow">
+  <style>
+    .bx { fill:var(--bg3); stroke:var(--border); rx:6; }
+    .lb { fill:var(--text); font-size:11px; font-family:inherit; }
+    .dm { fill:var(--text-dim); font-size:10px; font-family:inherit; }
+    .ar { stroke:var(--text-dim); stroke-width:1.2; fill:none; marker-end:url(#arr); }
+  </style>
+  <defs>
+    <marker id="arr" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0,0 L8,4 L0,8 z" style="fill:var(--text-dim);"/>
+    </marker>
+  </defs>
+  <text x="8" y="16" class="dm" style="fill:var(--accent3); font-size:11px; letter-spacing:0.5px;">T5 OSCILLATOR</text>
+  <rect class="bx" x="8"  y="26" width="92" height="24"/><text class="lb" x="18" y="42">Impulse A</text>
+  <rect class="bx" x="8"  y="78" width="92" height="24"/><text class="lb" x="18" y="94">Impulse B</text>
+  <path class="ar" d="M100,38 C130,38 130,52 158,58"/>
+  <path class="ar" d="M100,90 C130,90 130,76 158,70"/>
+  <ellipse cx="230" cy="64" rx="74" ry="34" style="fill:none; stroke:var(--accent); stroke-dasharray:4 3;"/>
+  <text class="lb" x="186" y="60">space of possible</text>
+  <text class="lb" x="204" y="74">sound</text>
+  <circle cx="258" cy="80" r="3" style="fill:var(--accent2);"/>
+  <text class="dm" x="170" y="118">Alpha &middot; Axes &middot; Noise &middot; DimExplorer &middot; Drift move the position</text>
+  <path class="ar" d="M304,64 L352,64"/>
+  <text class="dm" x="306" y="56">Generate</text>
+  <rect class="bx" x="354" y="52" width="80" height="24"/><text class="lb" x="364" y="68">fragment</text>
+  <path class="ar" d="M434,64 L466,64"/>
+  <rect class="bx" x="468" y="52" width="244" height="24"/>
+  <text class="lb" x="476" y="68">sampler / wavetable / granular &rarr; synth</text>
+</svg>
+</div>
+
+<div style="margin:0.4rem 0 0.6rem; overflow-x:auto;">
+<svg viewBox="0 0 720 132" style="display:block; min-width:640px; max-width:720px; margin:0 auto;" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Language-Resonant Oscillator signal flow">
+  <style>
+    .bx2 { fill:var(--bg3); stroke:var(--border); rx:6; }
+    .lb2 { fill:var(--text); font-size:11px; font-family:inherit; }
+    .dm2 { fill:var(--text-dim); font-size:10px; font-family:inherit; }
+    .ar2 { stroke:var(--text-dim); stroke-width:1.2; fill:none; marker-end:url(#arr2); }
+  </style>
+  <defs>
+    <marker id="arr2" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0,0 L8,4 L0,8 z" style="fill:var(--text-dim);"/>
+    </marker>
+  </defs>
+  <text x="8" y="16" class="dm2" style="fill:var(--accent3); font-size:11px; letter-spacing:0.5px;">LANGUAGE-RESONANT OSCILLATOR</text>
+  <rect class="bx2" x="8" y="40" width="104" height="24"/><text class="lb2" x="18" y="56">your words</text>
+  <path class="ar2" d="M112,52 L144,52"/>
+  <rect class="bx2" x="146" y="40" width="118" height="24"/><text class="lb2" x="156" y="56">language model</text>
+  <path class="ar2" d="M264,46 C290,38 290,38 314,44"/>
+  <path class="ar2" d="M316,58 C292,66 292,66 266,60"/>
+  <rect class="bx2" x="316" y="40" width="120" height="24"/><text class="lb2" x="326" y="56">code library</text>
+  <text class="dm2" x="272" y="30">consults</text>
+  <path class="ar2" d="M205,64 L205,90"/>
+  <text class="dm2" x="212" y="82">writes</text>
+  <rect class="bx2" x="146" y="92" width="130" height="24"/><text class="lb2" x="156" y="108">Csound orchestra</text>
+  <path class="ar2" d="M276,104 L318,104"/>
+  <rect class="bx2" x="320" y="92" width="82" height="24"/><text class="lb2" x="330" y="108">compiler</text>
+  <path class="ar2" d="M360,92 C360,78 306,78 278,88" style="stroke-dasharray:3 3;"/>
+  <text class="dm2" x="298" y="74">errors go back</text>
+  <path class="ar2" d="M402,104 L434,104"/>
+  <rect class="bx2" x="436" y="92" width="150" height="24"/><text class="lb2" x="446" y="108">live oscillator &middot; 16 voices</text>
+  <path class="ar2" d="M586,104 L616,104"/>
+  <rect class="bx2" x="618" y="92" width="94" height="24"/><text class="lb2" x="628" y="108">synth chain</text>
+</svg>
+</div>
+
 <p style="margin-top:0.6rem;">
 Most AI audio tools keep the model behind a render button and hand back finished
 audio. In akróasys, generation is not a separate AI step after the synth: the synth
@@ -235,45 +303,24 @@ that continues through sampler, wavetable, or granular playback, filters, envelo
 LFOs, sequencing, delay, and reverb.
 </p>
 <p style="margin-top:0.6rem;">
-Neither oscillator's model is neutral. The diffusion model's space of possible sound
-was produced by a specific training corpus — recordings, archive material, sound
-libraries — and encodes a learned map of which sounds are similar, what counts as
-"music" or "noise", which combinations render fluently and which are absent. The
-T5 Oscillator deconstructs that map directly: operating on the embedding rather than
-on words reaches sound regions that prompting alone cannot access, dynamized through
-embedding manipulation modes, Sound-Character Axes, and Drift, and closed back on
-itself through Re-Prompt (language &rarr; next inference) and Resynth (audio &rarr;
-next inference). The language model behind the LRO carries a map of the same kind —
-what it takes "a bowed cello" or "a hollow wooden pulse" to be is learned culture —
-and there the map becomes legible: the oscillator arrives as real, portable
-Csound code you can read and keep. The Generative Sequencer adds an independently self-evolving melodic layer
-that drives the voice engine. What emerges is a self-recursive, musically playable
-instrument built around the models' learned representations of sound, rather than a
-tool that returns audio results.
+And akróasys is <strong>listening</strong>, too. It listens to you; to its
+environment, if you ask it &mdash; <a href="#resynth">Resynth</a> can capture
+external audio into the next generation; and to itself: Re-Prompt has the machine
+re-describe what it just made and play that description back into the next sound,
+Resynth feeds the sound itself into the next inference, and Drift with
+Auto-Regenerate keeps those loops turning while you play. It is a deeply
+recursive and reflexive instrument &mdash; most of its loops pass through the
+machine's own hearing.
 </p>
 <p style="margin-top:0.6rem;">
-That both models are trained cultural maps — encoding assumptions about what "music"
-or "noise" means, what an instrument is, which sonic combinations feel "distant" or
-"familiar" — is not incidental. akróasys is designed as a critical-aesthetic and
-pedagogical instrument: not oriented toward "more" or "better" material, but toward
-a different relationship to the machine's own listening.
-</p>
-<p style="margin-top:0.6rem;">
-<strong>About the name.</strong> <em>akróasys</em> is the Greek
-<em>akróasis</em> above, its ending spelled <code>-sys</code> so that the synth
-is in the word. The word names the act, not the actor: Greek has an agent noun
-as well &mdash; &#7936;&kappa;&rho;&omicron;&alpha;&tau;&#942;&sigmaf;, the
-listener &mdash; and it is deliberately not the name here.
+<strong>That listening is the name.</strong> In the ancient Greek language,
 &#7936;&kappa;&rho;&omicron;&#940;&omicron;&mu;&alpha;&iota; is a middle verb
 with no ordinary active form, so hearing is not something a subject performs on
 an object. It happens in the between, and whoever hears is part of it.
-<em>akróasis</em> is the noun of that act. The name
+<em>akróasis</em> is the noun of that act &mdash; and <em>akróasys</em> spells
+the synth into it. The name
 replaces the earlier <strong>T5ynth</strong>, which pointed at T5, the text encoder the Stable
-Audio engines use to turn a phrase into control data for the audio model. That
-was accurate while there was one engine. It is not any more: Stable Audio 3
-carries its own encoder, and the Language-Resonant Oscillator has none at all.
-What every path still has in common is the thing T5 was only ever a means to:
-you say something, and then you listen to what the machine makes of it.
+Audio engines use to turn a phrase into control data for the audio model.
 Releases up to <strong>T5ynth&nbsp;2.5.3</strong> keep the old name and do not
 have the new oscillator; the first release called akróasys is
 <strong>3.0.0</strong>.
@@ -285,7 +332,7 @@ Friedrich-Alexander-Universität Erlangen-Nürnberg, and part of the
 <a href="https://github.com/joeriben/ucdcae-ai-lab">UCDCAE AI Lab Software Collection</a>.
 </p>
 <p style="margin-top:0.6rem;">
-akróasys is inspired by two research projects:
+akróasys is inspired by the results of two of his research projects:
 </p>
 <ul style="margin:0.3rem 0 0.6rem 1.5rem;">
   <li><a href="https://kubi-meta.de/ai4artsed">AI for Arts Education (AI4ArtsEd)</a>, conducted together with the University of Cologne and the German Research Institute for Artificial Intelligence (DFKI) Kaiserslautern</li>
@@ -304,11 +351,10 @@ without whom AI4ArtsEd would not have come into being.
 <div class="toc">
   <strong style="color:var(--accent)">Contents</strong>
   <ul>
-    <li class="sub"><a href="#orientation">Before You Start: What akróasys Is</a></li>
     <li class="sub"><a href="#setup">Setup: Model Installation</a></li>
     <li class="sub"><a href="#lro">The Language-Resonant Oscillator (LRO)</a></li>
     <li><strong>Part I — How to Use akróasys</strong></li>
-    <li class="sub"><a href="#gen">1. The Generation Section (Pre-Audio Space)</a></li>
+    <li class="sub"><a href="#gen">1. The Generation Section (Possible Sound Space)</a></li>
     <li class="sub"><a href="#axes">2. Sound-Character Axes</a></li>
     <li class="sub"><a href="#dimex">3. Dimension Explorer</a></li>
     <li class="sub"><a href="#engine">4. Engine Modes: Sampler, Wavetable &amp; Granular</a></li>
@@ -320,99 +366,18 @@ without whom AI4ArtsEd would not have come into being.
     <li class="sub"><a href="#genseq">10. Generative Sequencer</a></li>
     <li class="sub"><a href="#arp">11. Arpeggiator</a></li>
     <li class="sub"><a href="#presets">12. Presets</a></li>
-    <li class="sub"><a href="#sweetspots">13. Strategies for Finding Sweet Spots</a></li>
+    <li class="sub"><a href="#sessionlog">13. Session Log: Recording &amp; Replay</a></li>
+    <li class="sub"><a href="#sweetspots">14. Strategies for Finding Sweet Spots</a></li>
     <li><strong>Part II — Background</strong></li>
-    <li class="sub"><a href="#bg-axes">14. Technical Background: Axes</a></li>
-    <li class="sub"><a href="#bg-dimex">15. The DimExplorer In Depth</a></li>
-    <li class="sub"><a href="#bg-genseq">16. Principles of the Generative Sequencer</a></li>
-    <li class="sub"><a href="#bg-pipeline">17. The Inference Pipeline</a></li>
-    <li class="sub"><a href="#bg-injection">18. How Injection Modes Work</a></li>
+    <li class="sub"><a href="#bg-axes">15. How Semantic Axes Work</a></li>
+    <li class="sub"><a href="#bg-dimex">16. The DimExplorer In Depth</a></li>
+    <li class="sub"><a href="#bg-genseq">17. Principles of the Generative Sequencer</a></li>
+    <li class="sub"><a href="#bg-pipeline">18. The Inference Pipeline</a></li>
+    <li class="sub"><a href="#bg-injection">19. How Injection Modes Work</a></li>
     <li><strong>Legal</strong></li>
     <li class="sub"><a href="#license">License (GPLv3)</a></li>
     <li class="sub"><a href="#thirdparty">Third-Party Components</a></li>
   </ul>
-</div>
-
-<!-- ═══════════════════════════════════════════════════════════════ -->
-<!-- ORIENTATION -->
-<!-- ═══════════════════════════════════════════════════════════════ -->
-<h2 id="orientation">Before You Start: What akróasys Is</h2>
-
-<p>
-If you come from synthesizers, the clearest mental model is simple:
-<strong>in akróasys, language takes the place of the oscillator section.</strong>
-On another synth you might select "saw", load a sample, or scan a wavetable. In
-akróasys you say what should sound, and one of two oscillators answers, each in
-its own medium. The <strong>T5 Oscillator</strong> begins before the sound has
-become audio: short impulses such as <em>"steady clean saw wave, C3"</em> and
-<em>"120 bpm syncopated transient pattern"</em> mark a hidden sound space inside
-the selected audio model, and playing means moving through that space. The
-<strong>Language-Resonant Oscillator</strong> begins before the <em>instrument</em>
-exists: you describe one, and a language model writes the Csound orchestra that
-becomes your voice source — it has <a href="#lro">its own chapter</a>. The rest
-of this section is about the T5 Oscillator.
-</p>
-
-<p>
-You do not need to know what "T5" is to use the instrument. The name survives
-from the text encoder that reads the impulses: the part inside the model that
-turns words into numbers the audio model can respond to. What matters is what
-that opens up: musical control over the hidden space where the model decides
-what sound can become. You are not operating a black box and waiting for a
-result; you are exploring the model's space of possibilities.
-</p>
-
-<p>
-The interface calls the two text fields <strong>Impulse A</strong> and
-<strong>Impulse B</strong>. In musical use, read them as two meaning poles: two
-markers for one inner sound space, not two finished audio files, not two song
-requests, and not two oscillators. Neither pole is an attachment to the other:
-A and B define the relation that opens the space. Alpha does not mix two
-rendered samples; it moves through the space of possibilities from which one
-fragment can become audible.
-</p>
-
-<p>
-After the generated fragment enters the playback engine, the tools become more
-familiar: playback mode, pitch, filter, envelopes, modulation, sequencers, and
-effects. Leaving a text field empty is an aesthetic choice which akróasys will
-interpret as an echo chamber for the present impulse. There is no such thing as
-"no meaning" in creative processes.
-</p>
-
-<p>
-The signal flow is therefore different from both ordinary synths and ordinary
-text-to-audio tools:
-</p>
-<ol>
-  <li>Two short impulses mark the hidden space.</li>
-  <li>Alpha, Semantic Axes, Noise, Dimension Explorer, Injection Modes, and Drift move that space of possibilities.</li>
-  <li>Shape the sonic flow as a Sampler, Wavetable, or Granular engine, with filters, envelopes, LFOs, sequencers, delay, reverb, presets, and Drift Modulators &amp; Auto-Regenerate.</li>
-</ol>
-
-<p>
-This is also where akróasys parts company with tools that let you pick a style and
-shape it from there. Such a tool gives you parameters around a single chosen
-result &mdash; how strictly the style is followed, how much it varies, which
-elements play &mdash; but the result itself stays whatever the model would
-produce. akróasys's controls act on the <strong>embeddings</strong> instead: Alpha
-moves through the relation between the two poles, an empty field reflects an
-impulse back as an echo chamber, the Semantic Axes shift along directions in that
-space, and the Dimension Explorer re-weights its individual coordinates. You are
-working on the model's representation directly &mdash; combining, reflecting,
-re-weighting &mdash; which is how you reach points a single prompt would never
-land on. And because what comes out is a <strong>short fragment to shape, not a
-finished piece</strong>, that exploration continues in the synth rather than
-ending at the model's output.
-</p>
-
-<div class="tip">
-  <strong>Preset starting points:</strong> the curated <em>UCDCAE AI Lab</em>
-  preset bank is downloaded on demand inside the Preset Manager &mdash; click
-  <strong>Update Library</strong> to fetch and refresh it from
-  <a href="https://github.com/joeriben/T5ynth-Presets">github.com/joeriben/T5ynth-Presets</a>.
-  A preset is a complete instrument state: impulses, generated audio,
-  Sampler, Wavetable, or Granular mode, modulation, effects, tags, and stored settings.
 </div>
 
 <!-- ═══════════════════════════════════════════════════════════════ -->
@@ -422,7 +387,7 @@ ending at the model's output.
 
 <h3>Model Download</h3>
 <p>
-akróasys requires at least one diffusion model. Audio model weights are <strong>not bundled</strong> — they must be downloaded separately. The Stable Audio Open engines (1.0 and Small) also need the auxiliary <strong>T5-Base</strong> text encoder (ungated, Apache-2.0), which installs automatically with the engine; Stable Audio 3 instead uses its own t5gemma encoder, fetched at install.
+The <strong>T5 Oscillator</strong> requires at least one diffusion model; the <strong>LRO</strong> requires none — it needs <a href="#setup-lm">the language model</a> and Csound (see <a href="#lro">its chapter</a>). Model weights are <strong>not bundled</strong> — they are downloaded separately. The Stable Audio Open engines (1.0 and Small) also need the auxiliary <strong>T5-Base</strong> text encoder (ungated, Apache-2.0), which installs automatically with the engine; Stable Audio 3 instead uses its own t5gemma encoder, fetched at install.
 </p>
 <p>
 Open the <strong>Settings</strong> panel from the status bar. The panel is tabbed: the <strong>Models</strong> tab (default) handles model download and shows per-model instructions; the <strong>Settings</strong> tab (General Settings) contains machine-wide options that are not saved per preset. Currently: <strong>Filter Oversampling</strong> (Off / 2× / 4×) — applies to the Ladder and Warp nonlinear filter stages, default 2×; does not affect SVF. Pick a model from the Models tab; the summary below tells you which to choose.
@@ -490,6 +455,34 @@ If you prefer to place files yourself, use these directories (each model lives i
 akróasys auto-detects installed models by looking for <code>model_index.json</code> (Diffusers format) or <code>model_config.json</code> (native format) plus Safetensors weight files. After a manual install, click <strong>Auto-Scan</strong> in Settings.
 </p>
 
+<h3 id="setup-lm">The Language Model</h3>
+<p>
+One language model serves the whole instrument: it writes the LRO's Csound,
+translates non-English prompts, and drives Re-Prompt on both oscillators. It is
+configured on the same <strong>Models</strong> tab, under its own
+<strong>LANGUAGE MODEL</strong> heading, and the <strong>Author engine</strong>
+choice there decides where the writing happens:
+</p>
+<ul>
+  <li><strong>Local (the default).</strong> <strong>Gemma 4 12B</strong> — a
+  4-bit quantization-aware build of Google's Gemma run through llama.cpp, about
+  7&nbsp;GB, downloaded ungated from HuggingFace under Apache&nbsp;2.0, no
+  account needed. It works on a 16&nbsp;GB machine, and nothing you type ever
+  leaves this computer.</li>
+  <li><strong>External API.</strong> If your machine cannot spare the local
+  model, pick a provider by name — OpenRouter (US, free-tier models available),
+  Mistral (EU), IONOS (EU, Berlin), Mammouth (EU), Anthropic (US), OpenAI (US),
+  an Ollama server on this computer (no key needed), or "Other" for any
+  OpenAI-compatible endpoint, including your own remote llama.cpp server.
+  Choosing a provider fills in its address and a working model; you paste an
+  API key. Only the text step travels — the sound is always rendered on your
+  machine, and the Csound is compiled on your machine. Data protection is your
+  call and you make it at the provider, not here; IONOS and Mammouth are the
+  EU-hosted, GDPR-compliant entries. A code-trained model authors far better
+  than a general chat one, and the key is stored unencrypted in akróasys's
+  settings file, like every other machine-wide setting.</li>
+</ul>
+
 <h3>Device Selection</h3>
 <p>
 akróasys auto-detects the best available compute device:
@@ -518,13 +511,17 @@ On first launch, the status bar shows backend connection status. Once you see <s
 <h2 id="lro">The Language-Resonant Oscillator (LRO)</h2>
 
 <p>
-akróasys's oscillator has a second mode, beside the T5 Oscillator described
-above: the <strong>Language-Resonant Oscillator</strong>, or LRO. Instead
-of marking a hidden sound space inside a diffusion model, you describe an
-instrument in words. A language model writes Csound synthesis code from that
-description, and that code — compiled and run live — becomes the
-oscillator's voice for every note you play. It is not a preset and not a
-rendered sample: it is source code, written for this one prompt.
+The <strong>Language-Resonant Oscillator</strong>, or LRO, is not a second mode
+of the T5 Oscillator. It is an <strong>alternative to the denoising
+paradigm</strong> itself. A diffusion model makes sound by denoising: it starts
+from noise and settles into a plausible rendering of what was asked. The LRO
+makes sound by <em>writing software</em>: you describe an instrument in words,
+and a language model — local by default, or an external provider you pick in
+<a href="#setup-lm">Setup</a> — writes Csound synthesis code from that
+description. Compiled and run live, that code becomes the oscillator's voice
+for every note you play. It is not a preset and not a rendered sample: it is
+source code, written for this one prompt — software as culture, and readable
+as such.
 </p>
 
 <div class="tip">
@@ -678,18 +675,13 @@ to, since the LRO has no A/B pair to couple.
 The LRO depends on two things the neural oscillator does not.
 </p>
 <p>
-<strong>The author language model must be installed.</strong> It is listed
-in <strong>Settings</strong>, on the <strong>Models</strong> tab, under its
-own <strong>LANGUAGE MODEL</strong> heading, as <strong>Gemma 4 12B</strong>
-— a 4-bit build of Google's Gemma, quantization-aware trained by Google and
-run through llama.cpp rather than the usual transformers library, about
-7&nbsp;GB, downloaded ungated from HuggingFace under the Apache 2.0 license
-(no account needed). The same model also translates prompts to English and
-drives Re-Prompt on both oscillators — there is only ever the one language
-model. Once installed, the LRO's own model tab reads <strong>"Gemma 4 12B —
-writes code for Csound"</strong>; until then it reads <strong>"no language
-model"</strong>, and pressing <strong>Generate</strong> answers: <strong>"Load
-the language model in Settings"</strong>.
+<strong>A language model must be reachable</strong> — the local Gemma 4 12B,
+or an external provider over an API key. Both are set up in Settings under
+<strong>LANGUAGE MODEL</strong>, described in
+<a href="#setup-lm">Setup: The Language Model</a>. Until one is reachable the
+LRO's model tab reads <strong>"no language model"</strong>, and pressing
+<strong>Generate</strong> answers: <strong>"Load the language model in
+Settings"</strong>.
 </p>
 <p>
 <strong>Csound must be present on the machine akróasys runs on.</strong> Unlike
@@ -727,6 +719,29 @@ but from a space of possible sounds. The main purpose is to explore that space,
 shape the generation itself, and decide which state becomes a short playable
 fragment.
 </p>
+<p>
+akróasys is an open-source gift to the synth communities and to musicians. It
+tries out a different way of engaging generative AI &mdash; one that makes new
+things possible instead of automating existing ones, and that puts these models
+in the service of <strong>empowerment, not replacement</strong>: the model
+becomes an instrument in your hands, not a service that plays instead of you.
+</p>
+
+<p>
+This is also where akróasys parts company with tools that let you pick a style and
+shape it from there. Such a tool gives you parameters around a single chosen
+result &mdash; how strictly the style is followed, how much it varies, which
+elements play &mdash; but the result itself stays whatever the model would
+produce. akróasys's controls act on the <strong>embeddings</strong> instead: Alpha
+moves through the relation between the two poles, an empty field reflects an
+impulse back as an echo chamber, the Semantic Axes shift along directions in that
+space, and the Dimension Explorer re-weights its individual coordinates. You are
+working on the model's representation directly &mdash; combining, reflecting,
+re-weighting &mdash; which is how you reach points a single prompt would never
+land on. And because what comes out is a <strong>short fragment to shape, not a
+finished piece</strong>, that exploration continues in the synth rather than
+ending at the model's output.
+</p>
 
 <h3>The Two Text Fields: A &amp; B</h3>
 <p>
@@ -737,7 +752,8 @@ are two markers for one inner sound space.
 </p>
 <p>
 A and B are equal markers for one hidden sound space. Each impulse is turned
-into internal control data by the model's text-reading stage. That control data
+into internal control data by the model's text-reading stage — the "T5" the
+oscillator is named after. That control data
 is not audio; it is the model's way of deciding what kind of sound can become.
 akróasys changes that internal state so different fragments can become audible.
 </p>
@@ -1854,7 +1870,39 @@ refreshes the curated <em>UCDCAE AI Lab</em> bank in place from
 </p>
 
 <!-- ═══════════════════════════════════════════ -->
-<h2 id="sweetspots">13. Strategies for Finding Sweet Spots</h2>
+<h2 id="sessionlog">13. Session Log: Recording &amp; Replay</h2>
+
+<p>
+From the moment it starts, akróasys keeps a <strong>session log</strong> of what
+you do — never of the rendered audio. It records every note with its source
+(MIDI keyboard, computer keyboard, Step Sequencer, Generative Sequencer,
+Arpeggiator), every parameter move (and whether it came from your hand, from
+CC-Learn, or from host automation), and every generation call with its prompts,
+settings and realized seed.
+</p>
+<p>
+The <strong>Export</strong> menu in the status bar holds both ends of it.
+<strong>Save Session Log&hellip;</strong> writes the session so far as a
+<code>.t5evt</code> file — newline-delimited JSON, one event per line, readable
+in any text editor; the entry is enabled once something has actually happened.
+<strong>Play Session Log&hellip;</strong> picks a <code>.t5evt</code> and plays
+it back: a full-surface <strong>REPLAY</strong> transport covers the workspace,
+with the tape's filename, position, a speed control, a timeline strip showing
+the note scatter and generation marks, what is sounding now, and a feed of
+recent events. The tape drives the engine underneath — parameters move,
+notes play, and generations are <em>re-created live</em> from their logged
+prompts and seeds rather than played back as audio. <strong>Stop Replay</strong>
+ends the tape; your own workspace beneath was never touched.
+</p>
+<div class="note">
+  Because a replayed generation is re-run, not re-heard, a tape is faithful to
+  what was <em>done</em>, not byte-identical to what was heard: the same
+  prompts and seed on the same model reproduce the sound, while a missing model
+  or a changed install renders what the machine makes of it today.
+</div>
+
+<!-- ═══════════════════════════════════════════ -->
+<h2 id="sweetspots">14. Strategies for Finding Sweet Spots</h2>
 
 <div class="tip">
   <strong>akróasys is not a sweet-spot synth.</strong> Unlike subtractive synths where most parameter combinations produce usable sound, akróasys's generation process is exploratory and unpredictable. Many combinations produce nothing interesting. That's by design — the instrument rewards patient exploration, not preset-surfing.
@@ -1918,7 +1966,7 @@ Presets include the generated audio, so you never lose a good generation. Export
 <!-- PART II -->
 <!-- ═══════════════════════════════════════════════════════════════ -->
 <div class="part-label" style="margin-top:3rem">Part II</div>
-<h2 id="bg-axes">14. How Semantic Axes Work</h2>
+<h2 id="bg-axes">15. How Semantic Axes Work</h2>
 
 <p>
 akróasys's semantic axes are directions in the 768-dimensional embedding space of the T5 text encoder. Here's how they are constructed:
@@ -1973,7 +2021,7 @@ On SA3's t5gemma encoder a single-word pole is too weak to move the sound — me
 </div>
 
 <!-- ═══════════════════════════════════════════ -->
-<h2 id="bg-dimex">15. The DimExplorer In Depth</h2>
+<h2 id="bg-dimex">16. The DimExplorer In Depth</h2>
 
 <p>
 The DimExplorer (see <a href="#dimex">section 3</a> for basic usage) operates on the <strong>mean-pooled</strong> encoder output — the 768-dimensional vector obtained by averaging across the token sequence dimension. This is the same representation the diffusion model uses for conditioning.
@@ -2004,7 +2052,7 @@ Individual T5 dimensions do not correspond to human-interpretable audio features
 </ul>
 
 <!-- ═══════════════════════════════════════════ -->
-<h2 id="bg-genseq">16. Principles of the Generative Sequencer</h2>
+<h2 id="bg-genseq">17. Principles of the Generative Sequencer</h2>
 
 <p>
 The generative sequencer combines three layers of musical algorithm:
@@ -2096,7 +2144,7 @@ Because all strands share the same field, harmonic coherence is provided at the 
 </div>
 
 <!-- ═══════════════════════════════════════════ -->
-<h2 id="bg-pipeline">17. The Inference Pipeline</h2>
+<h2 id="bg-pipeline">18. The Inference Pipeline</h2>
 
 <p>
 Understanding the inference pipeline helps explain why certain controls interact the way they do.
@@ -2196,7 +2244,7 @@ Modes enter the path; the detailed mode mechanics follow in the next section.
     │                                     │   (empty side → 2·emb_neutral − other)
     │                                     │
     ├─ Injection Mode ─────────────────── Select conditioning path
-    │                                     │   (details in section 18)
+    │                                     │   (details in section 19)
     │                                     │
     ├─ Alpha / mode slider ────────────── Control selected path
     │                                     │
@@ -2241,7 +2289,7 @@ Key observations from this flow:
 </ul>
 
 <!-- ═══════════════════════════════════════════════════════════════ -->
-<h2 id="bg-injection">18. How Injection Modes Work</h2>
+<h2 id="bg-injection">19. How Injection Modes Work</h2>
 
 <p>
 The user-facing injection-mode buttons (§1) are a thin UI on top of
