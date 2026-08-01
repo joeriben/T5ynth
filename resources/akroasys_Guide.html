@@ -502,11 +502,15 @@ its own <strong>Language Model</strong> tab in Settings, and the
   Mistral (EU), IONOS (EU, Berlin), Mammouth (EU), Anthropic (US), OpenAI (US),
   an Ollama server on this computer (no key needed), or "Other" for any
   OpenAI-compatible endpoint, including your own remote llama.cpp server.
-  Choosing a provider fills in its address and a working model; you paste an
-  API key. Only the text step travels — the sound is always rendered on your
-  machine, and the Csound is compiled on your machine. With a provider
-  configured, the tab keeps a running readout of what the authoring has cost
-  you so far. Data protection is your
+  Choosing a provider fills in its <strong>API base URL</strong>, which stays
+  read-only for every named provider and becomes editable only under "Other",
+  and puts a working model in the <strong>Model</strong> box, which you can
+  overtype. Below it the <strong>API key</strong> field takes your key, and a
+  readiness line reads <em>In use &mdash; &lt;model&gt;</em> once it works.
+  Only the text step travels &mdash; the sound is always rendered on your
+  machine, and the Csound is compiled on your machine. Once a provider has been
+  called at least once, the tab shows a running readout of what the authoring
+  has cost you; it refreshes when you open the tab, not continuously. Data protection is your
   call and you make it at the provider, not here; IONOS and Mammouth are the
   EU-hosted, GDPR-compliant entries. A code-trained model authors far better
   than a general chat one, and the key is stored unencrypted in akróasys's
@@ -1364,6 +1368,15 @@ Writing an instrument takes two calls to the model: one in which it says which
 of the library's entries it wants to see, and one in which it writes the
 orchestra from what it was shown. The trace names every station of that:
 </p>
+<p>
+Not every station appears on every run, and <strong>an absence is part of the
+report</strong>. HEARD is missing when no prompt was stored; OPENED when the
+model consulted nothing; THOUGHT when the reply carried no prose; KNOBS on an
+instrument recalled from a preset rather than written just now; and REPAIRED
+when the first orchestra compiled and sounded, which is the good case. Two
+stations also carry a count: KNOBS says how many controls were offered, and
+REPAIRED how many attempts it took.
+</p>
 <table>
   <tr><th>Station</th><th>What it shows</th></tr>
   <tr>
@@ -1858,9 +1871,9 @@ not one per envelope.
   <tr><th>Parameter</th><th>Range</th><th>Notes</th></tr>
   <tr><td><strong>Type</strong></td><td>Off / Plate Dk / Plate Md / Plate Br / Freeverb / Freeverb+</td><td>The three <strong>Plate</strong> settings are convolution (JUCE <code>dsp::Convolution</code>) on EMT 140 plate impulse responses by <a href="https://oramics.github.io/sampled/IR/EMT140-Plate/">Greg Hopkins</a> (CC BY) — dark, medium and bright. <strong>Freeverb</strong> wraps JUCE <code>dsp::Reverb</code>; <strong>Freeverb+</strong> is the same algorithm with a longer, denser tail. Both are far cheaper on CPU than the plates.</td></tr>
   <tr><td><strong>Mix</strong></td><td>0.0 – 1.0</td><td>True dry/wet crossfade: 0 = dry, 1 = reverb only. The Freeverb types use a slightly curved wet response; the plates stay linear.</td></tr>
-  <tr><td><strong>Room Size</strong></td><td>0.0 – 1.0</td><td>Freeverb / Freeverb+ only</td></tr>
-  <tr><td><strong>Damping</strong></td><td>0.0 – 1.0</td><td>Freeverb / Freeverb+ only</td></tr>
-  <tr><td><strong>Width</strong></td><td>0.0 – 1.0</td><td>Freeverb / Freeverb+ only. 0 = mono, 1 = full stereo</td></tr>
+  <tr><td><strong>Room Size</strong></td><td>0.0 – 1.0</td><td>Default 0.7. Freeverb / Freeverb+ only — greyed out and inactive on the plates.</td></tr>
+  <tr><td><strong>Damping</strong></td><td>0.0 – 1.0</td><td>Default 0.4. Freeverb / Freeverb+ only — greyed out on the plates.</td></tr>
+  <tr><td><strong>Width</strong></td><td>0.0 – 1.0</td><td>Default 1.0. Freeverb / Freeverb+ only — greyed out on the plates. 0 = mono, 1 = full stereo</td></tr>
 </table>
 
 <h3>Limiter and Master Volume</h3>
@@ -2236,10 +2249,44 @@ akróasys uses <code>.t5p</code> preset files — a binary container that stores
 Presets carry <strong>tags</strong> — a set of descriptive labels you assign when saving. Tags are shown as chips in the save dialog; when saving over an existing preset, the chips are pre-filled from that target preset's tag set, not from whatever tags you last used. Tags are stored in the <code>.t5p</code> file and indexed by the Library for filtering.
 </p>
 <p>
-Presets live in the <code>presets</code> folder of akróasys's app-data
-directory; a subfolder there is a bank, and appears as one in the Library. Right-clicking
-an entry offers <em>Rename</em>, <em>Duplicate</em>, <em>Show in Finder</em> and
-<em>Delete</em>. Use <strong>Import Presets</strong> in the Library to copy one or more <code>.t5p</code>
+Presets live in <code>T5ynth/presets</code> inside your user application-data
+directory &mdash; <code>~/Library/T5ynth/presets</code> on macOS, not
+<em>Application&nbsp;Support</em>. The folder still carries the old product name;
+a subfolder there is a bank, and appears as one in the Library. Right-clicking an
+entry offers <em>Rename…</em>, <em>Duplicate</em>, a reveal item that follows
+your platform (<em>Show in Finder</em>, <em>Show in Explorer</em> or
+<em>Show in File Manager</em>) and <em>Delete</em>. </p>
+<h3>Inside the Library panel</h3>
+<p>
+The Library is more than a list. Down the left are two filter columns:
+<strong>BANK</strong>, which also carries a <strong>+</strong> for creating a new
+bank, and <strong>MODEL</strong>, which narrows the list to presets made with one
+engine; each has an <em>All</em> row to clear it. The search field at the top
+matches <strong>name and prompt</strong>, so you can find a sound by what you
+asked for rather than what you called it.
+</p>
+<p>
+Selecting a preset opens a detail card with a <strong>Load</strong> button and a
+tag editor: <strong>+ tag</strong> adds one, and a
+<em>Known tags &mdash; click to add</em> cloud below offers the tags already in
+use so a bank does not drift into fifteen spellings of the same word.
+</p>
+<p>
+Saving opens a drawer with <strong>Name</strong>, a <strong>Bank</strong>
+chooser, a <strong>Tags</strong> field and an <strong>Inference-Cache saved</strong>
+toggle. If the name already exists, the save button turns red and reads
+<em>Replace "&lt;name&gt;"</em> with a warning &mdash; and a
+<strong>+ copy</strong> button next to it takes the safe way out by saving under
+a new name instead. Close with the <strong>&times;</strong>, the
+<strong>Close</strong> button or <kbd>Esc</kbd>.
+</p>
+<p>
+The preset name in the status bar is itself a control: right-click it for
+<em>Rename…</em>, <em>Delete</em> and <em>Reveal in file manager</em>, without
+opening the Library at all.
+</p>
+<p>
+Use <strong>Import Presets</strong> in the Library to copy one or more <code>.t5p</code>
 files into your user library. <strong>Update Library</strong> downloads and
 refreshes the curated <em>UCDCAE AI Lab</em> bank in place from
 <a href="https://github.com/joeriben/T5ynth-Presets">T5ynth-Presets</a> &mdash; no manual download.
