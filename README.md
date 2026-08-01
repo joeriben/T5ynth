@@ -12,16 +12,16 @@ model's latent space of sound *before* that space has become audio: two short
 impulses mark it out, and you move through what can become audible between them
 — textures, transients, patterns, sonic and musical fragments, field recordings,
 everyday noises, orchestral gestures, alien voices, human emotional expressions,
-or impossible hybrids. The **Language-Resonant Oscillator** has no such space to
-reach into: you describe an instrument, and a language model writes the Csound
-orchestra for it, so your words become the oscillator
-itself.
+or impossible hybrids. The **Language-Resonant Oscillator** works the other way round: you describe an
+instrument, a language model writes the Csound orchestra for it, and that code —
+compiled and run live — is what every voice sounds. Your words become the
+oscillator itself.
 
 Most AI audio tools keep the model behind a render button and hand back finished
 audio. In akróasys, generation is not a separate AI step after the synth: the
 synth reaches into the model itself, and what comes out is one stage in a signal
-path that continues through sampler or wavetable playback, filters, envelopes,
-LFOs, sequencing, delay, reverb, and limiting.
+path that continues through filters, envelopes, LFOs, sequencing, delay, reverb
+and limiting.
 
 Links:
 
@@ -39,42 +39,49 @@ Current tagged GitHub Releases publish:
 
 ## What akróasys Does
 
-akróasys is easiest to understand from its signal flow.
+In a conventional synth, the oscillator produces audio immediately: sine, saw,
+square, noise, sample, wavetable. In akróasys a model stands in that place. Two
+of them do, in two different ways, and the toggle at the top of the Generation
+column decides which one is sounding. Everything downstream — filters,
+envelopes, LFOs, sequencers, delay, reverb, limiter, presets — is the same synth
+either way.
 
-In a conventional synth, an oscillator produces audio immediately: sine, saw,
-square, noise, sample, wavetable. akróasys opens a bounded region of the latent space
-inside the selected audio model. The T5 Oscillator is a meta-oscillator:
-it does not begin with one waveform or one sample, but with a latent space of sounds. The main musical act is to explore that space and decide which state
-becomes a short audio fragment.
+### The T5 Oscillator
 
-The fields labeled **Impulse A** and **Impulse B** belong to that hidden-space stage.
-They do not mean a ChatGPT conversation, a song request, or a rendered audio
-file. A and B are text impulses that mark one inner space. They do not
-produce two samples, and they are not two oscillators.
+A diffusion model's **latent space** is where sound sits before it is audio. Two
+short text impulses, **Impulse A** and **Impulse B**, are read by the model's
+text encoder and become two points in that space. The musical act is to move
+between and past them and decide which point gets rendered.
 
-The interface names for those space-shaping operations are **A/B** for the pull
-between A and B, **Magnitude** for how strongly the space is pushed,
+A and B are impulses, not a conversation with a chatbot and not a song request.
+They mark one space; they do not produce two samples and they are not two
+oscillators.
+
+The controls that move the point are **A/B** for the pull between the two,
+**Magnitude** for how far the point is pushed from the model's neutral centre,
 **Noise** for perturbation, **sound-character axes** for broad directions,
 **Dimension Explorer** for individual dimensions, **Injection Modes** for where
-B enters A during generation, and **Drift** for movement over time. They do
-not mix audio. They move or reshape the latent space.
+B enters A during generation, and **Drift** for movement over time. They work on
+the conditioning, not on audio: no signal is being mixed.
 
-**Generate** renders the current state of that space into audio, but it is
-not where the instrument starts. akróasys has already shaped the generation.
-The rendered fragment is then carried further through
-sampler playback or wavetable extraction, followed by filter, envelopes, LFOs,
-sequencers, delay, reverb, limiter, and presets.
+Most of the travel they allow leads out of the region any text can address. The
+A/B slider runs to ±2, so most of its range lies past both impulses; an empty
+field reflects the other one through the model's neutral point, which is an
+anti-prompt no wording produces; Magnitude reaches 5.0. The model was not
+trained on what it finds there, and that is what this oscillator is for.
 
-The instrument flow is therefore:
+**Generate** renders the current point into a short audio fragment, which is
+then played back as a **Sampler**, **Wavetable** or **Granular** voice.
 
-1. Two short impulses, one in A and one in B, mark the latent space, for
-   example "steady clean saw wave, C3" and "120 bpm syncopated transient
-   pattern".
-2. A/B, Semantic Axes, Noise, Dimension Explorer, Injection Modes, and Drift
-   move that space of possibilities.
-3. Shape the sonic flow as a **Sampler** or **Wavetable** engine, with filters,
-   envelopes, LFOs, sequencers, delay, reverb, limiter, presets, and
-   **Drift Modulators & Auto-Regenerate**.
+So the flow is:
+
+1. Two short impulses mark the latent space — for example "steady clean saw
+   wave, C3" and "120 bpm syncopated transient pattern".
+2. A/B, Magnitude, Noise, Semantic Axes, Dimension Explorer, Injection Modes and
+   Drift move the point that will be rendered.
+3. Generate, then play it as Sampler, Wavetable or Granular through filters,
+   envelopes, LFOs, sequencers, delay, reverb, limiter, presets, and **Drift
+   Modulators & Auto-Regenerate**.
 
 akróasys can use **Stable Audio 3 Small Music**, **Stable Audio 3 Small SFX**,
 **Stable Audio 3 Medium**, **Stable Audio Open 1.0**, **Stable Audio Open Small**,
@@ -99,18 +106,15 @@ brushed by fingers" gives the model acoustic handles. But the abstract phrase
 can still be used as a strange marker in the model's space. akróasys is where you
 find out what that marker can become.
 
-### The alternative to the denoising paradigm
+### The Language-Resonant Oscillator
 
-Everything above describes the **T5 Oscillator**, which works inside the
-diffusion paradigm: sound arrives by denoising. The
-**Language-Resonant Oscillator (LRO)** is the alternative to that paradigm —
-sound arrives as *written software*. You
-describe an instrument — "a bowed
-cello", "bright shimmer degrading to a dark rumble" — and a language model —
-local by default, or an external provider with your API key — writes a Csound
-orchestra for exactly that description.
-The code is compiled and run live, and it is what every voice sounds. Nothing is
-sampled and nothing is baked: the source code is the sound.
+The T5 Oscillator works inside the diffusion paradigm: sound arrives by
+denoising. The **LRO** is the alternative to that paradigm — sound arrives as
+*written software*. You describe an instrument — "a bowed cello", "bright
+shimmer degrading to a dark rumble" — and a language model, local by default or
+an external provider with your API key, writes a Csound orchestra for exactly
+that description. The code is compiled and run live, and it is what every voice
+sounds: the source code is the sound.
 
 And it is real, portable Csound — the same language any Csound system compiles,
 not an internal format of this app. The orchestra is stored with the preset, and
@@ -236,17 +240,18 @@ See [`CHANGELOG.md`](CHANGELOG.md) for the full release history.
 
 ## Core Concepts
 
-### The Possible Sound Space
+### The Latent Space of Sound
 
-The center of akróasys is the latent space of sound. Traditional oscillators
-generate sine, saw, square, noise, or sample playback. akróasys starts inside the
-model, where meaning shapes what sound can become.
+Traditional oscillators generate sine, saw, square, noise, or sample playback.
+The T5 Oscillator starts inside the model, in the space where meaning shapes
+what sound can become — including the parts of it no wording reaches.
 
 Behind the scenes, that space is numerical. You can ignore that while playing,
 just as you can use FM without solving the equations.
 
-- **Impulse A/B** marks the latent space and the **A/B** slider moves through it.
-  This is not an audio crossfade; the midpoint is a new internal state.
+- **Impulse A/B** marks the latent space and the **A/B** slider moves through it
+  and past both ends — its range is ±2. The midpoint is a new internal state,
+  not an audio crossfade.
 - **Magnitude** changes how strongly that state steers the diffusion model.
 - **Model-space noise** perturbs that state.
 - **Sound-character axes** add musically legible directions such as noisy/tonal or
@@ -280,14 +285,16 @@ With v1.7, those drift cycles can be clock-synced to musical divisions, so
 long sound-space motion can sit inside a DAW, sequencer, or standalone tempo
 workflow.
 
-### Sampler and Wavetable Modes
+### Sampler, Wavetable and Granular Modes
 
-akróasys can use generated audio in two ways:
+akróasys can play a generated fragment three ways:
 
 - **Sampler Mode** plays the generated fragment directly with loop modes,
   crossfade, normalization, and pitch following through time-stretching.
 - **Wavetable Mode** extracts pitch-synchronous single-cycle frames and turns
   the generation into a playable, scannable wavetable oscillator.
+- **Granular Mode** reads the fragment as a cloud of overlapping grains, with
+  grain size, density, spray and scan position under modulation.
 
 ## Feature Overview
 
