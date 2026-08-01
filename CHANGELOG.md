@@ -1,5 +1,185 @@
 # Changelog
 
+The project was released as **T5ynth** through v2.5.3. From 3.0.0 it is
+**akróasys**; the repository, the preset format and the version line continue
+unbroken.
+
+## Unreleased — 3.0.0
+
+Two things make this a major version: the instrument is renamed, and it gains a
+second oscillator built on a different principle from the first.
+
+### New: the Language-Resonant Oscillator (LRO)
+
+A second oscillator, peer to the existing one, in which **the sounding program
+itself is generated at run time by a language model from a description in
+ordinary language, then compiled and executed as the instrument's voice
+source.** First landed 2026-07-22 (`3728a42f`).
+
+The architecture, stated plainly because it is the thing that is new:
+
+1. The player types a description of an instrument ("a bowed cello", "bright
+   shimmer degrading to a dark rumble"). No code, no parameters, no keyword
+   vocabulary.
+2. A **curated, parametrised library of synthesis code** is held beside the
+   model — currently 30 instrument bodies, 51 sound-character words and 17
+   motions, each entry carrying real Csound source, the synthesis method it
+   implements, a published source for that method, and named parameters with
+   ranges and one-line glosses (`backend/lco_library.json`).
+3. **Two-turn consultation.** In the first turn the model is shown the library's
+   index and *names the entries it wants opened*; nothing is matched to it by
+   keyword and nothing restricts it to what it opened. In the second turn it is
+   shown those entries in full and writes a complete Csound orchestra
+   (`backend/lco_write.py`).
+4. A **fixed host scaffold** is the only contract: sixteen voice channels, gate,
+   frequency, velocity, pressure, timbre and trigger per voice, `ksmps = 64`,
+   and the rule that the body shapes spectrum and timbre while the host's
+   amplitude envelope owns loudness. The model writes the instrument; it never
+   writes the transport, the polyphony or the envelope
+   (`src/dsp/CsoundEngine.cpp`).
+5. The orchestra is **compiled and performance-checked before it is allowed to
+   play** — it must compile and produce non-silent output for a quarter of a
+   second. A failure is fed back to the model as a repair round rather than
+   falling back to anything.
+6. **The player's control surface is derived from the generated program.** A
+   parameter line from an opened library entry that survives into the body the
+   model actually wrote becomes a knob on the panel, carrying the library's
+   name, gloss and range and the model's chosen value; a line the body never
+   reads does not become a knob (`src/dsp/LroControls.h`).
+7. The compiled orchestra is **hot-swapped into the running audio engine**
+   without an audible break, and travels inside the preset as source text.
+
+**There is no deterministic fallback and none is wanted.** Without a language
+model there is no oscillator. The library orients the model rather than
+constraining it: it may combine any number of methods in one program, layer up
+to three bodies, morph one into another across a note, drive one with another,
+or write something the library does not contain at all.
+
+The full technical description, in the form a third party can read and cite, is
+[`docs/LRO_TECHNICAL_DISCLOSURE.md`](docs/LRO_TECHNICAL_DISCLOSURE.md).
+
+Milestones, dated: Csound detection and engine wrapper 2026-07-16 (`3d7663a4`);
+voice bridge and playable engine mode 2026-07-17 (`cf21475a`); **the language
+model writes the orchestra** 2026-07-22 (`3728a42f`); the panel derives its
+knobs from the written body 2026-07-30 (`a8b45824`, `0e7f9709`); per-part levels
+2026-08-01 (`8c36dc13`).
+
+### New: the authoring trace
+
+The LRO's panel shows the whole authoring path rather than a progress bar —
+nine stations covering what the model was given, which library entries it asked
+to have opened, its reasoning as it streams, the orchestra it wrote, a repair
+round if the first attempt failed, and whether the result compiled and played.
+A station that does not appear is itself information. Hold the panel to read the
+Csound the model wrote.
+
+### New: Csound ships inside the app
+
+Csound 6.18.1 travels in the bundle on macOS, Windows and Linux, linked
+dynamically as LGPL 2.1 requires. Nothing needs installing. Linux takes the
+distribution's `libcsound64-6.0` in the Debian package and has no scanned
+synthesis (`scanu`/`scanu2`/`scans`).
+
+### New: one language model for the whole instrument
+
+Gemma 4 12B (QAT, 4-bit GGUF, run through llama.cpp) writes the LRO's Csound,
+translates prompts to English and drives Re-Prompt. Alternatively an external
+provider — OpenRouter, Mistral AI, IONOS, Mammouth AI, Anthropic, OpenAI, a
+local Ollama, or any OpenAI-compatible endpoint — with only the text step
+leaving the machine. The separately-installed 1.5B translator is gone.
+
+### Also in 3.0.0
+
+- **Five envelopes** instead of three, with COPY/PASTE between the tabs.
+- **Amp effects chain** — distortion as an overdriven amplifier, tremolo with
+  four shapes, chorus and phaser, behind the voices.
+- **Advanced/Easy view removed.** The toggle that remains switches oscillators.
+- **Every engine's shared controls in one top bar**, with the tuning selector
+  and the octave switchbox.
+- **Re-Prompt listens on both oscillators** — for the LRO it renders a probe of
+  the compiled orchestra and hands that to CLAP, rather than re-reading its own
+  text.
+- **Session log** (`.t5evt`) — opt-in recording and replay of a playing session.
+- **The in-app manual rewritten** against the code, with the two oscillators as
+  peers and background chapters on Csound's MUSIC-N lineage and on the code
+  library.
+
+---
+
+## v2.5.3-beta.1 — 2026-06-30
+
+- **Fix: CUDA on small-VRAM cards.** The prompt translator is pinned to CPU where VRAM is tight, and `T5YNTH_CUDA_FP32` forces fp32 when a card's fp16 path misbehaves.
+- **Presets: cross-device presets are flagged** on the detail card, so a preset made on another machine's device announces itself before it is loaded.
+- **Delay: `Tp4`** restores the legacy additive tape wobble beside the newer voicings.
+
+## v2.5.3-beta.0 — 2026-06-29
+
+- **Delay: Tape and BBD character presets.** The delay-type buttons become a combo box; each family carries named characters instead of numbered variants.
+
+## v2.5.2-beta.1 / v2.5.2-beta.0 — 2026-06-26 / 2026-06-25
+
+- **New: BBD delay mode**, with tape playback rolloff that darkens with delay time rather than only with age.
+- **Delay: per-mode Damp** with an intrinsic tape baseline and an honest percentage label.
+- **New: step recording.** Double-click *Step* to play notes into the grid; Space or a sustain pedal enters a rest.
+- **Keyboard: the typing map reaches ~2 octaves** (`o l p ö ä ü # +`).
+
+## v2.5.1-beta.0 — 2026-06-23
+
+- **New: CORE MONITOR.** The generative sequencer's Strand 1 slot holds a read-only phosphor-green readout that names each pattern mutation as it fires — the operation, the result, and the rule that chose it.
+- **Generative sequencer: Range as a compact switchbox**, per-strand group cards, roles and tempo multipliers in one row.
+
+## v2.5.0-beta.1 / v2.5.0-beta.0 — 2026-06-22
+
+- **New: the Delta panel.** Semantic Axes and the Dimension Explorer share one box behind a two-segment switch; the DimExplorer inherits the freed band and gains a binned |A−B| focus-spectrum mini-view.
+- **New: looping envelopes** as a self-retriggering A→D→Hold→R cycle, with a Loop toggle in each envelope header. In loop mode Sustain becomes the hold time.
+- **New: tabbed settings overlay** with the filter-oversampling control.
+- **Drift: its own BPM-sync division range**, 1/4 … 64/1 — slower than the LFOs and the delay.
+- **Filter: LP/HP/BP as a type toggle.**
+- **Re-Prompt and Translate are gated** on the translation model actually being installed.
+
+## v2.4.0-beta.0 — 2026-06-19
+
+- **New: the delay is reworked** into Digital / Ping-Pong / Tape multi-head voicings.
+- **New: graphical ADSR editor**, replacing the faders. Clicking a segment body cycles that stage's curve.
+- **New: continuous signed per-stage velocity sensitivity.**
+- **UI: module cards** for the FX Delay/Reverb sections and the generative sequencer's Euclidean controls.
+
+## v2.3.0-beta.0 — 2026-06-12
+
+- **New: Resynth.** A generation can start from a waveform instead of from pure noise and denoise away from there — an audio-conditioned feedback loop with an anti-convergence controller, an Off→Full slider, drift as a target, and preset/snapshot persistence.
+- **Presets: a maintainer checkout writes bank presets directly**, so the live preset directory is the git checkout.
+
+## v2.2.0-beta.1 / v2.2.0-beta.0 — 2026-06-06 / 2026-06-04
+
+- **New: Stable Audio 3.** SA3 Small Music and Small SFX with the t5gemma text encoder, a model-metadata IPC channel, and the layer-split slider clamped to each model's own DiT block count. First landed 2026-05-26.
+- **Filter: the Warp algorithm becomes true ZDF**, with per-style resonance recalibration and output makeup that holds level parity across styles.
+- **Setup: per-row inline download progress**, cancel, and a `~/Downloads` pre-scan.
+- **Fix: preset JSON is decoded as UTF-8**, not Latin-1 — the cause of prompt mojibake after a restart.
+
+## v2.1.0-beta.1 / v2.1.0-beta.0 — 2026-06-03 / 2026-06-02
+
+- **Held voices follow a new generation.** Granular and Freeze voices crossfade-morph live when inference returns, rather than being cut or frozen on the old buffer.
+- **New: MIDI Panic** in the status bar.
+- **Presets: "+ Bank" is decoupled from Save**, and a name that exists in another bank blocks the save rather than silently shadowing it.
+- **UI: the scan playhead** is drawn in its own colour across the full waveform height.
+
+## v2.0.2-beta.0 — 2026-05-23
+
+- **New: curated tag vocabulary** with a click-to-add cloud and autocomplete; long-press a tag row to drag it onto the detail card.
+- **Presets: edits to the UCDCAE bank fork to My Presets** with a mandatory rename, so the shipped bank cannot be edited in place.
+- **Presets: session snapshots persist in `.t5p`**, and the FLAC v4 write/read path is active.
+
+## v2.0.1-beta.0 — 2026-05-20
+
+- **New: Semantic Axes master Amount**, a single attenuator over all three axis slots.
+- **Fix: embedding-noise sigma halved** so the slider has usable resolution across its range.
+
+## v2.0.0-beta.1 / v2.0.0-beta.0 — 2026-05-17
+
+- **New: Easy view.** A second, compact layout for the whole instrument — generation column, oscillator, filter, LFOs and modulation — switched from the engine title. (Removed again in 3.0.0, where a single layout replaces both.)
+- **New: true L/R stereo filter path.**
+- **New: in-plugin sync of the UCDCAE AI Lab preset bank** from GitHub.
+
 ## v1.9.0-beta.1 — 2026-05-16
 
 - **New: Granular engine.** Adds a third engine beside Sampler and Wavetable. Granular reuses loaded/generated sample material but renders through its own texture engine with pitch-independent grain timing, conservative texture macros, stereo spread, and sample-near defaults.
