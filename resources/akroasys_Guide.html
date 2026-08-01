@@ -521,6 +521,15 @@ it is loaded is the same one that plays it. It is linked dynamically, as its
 licence requires, so the shipped library stays replaceable.
 </p>
 <p>
+Two Linux details, both deliberate. The Debian package does not carry Csound: it
+declares <code>libcsound64-6.0</code> and takes the distribution's. And Debian
+and Ubuntu ship no scanned synthesis at all, so <code>scanu</code>,
+<code>scanu2</code> and <code>scans</code> are available on macOS and Windows and
+not on Linux. Nothing in the code library uses them, so no shipped instrument is
+affected &mdash; an authored orchestra that reaches for one will fail to compile
+there and be repaired.
+</p>
+<p>
 Its one setting is <strong>LRO Oversampling</strong> on the Settings tab
 (Off / 2× / 4×, default 4×): the rate the authored orchestra runs at relative to
 your host. Changing it recompiles the running instrument.
@@ -595,8 +604,10 @@ mark out the stretch of that space this oscillator plays across.
 Each engine opens a different learned space, so the same words land somewhere
 else on each. The Stable Audio engines answer best to English, sound-oriented
 phrases &mdash; sound effects, field recordings, drum and instrument loops,
-ambient beds, foley, production elements &mdash; and read up to 256 tokens per
-impulse on SA3.
+ambient beds, foley, production elements. How much they read differs: SA3 takes
+up to <strong>256 tokens</strong> per impulse, Stable Audio Open 1.0 and Open
+Small only <strong>128</strong> &mdash; on those two, a long impulse loses its
+tail rather than being compressed.
 </p>
 <p>
 The impulses do not have to be narrow "sound ideas". They can evoke sound
@@ -813,6 +824,13 @@ disables those buttons and keeps <em>Linear</em> active.
 Below the A/B area, three dropdown slots let you apply <strong>sound-character axes</strong> — continuous sliders between two conceptual poles (in the UI and technical background also called <em>semantic axes</em>). Each one pushes the current latent space along a direction the model ties to a word like <em>grainy</em> or <em>rhythmic</em>. That push has two sides. It is a <strong>reliable way to bring coherent, non-chaotic movement</strong> into the sound — it steers along one consistent direction, so the motion is repeatable rather than scattered. But it is <strong>not a literal control over the named quality</strong>: pushing toward <em>grainy</em> reliably shifts the character without reliably making the sound measurably grainier.
 </p>
 
+<p>
+Below the three slots sits <strong>Amount</strong>, a single 0&ndash;1 fader that
+scales every axis at once before any of it reaches the model. It is the quickest
+way to hear how much of the result is the axes and how much is the impulses: pull
+it to zero and the axes are out of the picture without you losing their settings.
+</p>
+
 <div class="note">
   <strong>They are probes as much as controls.</strong> The same push lands differently on different prompts: one follows the label, another barely moves, a third veers somewhere you did not predict. That is not a fault — it is the model showing how it hears the word in the context of <em>your</em> sound. Pushing an axis and listening to where a prompt goes, and where it refuses to go, is a direct way to learn where the model's sense of a word lines up with yours and where it parts from it. Treat a labeled axis as a broad direction to explore by ear, not as a value you dial in.
 </div>
@@ -906,7 +924,9 @@ carries three handles on its baseline, which every mode reads:
 A pale vertical line runs through the display while a note sounds, showing the
 live read position — useful when a modulator is driving Scan. The
 <strong>LOCK</strong> button in the corner pins the three handles so a new
-generation cannot move them. Dragging from the waveform onto a step's one-shot
+generation cannot move them. It engages itself the moment you drag a handle:
+having placed them by hand, you are unlikely to want the next generation to
+move them, so akróasys assumes that and you can switch it off again. Dragging from the waveform onto a step's one-shot
 slot copies the region from the <strong>S</strong> handle to the
 <strong>]</strong> bracket into that slot.
 </p>
@@ -963,6 +983,15 @@ Before the generated audio reaches the sampler/wavetable/granular source, two fi
 </ul>
 <p>
 All three operate on the generated buffer, not on the real-time voice signal: re-toggling HF or Norm rebuilds the playback buffer from the retained raw audio, on a background thread, without calling the model again. Norm applies in Sampler and Granular; the button is not shown in Wavetable or LRO mode.
+</p>
+
+<h4>Octave</h4>
+<p>
+A five-cell switchbox in the panel's top mode bar &mdash;
+<strong>&minus;2 / &minus;1 / 0 / +1 / +2</strong> &mdash; transposes the whole
+instrument. It is there in every engine mode and for both oscillators, and it is
+a different control from the sequencer's own Octave Shift, which moves only what
+the sequencer plays.
 </p>
 
 <h4>Voice Count</h4>
@@ -1781,7 +1810,15 @@ click without dragging to toggle the sign (positive or negative depth at the sam
 magnitude). The current sign is displayed as a persistent
 <strong>+</strong> or <strong>−</strong> suffix on the target label (e.g.
 <em>Reso&nbsp;+</em> / <em>Reso&nbsp;−</em>). The numeric value shows while
-the bar is held.
+the bar is held. <strong>Double-click sets a bar back to zero</strong>, and
+<strong>right-click opens MIDI learn</strong> for it.
+</p>
+<p>
+The velocity bars in the envelope tabs take the same gestures, with one
+difference worth knowing: a bipolar bar needs a real drag, because a plain click
+there flips the sign instead of setting a value. And the <strong>Level</strong>
+bar is <em>global</em> &mdash; it is the same control on all five envelope tabs,
+not one per envelope.
 </p>
 <table>
   <tr><th>Target</th><th>Effect</th></tr>
@@ -1892,13 +1929,37 @@ Each step can hold up to three independent one-shot samples. Drag from the wavef
   <tr><td><strong>Mute</strong></td><td>Keeps the sample assigned but silent.</td></tr>
 </table>
 <p>
-Click a one-shot slot to cycle Normal / Accent / Mute. The step's <strong>On</strong> and <strong>Bind</strong> controls do not govern the one-shot samples: a muted melodic step can still fire its samples, and glide binding only affects the melodic note. In <strong>GEN</strong> mode the one-shot slots are inactive.
+Click a <em>filled</em> one-shot slot to cycle Normal / Accent / Mute; an empty
+slot shows its number and ignores clicks. <strong>Right-click clears a slot.</strong>
+You can also drag a filled slot onto another slot to copy it, and dropping
+anything on a slot that carries no audio captures the current waveform region
+instead. The step's <strong>On</strong> and <strong>Bind / Glide</strong>
+controls do not govern the one-shot samples: a muted melodic step can still fire
+its samples, and glide binding only affects the melodic note. In
+<strong>GEN</strong> mode the one-shot slots are inactive.
+</p>
+
+<h4>Transport and Mode</h4>
+<p>
+The <strong>play/stop</strong> button in the panel header is the master
+transport, and it drives whichever of the two sequencer engines is selected.
+Next to it, the <strong>Step | Gen</strong> switch chooses between them: GEN
+replaces the whole step grid with the generative sequencer's own display. A
+<strong>MIDI activity light</strong> beside them flickers on incoming notes, and
+the BPM read-out dims when the instrument is following an external MIDI clock,
+because the number is no longer yours to set.
+</p>
+<p>
+When the window is too narrow for the full header, controls shed from the right,
+Shuffle first, and a <strong>&hellip;</strong> button appears that holds whatever
+did not fit &mdash; Division, Shuffle (Off / 25 / 50 / 75&nbsp;%), Save Pattern
+and Load Pattern.
 </p>
 
 <h4>Global Controls</h4>
 <table>
   <tr><th>Control</th><th>Range</th><th>Notes</th></tr>
-  <tr><td><strong>BPM</strong></td><td>20 – 300</td><td></td></tr>
+  <tr><td><strong>BPM</strong></td><td>20 – 300</td><td>Dimmed and read-only while an external MIDI clock is driving the instrument.</td></tr>
   <tr><td><strong>Division</strong></td><td>1/1, 1/2, 1/4, 1/8, 1/16</td><td>Step duration relative to a quarter note</td></tr>
   <tr><td><strong>Gate</strong></td><td>0.1 – 1.0</td><td>Fraction of step duration that the note sustains</td></tr>
   <tr><td><strong>Shuffle</strong></td><td>0 – 75%</td><td>Pairwise swing: complete even/odd step pairs are long/short, while an unpaired final step in odd-length patterns stays straight</td></tr>
@@ -2071,10 +2132,10 @@ and the current preset's name, and carries the controls that belong to no panel:
 </p>
 <table>
   <tr><th>Button</th><th>What it does</th></tr>
-  <tr><td><strong>Init</strong></td><td>Returns the instrument to its initial state.</td></tr>
+  <tr><td><strong>Init</strong></td><td>Returns every parameter to its default and clears the generated audio, the impulses, the embeddings, the axes and the inference cache. <strong>There is no confirmation dialog</strong> &mdash; save first if the patch matters.</td></tr>
   <tr><td><strong>Save</strong></td><td>Opens the Library in save mode (also <strong>Ctrl/Cmd+S</strong>).</td></tr>
   <tr><td><strong>Library</strong></td><td>The preset browser: load, import, tag-filter, rename, duplicate, delete, and <em>Update Library</em>.</td></tr>
-  <tr><td><strong>Export</strong></td><td>Three items: <strong>Export WAV…</strong> writes the current sound to a file (the item always reads that; only the file-chooser's own title says <em>Export Wavetable</em> in Wavetable mode); <strong>Save Session Log…</strong> and <strong>Play Session Log…</strong> are the two ends of the <a href="#sessionlog">session log</a>.</td></tr>
+  <tr><td><strong>Export</strong></td><td><em>Save Session Log</em> is greyed out until a log exists, and <em>Play Session Log</em> while a replay is already running. Three items: <strong>Export WAV…</strong> writes the current sound to a file (the item always reads that; only the file-chooser's own title says <em>Export Wavetable</em> in Wavetable mode); <strong>Save Session Log…</strong> and <strong>Play Session Log…</strong> are the two ends of the <a href="#sessionlog">session log</a>.</td></tr>
   <tr><td><strong>Settings</strong></td><td>The three-tab panel described in <a href="#setup">Setup</a>. It carries an accent dot when an update is available.</td></tr>
   <tr><td><strong>Manual</strong></td><td>This document.</td></tr>
   <tr><td><strong>Panic</strong></td><td>All notes off, immediately.</td></tr>
