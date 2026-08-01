@@ -13,8 +13,8 @@ impulses mark it out, and you move through what can become audible between them
 — textures, transients, patterns, sonic and musical fragments, field recordings,
 everyday noises, orchestral gestures, alien voices, human emotional expressions,
 or impossible hybrids. The **Language-Resonant Oscillator** has no such space to
-reach into: you describe an instrument, and a language model running on your
-machine writes the Csound orchestra for it, so your words become the oscillator
+reach into: you describe an instrument, and a language model writes the Csound
+orchestra for it, so your words become the oscillator
 itself.
 
 Most AI audio tools keep the model behind a render button and hand back finished
