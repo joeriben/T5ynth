@@ -571,6 +571,18 @@ oscillator's waveform &mdash; it goes on into the sampler, wavetable or granular
 engine, the filter, the envelopes, and the rest of the synth.
 </p>
 
+<h3>Writing in another language</h3>
+<p>
+The flag button next to the impulse fields <strong>translates both prompts into
+English in place</strong> &mdash; it rewrites what is in the fields, so you see
+exactly what the encoder will read. It is there because the Stable Audio models
+were trained on English and respond to it far more precisely; type in German,
+translate, and adjust the English if the translation drifted from what you
+meant. Auto-regeneration pauses while the translation runs and resumes on its
+own afterwards, and the flag pulses while it works. It appears in T5 Oscillator
+mode only.
+</p>
+
 <h3>The two impulses: A &amp; B</h3>
 <p>
 The two text fields at the top of the column are labelled <strong>Impulse
@@ -1356,9 +1368,12 @@ orchestra from what it was shown. The trace names every station of that:
     <td><strong>KNOBS</strong></td>
     <td>The synth settings the instrument asked for — filter, envelopes,
       effects — and whether they were taken. They are <strong>not</strong>
-      applied unless you switch the <strong>KNOBS</strong> button on, so this
-      station commonly reads as pending: those are real settings waiting only
-      for your permission. <em>"offered, and the author took nothing"</em>
+      applied unless you switch the <strong>KNOBS</strong> button on &mdash; it sits
+      in the LRO column and is <strong>off by default</strong>, so this station
+      commonly reads as pending: those are real settings waiting only for your
+      permission. Switch it on and the settings from the instrument already
+      loaded go on the patch straight away; switch it off and the controls are
+      yours again. <em>"offered, and the author took nothing"</em>
       means the model asked for none. A line in the warning colour is one the
       synth could not honour.</td>
   </tr>
