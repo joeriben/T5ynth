@@ -8,7 +8,7 @@ a sine or a saw would sit in the signal path, and what it resonates with is what
 you say: **resonance with meaning**.
 
 There are two such oscillators. The **T5 Oscillator** reaches into a diffusion
-model's space of possible sound *before* that space has become audio: two short
+model's latent space of sound *before* that space has become audio: two short
 impulses mark it out, and you move through what can become audible between them
 — textures, transients, patterns, sonic and musical fragments, field recordings,
 everyday noises, orchestral gestures, alien voices, human emotional expressions,
@@ -42,10 +42,9 @@ Current tagged GitHub Releases publish:
 akróasys is easiest to understand from its signal flow.
 
 In a conventional synth, an oscillator produces audio immediately: sine, saw,
-square, noise, sample, wavetable. akróasys opens a bounded hidden sound space
+square, noise, sample, wavetable. akróasys opens a bounded region of the latent space
 inside the selected audio model. The T5 Oscillator is a meta-oscillator:
-it does not begin with one waveform or one sample, but with a space of possible
-sounds. The main musical act is to explore that space and decide which state
+it does not begin with one waveform or one sample, but with a latent space of sounds. The main musical act is to explore that space and decide which state
 becomes a short audio fragment.
 
 The fields labeled **Impulse A** and **Impulse B** belong to that hidden-space stage.
@@ -53,12 +52,12 @@ They do not mean a ChatGPT conversation, a song request, or a rendered audio
 file. A and B are text impulses that mark one inner space. They do not
 produce two samples, and they are not two oscillators.
 
-The interface names for those space-shaping operations are **Alpha** for the pull
+The interface names for those space-shaping operations are **A/B** for the pull
 between A and B, **Magnitude** for how strongly the space is pushed,
 **Noise** for perturbation, **sound-character axes** for broad directions,
 **Dimension Explorer** for individual dimensions, **Injection Modes** for where
 B enters A during generation, and **Drift** for movement over time. They do
-not mix audio. They move or reshape the hidden sound space.
+not mix audio. They move or reshape the latent space.
 
 **Generate** renders the current state of that space into audio, but it is
 not where the instrument starts. akróasys has already shaped the generation.
@@ -68,10 +67,10 @@ sequencers, delay, reverb, limiter, and presets.
 
 The instrument flow is therefore:
 
-1. Two short impulses, one in A and one in B, mark the hidden sound space, for
+1. Two short impulses, one in A and one in B, mark the latent space, for
    example "steady clean saw wave, C3" and "120 bpm syncopated transient
    pattern".
-2. Alpha, Semantic Axes, Noise, Dimension Explorer, Injection Modes, and Drift
+2. A/B, Semantic Axes, Noise, Dimension Explorer, Injection Modes, and Drift
    move that space of possibilities.
 3. Shape the sonic flow as a **Sampler** or **Wavetable** engine, with filters,
    envelopes, LFOs, sequencers, delay, reverb, limiter, presets, and
@@ -104,8 +103,8 @@ find out what that marker can become.
 
 Everything above describes the **T5 Oscillator**, which works inside the
 diffusion paradigm: sound arrives by denoising. The
-**Language-Resonant Oscillator (LRO)** is not a second mode of it but the
-alternative to that paradigm — sound arrives as *written software*. You
+**Language-Resonant Oscillator (LRO)** is the alternative to that paradigm —
+sound arrives as *written software*. You
 describe an instrument — "a bowed
 cello", "bright shimmer degrading to a dark rumble" — and a language model —
 local by default, or an external provider with your API key — writes a Csound
@@ -127,8 +126,9 @@ played. The toggle at the top of the Generation column switches between the two
 oscillators; **Generate** and the four Snapshot slots stay where they are and
 drive whichever one is active.
 
-The LRO needs two things the T5 Oscillator does not: Csound on the machine, and
-a language model — either the local Gemma 4 12B QAT (about 7 GB, ungated,
+Csound needs no installing: it travels inside akróasys on macOS, Windows and
+Linux alike. The one thing the LRO needs that the T5 Oscillator does not is a
+language model — either the local Gemma 4 12B QAT (about 7 GB, ungated,
 Apache-2.0), which installs from the Settings page, or an external provider
 (OpenRouter, Mistral, IONOS, Mammouth, Anthropic, OpenAI, or a local Ollama)
 with an API key, where only the text step leaves the machine. Install neither
@@ -147,8 +147,8 @@ first release called akróasys is **3.0.0**.
 From there, akróasys behaves much more like an instrument than like an audio
 generator website:
 
-1. The impulses mark a hidden sound space inside the audio model.
-2. If you want to, you move through that space with Alpha, Magnitude,
+1. The impulses mark a latent space inside the audio model.
+2. If you want to, you move through that space with A/B, Magnitude,
    model-space noise, sound-character axes, the Dimension Explorer, Injection
    Modes, and Drift.
 3. The diffusion backend renders the current internal state into short stereo
@@ -165,7 +165,7 @@ This is also where akróasys parts company with tools that let you pick a style
 and shape it from there. Such a tool gives you parameters around a single
 chosen result — how strictly the style is followed, how much it varies, which
 elements play — but the result itself stays whatever the model would produce.
-akróasys's controls act on the **embeddings** instead: Alpha moves through the
+akróasys's controls act on the **embeddings** instead: A/B moves through the
 relation between the two poles, an empty field reflects an impulse back as an
 echo chamber, the sound-character axes shift along directions in that space,
 and the Dimension Explorer re-weights its individual coordinates. You work on
@@ -183,14 +183,13 @@ akróasys deliberately inverts that relationship:
 - **Standard AI audio workflow:** human writes a request -> model hides the
   internal search -> audio result appears. AI company makes money; musicians
   lose commissions, jobs, and control.
-- **akróasys workflow:** human marks and moves through the model's hidden sound
-  space -> the model renders a playable fragment -> human plays, shapes,
+- **akróasys workflow:** human marks and moves through the model's latent space -> the model renders a playable fragment -> human plays, shapes,
   rejects, edits, saves, and composes. akróasys will by no means address these
   challenges; it only tries to show that it ain't necessarily so.
 
 This is why akróasys matters even, and maybe especially, for musicians who
 are skeptical of generative AI music. It does not automate musical judgment. It
-makes the hidden space before the result available for musical judgment.
+makes the latent space before the result available for musical judgment.
 
 ## Research Context
 
@@ -227,12 +226,11 @@ into being.
 - **The instrument is called akróasys.** See *About the name* above.
   T5ynth 2.5.3 remains the last version under the old name and without the LRO,
   and it stays installable beside this one.
-- **Requirements for the LRO only.** Csound must be present on the machine, and
-  a language model must be reachable — the local authoring model (Gemma 4 12B
-  QAT, about 7 GB, ungated, Apache-2.0) installs from the Settings page like any
-  other model, or an external provider is used with an API key. The T5
-  Oscillator and everything downstream of it are unaffected if you install
-  neither.
+- **The LRO needs a language model, and nothing else.** Csound ships inside the
+  app on all three platforms. The authoring model is either local (Gemma 4 12B
+  QAT, about 7 GB, ungated, Apache-2.0, installed from the Settings page like
+  any other model) or an external provider with an API key. The T5 Oscillator
+  and everything downstream of it are unaffected if you install neither.
 
 See [`CHANGELOG.md`](CHANGELOG.md) for the full release history.
 
@@ -240,14 +238,14 @@ See [`CHANGELOG.md`](CHANGELOG.md) for the full release history.
 
 ### The Possible Sound Space
 
-The center of akróasys is the space of possible sound. Traditional oscillators
+The center of akróasys is the latent space of sound. Traditional oscillators
 generate sine, saw, square, noise, or sample playback. akróasys starts inside the
 model, where meaning shapes what sound can become.
 
 Behind the scenes, that space is numerical. You can ignore that while playing,
 just as you can use FM without solving the equations.
 
-- **Impulse A/B and Alpha** mark and move through the model's inner sound space.
+- **Impulse A/B** marks the latent space and the **A/B** slider moves through it.
   This is not an audio crossfade; the midpoint is a new internal state.
 - **Magnitude** changes how strongly that state steers the diffusion model.
 - **Model-space noise** perturbs that state.
@@ -260,7 +258,7 @@ just as you can use FM without solving the equations.
   interesting.
 - **Injection Modes** change where B enters A inside the
   diffusion process: Linear, Step-in, Layer, Combo 1, Combo 2, Combo 3.
-- **Drift** keeps the possible-sound space moving over time and can trigger new
+- **Drift** keeps the latent space moving over time and can trigger new
   generations in the background.
 - **Re-Prompt** closes a second loop through language rather than parameters:
   after each render a machine-listening model (CLAP) hears the output and a local
@@ -269,10 +267,10 @@ just as you can use FM without solving the equations.
 
 ### Drift Modulators & Auto-Regenerate
 
-Drift Modulators & Auto-Regenerate turn the possible-sound space into something
+Drift Modulators & Auto-Regenerate turn the latent space into something
 that can evolve. Three slow Drift LFOs can target generation-level parameters
-such as Alpha, Semantic Axes, Noise, and Magnitude. When Auto-Regenerate is active,
-akróasys generates new audio in the background as the possible-sound space moves,
+such as A/B, Semantic Axes, Noise, and Magnitude. When Auto-Regenerate is active,
+akróasys generates new audio in the background as the latent space moves,
 then crossfades the new fragment into playback. Depending on the host machine,
 regeneration can range from roughly 0.1 seconds on an RTX 6000-class GPU to
 several seconds on a Mac M-series processor without a dedicated AI-capable
@@ -296,7 +294,7 @@ akróasys can use generated audio in two ways:
 - **Oscillators:** T5 Oscillator (diffusion-model sound space) and
   Language-Resonant Oscillator (a language model writes the Csound orchestra),
   switched from the Generation column's header.
-- **Generation:** Impulse A/B, Alpha, Magnitude, Noise, Duration, Steps, CFG,
+- **Generation:** Impulse A/B, the A/B slider, Magnitude, Noise, Duration,
   Seed, Start Position, HF Boost.
 - **Source controls:** Sound-character axes, 768-dimension explorer, Linear/
   Step-in/Layer/Combo injection modes.

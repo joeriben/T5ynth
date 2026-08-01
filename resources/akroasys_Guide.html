@@ -218,14 +218,15 @@ what you say: <strong>resonance with meaning</strong>.
 </p>
 <p style="margin-top:0.6rem;">
 There are two such oscillators. The <strong>T5 Oscillator</strong> reaches into a
-diffusion model's space of possible sound <em>before</em> that space has become audio:
-two short impulses mark it out, and you move through what can become audible between
-them &mdash; textures, transients, patterns, sonic and musical fragments, field
-recordings, everyday noises, orchestral gestures, alien voices, human emotional
-expressions, or impossible hybrids. The <strong>Language-Resonant Oscillator</strong>
-has no such space to reach into: you describe an instrument, and a language model
-writes the Csound orchestra for it, so your words become the
-oscillator itself.
+diffusion model's <strong>latent space of sound</strong> <em>before</em> that space
+has become audio. Two short impulses mark two points in it, and the controls move
+the point that is rendered &mdash; between them, and well past both, into regions
+no phrase can name: textures, transients, patterns, field recordings, everyday
+noises, orchestral gestures, alien voices, human emotional expressions, impossible
+hybrids. Reaching what a prompt cannot reach is the point of it, not a side effect.
+The <strong>Language-Resonant Oscillator</strong> has no such space to reach into:
+you describe an instrument, and a language model writes the Csound orchestra for
+it, so your words become the oscillator itself.
 </p>
 
 <div style="margin:0.9rem 0 0.2rem; overflow-x:auto;">
@@ -247,10 +248,10 @@ oscillator itself.
   <path class="ar" d="M100,38 C130,38 130,52 158,58"/>
   <path class="ar" d="M100,90 C130,90 130,76 158,70"/>
   <ellipse cx="230" cy="64" rx="74" ry="34" style="fill:none; stroke:var(--accent); stroke-dasharray:4 3;"/>
-  <text class="lb" x="186" y="60">space of possible</text>
-  <text class="lb" x="204" y="74">sound</text>
+  <text class="lb" x="188" y="60">latent space</text>
+  <text class="lb" x="204" y="74">of sound</text>
   <circle cx="258" cy="80" r="3" style="fill:var(--accent2);"/>
-  <text class="dm" x="170" y="118">Alpha &middot; Axes &middot; Noise &middot; DimExplorer &middot; Drift move the position</text>
+  <text class="dm" x="176" y="118">A/B &middot; Axes &middot; Noise &middot; DimExplorer &middot; Drift move the position</text>
   <path class="ar" d="M304,64 L352,64"/>
   <text class="dm" x="306" y="56">Generate</text>
   <rect class="bx" x="354" y="52" width="80" height="24"/><text class="lb" x="364" y="68">fragment</text>
@@ -303,6 +304,13 @@ that continues through sampler, wavetable, or granular playback, filters, envelo
 LFOs, sequencing, delay, and reverb.
 </p>
 <p style="margin-top:0.6rem;">
+akróasys is an open-source gift to the synth communities and to musicians. It
+tries out a different way of engaging generative AI &mdash; one that makes new
+things possible instead of automating existing ones, and that puts these models
+in the service of <strong>empowerment, not replacement</strong>: the model
+becomes an instrument in your hands, not a service that plays instead of you.
+</p>
+<p style="margin-top:0.6rem;">
 And akróasys is <strong>listening</strong>, too. It listens to you; to its
 environment, if you ask it &mdash; <a href="#resynth">Resynth</a> can capture
 external audio into the next generation; and to itself: Re-Prompt has the machine
@@ -351,31 +359,34 @@ without whom AI4ArtsEd would not have come into being.
 <div class="toc">
   <strong style="color:var(--accent)">Contents</strong>
   <ul>
-    <li class="sub"><a href="#setup">Setup: Model Installation</a></li>
-    <li class="sub"><a href="#lro">The Language-Resonant Oscillator (LRO)</a></li>
-    <li><strong>Part I — How to Use akróasys</strong></li>
-    <li class="sub"><a href="#gen">1. The Generation Section (Possible Sound Space)</a></li>
-    <li class="sub"><a href="#axes">2. Sound-Character Axes</a></li>
-    <li class="sub"><a href="#dimex">3. Dimension Explorer</a></li>
-    <li class="sub"><a href="#engine">4. Engine Modes: Sampler, Wavetable &amp; Granular</a></li>
-    <li class="sub"><a href="#synth">5. Classic Synth Elements</a></li>
-    <li class="sub"><a href="#drift">6. Drift &amp; Regenerate</a></li>
-    <li class="sub"><a href="#resynth">7. Resynth</a></li>
-    <li class="sub"><a href="#fx">8. Effects</a></li>
-    <li class="sub"><a href="#seq">9. Step Sequencer</a></li>
-    <li class="sub"><a href="#genseq">10. Generative Sequencer</a></li>
-    <li class="sub"><a href="#arp">11. Arpeggiator</a></li>
-    <li class="sub"><a href="#presets">12. Presets</a></li>
-    <li class="sub"><a href="#sessionlog">13. Session Log: Recording &amp; Replay</a></li>
-    <li class="sub"><a href="#sweetspots">14. Strategies for Finding Sweet Spots</a></li>
+    <li class="sub"><a href="#setup">Setup: Installing What You Need</a></li>
+    <li><strong>The Two Oscillators</strong></li>
+    <li class="sub"><a href="#gen">1. The T5 Oscillator</a></li>
+    <li class="sub" style="margin-left:2.4rem"><a href="#axes">2. Sound-Character Axes</a></li>
+    <li class="sub" style="margin-left:2.4rem"><a href="#dimex">3. Dimension Explorer</a></li>
+    <li class="sub" style="margin-left:2.4rem"><a href="#engine">4. Engine Modes: Sampler, Wavetable &amp; Granular</a></li>
+    <li class="sub" style="margin-left:2.4rem"><a href="#drift">5. Drift &amp; Regenerate</a></li>
+    <li class="sub" style="margin-left:2.4rem"><a href="#resynth">6. Resynth</a></li>
+    <li class="sub"><a href="#lro">7. The Language-Resonant Oscillator (LRO)</a></li>
+    <li class="sub" style="margin-left:2.4rem"><a href="#lrocontrols">8. The Written Instrument's Controls</a></li>
+    <li><strong>Part I — The Synth</strong></li>
+    <li class="sub"><a href="#synth">9. Classic Synth Elements</a></li>
+    <li class="sub"><a href="#fx">10. Effects</a></li>
+    <li class="sub"><a href="#seq">11. Step Sequencer</a></li>
+    <li class="sub"><a href="#genseq">12. Generative Sequencer</a></li>
+    <li class="sub"><a href="#arp">13. Arpeggiator</a></li>
+    <li class="sub"><a href="#perform">14. Playing and Performing</a></li>
+    <li class="sub"><a href="#presets">15. Presets</a></li>
+    <li class="sub"><a href="#sessionlog">16. Session Log: Recording &amp; Replay</a></li>
+    <li class="sub"><a href="#sweetspots">17. Strategies for Finding Sweet Spots</a></li>
     <li><strong>Part II — Background</strong></li>
-    <li class="sub"><a href="#bg-axes">15. How Semantic Axes Work</a></li>
-    <li class="sub"><a href="#bg-dimex">16. The DimExplorer In Depth</a></li>
-    <li class="sub"><a href="#bg-genseq">17. Principles of the Generative Sequencer</a></li>
-    <li class="sub"><a href="#bg-pipeline">18. The Inference Pipeline</a></li>
-    <li class="sub"><a href="#bg-injection">19. How Injection Modes Work</a></li>
+    <li class="sub"><a href="#bg-axes">18. How Semantic Axes Work</a></li>
+    <li class="sub"><a href="#bg-dimex">19. The DimExplorer In Depth</a></li>
+    <li class="sub"><a href="#bg-genseq">20. Principles of the Generative Sequencer</a></li>
+    <li class="sub"><a href="#bg-pipeline">21. The Inference Pipeline</a></li>
+    <li class="sub"><a href="#bg-injection">22. How Injection Modes Work</a></li>
     <li><strong>Legal</strong></li>
-    <li class="sub"><a href="#license">License (GPLv3)</a></li>
+    <li class="sub"><a href="#license">License</a></li>
     <li class="sub"><a href="#thirdparty">Third-Party Components</a></li>
   </ul>
 </div>
@@ -383,14 +394,21 @@ without whom AI4ArtsEd would not have come into being.
 <!-- ═══════════════════════════════════════════════════════════════ -->
 <!-- SETUP -->
 <!-- ═══════════════════════════════════════════════════════════════ -->
-<h2 id="setup">Setup: Model Installation</h2>
+<h2 id="setup">Setup: Installing What You Need</h2>
 
 <h3>Model Download</h3>
 <p>
 The <strong>T5 Oscillator</strong> requires at least one diffusion model; the <strong>LRO</strong> requires none — it needs <a href="#setup-lm">the language model</a> and Csound (see <a href="#lro">its chapter</a>). Model weights are <strong>not bundled</strong> — they are downloaded separately. The Stable Audio Open engines (1.0 and Small) also need the auxiliary <strong>T5-Base</strong> text encoder (ungated, Apache-2.0), which installs automatically with the engine; Stable Audio 3 instead uses its own t5gemma encoder, fetched at install.
 </p>
 <p>
-Open the <strong>Settings</strong> panel from the status bar. The panel is tabbed: the <strong>Models</strong> tab (default) handles model download and shows per-model instructions; the <strong>Settings</strong> tab (General Settings) contains machine-wide options that are not saved per preset. Currently: <strong>Filter Oversampling</strong> (Off / 2× / 4×) — applies to the Ladder and Warp nonlinear filter stages, default 2×; does not affect SVF. Pick a model from the Models tab; the summary below tells you which to choose.
+Open the <strong>Settings</strong> panel from the status bar. It has three tabs. <strong>Sound Models</strong> (the default) downloads the diffusion models the <a href="#gen">T5 Oscillator</a> needs and shows per-model instructions. <strong>Language Model</strong> is the one subject the <a href="#lro">LRO</a> depends on, installed or configured on its own page — see <a href="#setup-lm">The Language Model</a> below. <strong>Settings</strong> holds the machine-wide options that are not saved per preset:</p>
+<ul>
+  <li><strong>Filter Oversampling</strong> (Off / 2× / 4×, default 2×) — applies to the Ladder and Warp nonlinear filter stages; does not affect SVF.</li>
+  <li><strong>LRO Oversampling</strong> (Off / 2× / 4×, default 4×) — the rate the authored Csound runs at, relative to the host. Changing it recompiles the running orchestra.</li>
+  <li><strong>Check for updates on startup</strong> — when a newer release exists, a banner with a Download button appears.</li>
+  <li><strong>Record Event Log (.t5evt)</strong> — off by default; see <a href="#sessionlog">Session Log</a>.</li>
+</ul>
+<p>Pick a model from Sound Models; the summary below tells you which to choose.
 </p>
 
 <h4>Stable Audio 3 Small Music &amp; Small SFX</h4>
@@ -443,7 +461,7 @@ Model: <a href="https://huggingface.co/cvssp/audioldm2">cvssp/audioldm2</a>. Lic
 </p>
 <h4>Manual install locations</h4>
 <p>
-If you prefer to place files yourself, use these directories (each model lives in its own subdirectory, e.g.&nbsp;<code>stable-audio-open-small/</code>):
+If you prefer to place files yourself, use these directories (each model lives in its own subdirectory, e.g.&nbsp;<code>stable-audio-open-small/</code>). The folder still carries the old <code>T5ynth</code> name, so that an existing install keeps its models across the rename:
 </p>
 <table>
   <tr><th>Platform</th><th>Models Directory</th></tr>
@@ -458,10 +476,9 @@ akróasys auto-detects installed models by looking for <code>model_index.json</c
 <h3 id="setup-lm">The Language Model</h3>
 <p>
 One language model serves the whole instrument: it writes the LRO's Csound,
-translates non-English prompts, and drives Re-Prompt on both oscillators. It is
-configured on the same <strong>Models</strong> tab, under its own
-<strong>LANGUAGE MODEL</strong> heading, and the <strong>Author engine</strong>
-choice there decides where the writing happens:
+translates non-English prompts, and drives Re-Prompt on both oscillators. It has
+its own <strong>Language Model</strong> tab in Settings, and the
+<strong>Author engine</strong> choice there decides where the writing happens:
 </p>
 <ul>
   <li><strong>Local (the default).</strong> <strong>Gemma 4 12B</strong> — a
@@ -476,12 +493,27 @@ choice there decides where the writing happens:
   OpenAI-compatible endpoint, including your own remote llama.cpp server.
   Choosing a provider fills in its address and a working model; you paste an
   API key. Only the text step travels — the sound is always rendered on your
-  machine, and the Csound is compiled on your machine. Data protection is your
+  machine, and the Csound is compiled on your machine. With a provider
+  configured, the tab keeps a running readout of what the authoring has cost
+  you so far. Data protection is your
   call and you make it at the provider, not here; IONOS and Mammouth are the
   EU-hosted, GDPR-compliant entries. A code-trained model authors far better
   than a general chat one, and the key is stored unencrypted in akróasys's
   settings file, like every other machine-wide setting.</li>
 </ul>
+
+<h3>Csound</h3>
+<p>
+Nothing to install. Csound travels inside akróasys on macOS, Windows and Linux
+alike, and the compiler that checks each <a href="#lro">LRO</a> orchestra before
+it is loaded is the same one that plays it. It is linked dynamically, as its
+licence requires, so the shipped library stays replaceable.
+</p>
+<p>
+Its one setting is <strong>LRO Oversampling</strong> on the Settings tab
+(Off / 2× / 4×, default 4×): the rate the authored orchestra runs at relative to
+your host. Changing it recompiles the running instrument.
+</p>
 
 <h3>Device Selection</h3>
 <p>
@@ -493,7 +525,7 @@ akróasys auto-detects the best available compute device:
   <li><strong>No GPU</strong> → CPU fallback (works, but slow)</li>
 </ul>
 <p>
-You can override the device in the generation section. The device toggle switches between GPU and CPU.
+The device toggle in the T5 Oscillator column overrides the choice: GPU or CPU.
 </p>
 
 <h3>First Generation</h3>
@@ -505,270 +537,41 @@ On first launch, the status bar shows backend connection status. Once you see <s
   If the status bar shows an error, check: (1) Is at least one model downloaded? (2) Is there enough disk space and RAM/VRAM? Stable Audio Open 1.0 needs ~4 GB VRAM.
 </div>
 
-<!-- ═══════════════════════════════════════════════════════════════ -->
-<!-- LRO -->
-<!-- ═══════════════════════════════════════════════════════════════ -->
-<h2 id="lro">The Language-Resonant Oscillator (LRO)</h2>
-
-<p>
-The <strong>Language-Resonant Oscillator</strong>, or LRO, is not a second mode
-of the T5 Oscillator. It is an <strong>alternative to the denoising
-paradigm</strong> itself. A diffusion model makes sound by denoising: it starts
-from noise and settles into a plausible rendering of what was asked. The LRO
-makes sound by <em>writing software</em>: you describe an instrument in words,
-and a language model — local by default, or an external provider you pick in
-<a href="#setup-lm">Setup</a> — writes Csound synthesis code from that
-description. Compiled and run live, that code becomes the oscillator's voice
-for every note you play. It is not a preset and not a rendered sample: it is
-source code, written for this one prompt — software as culture, and readable
-as such.
-</p>
-
-<div class="tip">
-  <strong>The code is real.</strong> What the LRO writes is genuine, portable
-  Csound — the same language any Csound system compiles, not an internal
-  format of this app. The orchestra is stored with your preset, and the panel
-  shows it (hold the panel to read the code). And because every authoring is a
-  fresh piece of writing, the oscillator you keep can be one of a kind: a real
-  digital instrument that exists nowhere else.
-</div>
-
-<h3>Switching to the LRO</h3>
-<p>
-The toggle at the top right of the Generation column's header switches
-between the two oscillator paradigms. It reads <strong>» LRO</strong> while
-the neural T5 Oscillator is active — click it to switch. The column header
-itself then changes to <strong>Language-Resonant Oscillator</strong>, and the
-toggle now reads <strong>» T5osc</strong> to switch back.
-</p>
-<p>
-Switching replaces the whole Generation column: Impulse A/B, Alpha, the
-Semantic Axes and the Dimension Explorer are gone, and in their place sit a
-single prompt field, the authoring trace described below, and a Re-Prompt
-card of its own. The shared <strong>Generate</strong> button and the SNAP
-slots below it stay in exactly the same place and now drive the LRO instead;
-Cache and Resynth, both meaningful only for the neural generator, are shown
-dimmed rather than removed.
-</p>
-<p>
-Type a description into the prompt field at the top of the panel — its
-placeholder reads <strong>"Describe the oscillator to craft"</strong> — and
-press <strong>Generate</strong>. A single tab above the prompt field names
-the language model that will do the writing; see Requirements, below.
-</p>
-
-<h3>What you see while it writes</h3>
-<p>
-Before you have written anything, the panel reads: <strong>"Describe a sound
-and press Generate. What the machine makes of it appears here, step by step;
-hold the panel to see the Csound it wrote."</strong> While the model is
-composing its answer, its reasoning streams into the panel live under a
-temporary <strong>THINKING</strong> heading — provisional, and replaced the
-moment an attempt actually lands.
-</p>
-<p>
-Once an attempt lands, the trace becomes a fixed sequence of stations:
-</p>
-<table>
-  <tr><th>Station</th><th>What it shows</th></tr>
-  <tr>
-    <td><strong>HEARD</strong></td>
-    <td>The prompt exactly as it was authored from.</td>
-  </tr>
-  <tr>
-    <td><strong>LOOKED UP</strong></td>
-    <td>Which of the library's instruments, sound words and motions your own
-      wording reached, shown as chips, plus — visibly dimmer, captioned
-      "also shown, for orientation:" — entries the model was shown anyway
-      although your words did not ask for them. A prompt that matches
-      nothing in the library still gets a station here; it reads "no word of
-      this prompt is in the library", and the model writes from its own
-      knowledge instead. A count line also flags it when nothing you wrote
-      named a movement ("no movement named") — worth watching, since every
-      LRO instrument is meant to move on its own unless you ask for something
-      static or still.</td>
-  </tr>
-  <tr>
-    <td><strong>THOUGHT</strong></td>
-    <td>The model's own reasoning, quoted in full: what it decided the sound
-      is, what excites and resonates in it, what moves in it.</td>
-  </tr>
-  <tr>
-    <td><strong>WROTE</strong></td>
-    <td>Which model wrote the code, and its own one-line description of what
-      it built.</td>
-  </tr>
-  <tr>
-    <td><strong>REPAIRED</strong></td>
-    <td>Present only when the first attempt did not compile: the Csound
-      errors it had to fix, in the order it fixed them, and how many
-      attempts it took. A sound that compiled on the first try shows no
-      station here — the absence is itself the report.</td>
-  </tr>
-  <tr>
-    <td><strong>RUNNING</strong></td>
-    <td>Whether the orchestra now loaded actually compiled: "compiling…",
-      "compiled", the compiler's own error text, or "compile not observed"
-      for a sound whose compile nobody watched (a recalled preset, for
-      instance).</td>
-  </tr>
-</table>
-
-<h3>What comes back</h3>
-<p>
-Once a version compiles, the <strong>WROTE</strong> station's one-line
-reading tells you what the machine understood the instrument to be, and the
-sound itself is already running — every voice plays the one orchestra that
-was written.
-</p>
-<p>
-Click and hold anywhere on the trace to turn the card over. The back is
-headed <strong>"CSOUND · HOLD TO TURN BACK"</strong> and shows only the
-lines the model actually wrote — not the host scaffolding common to every
-LRO instrument (the sixteen voice channels, the note-age counter, the output
-stage), which nobody wrote and which stays the same from sound to sound.
-Click and hold again to turn the card back to the trace.
-</p>
 <div class="note">
-  In this build the back of the card is a read-only view. There is no way to
-  edit the Csound text and recompile it without going back through the
-  language model.
+  <strong>Watch your levels.</strong> A generative instrument is unpredictable
+  by design: a generation can come back loud, dense, or resonant, and the
+  Ladder and Warp filters self-oscillate at high resonance. Keep headroom on
+  your monitoring level while exploring, especially on headphones.
 </div>
-<p>
-The SNAP slots below <strong>Generate</strong> work here too: long-click a
-slot to store the current instrument — prompt, Csound and sound together —
-and short-click to bring it back. A recalled slot compiles and plays again
-immediately, with no new call to the language model.
-</p>
 
-<h3>Re-Prompt</h3>
-<p>
-Above <strong>Generate</strong> sits a RE-PROMPT card with the same
-seven-position stance bar as the neural oscillator's <a href="#drift">Re-Prompt
-loop</a>, but it works on different material: it never listens to the
-rendered sound. Each step instead rereads the LRO's own last
-<strong>WROTE</strong> reading and rewrites the prompt text under the chosen
-stance:
-</p>
-<table>
-  <tr><th>Stance</th><th>What it does</th></tr>
-  <tr><td><strong>Off</strong></td><td>Re-Prompt loop disabled.</td></tr>
-  <tr><td><strong>Transcribe</strong> (fixed point)</td><td>The machine re-describes what it reads; the prompt stays put.</td></tr>
-  <tr><td><strong>Sober</strong> (inward spiral)</td><td>Re-states the sound plainly and factually — sentiment and scene stripped, the real source kept.</td></tr>
-  <tr><td><strong>Sweeten</strong> (damped settling)</td><td>Softens toward a gentler, cuter reading.</td></tr>
-  <tr><td><strong>Variation</strong> (bounded cluster)</td><td>Small variations around the current theme.</td></tr>
-  <tr><td><strong>Abduction</strong> (wandering)</td><td>Leaps to new scenes, drifting far from the source.</td></tr>
-  <tr><td><strong>Opposite</strong> (limit cycle)</td><td>Oscillates between opposing readings.</td></tr>
-</table>
-<p>
-With a stance chosen and at least one instrument already on screen, pressing
-<strong>Generate</strong> performs one Re-Prompt step instead of authoring
-from scratch: it rewrites the prompt under the current stance, replaces the
-text in the prompt field with the result, and immediately writes a new
-instrument from those words. There is no separate coupling control here —
-the neural loop's B only / AB add / AB replace choice has nothing to attach
-to, since the LRO has no A/B pair to couple.
-</p>
-
-<h3>Requirements</h3>
-<p>
-The LRO depends on two things the neural oscillator does not.
-</p>
-<p>
-<strong>A language model must be reachable</strong> — the local Gemma 4 12B,
-or an external provider over an API key. Both are set up in Settings under
-<strong>LANGUAGE MODEL</strong>, described in
-<a href="#setup-lm">Setup: The Language Model</a>. Until one is reachable the
-LRO's model tab reads <strong>"no language model"</strong>, and pressing
-<strong>Generate</strong> answers: <strong>"Load the language model in
-Settings"</strong>.
-</p>
-<p>
-<strong>Csound must be present on the machine akróasys runs on.</strong> Unlike
-the models above, akróasys does not download or manage Csound itself: support
-for it is compiled in only if the machine that built your copy of akróasys had
-Csound installed at build time — and, in this build, only on macOS; there is
-no Linux or Windows build path for it yet. The build looks in two places: the
-Homebrew install location, <code>/opt/homebrew/opt/csound/Frameworks</code>,
-and <code>/Library/Frameworks</code>, where Csound's own macOS installer puts
-it. Installing Csound afterward does not help a copy that was already built
-without it — that choice is made once, when akróasys itself is compiled. When
-no Csound can be reached at all, authoring fails immediately and plainly
-rather than guessing: <strong>"no Csound compiler reachable: the orchestra
-cannot be checked before it reaches the engine (install Csound, or point
-T5YNTH_CSOUND at the csound binary)"</strong>.
-</p>
-<p>
-An empty prompt is refused the same way: pressing <strong>Generate</strong>
-with nothing typed answers <strong>"Type what the instrument should sound
-like"</strong>.
-</p>
-
-<!-- ═══════════════════════════════════════════════════════════════ -->
-<!-- PART I -->
-<!-- ═══════════════════════════════════════════════════════════════ -->
-<div class="part-label">Part I</div>
-<h2 id="gen">1. The Generation Section (Possible Sound Space)</h2>
+<!-- ═══════════════════════════════════════════ -->
+<div class="part-label" style="margin-top:3rem">The Two Oscillators</div>
+<p style="color:var(--text-dim); margin:0 0 1.2rem;">Chapters&nbsp;1&ndash;6 are the T5 Oscillator and the controls that belong to it alone; chapters&nbsp;7&ndash;8 are the LRO and its. From chapter&nbsp;9 on, everything is shared &mdash; whichever oscillator is making the sound, it is played through the same synth.</p>
+<h2 id="gen">1. The T5 Oscillator</h2>
 
 <p>
-akróasys's Generation section is where the instrument opens a space of possible
-sound. Instead of choosing a sine, saw, sample, or wavetable, you mark a bounded
-hidden sound space inside the selected audio model. In that sense, the
-T5 Oscillator is a meta-oscillator: it does not start from one waveform,
-but from a space of possible sounds. The main purpose is to explore that space,
-shape the generation itself, and decide which state becomes a short playable
-fragment.
-</p>
-<p>
-akróasys is an open-source gift to the synth communities and to musicians. It
-tries out a different way of engaging generative AI &mdash; one that makes new
-things possible instead of automating existing ones, and that puts these models
-in the service of <strong>empowerment, not replacement</strong>: the model
-becomes an instrument in your hands, not a service that plays instead of you.
+The T5 Oscillator plays a diffusion model's <strong>latent space</strong>. Two
+short impulses are read by the model's text encoder and become two points in
+that space; every control in this chapter moves the point that is actually
+rendered. What comes back is a short fragment, and that fragment is the
+oscillator's waveform &mdash; it goes on into the sampler, wavetable or granular
+engine, the filter, the envelopes, and the rest of the synth.
 </p>
 
+<h3>The two impulses: A &amp; B</h3>
 <p>
-This is also where akróasys parts company with tools that let you pick a style and
-shape it from there. Such a tool gives you parameters around a single chosen
-result &mdash; how strictly the style is followed, how much it varies, which
-elements play &mdash; but the result itself stays whatever the model would
-produce. akróasys's controls act on the <strong>embeddings</strong> instead: Alpha
-moves through the relation between the two poles, an empty field reflects an
-impulse back as an echo chamber, the Semantic Axes shift along directions in that
-space, and the Dimension Explorer re-weights its individual coordinates. You are
-working on the model's representation directly &mdash; combining, reflecting,
-re-weighting &mdash; which is how you reach points a single prompt would never
-land on. And because what comes out is a <strong>short fragment to shape, not a
-finished piece</strong>, that exploration continues in the synth rather than
-ending at the model's output.
-</p>
-
-<h3>The Two Text Fields: A &amp; B</h3>
-<p>
-You have two text input fields. The UI labels them <strong>Impulse A</strong>
-and <strong>Impulse B</strong>. They are not two conventional oscillators, not
-two rendered samples, not two tracks, and not two ChatGPT-style commands. They
-are two markers for one inner sound space.
+The two text fields at the top of the column are labelled <strong>Impulse
+A</strong> and <strong>Impulse B</strong>. Each one is read by the model's
+text-reading stage &mdash; the "T5" this oscillator is named after &mdash; and
+becomes a point in the latent space. The two are equal in rank: together they
+mark out the stretch of that space this oscillator plays across.
 </p>
 <p>
-A and B are equal markers for one hidden sound space. Each impulse is turned
-into internal control data by the model's text-reading stage — the "T5" the
-oscillator is named after. That control data
-is not audio; it is the model's way of deciding what kind of sound can become.
-akróasys changes that internal state so different fragments can become audible.
-</p>
-<p>
-akróasys can use Stable Audio 3 Small Music, Stable Audio 3 Small SFX, Stable
-Audio Open 1.0, Stable Audio Open Small, or AudioLDM2. Each engine opens a
-different learned space. The Stable Audio engines are strongest with English
-sound-oriented phrases: sound effects, field recordings, drum or instrument
-loops, ambient sounds, foley, and production elements. The SA3 engines read up
-to 256 tokens per impulse through their t5gemma encoder, and akróasys prepends
-SA3's required modality prefix automatically.
-AudioLDM2 can also cover sound effects, speech-like material, and music, but it
-is non-commercial only, behaves differently from the Stable Audio engines, and
-is kept in akróasys mainly for exploratory use rather than as the primary
-reference engine.
+Each engine opens a different learned space, so the same words land somewhere
+else on each. The Stable Audio engines answer best to English, sound-oriented
+phrases &mdash; sound effects, field recordings, drum and instrument loops,
+ambient beds, foley, production elements &mdash; and read up to 256 tokens per
+impulse on SA3.
 </p>
 <p>
 The impulses do not have to be narrow "sound ideas". They can evoke sound
@@ -779,30 +582,29 @@ petals brushed by fingers"</em> gives the model acoustic handles. But the
 abstract phrase can still be used as a strange marker in the model's space.
 akróasys is where you find out what that marker can become.
 </p>
+<h4>Leaving a field empty</h4>
+<p>
+An empty field is a decision, not a gap. akróasys reads the empty side as an
+<strong>echo chamber</strong> for the impulse that is there: a reflection of it
+through the model's neutral point (<code>2·neutral − other</code>). The A/B
+slider then runs from your impulse, through that neutral midpoint, out to the
+impulse's antipode &mdash; sounds it actively is not, and which no wording of
+your own would produce. Leave <em>both</em> fields empty and both sides are the
+neutral point itself: the model renders its own self-portrait, different with
+every seed.
+</p>
 <div class="tip">
-  <strong>A and B mark a space of possible sound.</strong> In the interface, <em>Alpha</em> is the pull between A and B, <em>Magnitude</em> is how strongly the space is pushed, <em>Noise</em> perturbs it, Semantic Axes bend it along sound qualities, the Dimension Explorer opens individual dimensions, Injection Modes decide where B enters A during generation, and Drift moves the space over time.
-</div>
-<ul>
-  <li><strong>Two marked poles</strong> — Impulse A and Impulse B are equal markers for one hidden sound space. The <em>Alpha</em> slider (labeled <strong>A ↔ B</strong>) moves through that space and changes what can become audible when the active <a href="#injection-modes">Injection Mode</a> is <em>Linear</em>; in other modes the slider's role shifts (see the mode-row explanation below).</li>
-  <li><strong>One field empty: Echoraum</strong> — leaving either text field empty is an aesthetic choice. akróasys interprets the empty side as an echo chamber for the present impulse: a reflection through the model's neutral point. Alpha then traces a path from the impulse through that neutral midpoint to the impulse's tonal antipode — sounds the impulse actively isn't. There is no such thing as "no meaning" in creative processes.</li>
-  <li><strong>Both fields empty</strong> — both sides use the model's neutral point. The model produces its own self-portrait (pure unconditional sampling), varying with the seed.</li>
-</ul>
-
-<div class="tip">
-  Impulses should name <strong>acoustic qualities, actions, and situations</strong>, not musical genres. "A warm resonant drone with metallic harmonics" works better than "ambient techno." The model has no reliable concept of genre.
-</div>
-
-<div class="tip">
-  Leaving a field empty is an <strong>active musical decision</strong>, not a fallback. If you want the same character regardless of the A ↔ B slider, type the same text in both fields — that is mathematically equivalent to a pinned single-impulse sound (since <code>0.5·A + 0.5·A = A</code> for every value of Alpha).
+  To pin one character regardless of where the slider sits, type the same text
+  in both fields &mdash; <code>0.5·A + 0.5·A = A</code> at every position.
 </div>
 
 <h3>Generation Controls</h3>
 <table>
   <tr><th>Control</th><th>Range</th><th>What It Does</th></tr>
   <tr>
-    <td><strong>Alpha (A ↔ B)</strong></td>
+    <td><strong>A/B</strong></td>
     <td>-2.0 … +2.0</td>
-    <td>Moves through the hidden sound space marked by Sound A (−1) and Sound B (+1). This is not a crossfade or mix of two audio signals — it changes what kind of sound can become audible in one generation. The midpoint (0) is not "half A plus half B" in any audible sense; it is a new internal sound-space position that the model interprets independently. For example, if Sound A is <em>"bowed cello, sustained"</em> and Sound B is <em>"crackling fire"</em>, the midpoint will not sound like cello mixed with fire — it might produce something like a warm, textured, resonant hum that resembles neither source directly. Values beyond ±1 <em>extrapolate</em> — pushing past either marker into regions no direct phrase would naturally reach. When one text field is left empty, the empty side is the Echoraum reflection of the other, so Alpha sweeps from the impulse through the model-neutral midpoint to its antipode (see <a href="#gen">the A/B section</a>). The slider uses a quadratic curve for fine control near the center.</td>
+    <td>Moves through the latent space marked by Sound A (−1) and Sound B (+1). This is not a crossfade or mix of two audio signals — it changes what kind of sound can become audible in one generation. The midpoint (0) is not "half A plus half B" in any audible sense; it is a new internal sound-space position that the model interprets independently. For example, if Sound A is <em>"bowed cello, sustained"</em> and Sound B is <em>"crackling fire"</em>, the midpoint will not sound like cello mixed with fire — it might produce something like a warm, textured, resonant hum that resembles neither source directly. Values beyond ±1 <em>extrapolate</em> — pushing past either marker into regions no direct phrase would naturally reach. When one text field is left empty, the empty side is the Echoraum reflection of the other, so A/B sweeps from the impulse through the model-neutral midpoint to its antipode (see <a href="#gen">chapter 1</a>). The slider uses a quadratic curve for fine control near the center.</td>
   </tr>
   <tr>
     <td><strong>Magnitude</strong></td>
@@ -810,9 +612,9 @@ akróasys is where you find out what that marker can become.
     <td>Scales how strongly the current internal state steers the model. At 1.0 the A/B text influence is normal. Lower values drift toward the model's "average" sound; higher values push the model harder (can get unstable above ~2.0).</td>
   </tr>
   <tr>
-    <td><strong>Noise</strong></td>
+    <td><strong>Chaos</strong></td>
     <td>0.0 … 1.0</td>
-    <td>This is not audio noise. It is noise added to the model's internal generation controls. Even small values (0.05–0.15) introduce subtle variation between otherwise identical generations. Higher values scramble the internal state — good for exploration, less for precision.</td>
+    <td>Not audio noise: a random perturbation of the point in the latent space, before anything is rendered. Even small values (0.05–0.15) give a different result on every generation from otherwise identical settings. High values scatter the point — good for exploration, bad for precision. It appears as <em>Emb. Noise</em> in the drift and automation lists.</td>
   </tr>
   <tr>
     <td><strong>Duration</strong></td>
@@ -820,95 +622,68 @@ akróasys is where you find out what that marker can become.
     <td>Length of generated audio. akróasys targets short playable fragments, so the slider caps at 11&nbsp;s for the Stable Audio Open and AudioLDM2 engines; with an SA3 model selected it extends to 120&nbsp;s. Short values (0.5–3&nbsp;s) work well for loops and wavetable sources. Longer values create evolving textures.</td>
   </tr>
   <tr>
-    <td><strong>Steps</strong></td>
-    <td>1 … 100</td>
-    <td>Diffusion denoising iterations. More steps = higher quality but slower. The responsive range depends on the model: <strong>Stable Audio Open 1.0</strong> benefits from 20–100 steps (20 is a good default, higher values refine detail). <strong>Stable Audio Open Small</strong> converges quickly — above 8 steps there is no positive effect.</td>
-  </tr>
-  <tr>
-    <td><strong>CFG Scale</strong></td>
-    <td>1.0 … 15.0</td>
-    <td>Classifier-Free Guidance — how strictly the model follows the current text conditioning. Model-dependent: <strong>Stable Audio Open 1.0</strong> works well at 5–8 (default 7). <strong>Stable Audio Open Small</strong> should stay at 1 — higher values produce artifacts rather than better adherence. In general: low values are loose and dreamy, high values are literal but can sound harsh.</td>
-  </tr>
-  <tr>
-    <td><strong>Start Position</strong></td>
-    <td>0.0 … 1.0</td>
-    <td>Inpainting offset within the diffusion timeline. 0.0 gives you the attack/onset of a sound. ~0.5–0.7 gives you the sustained body, skipping transients — if there were any in the generated sample.</td>
-  </tr>
-  <tr>
     <td><strong>VAR</strong></td>
     <td>none / last / auto</td>
     <td>The seed control. Same seed + same settings = identical output (cross-platform). <strong>none</strong> holds the fixed base seed, so repeated generations repeat. <strong>last</strong> reuses the seed of the previous generation — double-click it to type a specific seed. <strong>auto</strong> draws a new random seed for every generation.</td>
   </tr>
-  <tr>
-    <td><strong>HF Boost</strong></td>
-    <td>on / off</td>
-    <td>Compensates for high-frequency rolloff inherent to the VAE decoder. Whether you prefer the brighter boosted or the darker raw sound is a matter of taste.</td>
-  </tr>
-  <tr>
-    <td><strong>Auto</strong></td>
-    <td>on / off</td>
-    <td>Automatic re-generation after every parameter change in the Generation section.</td>
-  </tr>
 </table>
 
 <div class="note">
-  <strong>The instrument is built around a space of possible sound.</strong> The generation parameters above — Alpha, Semantic Axes, Noise, Magnitude — can all be modulated by the <a href="#drift">Drift &amp; Regenerate</a> system. With Drift active, these values shift continuously, and akróasys can automatically re-generate audio as they move. The hidden space keeps evolving instead of behaving like a fixed one-shot source. See <a href="#drift">section 6</a> for details.
+  <strong>Steps and CFG have no control, on purpose.</strong> The number of
+  diffusion steps and the classifier-free-guidance scale are the two settings
+  where each model has one published right answer and every other value is worse
+  &mdash; SA3 and Stable Audio Open Small converge at 8 steps with CFG&nbsp;1.0,
+  Stable Audio Open 1.0 wants roughly 20 steps at CFG&nbsp;7. akróasys writes both
+  values when you select a model, and there is no on-screen control for either.
+  They remain real parameters, so a DAW can automate them &mdash; a value set
+  that way holds until the next time you switch engines.
 </div>
 
-<h3>The two views of the column</h3>
+<h3>What the latent space is</h3>
 <p>
-The Generation column header carries a small <strong>» adv.</strong> /
-<strong>» easy</strong> toggle. The two views are not a short and a long
-form of the same surface — they are the instrument's <em>two sound
-sources</em>, and the toggle chooses which one the column is showing. The
-toggle only affects the Generation column: Synth, FX and Sequencer are
-unchanged, and whatever the column is showing, the synth plays whichever
-engine is active.
+A diffusion model is trained on audio paired with text, and what it learns is a
+<strong>latent space</strong>: an internal coordinate system in which a sound is
+a point rather than a waveform. Nothing in it was designed as a control surface.
+Its coordinates are not brightness, pitch, or attack time; they are whatever
+directions the training data made useful for telling sounds apart. Nearby points
+render as related sounds, distant ones as unrelated. Text is how you get in: the
+encoder maps a phrase to a point, and rendering starts there.
 </p>
 <p>
-<strong>Easy — the generated sound.</strong> The neural surface described
-in this section: the model selector, Prompts A and B, the Injection
-Modes, Alpha, the Semantic Axes, Duration, Magnitude, Noise, the VAR seed
-switch, Re-Prompt, the Snap / Cache row, Generate, and the Dimension
-Explorer card. This is the default on first launch.
+That is what the T5 Oscillator plays. Its controls do not act on the audio and
+do not act on your wording — they act on the <strong>point</strong>, before
+anything has been rendered. The A/B slider moves along the line through A and B (and
+past both ends), the <a href="#axes">Sound-Character Axes</a> push along
+directions the model ties to a word, the
+<a href="#dimex">Dimension Explorer</a> re-weights single coordinates, Magnitude
+scales the whole vector, and Noise perturbs it.
 </p>
 <p>
-<strong>Advanced — the written oscillator.</strong> The column becomes the
-oscillator panel: one prompt field, its own model row, and the authoring
-trace that shows what the machine heard, which library entries the words
-reached, which model wrote the Csound, what it had to repair, and what is
-running now. Nothing of the neural surface is shown here, because nothing
-of it applies — this sound is not generated, it is <em>written</em>. See
-<a href="#lro">The Language-Resonant Oscillator</a>.
+Most of the travel those controls allow leads <strong>out of the region any text
+can address</strong>. The A/B slider runs to &plusmn;2, so most of its range lies past both
+impulses; an empty field reflects the other one through the model's neutral point,
+which is an anti-prompt no wording produces; Magnitude reaches 5.0. The model was
+not trained on what it finds there, and that is what this oscillator is for. The
+usual warning &mdash; "the model has not seen this" &mdash; describes the target
+here, not a fault. The one real limit is collapse: pushed far enough the model
+stops producing structure at all, and you hear it immediately.
 </p>
 <div class="note">
-  <strong>Steps</strong> (diffusion sampling steps) and <strong>CFG</strong>
-  (classifier-free guidance strength) have no control in either view. They
-  remain full parameters — automatable from your DAW, stored in presets and
-  snapshots — and each model carries its own defaults, which akróasys sets when
-  you switch engines.
+  All of these &mdash; A/B, the axes, Noise, Magnitude &mdash; can be
+  modulated by <a href="#drift">Drift &amp; Regenerate</a>, which moves the point
+  continuously and re-renders as it travels, so the source becomes a path through
+  the space instead of one fixed fragment.
 </div>
-<p>
-<strong>Hidden-state pulse.</strong> If you switch from Advanced back to
-Easy while one of the hidden controls is at a non-default value — for
-example, Magnitude pushed to 1.4, Steps raised to 16, or a non-Small
-model selected — the <strong>» adv.</strong> button starts pulsing
-gently. This is a reminder that the rendered sound is still being shaped
-by something Easy view cannot show. Returning to Advanced and either
-resetting the control or accepting its value stops the pulse.
-</p>
 
-<h3>Snapshots and Inference Cache</h3>
+<h3>Inference Cache</h3>
 <p>
-Below the Dimension Explorer, the Generation column has a compact <strong>SNAP / CACHE</strong> row. These controls solve two different workflow problems:
+The <strong>SNAP / CACHE</strong> row sits below the Dimension Explorer. Its SNAP
+half serves both oscillators and is described under
+<a href="#perform">Playing and Performing</a>; the cache belongs to this
+oscillator alone, because what it stores is rendered diffusion output.
 </p>
 <table>
   <tr><th>Control</th><th>What it stores</th><th>How to use it</th></tr>
-  <tr>
-    <td><strong>SNAP OFF / 1 / 2 / 3 / 4</strong></td>
-    <td>Four temporary snapshots of the current main sound and T5 oscillator state: generated audio, prompts, seed/random state, model choice, generation parameters, Semantic Axes, Dimension Explorer offsets, engine parameters, and P1/P2/P3 including the lock state.</td>
-    <td>Short-click slot 1, 2, 3, or 4 to recall it. Long-click a slot to store a snapshot. The stored state is captured at the <em>beginning</em> of the long click, so moving controls during the long press does not change what is saved.</td>
-  </tr>
   <tr>
     <td><strong>CACHE OFF / 2 / 4 / 8 / 16 / 32 / 64</strong></td>
     <td>A round-robin list of generated audio results for the current generation setup. Once filled, Generate plays through the cached results instead of running inference again.</td>
@@ -916,98 +691,33 @@ Below the Dimension Explorer, the Generation column has a compact <strong>SNAP /
   </tr>
 </table>
 <p>
-Snapshots are session workflow slots: they let you keep a bass or lead state while you temporarily generate material for something else. Cache is preset material: it is stored with the preset, including its audio entries.
+A full cache turns Generate into a zero-latency playback control: each press
+of Generate (or <strong>Shift+Return</strong>) advances to the next cached entry
+in round-robin order. That pairs well with the Step Sequencer &mdash; with
+Auto-Regenerate off and a cache full, repeated generation events cycle through
+the stored variations instead of running the diffusion model. The cache outlives
+the session: capacity and audio entries travel with the preset.
 </p>
-
-<p>
-<strong>Snapshots as a performance instrument.</strong> The four snapshot slots
-are bound to the number keys <strong>1 / 2 / 3 / 4</strong>, so once you have
-stored a snapshot in each (long-click or <strong>Shift+1 ... Shift+4</strong>),
-you have a four-button live setup: hit a number key to switch the entire
-oscillator state — sound material, prompts, axes, dimension offsets, engine
-parameters — without leaving the keyboard. This is the intended way to play
-akróasys as a multi-character instrument during a take. Two typical workflows:
-</p>
-<ul>
-  <li><strong>Live keyboard play:</strong> store four different oscillator
-    states and switch between them in real time while the computer keyboard
-    or an external MIDI controller drives notes. Each slot carries its full
-    sound space — different prompts, axes, dimensions, engine settings — so
-    the switch is a complete instrument change, not a parameter morph.</li>
-  <li><strong>One-shot voices for the Step Sequencer:</strong> store a
-    different short sound in each slot and use 1 / 2 / 3 / 4 as manual
-    voice changers during sequencer playback. Snapshot recalls are
-    instantaneous (no inference), so they sit cleanly inside a running
-    pattern.</li>
-</ul>
-
-<p>
-<strong>Cache as a fast audition / variation engine.</strong> Building a
-cache turns Generate into a zero-latency playback control: once full, each
-press of Generate (or <strong>Shift+Return</strong>) advances to the next
-cached audio entry in round-robin order. That pairs well with the Step
-Sequencer too — if Auto-Regenerate is off and a cache is full, repeated
-generation events cycle through the stored variations instead of running
-the diffusion model. The cache also outlives the session: capacity and
-audio entries travel with the preset.
-</p>
-
-<h3>Keyboard and MIDI Performance</h3>
-<table>
-  <tr><th>Input</th><th>Action</th></tr>
-  <tr><td><strong>Shift+Return</strong> or <strong>Ctrl/Cmd+Return</strong></td><td>Trigger Generate from anywhere in the main panel.</td></tr>
-  <tr><td><strong>1 / 2 / 3 / 4</strong></td><td>Recall snapshot slots 1-4 — the primary live-play control for switching between stored oscillator states without leaving the keyboard. Use <strong>Shift+1</strong> ... <strong>Shift+4</strong> to store the current state into a slot.</td></tr>
-  <tr><td><strong>Kbd</strong> in the status bar or <strong>Ctrl/Cmd+K</strong></td><td>Enable computer-keyboard note input. The chromatic row is <code>a w s e d f t g z h u j k</code>, starting at MIDI note 60. Use <strong>y</strong> / <strong>x</strong> for octave down / up. It is automatically ignored while a text field or overlay is active.</td></tr>
-  <tr><td><strong>MIDI Pitch Bend</strong></td><td>Global pitch bend, fixed range ±2 semitones.</td></tr>
-  <tr><td><strong>CC1 / CC2</strong></td><td>Mod Wheel and Breath feed the same performance-pressure route as aftertouch, using the <strong>AT</strong> target and amount.</td></tr>
-  <tr><td><strong>CC7 / CC11</strong></td><td>Channel Volume and Expression scale the live voice output.</td></tr>
-  <tr><td><strong>MIDI CC64</strong></td><td>Sustain pedal. Notes released while the pedal is down keep sounding until CC64 returns below 64.</td></tr>
-  <tr><td><strong>CC66 / CC67</strong></td><td>Sostenuto and Soft Pedal. Sostenuto captures currently held manual notes; Soft Pedal gently lowers level and brightness.</td></tr>
-  <tr><td><strong>MIDI aftertouch</strong></td><td>Both channel pressure and poly pressure are supported. Route them with the <strong>AT</strong> row in the Synth panel.</td></tr>
-  <tr><td><strong>CC120 / CC123 / CC121</strong></td><td>All Sound Off / All Notes Off / Reset Controllers.</td></tr>
-</table>
 
 <h3>Model &amp; Device</h3>
 <p>
-Five model slots are available: Stable Audio 3 Small Music, Stable Audio 3 Small SFX, Stable Audio Open 1.0, Stable Audio Open Small, and AudioLDM2 <em>(experimental, CC BY-NC-SA 4.0 — non-commercial only)</em>. The device toggle switches between GPU (MPS on Apple Silicon, CUDA on Linux or Windows 11) and CPU. GPU is typically 3× faster on Apple Silicon.
+Five model slots sit above the impulse fields: Stable Audio 3 Small Music, Stable Audio 3 Small SFX, Stable Audio Open 1.0, Stable Audio Open Small, and AudioLDM2 <em>(experimental, CC BY-NC-SA 4.0 — non-commercial only)</em>. <strong>Stable Audio 3 Medium</strong> has no slot of its own: with both tiers installed, clicking an already-selected SA3 slot a second time toggles that slot between Small and Medium, shown by a small <code>s</code>/<code>m</code> marker. The device toggle switches between GPU (MPS on Apple Silicon, CUDA on Linux or Windows 11) and CPU. GPU is typically 3× faster on Apple Silicon.
 </p>
 
 <div class="note">
   <strong>AudioLDM2 is an exploratory alternative, not a feature-parity engine.</strong>
-  We keep it in akróasys because it opens a different learned space and can
-  sometimes yield useful speech-like, scene-based, or hybrid material that
-  differs from the Stable Audio family. It is also ungated, which makes it a
-  usable fallback for users who do not want to fetch gated Stable Audio
-  weights through a Hugging Face account.
+  It opens a different learned space and can yield speech-like, scene-based or
+  hybrid material the Stable Audio family will not produce. Against that: it is
+  non-commercial only, slower and heavier than Stable Audio Open Small,
+  generates internally at 16&nbsp;kHz before akróasys resamples to 44.1, and does
+  not implement the non-linear Injection Modes &mdash; when AudioLDM2 is selected,
+  the mode row is locked to <em>Linear</em>. Everything else works: A/B, the
+  Semantic Axes, the Dimension Explorer, Drift, snapshots.
 </div>
-
-<table>
-  <tr><th>AudioLDM2 in akróasys</th><th>What it means in practice</th></tr>
-  <tr>
-    <td><strong>What works</strong></td>
-    <td>Standard prompt generation, A/B movement in <em>Linear</em> mode, Semantic Axes, Dimension Explorer, Drift, snapshots, and the general short-fragment workflow.</td>
-  </tr>
-  <tr>
-    <td><strong>What does not fully work</strong></td>
-    <td>AudioLDM2 does <strong>not</strong> implement the non-linear Injection Modes. When AudioLDM2 is selected, akróasys keeps the mode row locked to <em>Linear</em>. AudioLDM2 also does not support the latent-only Stable Audio workflows used by the native SA path.</td>
-  </tr>
-  <tr>
-    <td><strong>Advantages</strong></td>
-    <td>Ungated download path, a broader generalized-audio character, and occasionally useful results for exploratory prompting where you want something less tied to the Stable Audio sound world.</td>
-  </tr>
-  <tr>
-    <td><strong>Disadvantages</strong></td>
-    <td>Heavier and slower than Stable Audio Open Small, non-commercial only, internally generates at 16 kHz before akróasys resamples to 44.1 kHz, and often produces less immediate, less punchy results for the short production-oriented prompts that work well on Stable Audio Open Small.</td>
-  </tr>
-  <tr>
-    <td><strong>Why it remains in the instrument</strong></td>
-    <td>Mainly for exploratory use. If you want the strongest fit for akróasys's core interaction design, Stable Audio Open Small is usually the better starting point. AudioLDM2 stays available as an alternate model space, not as the main benchmark for how akróasys should sound.</td>
-  </tr>
-</table>
 
 <h3 id="injection-modes">Injection Modes (research)</h3>
 <p>
-Above the Alpha slider sits a row of six small buttons —
+Above the A/B slider sits a row of six small buttons —
 <strong>Linear · Step-in · Layer · Combo 1 · Combo 2 · Combo 3</strong>.
 These select different ways Impulse&nbsp;B enters Impulse&nbsp;A inside the
 diffusion pipeline. The classical A↔B movement is one of six options — you
@@ -1018,15 +728,15 @@ enter?". Different answers produce audibly different sounds from the
 <p>
 Clicking a mode button immediately triggers a fresh generation, and
 each mode keeps its own slider position so A/B-ing the modes by
-clicking buttons does not disturb the others. Only Stable Audio Open
-Small implements the non-linear modes. With AudioLDM2 selected, akróasys
-disables the non-linear buttons and keeps <em>Linear</em> active.
+clicking buttons does not disturb the others. Every Stable Audio engine
+implements the non-linear modes; with AudioLDM2 selected, akróasys
+disables those buttons and keeps <em>Linear</em> active.
 </p>
 <table>
   <tr><th>Mode</th><th>What it does</th><th>Slider role</th></tr>
   <tr>
     <td><strong>Linear</strong></td>
-    <td>The classical A/B movement through the hidden sound space (and beyond, via extrapolation). Bit-identical to T5ynth v1.5.x. This is the safe, well-understood default.</td>
+    <td>The classical A/B movement through the latent space, and beyond it by extrapolation. The default, and the best-understood of the six.</td>
     <td>α ∈ [−1, +1], A↔B with extrapolation past the poles.</td>
   </tr>
   <tr>
@@ -1056,18 +766,27 @@ disables the non-linear buttons and keeps <em>Linear</em> active.
   </tr>
 </table>
 
+<div class="note">
+  <strong>The slider relabels itself.</strong> It reads <strong>A ↔ B</strong> in
+  Linear, <strong>Step-in: A → mix</strong> or <strong>Combo 1/2/3: A →
+  mix</strong> in those modes, and <strong>Layer B-zone (low–high)</strong> in
+  Layer, where it becomes a two-thumb range. The label is always what the slider
+  is currently doing.
+</div>
 <div class="tip">
-  Drift LFOs targeting Alpha automatically modulate the active mode's
-  intensity axis: in Linear it modulates α, in Step-in and the Combos it
-  modulates the intensity slider, in Layer it slides the band along
-  its width. The drift system stays mode-aware without any extra UI.
+  Drift LFOs targeting A/B automatically follow the active mode's
+  intensity axis: in Linear the A/B position, in Step-in and the Combos the
+  intensity, in Layer the band's position along its width. The drift system
+  stays mode-aware without any extra UI.
 </div>
 
+<!-- ═══════════════════════════════════════════ -->
+<!-- ═══════════════════════════════════════════ -->
 <!-- ═══════════════════════════════════════════ -->
 <h2 id="axes">2. Sound-Character Axes</h2>
 
 <p>
-Below the A/B area, three dropdown slots let you apply <strong>sound-character axes</strong> — continuous sliders between two conceptual poles (in the UI and technical background also called <em>semantic axes</em>). Each one pushes the current possible-sound space along a direction the model ties to a word like <em>grainy</em> or <em>rhythmic</em>. That push has two sides. It is a <strong>reliable way to bring coherent, non-chaotic movement</strong> into the sound — it steers along one consistent direction, so the motion is repeatable rather than scattered. But it is <strong>not a literal control over the named quality</strong>: pushing toward <em>grainy</em> reliably shifts the character without reliably making the sound measurably grainier.
+Below the A/B area, three dropdown slots let you apply <strong>sound-character axes</strong> — continuous sliders between two conceptual poles (in the UI and technical background also called <em>semantic axes</em>). Each one pushes the current latent space along a direction the model ties to a word like <em>grainy</em> or <em>rhythmic</em>. That push has two sides. It is a <strong>reliable way to bring coherent, non-chaotic movement</strong> into the sound — it steers along one consistent direction, so the motion is repeatable rather than scattered. But it is <strong>not a literal control over the named quality</strong>: pushing toward <em>grainy</em> reliably shifts the character without reliably making the sound measurably grainier.
 </p>
 
 <div class="note">
@@ -1107,6 +826,8 @@ Each slider runs from &minus;1.0 to +1.0. Multiple axes are interrelated — the
 </div>
 
 <!-- ═══════════════════════════════════════════ -->
+<!-- ═══════════════════════════════════════════ -->
+<!-- ═══════════════════════════════════════════ -->
 <h2 id="dimex">3. Dimension Explorer</h2>
 
 <p>
@@ -1138,9 +859,33 @@ This is the most granular level of control akróasys offers. It bypasses languag
 </div>
 
 <!-- ═══════════════════════════════════════════ -->
+<!-- ═══════════════════════════════════════════ -->
+<!-- ═══════════════════════════════════════════ -->
 <h2 id="engine">4. Engine Modes: Sampler, Wavetable &amp; Granular</h2>
 
-<p>akróasys can play back generated audio in three modes:</p>
+<p>
+A generated fragment is not yet a playable voice. These three modes are how it
+becomes one — three different answers to what should happen when you press a key
+that is not the key it was rendered at.
+</p>
+
+<h3>The waveform display</h3>
+<p>
+The waveform strip under the engine-mode buttons shows the loaded fragment and
+carries three handles on its baseline, which every mode reads:
+</p>
+<table>
+  <tr><th>Handle</th><th>What it sets</th></tr>
+  <tr><td><strong>S</strong> (filled)</td><td>The start position — where a note begins playing.</td></tr>
+  <tr><td><strong>[</strong> and <strong>]</strong></td><td>The play region: everything outside the brackets is not played, and in Loop and Ping-Pong modes these are the loop points.</td></tr>
+</table>
+<p>
+A pale vertical line runs through the display while a note sounds, showing the
+live read position — useful when a modulator is driving Scan. The
+<strong>LOCK</strong> button in the corner pins the three handles so a new
+generation cannot move them. Dragging from the waveform onto a step's one-shot
+slot copies the region between the brackets into that slot.
+</p>
 
 <h4>Sampler Mode</h4>
 <p>
@@ -1149,7 +894,7 @@ Plays the generated audio buffer directly. Pitch follows MIDI via time-stretchin
 <ul>
   <li><strong>Loop Mode</strong> — One-shot, Loop, or Ping-Pong</li>
   <li><strong>Crossfade</strong> — 0–500 ms equal-power crossfade at the loop boundary</li>
-  <li><strong>Loop Optimize</strong> — Cross-correlation algorithm that finds the smoothest loop point (Low or High precision)</li>
+  <li><strong>Opt</strong> (Loop Optimize) — cross-correlation search for the smoothest loop point. Click to cycle <em>Off → Low → High</em>; High searches harder and costs more.</li>
   <li><strong>Normalize</strong> — Peak-normalizes the play region</li>
 </ul>
 
@@ -1159,6 +904,9 @@ Extracts pitch-synchronous frames from the audio to build a scannable wavetable.
 </p>
 <ul>
   <li><strong>Scan</strong> (0.0–1.0) — Selects the current frame position in the wavetable. Can be modulated by LFOs, envelopes, or drift.</li>
+  <li><strong>Frames</strong> (32 / 64 / 128 / 256, default 256) — How many frames are extracted from the fragment. Fewer frames means bigger steps between them and a coarser scan.</li>
+  <li><strong>Smooth</strong> (on by default) — Interpolates between neighbouring frames instead of switching at frame boundaries.</li>
+  <li><strong>Auto Scan</strong> (on by default) — Sweeps the scan position through the table on its own as a note is held, so a wavetable moves without a modulator assigned to it.</li>
 </ul>
 
 <h4>Granular Mode</h4>
@@ -1195,141 +943,18 @@ All three operate on the generated buffer, not on the real-time voice signal —
 
 <h4>Voice Count</h4>
 <p>
-Applies to all three engine modes: Mono, 4, 6, 8, 12, or 16 voices. Gain auto-scales per voice count. Oldest notes are stolen when the limit is reached.
+Mono, 4, 6, 8, 12, 16, 64 or 128 voices; the default is 8. Gain auto-scales per voice count, and the oldest notes are stolen when the limit is reached. The two large settings are there for dense generative sequencing and long release tails, not for keyboard play.
 </p>
 
 <!-- ═══════════════════════════════════════════ -->
-<h2 id="synth">5. Classic Synth Elements</h2>
-
-<h3>Filter</h3>
-<p>
-Three filter algorithms share the same Type / Slope / Cutoff / Resonance /
-Mix / Kbd Track controls; switch between them with the <strong>Algorithm</strong>
-selector in the filter header row.
-</p>
-<table>
-  <tr><th>Parameter</th><th>Range</th><th>Notes</th></tr>
-  <tr><td><strong>Algorithm</strong></td><td>SVF / Ladder / Warp</td><td>See the algorithm notes below. Default <em>SVF</em> — pre-existing presets load on it, so their sound is unchanged.</td></tr>
-  <tr><td><strong>Type</strong></td><td>Off / LP / HP / BP</td><td></td></tr>
-  <tr><td><strong>Slope</strong></td><td>6 / 12 / 18 / 24 dB/oct</td><td>On Ladder / Warp the slope is the ladder tap index (1–4 poles); on SVF it's the order of the SVF / one-pole cascade.</td></tr>
-  <tr><td><strong>Cutoff</strong></td><td>20 Hz – 20 kHz</td><td>Exponential scaling. Primary modulation target.</td></tr>
-  <tr><td><strong>Resonance</strong></td><td>0.0 – 1.0</td><td>SVF maps to Q 0.5–18. Ladder / Warp map to feedback gain <em>k</em>; at <em>r</em>&nbsp;≈&nbsp;1 both self-oscillate.</td></tr>
-  <tr><td><strong>Mix</strong></td><td>0.0 – 1.0</td><td>Equal-power dry/wet crossfade</td></tr>
-  <tr><td><strong>Kbd Track</strong></td><td>0.0 – 1.0</td><td>Cutoff offset per MIDI semitone</td></tr>
-  <tr><td><strong>Drive</strong></td><td>0 – 36 dB</td><td>On SVF: pre-filter <code>tanh</code> saturation (optionally oversampled). On Ladder / Warp: input gain into the filter's own nonlinear stages — the filter itself provides the saturation character, master volume handles level.</td></tr>
-  <tr><td><strong>OS</strong></td><td>SVF: Off / 2× / 4× / 8× &middot; Ladder/Warp: see Settings</td><td>On <strong>SVF</strong>: inline, per-preset oversampling for the Drive <code>tanh</code> (Off / 2× / 4× / 8×). On <strong>Ladder / Warp</strong>: global machine-wide setting in the <em>Settings</em> panel (General Settings tab), not per preset — Off / 2× / 4×, default 2×. 8× is not available for Ladder / Warp.</td></tr>
-  <tr><td><strong>Style</strong></td><td>Tanh / SoftClip / Algebraic / Sin / Digital / Asym</td><td>Warp-only — picks the per-pole saturation curve. Greyed out for SVF / Ladder. See algorithm notes.</td></tr>
-</table>
-
-<div class="note">
-  <strong>Algorithm notes</strong>
-
-  <ul>
-    <li><strong>SVF</strong> — linear JUCE <code>StateVariableTPTFilter</code> + one-pole cascade. Clean, cheap on CPU, no character of its own. Keep this on low-powered hardware (similar trade-off to choosing the algorithmic reverb over the convolution reverb). Drive applies a pre-filter <code>tanh</code> + optional oversampling, same as previous akróasys builds. Credit: JUCE DSP.</li>
-    <li><strong>Ladder</strong> — Huovilainen-style non-linear 4-pole ladder with a half-sample-delay-compensated feedback path. Analog-flavoured growl, self-oscillating at high resonance, and cutoff-tracking compression. Drive feeds the internal <code>tanh</code> stages directly, so turning drive up produces the "pushed into the ladder" warmth rather than a pre-filter flat-clip. Credit: Antti Huovilainen's DAFx-04 ladder-filter formulation; akróasys's implementation is original.</li>
-    <li><strong>Warp</strong> — zero-delay-feedback 4-pole ladder with a selectable per-pole saturation curve (the <em>Style</em> control). Good for shaping large continuous timbral spaces, which is why it's the recommended target when mapping an internal control dimension to filter character. All six styles are centered at zero, so the feedback loop stays stable under modulation. Warp is the most expensive of the three (~2–3× SVF CPU). Design inspiration: Surge XT Cutoff Warp; akróasys's implementation is original.</li>
-  </ul>
-
-  <strong>Warp styles</strong> — all bounded, all with <code>sat(0) = 0</code> so the feedback loop has a clean zero equilibrium:
-  <ul>
-    <li><strong>Tanh</strong> — symmetric soft, the classic reference.</li>
-    <li><strong>SoftClip</strong> — <code>x / (1 + |x|)</code>; gentler, flatter knee than <code>tanh</code>.</li>
-    <li><strong>Algebraic</strong> — <code>x / √(1 + x²)</code>; slower approach to the limit than <code>tanh</code> with more odd-harmonic content for a given drive.</li>
-    <li><strong>Sin</strong> — wavefolded sine; FM-like timbre when driven hard.</li>
-    <li><strong>Digital</strong> — hard clamp to ±1; deliberately buzzy, rich in odd harmonics at any drive.</li>
-    <li><strong>Asym</strong> — <code>tanh(x + 0.25) − tanh(0.25)</code>; asymmetric response, prominent 2nd-harmonic colouring, bias-compensated so it's still centered at zero.</li>
-  </ul>
-</div>
-
-<h3>Envelopes (Env 1, Env 2, Env 3)</h3>
-<p>
-Three identical ADSR envelopes, each with a <strong>Target dropdown</strong> to route it to any modulation destination (see <a href="#synth">Classic Synth Elements</a>). There is no hard-wired "amplitude envelope" — to use an envelope as a VCA, assign its target to <em>DCA</em>.
-</p>
-<table>
-  <tr><th>Parameter</th><th>Range</th><th>Notes</th></tr>
-  <tr><td><strong>Attack</strong></td><td>0 – 5000 ms</td><td></td></tr>
-  <tr><td><strong>Decay</strong></td><td>0 – 5000 ms</td><td></td></tr>
-  <tr><td><strong>Sustain</strong></td><td>0.0 – 1.0</td><td></td></tr>
-  <tr><td><strong>Release</strong></td><td>0 – 10 000 ms</td><td></td></tr>
-  <tr><td><strong>A / D / R Curve</strong></td><td>Log / SLog / Lin / SExp / Exp</td><td>Per-stage slope shape. Each of the three stages (Attack, Decay, Release) has its own 5-position selector, so an envelope can e.g. be linear on the way up but exponential on release. Minimum ramp 3&nbsp;ms on every stage. Defaults: A = Lin, D = Lin, R = Exp. See the <em>Curve shapes</em> note below the table.</td></tr>
-  <tr><td><strong>Amount</strong></td><td>0.0 – 1.0</td><td>Envelope ceiling — the maximum level the envelope can reach. Drag the peak handle on the ADSR graph vertically; the whole shape scales proportionally. At 1.0 the envelope reaches full range; at 0.5 it peaks at half regardless of ADSR times.</td></tr>
-  <tr><td><strong>A / D / R Vel Sens</strong></td><td>−1.0 – +1.0</td><td>Per-stage velocity sensitivity for <em>timing</em>. Positive: harder hits shorten the stage (snappier attack or decay). Negative: harder hits lengthen it. 0 = fixed timing. Held-phase (pressure) response is handled by the <strong>AT</strong> panel.</td></tr>
-  <tr><td><strong>Loop</strong></td><td>on / off</td><td>Re-triggers attack when sustain is reached</td></tr>
-  <tr><td><strong>Target</strong></td><td>Dropdown</td><td>DCA, Filter, Scan, Pitch, Dly Time/FB/Mix, Rev Mix, Noise Lvl, LFO1/2/3 Amt, LFO1/2/3 Depth, Osc Mix</td></tr>
-</table>
-
-<p>
-<strong>Velocity Amount.</strong> The <strong>Velocity Amount</strong> panel (between the
-envelopes and the LFOs) collects all velocity-to-dynamics controls in one place.
-<strong>Level</strong> is a global velocity-to-peak amount (0.0–1.0, default&nbsp;1.0):
-at 1.0 a note at velocity&nbsp;127 reaches the full envelope peak; at 0 velocity has no
-effect on level at all. The per-stage <strong>Att / Dec / Rel</strong> sliders are the
-same A/D/R vel&nbsp;sens controls as the per-envelope sliders — they set how velocity
-affects stage timing, bipolar (−1.0…+1.0).
-</p>
-
-<div class="note">
-  <strong>Curve shapes</strong> (applied to the normalised stage progress <em>t&nbsp;∈&nbsp;[0,&nbsp;1]</em>):
-  <ul>
-    <li><strong>Exp</strong> — fast initial change, decelerates (concave, cubic). Classic "snappy" analogue feel.</li>
-    <li><strong>SExp</strong> — mild fast start (concave, quadratic).</li>
-    <li><strong>Lin</strong> — constant rate. Predictable and steady for filter sweeps.</li>
-    <li><strong>SLog</strong> — mild slow start (convex, quadratic).</li>
-    <li><strong>Log</strong> — slow initial change, accelerates (convex, cubic). Good for swells and pad entries.</li>
-  </ul>
-</div>
-
-<h3>LFOs (LFO 1, LFO 2 &amp; LFO 3)</h3>
-<table>
-  <tr><th>Parameter</th><th>Range</th><th>Notes</th></tr>
-  <tr><td><strong>Rate</strong></td><td>0.01 – 30 Hz</td><td>Active when Clock is Off</td></tr>
-  <tr><td><strong>Clock</strong></td><td>Off / Sync</td><td>Toggle (clock-icon button). When Sync is on, the Rate slider is replaced by a Division stepper.</td></tr>
-  <tr><td><strong>Division</strong></td><td>16/1 … 1/32 (incl. T &amp; Q)</td><td>Active when Clock is Sync. Effective Hz = factor × (BPM/60) / 4. Sync source resolves as: live host transport &gt; running in-app sequencer &gt; last-seen host BPM &gt; the Seq BPM field as fallback.</td></tr>
-  <tr><td><strong>Depth</strong></td><td>0.0 – 1.0</td><td></td></tr>
-  <tr><td><strong>Waveform</strong></td><td>Sine / Tri / Saw / Square</td><td></td></tr>
-  <tr><td><strong>Mode</strong></td><td>Free / Trigger</td><td>Free runs continuously; Trigger resets on note-on (per-voice phase)</td></tr>
-  <tr><td><strong>Target</strong></td><td>Dropdown</td><td>Filter, Scan, Pitch, Dly Time/FB/Mix, Rev Mix, Noise Lvl, ENV1–3 Amt, Drift1/2/3 Depth, Osc Mix</td></tr>
-</table>
-
-<h3>Aftertouch (AT)</h3>
-<p>
-The <strong>AT</strong> panel routes held-phase pressure to twelve independent modulation
-targets simultaneously. Each target has its own signed depth bar — there is no single
-global Amount or shared dropdown. Sources: polyphonic key pressure (per-note), channel
-pressure, Mod Wheel (CC1), and Breath (CC2); akróasys resolves each voice's pressure as
-the maximum of all applicable sources.
-</p>
-<p>
-<strong>Interaction:</strong> drag a bar left or right to set its magnitude (0 … 1.0);
-click without dragging to toggle the sign (positive or negative depth at the same
-magnitude). The current sign is displayed as a persistent
-<strong>+</strong> or <strong>−</strong> suffix on the target label (e.g.
-<em>Reso&nbsp;+</em> / <em>Reso&nbsp;−</em>). The numeric value shows while
-the bar is held.
-</p>
-<table>
-  <tr><th>Target</th><th>Effect</th></tr>
-  <tr><td><strong>LFO1 / LFO2 / LFO3 Amt</strong></td><td>Pressure scales the LFO depth by the bar's signed amount.</td></tr>
-  <tr><td><strong>ENV1 / ENV2 / ENV3 Sustain</strong></td><td>Pressure offsets the envelope sustain level.</td></tr>
-  <tr><td><strong>Cutoff</strong></td><td>Pressure shifts filter cutoff (octave-scaled).</td></tr>
-  <tr><td><strong>Resonance</strong></td><td>Pressure shifts filter resonance.</td></tr>
-  <tr><td><strong>Scan</strong></td><td>Pressure shifts the granular / wavetable read position.</td></tr>
-  <tr><td><strong>DCA</strong></td><td>Pressure scales voice amplitude — volume swell under touch.</td></tr>
-  <tr><td><strong>Pitch</strong></td><td>Pressure shifts pitch in semitones.</td></tr>
-  <tr><td><strong>Noise</strong></td><td>Pressure raises or lowers the noise generator level.</td></tr>
-</table>
-
-<div class="note">
-  All modulation sources use a <strong>dropdown-per-source</strong> routing system — each envelope, LFO, and drift LFO has a Target dropdown to select its destination. Modulated sliders show a <em>ghost indicator</em> (orange circle) reflecting the current modulated value.
-</div>
-
 <!-- ═══════════════════════════════════════════ -->
-<h2 id="drift">6. Drift &amp; Regenerate</h2>
+<!-- ═══════════════════════════════════════════ -->
+<h2 id="drift">5. Drift &amp; Regenerate</h2>
 
 <div style="background:linear-gradient(135deg, rgba(233,69,96,0.15), rgba(255,152,0,0.15)); border:2px solid var(--accent); border-radius:8px; padding:1.2rem 1.5rem; margin-bottom:1.2rem;">
 <p style="font-size:1.1rem; margin:0;">
-<strong style="color:var(--accent); font-size:1.15rem;">Drift &amp; Regenerate keeps the possible-sound space moving.</strong><br>
-Without it, you shape one space, generate one fragment, and then process that fragment with conventional synth tools. With Drift &amp; Regenerate, the hidden sound space itself evolves. The modulation system shifts generation parameters over time, triggering new inference runs in the background. The source is no longer a static waveform — it follows a changing path through the model's internal sound space.
+<strong style="color:var(--accent); font-size:1.15rem;">Drift &amp; Regenerate keeps the latent space moving.</strong><br>
+Without it, you shape one space, generate one fragment, and then process that fragment with conventional synth tools. With Drift &amp; Regenerate, the latent space itself evolves. The modulation system shifts generation parameters over time, triggering new inference runs in the background. The source is no longer a static waveform — it follows a changing path through the model's latent space.
 </p>
 </div>
 
@@ -1340,13 +965,13 @@ step count, and hardware, a regeneration can arrive in roughly 0.1 seconds on
 an RTX 6000-class GPU or take several seconds on a Mac M-series processor
 without a dedicated AI-capable graphics card. akróasys creates an
 <strong>asynchronous feedback loop</strong> between the modulation system and the
-possible-sound space that keeps the instrument playing while new fragments are
+latent space that keeps the instrument playing while new fragments are
 rendered in the background:
 </p>
 <p>
 While the synth is playing, multiple drift LFOs continuously and independently
-shift Alpha and the Semantic Axes. Each LFO moves at its own rate and depth —
-Alpha might slowly sweep from A toward B over 30 seconds, while Axis 1 (for
+shift A/B and the Semantic Axes. Each LFO moves at its own rate and depth —
+A/B might slowly sweep from A toward B over 30 seconds, while Axis 1 (for
 example tonal/noisy) oscillates on a different cycle, and Axis 2 (for example
 sustained/rhythmic) drifts at yet another pace. With <strong>VAR</strong> on
 <em>none</em> or <em>last</em> the seed is held and this remains reproducible.
@@ -1374,7 +999,7 @@ inside the sound space opened by the two impulses.
 Meanwhile, the conventional synth chain (filter, envelopes, LFOs, effects, sequencer) continues to process the output in real time. You are simultaneously shaping the sound <em>and</em> the process that creates the sound.
 </p>
 <p>
-The Drift section provides three slow LFOs (0.001–2.0 Hz) designed for organic, evolving textures. Unlike the main LFOs, drift can target <strong>generation-level parameters</strong> — Alpha, the three sound-character axes, Noise, and Magnitude. This is what makes drift unique: it doesn't just modulate how the sound is played back, it modulates <em>what sound is generated</em>.
+The Drift section provides three slow LFOs (0.001–2.0 Hz) designed for organic, evolving textures. Unlike the main LFOs, drift can target <strong>generation-level parameters</strong> — A/B, the three sound-character axes, Noise, and Magnitude. This is what makes drift unique: it doesn't just modulate how the sound is played back, it modulates <em>what sound is generated</em>.
 </p>
 
 <div class="note">
@@ -1385,16 +1010,16 @@ The Drift section provides three slow LFOs (0.001–2.0 Hz) designed for organic
 <table>
   <tr><th>Parameter</th><th>Range</th><th>Notes</th></tr>
   <tr><td><strong>Drift Enable</strong></td><td>on / off</td><td>Master on/off for all three drift LFOs</td></tr>
-  <tr><td><strong>Rate</strong></td><td>0.001 – 2.0 Hz</td><td>Very slow by design — think minutes, not seconds. Active when Clock is Off.</td></tr>
+  <tr><td><strong>Rate</strong></td><td>1/128 Hz – 2.0 Hz</td><td>Very slow by design — think minutes, not seconds; default 0.25 Hz. Below 1 Hz the readout switches to the period in seconds per cycle, which is the useful number here. Active when Clock is Off.</td></tr>
   <tr><td><strong>Clock</strong></td><td>Off / Sync</td><td>Toggle (clock-icon button). When Sync is on, the Rate slider is replaced by a Division stepper. Same BPM resolution as the LFO Clock above.</td></tr>
-  <tr><td><strong>Division</strong></td><td>16/1 … 1/32 (incl. T &amp; Q)</td><td>Active when Clock is Sync. For drift, the slow-end musical divisions (16/1, 8/1, 4/1, 2/1) are typically where the movement breathes.</td></tr>
+  <tr><td><strong>Division</strong></td><td>64/1 … 1/4</td><td>Active when Clock is Sync; nine settings, default 2/1, no triplets or quintuplets — drift is meant to breathe over bars, not subdivide beats. The slow end (64/1, 32/1, 16/1) is where it usually belongs.</td></tr>
   <tr><td><strong>Depth</strong></td><td>0.0 – 1.0</td><td>How far the LFO pushes the target parameter</td></tr>
-  <tr><td><strong>Waveform</strong></td><td>Sine / Tri / Saw / Square</td><td></td></tr>
-  <tr><td><strong>Target</strong></td><td>Dropdown</td><td>A/B, Emb. Noise, Magnitude, Axis 1/2/3, Resynth, Scan, Filter, Pitch, Dly Time/FB/Mix, Rev Mix, ENV1–3 Amt</td></tr>
+  <tr><td><strong>Waveform</strong></td><td>Sin / Tri / Saw / Sq / S&amp;H / SawD</td><td></td></tr>
+  <tr><td><strong>Target</strong></td><td>Dropdown</td><td>A/B, Chaos, Magnitude, Axis 1/2/3, Resynth, Scan, Filter, Pitch, Dly Time / FB / Mix, Rev Mix, ENV1&ndash;5 Amt</td></tr>
 </table>
 
 <p>
-When a drift LFO targets Alpha, a sound-character axis, Noise, or Magnitude, the modulated value appears as a <em>ghost indicator</em> (orange circle) on the affected slider, so you can see how far drift has pushed the parameter from its base value.
+When a drift LFO targets A/B, a sound-character axis, Noise, or Magnitude, the modulated value appears as a <em>ghost indicator</em> (orange circle) on the affected slider, so you can see how far drift has pushed the parameter from its base value.
 </p>
 
 <h4>Regenerate</h4>
@@ -1410,7 +1035,7 @@ Drift modulation of generation parameters only changes the internal generation c
 
 <table>
   <tr><th>Parameter</th><th>Range</th><th>Notes</th></tr>
-  <tr><td><strong>Crossfade</strong></td><td>0 – 2000 ms</td><td>Equal-power fade when a new generation loads mid-playback, to mask the transition</td></tr>
+  <tr><td><strong>XFade</strong></td><td>0 – 2000 ms</td><td>Default 200 ms. The equal-power fade a held note follows when a new generation arrives: the voice does not stop and restart, it crosses over to the new sound across this time.</td></tr>
 </table>
 
 <div class="tip">
@@ -1445,16 +1070,18 @@ The <strong>coupling</strong> switch sets how far the rewrite reaches into your 
 </p>
 <table>
   <tr><th>Coupling</th><th>Behavior</th></tr>
-  <tr><td><strong>B only</strong></td><td>One interpret run rewrites prompt B; A stays the human anchor (the Alpha slider sets the A/B mix).</td></tr>
+  <tr><td><strong>B only</strong></td><td>One interpret run rewrites prompt B; A stays the human anchor (the A/B slider sets the mix).</td></tr>
   <tr><td><strong>AB add</strong></td><td>Two runs (A &amp; B); each pole becomes its own original prompt plus its latest interpretation.</td></tr>
-  <tr><td><strong>AB replace</strong></td><td>Two runs (A &amp; B); each pole is fully replaced by its stance interpretation &mdash; the human input is broken, and Alpha now blends two machine self-readings.</td></tr>
+  <tr><td><strong>AB replace</strong></td><td>Two runs (A &amp; B); each pole is fully replaced by its stance interpretation &mdash; the human input is broken, and A/B now blends two machine self-readings.</td></tr>
 </table>
 <div class="tip">
   <strong>Energy awareness:</strong> Re-Prompt adds a CLAP analysis and one or two short LLM passes to every regeneration, on top of the diffusion render. With a fast regen cadence it keeps re-rendering to feed itself; the same bar-limited regen modes keep that in check.
 </div>
 
 <!-- ═══════════════════════════════════════════ -->
-<h2 id="resynth">7. Resynth</h2>
+<!-- ═══════════════════════════════════════════ -->
+<!-- ═══════════════════════════════════════════ -->
+<h2 id="resynth">6. Resynth</h2>
 
 <p>
 Re-Prompt closes the loop through language: the machine listens to its own
@@ -1476,7 +1103,7 @@ There is no separate on/off switch — the left end of the slider is off.
   buttons are enabled only while a Stable Audio 3 model is selected; on any
   other model they are disabled and dimmed, and the request drops the audio
   seed even if a preset restored a non-zero amount. SA3 is the engine whose
-  generation entry point accepts an initial waveform. In LCO mode the row is
+  generation entry point accepts an initial waveform. In LRO mode the row is
   switched off and dimmed as well.
 </div>
 
@@ -1555,7 +1182,7 @@ still applies to every Generate you press.
 </p>
 <p>
 One round in that loop behaves differently. When you move a generation
-control — Alpha, an axis, Noise, Magnitude — or edit a prompt, the audio seed
+control — A/B, an axis, Noise, Magnitude — or edit a prompt, the audio seed
 is detached for that single regeneration, so the new content renders cleanly
 from the prompt instead of being pulled back toward the carried waveform. The
 next round re-attaches at your setting and the loop continues from the new
@@ -1612,12 +1239,400 @@ Resynth amounts can it settle onto one sound.
 </div>
 
 <!-- ═══════════════════════════════════════════ -->
-<h2 id="fx">8. Effects</h2>
+<!-- ═══════════════════════════════════════════ -->
+<!-- ═══════════════════════════════════════════ -->
+<h2 id="lro">7. The Language-Resonant Oscillator (LRO)</h2>
+
+<p>
+The <strong>Language-Resonant Oscillator</strong>, or LRO, is an
+<strong>alternative to the denoising paradigm</strong>. A diffusion model makes
+sound by denoising: it starts
+from noise and settles into a plausible rendering of what was asked. The LRO
+makes sound by <em>writing software</em>: you describe an instrument in words,
+and a language model — local by default, or an external provider you pick in
+<a href="#setup-lm">Setup</a> — writes Csound synthesis code from that
+description. Compiled and run live, that code becomes the oscillator's voice
+for every note you play. It is not a preset and not a rendered sample: it is
+source code, written for this one prompt — software as culture, and readable
+as such.
+</p>
+
+<div class="tip">
+  <strong>The code is real.</strong> What the LRO writes is genuine, portable
+  Csound — the same language any Csound system compiles, not an internal
+  format of this app. The orchestra is stored with your preset, and the panel
+  shows it (hold the panel to read the code). And because every authoring is a
+  fresh piece of writing, the oscillator you keep can be one of a kind: a real
+  digital instrument that exists nowhere else.
+</div>
+
+<h3>Switching to the LRO</h3>
+<p>
+The toggle at the top right of the Generation column's header switches
+between the two oscillator paradigms. It reads <strong>» LRO</strong> while
+the neural T5 Oscillator is active — click it to switch. The column header
+itself then changes to <strong>Language-Resonant Oscillator</strong>, and the
+toggle now reads <strong>» T5osc</strong> to switch back.
+</p>
+<p>
+Switching replaces the whole Generation column: Impulse A/B, the A/B slider, the
+Semantic Axes and the Dimension Explorer are gone, and in their place sit a
+single prompt field, the authoring trace described below, and a Re-Prompt
+card of its own. The shared <strong>Generate</strong> button and the SNAP
+slots below it stay in exactly the same place and now drive the LRO instead;
+Cache and Resynth, both meaningful only for the neural generator, are shown
+dimmed rather than removed.
+</p>
+<p>
+Type a description into the prompt field at the top of the panel — its
+placeholder reads <strong>"Describe the oscillator to craft"</strong> — and
+press <strong>Generate</strong>. A single tab above the prompt field names
+the language model that will do the writing; it is installed or configured in <a href="#setup-lm">Setup</a>.
+</p>
+<p>
+The toggle <strong>pulses gently</strong> when the column you are not looking at
+is holding a non-default value that still shapes what you hear — a Semantic Axis
+left standing while the LRO is showing, or Dimension Explorer offsets while the
+T5 Oscillator is. Switch over, and either reset the control or accept it; the
+pulse stops either way.
+</p>
+
+<h3>What you see while it writes</h3>
+<p>
+Before you have written anything, the panel reads: <strong>"Describe a sound
+and press Generate. What the machine makes of it appears here, step by step;
+hold the panel to see the Csound it wrote."</strong>
+</p>
+<p>
+Writing an instrument takes two calls to the model: one in which it says which
+of the library's entries it wants to see, and one in which it writes the
+orchestra from what it was shown. The trace names every station of that:
+</p>
+<table>
+  <tr><th>Station</th><th>What it shows</th></tr>
+  <tr>
+    <td><strong>THINKING</strong></td>
+    <td>Live, while the model composes: its reasoning streams in as it arrives.
+      Provisional — replaced the moment an attempt lands.</td>
+  </tr>
+  <tr>
+    <td><strong>WRITING</strong></td>
+    <td>Live, while the orchestra itself is being written.</td>
+  </tr>
+  <tr>
+    <td><strong>HEARD</strong></td>
+    <td>The prompt exactly as it was authored from.</td>
+  </tr>
+  <tr>
+    <td><strong>OPENED</strong></td>
+    <td>Which library entries, sound words and motions the model
+      <em>asked to see</em>, as chips, and a count line for what was actually
+      put in front of it: <em>"12 of 30 entries opened"</em>, or
+      <em>"the whole library was opened"</em> when it named no instrument at
+      all. It reads <em>"the author named no entry"</em> when the reply asked
+      for nothing, and adds <em>"no movement asked for"</em> when no motion was
+      named — worth watching, since an LRO instrument is meant to move on its
+      own unless you ask for something still.</td>
+  </tr>
+  <tr>
+    <td><strong>THOUGHT</strong></td>
+    <td>The model's own reasoning, quoted in full and never summarised: what it
+      decided the sound is, what excites and resonates in it, what moves in it.</td>
+  </tr>
+  <tr>
+    <td><strong>WROTE</strong></td>
+    <td>Which model wrote the code, and its own one-line description of what
+      it built.</td>
+  </tr>
+  <tr>
+    <td><strong>KNOBS</strong></td>
+    <td>The synth settings the instrument asked for — filter, envelopes,
+      effects — and whether they were taken. They are <strong>not</strong>
+      applied unless you switch the <strong>KNOBS</strong> button on, so this
+      station commonly reads as pending: those are real settings waiting only
+      for your permission. <em>"offered, and the author took nothing"</em>
+      means the model asked for none. A line in the warning colour is one the
+      synth could not honour.</td>
+  </tr>
+  <tr>
+    <td><strong>REPAIRED</strong></td>
+    <td>Present only when the first attempt did not compile: the Csound errors
+      it had to fix, in the order it fixed them, and how many attempts it took.
+      Every distinct error seen so far travels back with each retry, up to six
+      attempts, after which the authoring fails rather than guessing. No
+      station here means it compiled first try.</td>
+  </tr>
+  <tr>
+    <td><strong>RUNNING</strong></td>
+    <td>Whether the orchestra now loaded actually compiled: "compiling…",
+      "compiled", the compiler's own error text, or "compile not observed"
+      for a sound whose compile nobody watched (a recalled preset, for
+      instance).</td>
+  </tr>
+</table>
+
+<h3>What comes back</h3>
+<p>
+Once a version compiles, the <strong>WROTE</strong> station's one-line
+reading tells you what the machine understood the instrument to be, and the
+sound itself is already running — every voice plays the one orchestra that
+was written.
+</p>
+<p>
+Click and hold anywhere on the trace to turn the card over. The back is
+headed <strong>"CSOUND · HOLD TO TURN BACK"</strong> and shows only the
+lines the model actually wrote — not the host scaffolding common to every
+LRO instrument (the sixteen voice channels, the note-age counter, the output
+stage), which nobody wrote and which stays the same from sound to sound.
+Click and hold again to turn the card back to the trace.
+</p>
+<div class="note">
+  In this build the back of the card is a read-only view. There is no way to
+  edit the Csound text and recompile it without going back through the
+  language model.
+</div>
+<p>
+The SNAP slots below <strong>Generate</strong> work here too — see
+<a href="#perform">Playing and Performing</a>.
+</p>
+
+<h3>Re-Prompt</h3>
+<p>
+Above <strong>Generate</strong> sits a RE-PROMPT card with the same
+seven-position stance bar as the T5 Oscillator's <a href="#drift">Re-Prompt
+loop</a>, and it listens the same way. Each step renders a short probe of the
+compiled orchestra, hands it to the machine-listening model, and rewrites the
+prompt from what that model heard, under the chosen stance — the status line
+reads <strong>"Listening, then rewriting"</strong>. The probe is rendered at
+the rate the body was written for and decimated to the rate you actually hear,
+so the description is of the sound leaving the speakers and not of the
+oversampled signal inside the engine. The stances are the same seven:
+</p>
+<p>
+The seven stances are the same, and are described in
+<a href="#drift">Drift &amp; Regenerate</a>: Off, Transcribe, Sober, Sweeten,
+Variation, Abduction, Opposite.
+</p>
+<p>
+With a stance chosen and at least one instrument already on screen, pressing
+<strong>Generate</strong> performs one Re-Prompt step instead of authoring
+from scratch: it rewrites the prompt under the current stance, replaces the
+text in the prompt field with the result, and immediately writes a new
+instrument from those words. There is no separate coupling control here —
+the neural loop's B only / AB add / AB replace choice has nothing to attach
+to, since the LRO has no A/B pair to couple.
+</p>
+
+<div class="note">
+  If no language model is reachable, the model tab reads <strong>"no language
+  model"</strong> and Generate answers <strong>"Load the language model in
+  Settings"</strong> — see <a href="#setup-lm">Setup</a>. An empty prompt is
+  refused the same way, with <strong>"Type what the instrument should sound
+  like"</strong>.
+</div>
+
+<!-- ═══════════════════════════════════════════ -->
+<!-- ═══════════════════════════════════════════ -->
+<h2 id="lrocontrols">8. The Written Instrument's Controls</h2>
+
+<p>
+A written instrument brings its own knobs, and they appear in the
+<strong>Synth</strong> panel where the engine-mode controls sit for the other
+oscillator. They are not a fixed set: each one is a parameter the library
+declared, which the model kept when it wrote this particular body. A body that
+keeps none gets none &mdash; you will never see a plausible-looking slider that
+moves nothing, because the wiring to the Csound channel is made by the host from
+the line that actually survived, not by the model.
+</p>
+<table>
+  <tr><th>What you see</th><th>Where it comes from</th></tr>
+  <tr>
+    <td>The card's caption</td>
+    <td>The model's own one-line reading of the instrument &mdash; the same
+      sentence the <strong>WROTE</strong> station shows.</td>
+  </tr>
+  <tr>
+    <td><strong>Level</strong>, or <strong>Level 1 / 2 / 3</strong></td>
+    <td>One fader per layer the body actually mixes. A single-layer instrument
+      gets one unnumbered Level; an instrument that layers two or three bodies
+      gets one per layer, so you can balance them by ear.</td>
+  </tr>
+  <tr>
+    <td>Column headings</td>
+    <td>The library entries this body draws on, under the library's own names
+      &mdash; up to three, side by side, with a rule between them because they
+      are different instruments and not one list of knobs.</td>
+  </tr>
+  <tr>
+    <td>Up to four knobs per column</td>
+    <td>The playable parameters of that entry. The <em>name</em> is the
+      library's own word for it, the <em>range</em> is the library's, and the
+      position it starts at is where the model put it. Hover a knob to read the
+      library's line on what it does.</td>
+  </tr>
+</table>
+<p>
+Before anything has been written, the same card lists the instruments the
+authoring model can ask to see. It is short on purpose: an entry appears only
+once it has been heard and taken, so the list grows slowly and everything on it
+has been listened to. It is an orientation and not a menu &mdash; the model is
+free to combine entries, to use none of them, and to write from its own
+knowledge.
+</p>
+<div class="note">
+  These knobs are ordinary parameters: they move with automation, they are
+  stored in the preset, and they can be bound to a hardware controller by
+  right-clicking. They change the running orchestra live, without re-authoring.
+</div>
+
+<!-- ═══════════════════════════════════════════ -->
+<div class="part-label" style="margin-top:3rem">Part I — The Synth</div>
+<h2 id="synth">9. Classic Synth Elements</h2>
+
+<h3>Filter</h3>
+<p>
+Three filter algorithms share the same Type / Slope / Cutoff / Resonance /
+Mix / Kbd Track controls; switch between them with the <strong>Algorithm</strong>
+selector in the filter header row.
+</p>
+<table>
+  <tr><th>Parameter</th><th>Range</th><th>Notes</th></tr>
+  <tr><td><strong>Algorithm</strong></td><td>SVF / Ladder / Warp</td><td>See the algorithm notes below. Default <em>SVF</em> — pre-existing presets load on it, so their sound is unchanged.</td></tr>
+  <tr><td><strong>Type</strong></td><td>Off / Lowpass / Highpass / Bandpass</td><td></td></tr>
+  <tr><td><strong>Slope</strong></td><td>6 / 12 / 18 / 24 dB/oct</td><td>On Ladder / Warp the slope is the ladder tap index (1–4 poles); on SVF it's the order of the SVF / one-pole cascade.</td></tr>
+  <tr><td><strong>Cutoff</strong></td><td>20 Hz – 20 kHz</td><td>Exponential scaling. Primary modulation target.</td></tr>
+  <tr><td><strong>Resonance</strong></td><td>0.0 – 1.0</td><td>SVF maps to Q 0.5–18. Ladder / Warp map to feedback gain <em>k</em>; at <em>r</em>&nbsp;≈&nbsp;1 both self-oscillate.</td></tr>
+  <tr><td><strong>Mix</strong></td><td>0.0 – 1.0</td><td>Equal-power dry/wet crossfade</td></tr>
+  <tr><td><strong>Kbd Track</strong></td><td>0.0 – 1.0</td><td>Cutoff offset per MIDI semitone</td></tr>
+  <tr><td><strong>Drive</strong></td><td>0 – 36 dB</td><td>On SVF: pre-filter <code>tanh</code> saturation (optionally oversampled). On Ladder / Warp: input gain into the filter's own nonlinear stages — the filter itself provides the saturation character, master volume handles level.</td></tr>
+  <tr><td><strong>Oversampling</strong></td><td>Off / 2× / 4×</td><td>On the <strong>Settings</strong> tab, machine-wide rather than per preset; default 2×. It applies to the Ladder and Warp nonlinear stages. SVF's own drive oversampling is a preset parameter with no on-screen control.</td></tr>
+  <tr><td><strong>Style</strong></td><td>Tanh / SoftClip / Algebraic / Sin / Digital / Asym</td><td>The per-pole saturation curve, and Warp's own button in the algorithm row: it always shows the curve currently chosen. Tap it to switch the filter to Warp; hold it to pick a different curve. See the algorithm notes.</td></tr>
+</table>
+
+<div class="note">
+  <strong>Algorithm notes</strong>
+
+  <ul>
+    <li><strong>SVF</strong> — linear JUCE <code>StateVariableTPTFilter</code> + one-pole cascade. Clean, cheap on CPU, no character of its own. Keep this on low-powered hardware (similar trade-off to choosing the algorithmic reverb over the convolution reverb). Drive applies a pre-filter <code>tanh</code> + optional oversampling, same as previous akróasys builds. Credit: JUCE DSP.</li>
+    <li><strong>Ladder</strong> — Huovilainen-style non-linear 4-pole ladder with a half-sample-delay-compensated feedback path. Analog-flavoured growl, self-oscillating at high resonance, and cutoff-tracking compression. Drive feeds the internal <code>tanh</code> stages directly, so turning drive up produces the "pushed into the ladder" warmth rather than a pre-filter flat-clip. Credit: Antti Huovilainen's DAFx-04 ladder-filter formulation; akróasys's implementation is original.</li>
+    <li><strong>Warp</strong> — zero-delay-feedback 4-pole ladder with a selectable per-pole saturation curve (the <em>Style</em> control). Good for shaping large continuous timbral spaces, which is why it's the recommended target when mapping an internal control dimension to filter character. All six styles are centered at zero, so the feedback loop stays stable under modulation. Warp is the most expensive of the three (~2–3× SVF CPU). Design inspiration: Surge XT Cutoff Warp; akróasys's implementation is original.</li>
+  </ul>
+
+  <strong>Warp styles</strong> — all bounded, all with <code>sat(0) = 0</code> so the feedback loop has a clean zero equilibrium:
+  <ul>
+    <li><strong>Tanh</strong> — symmetric soft, the classic reference.</li>
+    <li><strong>SoftClip</strong> — <code>x / (1 + |x|)</code>; gentler, flatter knee than <code>tanh</code>.</li>
+    <li><strong>Algebraic</strong> — <code>x / √(1 + x²)</code>; slower approach to the limit than <code>tanh</code> with more odd-harmonic content for a given drive.</li>
+    <li><strong>Sin</strong> — wavefolded sine; FM-like timbre when driven hard.</li>
+    <li><strong>Digital</strong> — hard clamp to ±1; deliberately buzzy, rich in odd harmonics at any drive.</li>
+    <li><strong>Asym</strong> — <code>tanh(x + 0.25) − tanh(0.25)</code>; asymmetric response, prominent 2nd-harmonic colouring, bias-compensated so it's still centered at zero.</li>
+  </ul>
+</div>
+
+<h3>Tuning</h3>
+<p>
+A selector next to the waveform display sets the tuning the whole instrument
+plays in: <strong>12-TET</strong> (the default), <strong>Maqam</strong>,
+<strong>Shruti</strong>, <strong>Pelog</strong> and <strong>Slendro</strong>. It
+applies to both oscillators and to everything that generates notes — keyboard,
+sequencers, arpeggiator.
+</p>
+
+<h3>Envelopes (ENV 1 &ndash; ENV 5)</h3>
+<p>
+Five ADSR envelopes, picked with the <strong>ENV1 … ENV5</strong> tabs. They are
+identical in shape and controls and differ only in where they go.
+<strong>ENV 1 is the amplitude envelope</strong>: its destination is the DCA and
+is not selectable. <strong>ENV 2 &ndash; ENV 5</strong> each carry a
+<strong>Target</strong> dropdown and can be routed anywhere in the list below.
+</p>
+<table>
+  <tr><th>Parameter</th><th>Range</th><th>Notes</th></tr>
+  <tr><td><strong>Attack</strong></td><td>0 – 5000 ms</td><td></td></tr>
+  <tr><td><strong>Decay</strong></td><td>0 – 5000 ms</td><td></td></tr>
+  <tr><td><strong>Sustain</strong></td><td>0.0 – 1.0</td><td></td></tr>
+  <tr><td><strong>Release</strong></td><td>0 – 10 000 ms</td><td></td></tr>
+  <tr><td><strong>A / D / R Curve</strong></td><td>Log / SLog / Lin / SExp / Exp</td><td>Per-stage slope shape. Each of the three stages (Attack, Decay, Release) has its own 5-position selector, so an envelope can e.g. be linear on the way up but exponential on release. Minimum ramp 3&nbsp;ms on every stage. Defaults: A = Lin, D = Lin, R = Exp. See the <em>Curve shapes</em> note below the table.</td></tr>
+  <tr><td><strong>Amount</strong></td><td>0.0 – 1.0</td><td>Envelope ceiling — the maximum level the envelope can reach. Drag the peak handle on the ADSR graph vertically; the whole shape scales proportionally. At 1.0 the envelope reaches full range; at 0.5 it peaks at half regardless of ADSR times.</td></tr>
+  <tr><td><strong>A / D / R Vel Sens</strong></td><td>−1.0 – +1.0</td><td>Per-stage velocity sensitivity for <em>timing</em>. Positive: harder hits shorten the stage (snappier attack or decay). Negative: harder hits lengthen it. 0 = fixed timing. Held-phase (pressure) response is handled by the <strong>AT</strong> panel.</td></tr>
+  <tr><td><strong>Loop</strong></td><td>on / off</td><td>Re-triggers attack when sustain is reached</td></tr>
+  <tr><td><strong>Target</strong></td><td>Dropdown</td><td>ENV 2&ndash;5 only. DCA, Filter, Scan, Pitch, Dly Time / FB / Mix, Rev Mix, Noise Lvl, LFO1/2/3 Rate, LFO1/2/3 Amt</td></tr>
+</table>
+
+<p>
+<strong>Velocity Amount.</strong> The <strong>Velocity Amount</strong> panel (between the
+envelopes and the LFOs) collects all velocity-to-dynamics controls in one place.
+<strong>Level</strong> is a global velocity-to-peak amount (0.0–1.0, default&nbsp;1.0):
+at 1.0 a note at velocity&nbsp;127 reaches the full envelope peak; at 0 velocity has no
+effect on level at all. The per-stage <strong>Att / Dec / Rel</strong> sliders are the
+same A/D/R vel&nbsp;sens controls as the per-envelope sliders — they set how velocity
+affects stage timing, bipolar (−1.0…+1.0).
+</p>
+
+<div class="note">
+  <strong>Curve shapes</strong> (applied to the normalised stage progress <em>t&nbsp;∈&nbsp;[0,&nbsp;1]</em>):
+  <ul>
+    <li><strong>Exp</strong> — fast initial change, decelerates (concave, cubic). Classic "snappy" analogue feel.</li>
+    <li><strong>SExp</strong> — mild fast start (concave, quadratic).</li>
+    <li><strong>Lin</strong> — constant rate. Predictable and steady for filter sweeps.</li>
+    <li><strong>SLog</strong> — mild slow start (convex, quadratic).</li>
+    <li><strong>Log</strong> — slow initial change, accelerates (convex, cubic). Good for swells and pad entries.</li>
+  </ul>
+</div>
+
+<h3>LFOs (LFO 1, LFO 2 &amp; LFO 3)</h3>
+<table>
+  <tr><th>Parameter</th><th>Range</th><th>Notes</th></tr>
+  <tr><td><strong>Rate</strong></td><td>0.01 – 30 Hz</td><td>Active when Clock is Off</td></tr>
+  <tr><td><strong>Clock</strong></td><td>Off / Sync</td><td>Toggle (clock-icon button). When Sync is on, the Rate slider is replaced by a Division stepper.</td></tr>
+  <tr><td><strong>Division</strong></td><td>16/1 … 1/32 (incl. T &amp; Q)</td><td>Active when Clock is Sync. Effective Hz = factor × (BPM/60) / 4. Sync source resolves as: live host transport &gt; running in-app sequencer &gt; last-seen host BPM &gt; the Seq BPM field as fallback.</td></tr>
+  <tr><td><strong>Depth</strong></td><td>0.0 – 1.0</td><td></td></tr>
+  <tr><td><strong>Waveform</strong></td><td>Sin / Tri / Saw / Sq / S&amp;H / SawD</td><td>S&amp;H holds a new random value each cycle; SawD is the falling saw.</td></tr>
+  <tr><td><strong>Mode</strong></td><td>Free / Trigger</td><td>Free runs continuously; Trigger resets on note-on (per-voice phase)</td></tr>
+  <tr><td><strong>Target</strong></td><td>Dropdown</td><td>Filter, Scan, Pitch, Dly Time / FB / Mix, Rev Mix, Noise Lvl, ENV1&ndash;5 Amt, Drift1/2/3 Amt</td></tr>
+</table>
+
+<h3>Aftertouch (AT)</h3>
+<p>
+The <strong>AT</strong> panel routes held-phase pressure to fourteen independent
+modulation targets simultaneously. Each target has its own signed depth bar — there is no single
+global Amount or shared dropdown. Sources: polyphonic key pressure (per-note), channel
+pressure, Mod Wheel (CC1), and Breath (CC2); akróasys resolves each voice's pressure as
+the maximum of all applicable sources.
+</p>
+<p>
+<strong>Interaction:</strong> drag a bar left or right to set its magnitude (0 … 1.0);
+click without dragging to toggle the sign (positive or negative depth at the same
+magnitude). The current sign is displayed as a persistent
+<strong>+</strong> or <strong>−</strong> suffix on the target label (e.g.
+<em>Reso&nbsp;+</em> / <em>Reso&nbsp;−</em>). The numeric value shows while
+the bar is held.
+</p>
+<table>
+  <tr><th>Target</th><th>Effect</th></tr>
+  <tr><td><strong>LFO1 / LFO2 / LFO3 Amt</strong></td><td>Pressure scales the LFO depth by the bar's signed amount.</td></tr>
+  <tr><td><strong>ENV1 &hellip; ENV5 Sustain</strong></td><td>Pressure offsets that envelope's sustain level.</td></tr>
+  <tr><td><strong>Cutoff</strong></td><td>Pressure shifts filter cutoff (octave-scaled).</td></tr>
+  <tr><td><strong>Resonance</strong></td><td>Pressure shifts filter resonance.</td></tr>
+  <tr><td><strong>Scan</strong></td><td>Pressure shifts the granular / wavetable read position.</td></tr>
+  <tr><td><strong>DCA</strong></td><td>Pressure scales voice amplitude — volume swell under touch.</td></tr>
+  <tr><td><strong>Pitch</strong></td><td>Pressure shifts pitch in semitones.</td></tr>
+  <tr><td><strong>Noise</strong></td><td>Pressure raises or lowers the noise generator level.</td></tr>
+</table>
+
+<div class="note">
+  All modulation sources use a <strong>dropdown-per-source</strong> routing system — each envelope, LFO, and drift LFO has a Target dropdown to select its destination. Modulated sliders show a <em>ghost indicator</em> (orange circle) reflecting the current modulated value.
+</div>
+
+<!-- ═══════════════════════════════════════════ -->
+<!-- ═══════════════════════════════════════════ -->
+<!-- ═══════════════════════════════════════════ -->
+<h2 id="fx">10. Effects</h2>
 
 <h3>Delay</h3>
 <table>
   <tr><th>Parameter</th><th>Range</th><th>Notes</th></tr>
-  <tr><td><strong>Type</strong></td><td>Off / Stereo</td><td>Stereo dual-tap delay using JUCE <code>dsp::DelayLine</code>; feedback, damping, clock sync, and mix behaviour are implemented in akróasys.</td></tr>
+  <tr><td><strong>Type</strong></td><td>Off / Digital / Ping-Pong / Tape Clean / Tape Warm / Tape Wild / Tape Old / BBD Clean / BBD Warm / BBD Degraded</td><td><strong>Digital</strong> is the clean dual-mono line. <strong>Ping-Pong</strong> sums to mono in and crosses the feedback. The four <strong>Tape</strong> characters model a three-head tape echo (RE-201 1:2:3 head spacing) with rising amounts of wow and flutter — Clean, then Warm (a subtle 9.7&nbsp;Hz zitter), then Wild (heavy wow plus 6.0 and 9.7&nbsp;Hz flutter); <strong>Tape Old</strong> is an earlier, physically wrong wobble kept as its own flavour. The three <strong>BBD</strong> characters model a bucket-brigade line: Clean is bright with little grit, Warm dark and steep, Degraded dark with heavy grit and warble.</td></tr>
   <tr><td><strong>Time</strong></td><td>1 – 2000 ms</td><td>Logarithmic scaling. Active when Clock is Off. Can be modulated.</td></tr>
   <tr><td><strong>Clock</strong></td><td>Off / Sync</td><td>Toggle (clock-icon button). When Sync is on, the Time slider is replaced by a Division stepper. Same BPM resolution as the LFO/Drift Clock.</td></tr>
   <tr><td><strong>Division</strong></td><td>16/1 … 1/32 (incl. T &amp; Q)</td><td>Active when Clock is Sync. Effective ms = (60000/BPM) × (4/factor).</td></tr>
@@ -1629,23 +1644,40 @@ Resynth amounts can it settle onto one sound.
 <h3>Reverb</h3>
 <table>
   <tr><th>Parameter</th><th>Range</th><th>Notes</th></tr>
-  <tr><td><strong>Type</strong></td><td>Off / Dark / Medium / Bright / Algo</td><td>Dark/Medium/Bright use JUCE <code>dsp::Convolution</code> with EMT 140 plate impulse responses by <a href="https://oramics.github.io/sampled/IR/EMT140-Plate/">Greg Hopkins</a> (CC BY). Algo wraps JUCE <code>dsp::Reverb</code>, a Freeverb-derived algorithmic reverb.</td></tr>
-  <tr><td><strong>Mix</strong></td><td>0.0 – 1.0</td><td>True dry/wet crossfade: 0 = dry, 1 = reverb only. Algo wet uses a slightly curved wet response; plate stays linear.</td></tr>
-  <tr><td><strong>Room Size</strong></td><td>0.0 – 1.0</td><td>Algo mode only</td></tr>
-  <tr><td><strong>Damping</strong></td><td>0.0 – 1.0</td><td>Algo mode only</td></tr>
-  <tr><td><strong>Width</strong></td><td>0.0 – 1.0</td><td>Algo mode only. 0 = mono, 1 = full stereo</td></tr>
+  <tr><td><strong>Type</strong></td><td>Off / Plate Dk / Plate Md / Plate Br / Freeverb / Freeverb+</td><td>The three <strong>Plate</strong> settings are convolution (JUCE <code>dsp::Convolution</code>) on EMT 140 plate impulse responses by <a href="https://oramics.github.io/sampled/IR/EMT140-Plate/">Greg Hopkins</a> (CC BY) — dark, medium and bright. <strong>Freeverb</strong> wraps JUCE <code>dsp::Reverb</code>; <strong>Freeverb+</strong> is the same algorithm with a longer, denser tail. Both are far cheaper on CPU than the plates.</td></tr>
+  <tr><td><strong>Mix</strong></td><td>0.0 – 1.0</td><td>True dry/wet crossfade: 0 = dry, 1 = reverb only. The Freeverb types use a slightly curved wet response; the plates stay linear.</td></tr>
+  <tr><td><strong>Room Size</strong></td><td>0.0 – 1.0</td><td>Freeverb / Freeverb+ only</td></tr>
+  <tr><td><strong>Damping</strong></td><td>0.0 – 1.0</td><td>Freeverb / Freeverb+ only</td></tr>
+  <tr><td><strong>Width</strong></td><td>0.0 – 1.0</td><td>Freeverb / Freeverb+ only. 0 = mono, 1 = full stereo</td></tr>
 </table>
 
+<h3>Limiter and Master Volume</h3>
 <p>
-The signal chain runs: <strong>Delay → Reverb → Limiter → Master Volume</strong>.
-The limiter wraps JUCE <code>dsp::Limiter</code>.
+The signal chain runs <strong>Delay → Reverb → Limiter → Master Volume</strong>.
+The limiter wraps JUCE <code>dsp::Limiter</code> and is always in the path — it
+is what stands between a loud generation and your monitors.
 </p>
+<table>
+  <tr><th>Parameter</th><th>Range</th><th>Notes</th></tr>
+  <tr><td><strong>Limiter Threshold</strong></td><td>−30 … 0 dB</td><td>Default −3 dB.</td></tr>
+  <tr><td><strong>Limiter Release</strong></td><td>1 – 500 ms</td><td>Default 100 ms.</td></tr>
+  <tr><td><strong>Master Volume</strong></td><td>−60 … 0 dB</td><td>The instrument's output level.</td></tr>
+</table>
+<div class="note">
+  <strong>Amp-chain effects without a panel.</strong> Distortion (drive, mix),
+  tremolo (rate, depth, stereo), chorus (rate, depth, mix) and phaser (rate,
+  depth, feedback, mix) exist as real parameters and are stored in presets, but
+  have no on-screen controls in this build. They are reachable from a DAW's
+  automation list, and that is the only way to use them today.
+</div>
 
 <!-- ═══════════════════════════════════════════ -->
-<h2 id="seq">9. Step Sequencer</h2>
+<!-- ═══════════════════════════════════════════ -->
+<!-- ═══════════════════════════════════════════ -->
+<h2 id="seq">11. Step Sequencer</h2>
 
 <p>
-A traditional step sequencer with 2–32 steps. Each step has:
+A traditional step sequencer of 1 to 64 steps, 16 by default. Each step has:
 </p>
 <ul>
   <li><strong>Note</strong> — MIDI note 0–127 (draggable vertical slider)</li>
@@ -1693,7 +1725,7 @@ Click a one-shot slot to cycle Normal / Accent / Mute. The step's <strong>On</st
   <tr><td><strong>Glide Time</strong></td><td>10 – 500 ms</td><td>Portamento between bound steps</td></tr>
   <tr><td><strong>Octave Shift</strong></td><td>-2 … +2</td><td>Transposes all steps</td></tr>
   <tr><td><strong>Presets</strong></td><td>10 built-in patterns</td><td>Octave Bounce, Wide Leap, Off-Beat Minor, Glide Groove, Sparse Stab, Rising Arc, Scatter, Chromatic, Bass Walk, Gated Pulse</td></tr>
-  <tr><td><strong>Save / Load</strong></td><td>S / L buttons</td><td>Save and load custom step patterns</td></tr>
+  <tr><td><strong>Save / Load</strong></td><td>S / L buttons</td><td>Patterns are stored separately from presets, as <code>.t5seq</code> files in the app's <code>sequences</code> folder. <strong>L</strong> opens a Sequence Library with rename and delete.</td></tr>
 </table>
 
 <div class="note">
@@ -1701,7 +1733,9 @@ Click a one-shot slot to cycle Normal / Accent / Mute. The step's <strong>On</st
 </div>
 
 <!-- ═══════════════════════════════════════════ -->
-<h2 id="genseq">10. Generative Sequencer</h2>
+<!-- ═══════════════════════════════════════════ -->
+<!-- ═══════════════════════════════════════════ -->
+<h2 id="genseq">12. Generative Sequencer</h2>
 
 <p>
 Press the <strong>GEN</strong> button to switch from the manual step sequencer to the generative mode. This is a <strong>self-evolving pattern engine</strong> that combines Euclidean rhythms with Turing Machine–style melodic mutation.
@@ -1715,7 +1749,7 @@ Press the <strong>GEN</strong> button to switch from the manual step sequencer t
   <tr><td><strong>Mutation</strong></td><td>0.0 – 1.0</td><td>How aggressively the melody evolves each cycle. 0 = frozen. 0.8 = highly fluid.</td></tr>
   <tr><td><strong>Range</strong></td><td>1 – 4 octaves</td><td>Pitch range for melodic generation</td></tr>
   <tr><td><strong>Scale Root</strong></td><td>C – B</td><td>Tonic note</td></tr>
-  <tr><td><strong>Scale Type</strong></td><td>Off / Major / Minor / Pentatonic / Dorian / Harmonic / Whole-tone</td><td>Quantizes notes to scale degrees</td></tr>
+  <tr><td><strong>Scale Type</strong></td><td>28 scales</td><td>Quantizes notes to scale degrees. <strong>Chromatic</strong> (the first entry) means no quantization. Then Major, Minor, Penta, Dorian, Harm.Min, WhlTone, Mixolyd, Phrygian, Lydian, Locrian, MinPent, Blues, Mel.Min, Hirajoshi, In-sen, Iwato, Kumoi, Ryukyu, Hijaz, DblHarm, R.Todi, R.Purvi, Persian, Hung.Min, Neap.Min, Pelog, Slendro.</td></tr>
 </table>
 
 <h4>Fix Toggles (Lock Icons)</h4>
@@ -1763,7 +1797,7 @@ The result is closer to a small ensemble than to a chord arpeggiator: rhythms cr
   <tr><td><strong>Enable</strong></td><td>on / off</td><td>Activates the strand. Strand 1 is always on; 2&ndash;5 are toggled.</td></tr>
   <tr><td><strong>Role</strong></td><td>Anchor / Line / Density / Gesture</td><td>Textural function (see below). Not a bass/lead hierarchy &mdash; each role defines register and rhythmic behavior.</td></tr>
   <tr><td><strong>Octave</strong></td><td>&minus;2 &hellip; +2</td><td>Register offset. Use to separate strands vertically.</td></tr>
-  <tr><td><strong>Div&times;</strong></td><td>1/4&times;, 1/2&times;, 1&times;, 2&times;, 4&times;, 1/3&times;, 3&times;</td><td>Tempo multiplier relative to global division. Five binary ratios layer nested-subdivision grids (e.g.&nbsp;3 strands at 1&times; / 2&times; / 4&times; gives a quarter-note / eighth-note / sixteenth-note stack). The two ternary ratios 1/3&times; and 3&times; are for true cross-rhythms — pair 1&times; with 3&times; for 3-against-1, or 2&times; with 3&times; for 3-against-2 (hemiola).</td></tr>
+  <tr><td><strong>Div&times;</strong></td><td>1/16&times; … 16&times;</td><td>Tempo multiplier relative to the global division; thirteen ratios: 1/16, 1/8, <strong>1/5</strong>, 1/4, <strong>1/3</strong>, 1/2, 1, 2, <strong>3</strong>, 4, <strong>5</strong>, 8, 16. The binary ratios layer nested-subdivision grids (three strands at 1&times; / 2&times; / 4&times; give a quarter / eighth / sixteenth stack). The ternary and quintuple ratios are for true cross-rhythms — 1&times; against 3&times; for 3-against-1, 2&times; against 3&times; for hemiola, 1&times; against 5&times; for five over one.</td></tr>
   <tr><td><strong>Gravity</strong></td><td>0.0 &ndash; 1.0</td><td>How strongly the strand snaps to the field's center pitch on strong beats. 0 = pure Turing-machine drift; higher = more tonal anchoring.</td></tr>
   <tr><td><strong>Steps / Pulses / Rotation / Mutation</strong></td><td>same as monophonic</td><td>Each strand carries its own Euclidean DNA and Fix toggles in the preset. In the GEN panel, though, the Steps / Pulses / Rotation / Evolve sliders edit <strong>Strand&nbsp;1</strong>; Strands&nbsp;2&ndash;5 take these values from the preset or host automation, while in the panel you shape those strands through Role, Div&times;, Octave, and Gravity.</td></tr>
 </table>
@@ -1804,14 +1838,13 @@ The Pitch Field is the shared pitch-class set (pc-set) that all strands draw fro
 
 <h4>Coordination Mode</h4>
 <p>
-Strands run independently inside themselves; this control governs how (or whether) they react to each other. The default <em>Density Budget</em> is the only mode active in this build &mdash; the other three are reserved IDs that currently fall through to <em>Independent</em> behaviour.
+Strands run independently inside themselves; this control governs how, or whether, they react to each other. Three modes:
 </p>
 <table>
   <tr><th>Mode</th><th>Behaviour</th></tr>
   <tr><td><strong>Independent</strong></td><td>No interaction. Strands share only the Pitch Field. Coexistence is whatever the field allows.</td></tr>
   <tr><td><strong>Density Budget</strong> <em>(default)</em></td><td>Caps the number of simultaneously sounding strands at the configured limit (default 3). When the cap is reached and a higher-priority strand fires, the lowest-priority sounding strand is displaced. Priority is fixed: Strand&nbsp;1 (the reference) is never displaced; otherwise Anchor&nbsp;&gt;&nbsp;Line&nbsp;&gt;&nbsp;Density&nbsp;&gt;&nbsp;Gesture.</td></tr>
-  <tr><td><strong>Algebraic</strong></td><td>Reserved &mdash; future mode in which Strands&nbsp;2&ndash;4 derive their material as transformations of Strand&nbsp;1 or of the field row. Not yet implemented.</td></tr>
-  <tr><td><strong>Counterpoint</strong></td><td>Reserved &mdash; future mode in which a post-decision check resolves vertical minor-second clashes. Not yet implemented.</td></tr>
+  <tr><td><strong>Dialog</strong></td><td>Strands&nbsp;2&ndash;5 take a <em>stance</em> toward Strand&nbsp;1: <strong>Follow</strong> walks in the same melodic direction Strand&nbsp;1 just moved, <strong>Counter</strong> walks against it, <strong>Independent</strong> walks freely. The stance is not set by hand &mdash; each strand switches at the end of its own metric phrase, driven by its pulse drift, so the ensemble's agreement and disagreement move on their own. Strand&nbsp;1 has no stance; it is what the others answer.</td></tr>
 </table>
 
 <div class="tip">
@@ -1819,7 +1852,9 @@ Strands run independently inside themselves; this control governs how (or whethe
 </div>
 
 <!-- ═══════════════════════════════════════════ -->
-<h2 id="arp">11. Arpeggiator</h2>
+<!-- ═══════════════════════════════════════════ -->
+<!-- ═══════════════════════════════════════════ -->
+<h2 id="arp">13. Arpeggiator</h2>
 
 <p>
 The arpeggiator sits <strong>after</strong> both the step sequencer and the
@@ -1845,40 +1880,147 @@ stutter.
 </p>
 
 <!-- ═══════════════════════════════════════════ -->
-<h2 id="presets">12. Presets</h2>
+<!-- ═══════════════════════════════════════════ -->
+<!-- ═══════════════════════════════════════════ -->
+<h2 id="perform">14. Playing and Performing</h2>
+
+<p>
+Everything in this chapter works the same whichever oscillator is active.
+</p>
+
+<h3>The status bar</h3>
+<p>
+The strip along the bottom of the window shows the backend's connection state
+and the current preset's name, and carries the controls that belong to no panel:
+</p>
+<table>
+  <tr><th>Button</th><th>What it does</th></tr>
+  <tr><td><strong>Init</strong></td><td>Returns the instrument to its initial state.</td></tr>
+  <tr><td><strong>Save</strong></td><td>Opens the Library in save mode (also <strong>Ctrl/Cmd+S</strong>).</td></tr>
+  <tr><td><strong>Library</strong></td><td>The preset browser: load, import, tag-filter, rename, duplicate, delete, and <em>Update Library</em>.</td></tr>
+  <tr><td><strong>Export</strong></td><td>Three items: <strong>Export WAV…</strong> writes the current sound to a file (it reads <em>Export Wavetable</em> in Wavetable mode); <strong>Save Session Log…</strong> and <strong>Play Session Log…</strong> are the two ends of the <a href="#sessionlog">session log</a>.</td></tr>
+  <tr><td><strong>Settings</strong></td><td>The three-tab panel described in <a href="#setup">Setup</a>. It carries an accent dot when an update is available.</td></tr>
+  <tr><td><strong>Manual</strong></td><td>This document.</td></tr>
+  <tr><td><strong>Panic</strong></td><td>All notes off, immediately. The one button worth knowing before you need it.</td></tr>
+  <tr><td><strong>Kbd</strong></td><td>Computer-keyboard note input on or off (also <strong>Ctrl/Cmd+K</strong>).</td></tr>
+  <tr><td><strong>Ext.Clock</strong></td><td>Sync the tempo to incoming MIDI clock, overriding both the host transport and the Seq BPM field. In the standalone this control lives in the MIDI/Audio Settings dialog instead.</td></tr>
+</table>
+
+<h3>Snapshots: the live-play control</h3>
+<p>
+The four <strong>SNAP</strong> slots are how akróasys is meant to be played
+live. They are bound to the number keys <strong>1 / 2 / 3 / 4</strong>, so with
+a state stored in each you have a four-button instrument: hit a number key and
+the whole oscillator changes &mdash; not a parameter morph, a different
+instrument. Recall is instantaneous, with no inference and no authoring call, so
+a switch lands cleanly inside a running sequence or a held phrase.
+</p>
+<table>
+  <tr><th>Action</th><th>How</th></tr>
+  <tr><td><strong>Store</strong></td><td>Long-click a slot, or <strong>Shift+1</strong> … <strong>Shift+4</strong>. The state is captured at the <em>beginning</em> of the long click, so moving controls during the press does not change what is saved.</td></tr>
+  <tr><td><strong>Recall</strong></td><td>Short-click the slot, or press <strong>1 / 2 / 3 / 4</strong>.</td></tr>
+</table>
+<p>
+What a slot holds depends on which oscillator was active when you stored it.
+From the <a href="#gen">T5 Oscillator</a>: the generated audio, both prompts,
+the seed and random state, the model choice, the generation parameters, the
+Semantic Axes, the Dimension Explorer offsets, the engine parameters, and the
+P1/P2/P3 markers with their lock state. From the
+<a href="#lro">LRO</a>: the prompt, the authored Csound, and the sound it makes
+&mdash; a recalled slot recompiles and plays at once.
+</p>
+<p>
+Two ways this is used in practice: four contrasting oscillator states switched
+by hand while a MIDI or computer keyboard drives the notes; or four short
+one-shot voices switched under a running Step Sequencer pattern.
+</p>
+
+<h3>Keyboard and MIDI</h3>
+<table>
+  <tr><th>Input</th><th>Action</th></tr>
+  <tr><td><strong>Shift+Return</strong> or <strong>Ctrl/Cmd+Return</strong></td><td>Trigger Generate from anywhere in the main panel. T5 Oscillator only — in LRO mode, press the Generate button.</td></tr>
+  <tr><td><strong>Ctrl/Cmd+S</strong></td><td>Open the Library in Save mode.</td></tr>
+  <tr><td><strong>Space</strong></td><td>While step recording is armed, enters a rest and advances the cursor.</td></tr>
+  <tr><td><strong>1 / 2 / 3 / 4</strong></td><td>Recall snapshot slots 1–4. <strong>Shift+1</strong> … <strong>Shift+4</strong> stores the current state into a slot.</td></tr>
+  <tr><td><strong>Kbd</strong> in the status bar or <strong>Ctrl/Cmd+K</strong></td><td>Enable computer-keyboard note input: twenty keys, two octaves and a fifth from C4, laid out like a piano across the two letter rows (<code>a w s e d f t g y h u j k o l p</code> …). The keys are read by physical position, so the layout works on any national keyboard. <strong>y</strong> / <strong>x</strong> shift the octave, over a range of −5 to +4. Input is ignored automatically while a text field or overlay is active.</td></tr>
+  <tr><td><strong>MIDI Pitch Bend</strong></td><td>±2 semitones by default, and settable by the standard RPN&nbsp;0 message (CC101/100/6) if your controller sends one.</td></tr>
+  <tr><td><strong>MPE</strong></td><td>Fully supported. Per-note channels 2–15 each carry their own pitch bend (±24 semitones by default), their own pressure as MPE Loudness, and their own timbre on CC74; the master channel's pressure applies to the whole zone. An MPE controller therefore plays this instrument per note, not per keyboard.</td></tr>
+  <tr><td><strong>CC1 / CC2</strong></td><td>Mod Wheel and Breath feed the same performance-pressure route as aftertouch, using the <strong>AT</strong> target and amount.</td></tr>
+  <tr><td><strong>CC7 / CC11</strong></td><td>Channel Volume and Expression scale the live voice output.</td></tr>
+  <tr><td><strong>MIDI CC64</strong></td><td>Sustain pedal. Notes released while the pedal is down keep sounding until CC64 returns below 64.</td></tr>
+  <tr><td><strong>CC66 / CC67</strong></td><td>Sostenuto and Soft Pedal. Sostenuto captures currently held manual notes; Soft Pedal gently lowers level and brightness.</td></tr>
+  <tr><td><strong>MIDI aftertouch</strong></td><td>Both channel pressure and poly pressure are supported. Route them with the <strong>AT</strong> row in the Synth panel.</td></tr>
+  <tr><td><strong>CC120 / CC123 / CC121</strong></td><td>All Sound Off / All Notes Off / Reset Controllers.</td></tr>
+</table>
+<p>
+Most controls can also be put under a hardware knob: right-click one and choose
+<strong>MIDI Learn</strong>, then move the knob or fader you want to bind. The
+same menu shows which CC a control is bound to and clears the binding.
+</p>
+
+<h3>MIDI output and the Launch Control XL</h3>
+<p>
+akróasys can also send MIDI out. In the standalone, the device is chosen under
+<strong>Output (LED / MIDI out)</strong> in the MIDI/Audio Settings dialog,
+together with the <strong>External MIDI Clock</strong> switch; in a plugin the
+same selector sits in the status bar. Selecting a <strong>Novation Launch
+Control XL</strong> applies its full mapping automatically — twenty-four
+encoders and eleven buttons land on their parameters, and the unit's LEDs are
+driven back from akróasys so the hardware shows the instrument's state. There is
+nothing to configure.
+</p>
+
+<!-- ═══════════════════════════════════════════ -->
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- LRO -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- ═══════════════════════════════════════════ -->
+<!-- ═══════════════════════════════════════════ -->
+<h2 id="presets">15. Presets</h2>
 
 <p>
 akróasys uses <code>.t5p</code> preset files — a binary container that stores:
 </p>
 <ul>
-  <li>All parameter values (100+ parameters)</li>
-  <li>Impulse text (A and B)</li>
-  <li>The generated audio itself (PCM, so the preset sounds right without re-generating)</li>
-  <li>Inference cache capacity and any generated cache audio entries</li>
+  <li>Every parameter value — over three hundred of them</li>
+  <li>Which oscillator was active</li>
+  <li><strong>T5 Oscillator:</strong> both impulse texts, the generated audio itself
+    (PCM, so the preset sounds right without re-generating), the inference cache
+    capacity and any cached audio entries, the source-control vectors
+    (768 floats each, for DimExplorer context), the seed, the device and the model
+    selection</li>
+  <li><strong>LRO:</strong> the prompt, the authored Csound orchestra, the
+    instrument's own knobs with their values, and the authoring trace &mdash; a
+    recalled preset compiles and plays without calling the language model again</li>
   <li>Sequencer one-shot samples, including their per-step slot state</li>
-  <li>Source-control vectors (768 floats each, for DimExplorer context)</li>
-  <li>Seed, device, model selection</li>
 </ul>
 <p>
 Presets carry <strong>tags</strong> — a set of descriptive labels you assign when saving. Tags are shown as chips in the save dialog; when saving over an existing preset, the chips are pre-filled from that target preset's tag set, not from whatever tags you last used. Tags are stored in the <code>.t5p</code> file and indexed by the Library for filtering.
 </p>
 <p>
-Use <strong>Import Presets</strong> in the Library to copy one or more <code>.t5p</code>
+Presets live in the <code>presets</code> folder of akróasys's app-data
+directory; a subfolder there is a bank, and appears as one in the Library. Right-clicking
+an entry offers <em>Rename</em>, <em>Duplicate</em>, <em>Show in Finder</em> and
+<em>Delete</em>. Use <strong>Import Presets</strong> in the Library to copy one or more <code>.t5p</code>
 files into your user library. <strong>Update Library</strong> downloads and
 refreshes the curated <em>UCDCAE AI Lab</em> bank in place from
 <a href="https://github.com/joeriben/T5ynth-Presets">T5ynth-Presets</a> &mdash; no manual download.
 </p>
 
 <!-- ═══════════════════════════════════════════ -->
-<h2 id="sessionlog">13. Session Log: Recording &amp; Replay</h2>
+<!-- ═══════════════════════════════════════════ -->
+<!-- ═══════════════════════════════════════════ -->
+<h2 id="sessionlog">16. Session Log: Recording &amp; Replay</h2>
 
 <p>
-From the moment it starts, akróasys keeps a <strong>session log</strong> of what
-you do — never of the rendered audio. It records every note with its source
-(MIDI keyboard, computer keyboard, Step Sequencer, Generative Sequencer,
-Arpeggiator), every parameter move (and whether it came from your hand, from
-CC-Learn, or from host automation), and every generation call with its prompts,
-settings and realized seed.
+akróasys can keep a <strong>session log</strong> of what you do — never of the
+rendered audio. It is <strong>off by default</strong>: switch on
+<strong>Record Event Log (.t5evt)</strong> on the Settings tab, and from then on
+it records every note with its source (MIDI keyboard, computer keyboard, Step
+Sequencer, Generative Sequencer, Arpeggiator), every parameter move (and whether
+it came from your hand, from a learned CC, or from host automation), and every
+generation call with its prompts, settings and realized seed.
 </p>
 <p>
 The <strong>Export</strong> menu in the status bar holds both ends of it.
@@ -1902,20 +2044,27 @@ ends the tape; your own workspace beneath was never touched.
 </div>
 
 <!-- ═══════════════════════════════════════════ -->
-<h2 id="sweetspots">14. Strategies for Finding Sweet Spots</h2>
+<!-- ═══════════════════════════════════════════ -->
+<!-- ═══════════════════════════════════════════ -->
+<h2 id="sweetspots">17. Strategies for Finding Sweet Spots</h2>
 
 <div class="tip">
   <strong>akróasys is not a sweet-spot synth.</strong> Unlike subtractive synths where most parameter combinations produce usable sound, akróasys's generation process is exploratory and unpredictable. Many combinations produce nothing interesting. That's by design — the instrument rewards patient exploration, not preset-surfing.
 </div>
+
+<h3>With the T5 Oscillator</h3>
 
 <h4>1. Start with the source</h4>
 <p>
 Get a generation you like <em>before</em> touching synth parameters. A great filter envelope cannot save a bad generation. Experiment with A/B texts, seeds, and short durations (1–3s) to quickly iterate.
 </p>
 
-<h4>2. Use low step counts for speed</h4>
+<h4>2. Use the fastest engine while you search</h4>
 <p>
-While exploring, keep Steps low to iterate quickly. With <strong>Stable Audio Open Small</strong>, 8 steps is already the ceiling — more steps add nothing. With <strong>Stable Audio Open 1.0</strong>, start at 20 and only go higher once you've found a direction worth refining.
+Stable Audio Open Small and the SA3 Small tiers converge in 8 steps and turn a
+prompt around in a fraction of the time Stable Audio Open 1.0 takes. Explore on
+one of those; move to a heavier checkpoint once you know the direction is worth
+it. Short durations (1&ndash;3&nbsp;s) help more than anything else here.
 </p>
 
 <h4>3. Exploit the seed</h4>
@@ -1923,9 +2072,9 @@ While exploring, keep Steps low to iterate quickly. With <strong>Stable Audio Op
 Same A/B text + different seed = very different audio. If a marker feels right but the result doesn't, change the seed before changing the wording. Generate 5–10 seeds before concluding a marker doesn't work.
 </p>
 
-<h4>4. Alpha for morphing, not mixing</h4>
+<h4>4. A/B for morphing, not mixing</h4>
 <p>
-Alpha is not a volume crossfade. It moves through the model's hidden sound space — the midpoint (0.0) is often <em>not</em> a blend of A and B but something new. Use Alpha to discover unexpected sounds between your two impulses. Push it past ±1.0 to extrapolate. If you leave one text field empty, Alpha sweeps from your impulse through the model-neutral midpoint to its <em>antipode</em> — the Echoraum trajectory, sounds the impulse actively isn't.
+The A/B slider is not a volume crossfade. It moves through the model's latent space — the midpoint (0.0) is often <em>not</em> a blend of A and B but something new. Use A/B to discover unexpected sounds between your two impulses. Push it past ±1.0 to extrapolate. If you leave one text field empty, A/B sweeps from your impulse through the model-neutral midpoint to its <em>antipode</em> — the Echoraum trajectory, sounds the impulse actively isn't.
 </p>
 
 <h4>5. One axis at a time</h4>
@@ -1949,24 +2098,63 @@ Generate 1–2s of audio, switch to Wavetable, and modulate Scan with a slow LFO
 
 <h4>8. Drift for evolution, not randomness</h4>
 <p>
-Set Drift LFO rates very low (0.01–0.05 Hz) and depths moderate (0.2–0.5). Target Alpha or an Axis. Enable Auto-regen. This activates the <a href="#drift">asynchronous feedback loop</a> — the synth slowly transforms itself, producing a continuous stream of new generations. Far more interesting than random Noise injection.
+Set Drift LFO rates very low (0.01–0.05 Hz) and depths moderate (0.2–0.5). Target A/B or an Axis. Enable Auto-regen. This activates the <a href="#drift">asynchronous feedback loop</a> — the synth slowly transforms itself, producing a continuous stream of new generations. Far more interesting than random Noise injection.
 </p>
 
-<h4>9. Gen Seq + Arp as a discovery engine</h4>
+<h3>With the LRO</h3>
+
+<h4>9. Name a body and a movement, not a genre</h4>
+<p>
+The library the model consults is organised by <em>how a sound is made</em> and
+<em>how it moves</em>. "Struck metal bar, bowed, slowly detuning" reaches
+something; "cinematic" reaches nothing. If the trace's
+<strong>LOOKED&nbsp;UP</strong> station says no word of your prompt is in the
+library, the model is writing from its own knowledge alone &mdash; sometimes
+exactly what you want, but it is worth knowing which of the two you got.
+</p>
+
+<h4>10. Read the trace before rewriting the prompt</h4>
+<p>
+<strong>THOUGHT</strong> tells you what the machine decided your sound is. When
+the result is wrong, it is usually wrong there and not in the code &mdash; fix
+the misreading rather than adding adjectives. A <strong>REPAIRED</strong>
+station with several rounds is a sign the instrument was near the edge of what
+the model could write; a simpler description often lands better than a longer
+one.
+</p>
+
+<h4>11. Play the knobs before regenerating</h4>
+<p>
+An authored instrument usually has more range under its own knobs than a second
+authoring run would give you, and moving them costs nothing. Re-author when you
+want a different <em>instrument</em>, not a different <em>setting</em>.
+</p>
+
+<h4>12. If it does not move, ask for movement</h4>
+<p>
+Every LRO instrument is meant to move on its own. If one stands still, the
+trace's count line will usually have said so ("no movement named") &mdash; name
+the motion you want and write it again.
+</p>
+
+<h3>With either</h3>
+
+<h4>13. Gen Seq + Arp as a discovery engine</h4>
 <p>
 Turn on the generative sequencer with moderate mutation (0.3–0.5), pick a scale, and let it run. Add the arpeggiator in Up mode at 1/16. The combination reveals how your sound behaves across pitch ranges and rhythmic contexts — a rapid audition tool.
 </p>
 
-<h4>10. Save early, save often</h4>
+<h4>14. Save early, save often</h4>
 <p>
-Presets include the generated audio, so you never lose a good generation. Export a preset the moment you find something promising. You can always refine the synth parameters later — but the generation itself is hard to reproduce without the exact seed and settings.
+A preset carries the sound itself — the generated audio on the T5 side, the authored Csound on the LRO side — so a good result is never lost. Save the moment you find something promising. Synth parameters can be refined later; a generation is hard to reproduce without its exact seed and settings, and an authoring run is never reproduced exactly at all.
 </p>
 
 <!-- ═══════════════════════════════════════════════════════════════ -->
 <!-- PART II -->
 <!-- ═══════════════════════════════════════════════════════════════ -->
-<div class="part-label" style="margin-top:3rem">Part II</div>
-<h2 id="bg-axes">15. How Semantic Axes Work</h2>
+<!-- ═══════════════════════════════════════════ -->
+<div class="part-label" style="margin-top:3rem">Part II — Background</div>
+<h2 id="bg-axes">18. How Semantic Axes Work</h2>
 
 <p>
 akróasys's semantic axes are directions in the 768-dimensional embedding space of the T5 text encoder. Here's how they are constructed:
@@ -2021,10 +2209,12 @@ On SA3's t5gemma encoder a single-word pole is too weak to move the sound — me
 </div>
 
 <!-- ═══════════════════════════════════════════ -->
-<h2 id="bg-dimex">16. The DimExplorer In Depth</h2>
+<!-- ═══════════════════════════════════════════ -->
+<!-- ═══════════════════════════════════════════ -->
+<h2 id="bg-dimex">19. The DimExplorer In Depth</h2>
 
 <p>
-The DimExplorer (see <a href="#dimex">section 3</a> for basic usage) operates on the <strong>mean-pooled</strong> encoder output — the 768-dimensional vector obtained by averaging across the token sequence dimension. This is the same representation the diffusion model uses for conditioning.
+The DimExplorer (see <a href="#dimex">chapter 3</a> for basic usage) operates on the <strong>mean-pooled</strong> encoder output — the 768-dimensional vector obtained by averaging across the token sequence dimension. This is the same representation the diffusion model uses for conditioning.
 </p>
 
 <h4>Why Sorted by Magnitude?</h4>
@@ -2035,8 +2225,6 @@ Sorting the 768 bars by <code>|emb_A[i] − emb_B[i]|</code> is not just a displ
   <li><strong>Left side</strong> (high magnitude) — dimensions where A and B differ most. Editing here affects what distinguishes your two impulses from each other.</li>
   <li><strong>Right side</strong> (low magnitude) — dimensions where A and B are nearly identical, i.e., what they have in common. Editing here tends to produce more fundamental changes to the overall character of the sound, since you are altering the shared foundation rather than the A/B contrast.</li>
 </ul>
-<p>
-</p>
 
 <h4>What Does a Dimension Represent?</h4>
 <p>
@@ -2052,7 +2240,9 @@ Individual T5 dimensions do not correspond to human-interpretable audio features
 </ul>
 
 <!-- ═══════════════════════════════════════════ -->
-<h2 id="bg-genseq">17. Principles of the Generative Sequencer</h2>
+<!-- ═══════════════════════════════════════════ -->
+<!-- ═══════════════════════════════════════════ -->
+<h2 id="bg-genseq">20. Principles of the Generative Sequencer</h2>
 
 <p>
 The generative sequencer combines three layers of musical algorithm:
@@ -2107,7 +2297,7 @@ All drift is bounded and reversible — parameters oscillate rather than running
 
 <h3>Layer 4: Polyphonic Strands</h3>
 <p>
-Up to five <strong>Strands</strong> run in parallel, each with its own Euclidean DNA, drift state, role, and tempo multiplier. Strands are not voices in a chord — they are independent agents sharing one pitch space. The polyrhythmic interplay arises naturally from the sorted <code>Div×</code> multipliers (1/16×, 1/8×, 1/5×, 1/4×, 1/3×, 1/2×, 1×, 2×, 3×, 4×, 5×, 8×, 16×), which create non-coincident downbeats; cycle boundaries only realign on the lowest common multiple. Each strand runs the same internal pipeline as Strand&nbsp;1 (Euclidean rhythm + Turing degree-walk + quantization to its register); the role choice only sets default character. How strands interact (or don't) is decided by the <em>Coordination Mode</em>; see §10. With four secondary strands available, every role (Anchor, Line, Density, Gesture) can be assigned uniquely if desired.
+Up to five <strong>Strands</strong> run in parallel, each with its own Euclidean DNA, drift state, role, and tempo multiplier. Strands are not voices in a chord — they are independent agents sharing one pitch space. The polyrhythmic interplay arises naturally from the sorted <code>Div×</code> multipliers (1/16×, 1/8×, 1/5×, 1/4×, 1/3×, 1/2×, 1×, 2×, 3×, 4×, 5×, 8×, 16×), which create non-coincident downbeats; cycle boundaries only realign on the lowest common multiple. Each strand runs the same internal pipeline as Strand&nbsp;1 (Euclidean rhythm + Turing degree-walk + quantization to its register); the role choice only sets default character. How strands interact (or don't) is decided by the <em>Coordination Mode</em>; see <a href="#genseq">chapter 12</a>. With four secondary strands available, every role (Anchor, Line, Density, Gesture) can be assigned uniquely if desired.
 </p>
 <p>
 Each strand's <em>Role</em> selects a different note-picking strategy from the shared field:
@@ -2136,7 +2326,7 @@ The field evolves on Strand 1's cycle boundary at the chosen <em>Rate</em> (1–
   <li><strong>Pivot</strong> — transposes the entire pc-set by the configured Pivot interval (m3, M3, Tritone, P5) each tick, accumulating shift over time. After enough cycles the field returns to its origin (e.g.&nbsp;four cycles at m3 = full octave).</li>
 </ul>
 <p>
-Because all strands share the same field, harmonic coherence is provided at the field level alone: a Drift swap or Transform tick changes what every strand can play. There is no per-event harmonic check between strands &mdash; that question is delegated to the <em>Coordination Mode</em> (§10), which currently caps simultaneous voices via priority displacement (DensityBudget). The listener perceives one evolving texture because the strands draw from the same evolving pitch set, not because each note is negotiated against the others.
+Because all strands share the same field, harmonic coherence is provided at the field level alone: a Drift swap or Transform tick changes what every strand can play. There is no per-event harmonic check between strands &mdash; that question is delegated to the <em>Coordination Mode</em> (<a href="#genseq">chapter 12</a>), which currently caps simultaneous voices via priority displacement (DensityBudget). The listener perceives one evolving texture because the strands draw from the same evolving pitch set, not because each note is negotiated against the others.
 </p>
 
 <div class="note">
@@ -2144,7 +2334,9 @@ Because all strands share the same field, harmonic coherence is provided at the 
 </div>
 
 <!-- ═══════════════════════════════════════════ -->
-<h2 id="bg-pipeline">18. The Inference Pipeline</h2>
+<!-- ═══════════════════════════════════════════ -->
+<!-- ═══════════════════════════════════════════ -->
+<h2 id="bg-pipeline">21. The Inference Pipeline</h2>
 
 <p>
 Understanding the inference pipeline helps explain why certain controls interact the way they do.
@@ -2195,21 +2387,20 @@ Top-down view of every stage from text input to stereo output. Each outer box is
 └────────────────────────────────┬────────────────────────────────┘
                                  ▼                                 
 ┌────────────────────────────────┼────────────────────────────────┐
-│                   T5 OSCILLATOR   (per voice)                   │
+│                 PLAYBACK ENGINE   (per voice)                   │
 │                                                                 │
-│   ┌────────────┐      ┌────────────────┐                        │
-│   │  SAMPLER   │      │   WAVETABLE    │                        │
-│   │            │      │                │                        │
-│   │ one-shot / │      │ YIN pitch      │                        │
-│   │ loop /     │      │ frame extract  │                        │
-│   │ ping-pong  │      │ 8 mip levels   │                        │
-│   │ crossfade  │      │ Catmull scan   │                        │
-│   └─────┬──────┘      └────────┬───────┘                        │
-│         └──────────┬───────────┘                                │
-│                    │                                            │
-│   Noise Gen (White / Pink / Brown) ─→ sum into voice            │
-│                    │                                            │
-│                    ▼                                            │
+│  ┌───────────┐   ┌──────────────┐   ┌──────────────┐            │
+│  │  SAMPLER  │   │  WAVETABLE   │   │   GRANULAR   │            │
+│  │ one-shot /│   │ YIN pitch    │   │ held region  │            │
+│  │ loop /    │   │ frame extract│   │ Hold / Silk /│            │
+│  │ ping-pong │   │ 8 mip levels │   │ Air / Cloud  │            │
+│  │ crossfade │   │ Catmull scan │   │ stereo width │            │
+│  └─────┬─────┘   └──────┬───────┘   └──────┬───────┘            │
+│        └────────────────┼──────────────────┘                    │
+│                         │                                       │
+│  Noise Gen (White / Pink / Brown) ─→ sum into voice             │
+│                         │                                       │
+│                         ▼                                       │
 └────────────────────────────────┬────────────────────────────────┘
                                  ▼                                 
 ┌────────────────────────────────┼────────────────────────────────┐
@@ -2218,18 +2409,27 @@ Top-down view of every stage from text input to stereo output. Each outer box is
 │ Voice Manager  —  up to 16 voices, note stealing                │
 │                    │                                            │
 │                    ▼                                            │
-│ Per voice:  3× ADSR   (5 curves: Log/SLog/Lin/                  │
+│ Per voice:  5× ADSR   (5 curves: Log/SLog/Lin/                  │
 │                               SExp/Exp, per stage)              │
 │             SVF filter   (LP/HP/BP, 6–24 dB/oct)                │
 │                    │                                            │
 │                    ▼                                            │
 │ Global:     3× LFO   (sin/tri/saw/sq)                           │
-│             3× Drift LFO  → Alpha/Axes → Auto-Regen             │
+│             3× Drift LFO  → A/B, Axes → Auto-Regen             │
 │             Delay  ·  Reverb (EMT 140)  ·  Limiter              │
 │                    │                                            │
 │                    ▼                                            │
 │ Sequencer (Step + Generative) → Arpeggiator → Out               │
 └─────────────────────────────────────────────────────────────────┘</div>
+
+<p>
+The diagram above is the <a href="#gen">T5 Oscillator's</a> path. The
+<a href="#lro">LRO</a> replaces the first three layers entirely: no embedding
+stage, no diffusion, no generated buffer. Its authored Csound orchestra sits
+where the playback engine sits and renders each of the sixteen voices directly,
+and from there the two paths are identical &mdash; the same envelopes, the same
+filter, the same effects, the same sequencers.
+</p>
 
 <h3>Inference Pipeline Detail</h3>
 <p>
@@ -2244,9 +2444,9 @@ Modes enter the path; the detailed mode mechanics follow in the next section.
     │                                     │   (empty side → 2·emb_neutral − other)
     │                                     │
     ├─ Injection Mode ─────────────────── Select conditioning path
-    │                                     │   (details in section 19)
+    │                                     │   (details in section 18)
     │                                     │
-    ├─ Alpha / mode slider ────────────── Control selected path
+    ├─ A/B / mode slider ────────────── Control selected path
     │                                     │
     ├─ Dimension Offsets ─────────────── Add per-dim offsets to active path(s)
     │                                     │
@@ -2281,18 +2481,20 @@ control state. They are not sampler, wavetable, filter, or effect modes.
 Key observations from this flow:
 </p>
 <ul>
-  <li>Impulse A/B, Alpha, Injection Modes, Semantic Axes, Magnitude, Noise, and DimExplorer offsets shape the control path that guides generation.</li>
+  <li>Impulse A/B, the A/B slider, Injection Modes, Semantic Axes, Magnitude, Noise, and DimExplorer offsets shape the control path that guides generation.</li>
   <li>Filter, envelopes, LFOs, effects operate <strong>after</strong> generation — they are traditional synth processing on the generated audio.</li>
-  <li>Drift LFOs bridge both worlds — they can modulate pre-generation parameters (Alpha, Semantic Axes, Noise, Magnitude) <em>and</em> post-generation parameters (Filter, Scan).</li>
+  <li>Drift LFOs bridge both worlds — they can modulate pre-generation parameters (A/B, Semantic Axes, Noise, Magnitude) <em>and</em> post-generation parameters (Filter, Scan).</li>
   <li>The Python inference subprocess stays alive between generations — no startup overhead.</li>
   <li>Determinism is guaranteed across platforms (same seed + settings = identical audio on Mac, Linux, GPU, or CPU) via a patched numpy PCG64 random number generator.</li>
 </ul>
 
 <!-- ═══════════════════════════════════════════════════════════════ -->
-<h2 id="bg-injection">19. How Injection Modes Work</h2>
+<!-- ═══════════════════════════════════════════ -->
+<!-- ═══════════════════════════════════════════ -->
+<h2 id="bg-injection">22. How Injection Modes Work</h2>
 
 <p>
-The user-facing injection-mode buttons (§1) are a thin UI on top of
+The user-facing injection-mode buttons (<a href="#injection-modes">chapter 1</a>) are a thin UI on top of
 two specific manipulation points inside the Stable Audio Open
 diffusion pipeline. This section explains those points carefully so
 the modes are predictable rather than mysterious.
@@ -2431,18 +2633,25 @@ log/preset legibility.
 
 <h3>What stays unchanged</h3>
 <ul>
-  <li><strong>Magnitude, Noise, Dimension Offsets, Semantic Axes</strong> all reach the DiT in every mode. They are applied to whichever embedding tensor(s) the active mode actually feeds into the cross-attention layer — the global blend in Linear / Delta, both the early A path and the late blend in Step-in, both A and B (independently, with the same shifts) before projection in Layer, and A and the late blend before projection in Combo 1/2/3. The same noise sample and the same axis / dim shifts are reused across paths so the per-mode geometry behaves predictably (e.g. a Linear-style A↔B blend would still receive noise <em>once</em>, not per term).</li>
+  <li><strong>Magnitude, Noise, Dimension Offsets, Semantic Axes</strong> all reach the DiT in every mode. They are applied to whichever embedding tensor(s) the active mode actually feeds into the cross-attention layer — the global blend in Linear, both the early A path and the late blend in Step-in, both A and B (independently, with the same shifts) before projection in Layer, and A and the late blend before projection in Combo 1/2/3. The same noise sample and the same axis / dim shifts are reused across paths so the per-mode geometry behaves predictably (e.g. a Linear-style A↔B blend would still receive noise <em>once</em>, not per term).</li>
   <li><strong>Drift</strong> targets the active mode's intensity axis automatically. No new drift targets are needed.</li>
   <li><strong>Determinism</strong> — the hooks are deterministic; they do not introduce additional RNG. Same seed + same A/B text + same mode and slider position = identical audio across platforms.</li>
-  <li><strong>Linear remains the canonical default</strong> — bit-for-bit identical to T5ynth v1.5.x. The non-linear modes are research-mode controls, layered on top.</li>
+  <li><strong>Linear remains the canonical default.</strong> The non-linear modes are research controls layered on top of it.</li>
 </ul>
 
 <!-- ═══════════════════════════════════════════════════════════════ -->
 <!-- LEGAL / LICENSE -->
 <!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- ═══════════════════════════════════════════ -->
+<div class="part-label" style="margin-top:3rem">Legal</div>
 <h2 id="license">License</h2>
 <p>
 akróasys is licensed under the <strong>GNU General Public License v3.0</strong>. You are free to use, modify, and redistribute akróasys, provided that derivative works are also released under GPLv3 with source code available.
+</p>
+<p>
+akróasys comes with <strong>ABSOLUTELY NO WARRANTY</strong>, to the extent
+permitted by applicable law — see sections 15 (Disclaimer of Warranty) and 16
+(Limitation of Liability) of the license.
 </p>
 <p>
 Full license text: <a href="https://www.gnu.org/licenses/gpl-3.0.txt">gnu.org/licenses/gpl-3.0.txt</a> — also shipped as <code>LICENSE.txt</code> alongside the source distribution.
@@ -2464,6 +2673,8 @@ https://github.com/joeriben/akroasys</div>
 <!-- ═══════════════════════════════════════════════════════════════ -->
 <!-- THIRD-PARTY COMPONENTS -->
 <!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- ═══════════════════════════════════════════ -->
+<!-- ═══════════════════════════════════════════ -->
 <h2 id="thirdparty">Third-Party Components</h2>
 <p>
 akróasys incorporates or depends on the following third-party components. The models themselves are <strong>not</strong> bundled with akróasys — users download them separately and accept the respective model licenses.
@@ -2490,6 +2701,43 @@ Under the Stability AI Community License, the models are free for research, non-
 </p>
 <p>
 AudioLDM2 is licensed for <strong>non-commercial use only</strong>. There is no revenue threshold; commercial use of any kind is not permitted under this license. Derivative works must be shared under the same license (ShareAlike), and attribution to the original authors is required. akróasys does not provide the model weights — by downloading AudioLDM2 via the Setup Wizard, users accept the CC BY-NC-SA 4.0 terms and take responsibility for compliance.
+</p>
+
+<h3>Csound</h3>
+<p>
+<strong>Version:</strong> 6.18.1.<br>
+<strong>License:</strong> <a href="https://www.gnu.org/licenses/old-licenses/lgpl-2.1.html">GNU LGPL&nbsp;2.1</a>.<br>
+<strong>URL:</strong> <a href="https://csound.com">csound.com</a>.
+</p>
+<p>
+The synthesis language the <a href="#lro">LRO</a> writes in, and the compiler
+that turns what it wrote into a running voice. Csound is linked
+<strong>dynamically</strong>, as the LGPL requires, so the shipped library stays
+replaceable; the notice that says how travels with it in the app bundle. The
+orchestras akróasys writes are ordinary Csound and carry no obligation of their
+own.
+</p>
+
+<h3>Gemma 4 12B (QAT)</h3>
+<p>
+<strong>Publisher:</strong> Google.<br>
+<strong>License:</strong> <a href="https://ai.google.dev/gemma/terms">Gemma Terms of Use</a> (weights) · <a href="https://github.com/ggml-org/llama.cpp">llama.cpp</a>, MIT (runtime).<br>
+<strong>URL:</strong> <code>google/gemma-4-12B-it-qat-q4_0-gguf</code> on HuggingFace.
+</p>
+<p>
+The default local language model: it writes the LRO's Csound, translates
+non-English prompts, and drives Re-Prompt. About 7&nbsp;GB, downloaded ungated,
+run through llama.cpp on your machine. Not bundled &mdash; installed from the
+Models tab, or replaced by an external provider.
+</p>
+
+<h3>CLAP &amp; Qwen2.5-1.5B-Instruct</h3>
+<p>
+<strong>CLAP:</strong> <a href="https://huggingface.co/laion/clap-htsat-unfused">laion/clap-htsat-unfused</a>, Apache&nbsp;2.0 &mdash; the machine-listening model
+<a href="#drift">Re-Prompt</a> uses to rank rendered audio against a tag
+vocabulary. About 1&nbsp;GB, fetched the first time a stance is engaged.<br>
+<strong>Qwen2.5-1.5B-Instruct:</strong> <a href="https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct">Qwen/Qwen2.5-1.5B-Instruct</a>, Apache&nbsp;2.0 &mdash; the small local
+instruct model that rewrites the prompt under the chosen stance.
 </p>
 
 <h3>JUCE Framework</h3>
@@ -2536,7 +2784,8 @@ JSON parsing for configuration and preset files.
 <strong>URL:</strong> <a href="https://github.com/google/sentencepiece">github.com/google/sentencepiece</a>.
 </p>
 <p>
-Used by the native C++ T5 tokenizer.
+The tokenizer the T5 and t5gemma text encoders use, reached through the Python
+backend.
 </p>
 
 <h3>Huovilainen Ladder Filter Reference</h3>
@@ -2595,6 +2844,10 @@ The following Python packages are used by the inference backend. They are bundle
   <tr><td><code>soundfile</code></td><td>BSD-3</td><td>Audio I/O</td></tr>
   <tr><td><code>scipy</code></td><td>BSD-3</td><td>Signal processing</td></tr>
   <tr><td><code>sentencepiece</code></td><td>Apache 2.0</td><td>T5 tokenizer</td></tr>
+  <tr><td><code>llama-cpp-python</code></td><td>MIT</td><td>Runs the local language model that writes the LRO's Csound</td></tr>
+  <tr><td><code>numpy</code></td><td>BSD-3</td><td>Array maths, and the seeded RNG that makes generation reproducible</td></tr>
+  <tr><td><code>huggingface_hub</code></td><td>Apache 2.0</td><td>Model downloads</td></tr>
+  <tr><td><code>requests</code></td><td>Apache 2.0</td><td>HTTP, including external authoring providers</td></tr>
 </table>
 <p>
 Frozen backend packages also bundle the <code>t5-base</code> text encoder assets (Apache 2.0, Google Research, <a href="https://huggingface.co/t5-base">huggingface.co/t5-base</a>) for Stable Audio Open prompt conditioning (the Stable Audio 3 engines use a separate t5gemma encoder). This is an auxiliary text encoder, not a Stable Audio generation model.
