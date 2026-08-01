@@ -741,7 +741,7 @@ the session: capacity and audio entries travel with the preset.
 
 <h3>Model &amp; Device</h3>
 <p>
-Five model slots sit above the impulse fields, labelled <code>SA3mus</code> (Stable Audio 3 Small Music), <code>SA3sfx</code> (Small SFX), <code>SA1open</code> (Stable Audio Open 1.0), <code>SA1small</code> (Open Small) and <code>AudioLDM2</code> <em>(experimental, CC BY-NC-SA 4.0 — non-commercial only)</em>. <strong>Stable Audio 3 Medium</strong> has no slot of its own: with both tiers installed, clicking an already-selected SA3 slot a second time toggles that slot between Small and Medium, shown by a small <code>s</code>/<code>m</code> marker. The device is not a control: the backend takes Metal on Apple Silicon, CUDA where it exists, and CPU otherwise, and the generation read-out names the one it took.
+Five model slots sit above the impulse fields, labelled <code>SA3mus</code> (Stable Audio 3 Small Music), <code>SA3sfx</code> (Small SFX), <code>SA1open</code> (Stable Audio Open 1.0), <code>SA1small</code> (Open Small) and <code>AudioLDM2</code> <em>(experimental, CC BY-NC-SA 4.0 — non-commercial only)</em>. <strong>Stable Audio 3 Medium</strong> has its own download row in Settings but no play slot of its own: with both tiers installed, clicking an already-selected SA3 slot a second time toggles that slot between Small and Medium, shown by a small <code>s</code>/<code>m</code> marker. The device is not a control: the backend takes Metal on Apple Silicon, CUDA where it exists, and CPU otherwise, and the generation read-out names the one it took.
 </p>
 
 <div class="note">
@@ -940,7 +940,7 @@ slot copies the region from the <strong>S</strong> handle to the
 Plays the generated audio buffer directly. Pitch follows MIDI via time-stretching (Signalsmith Stretch). This mode preserves the full character of the generation.
 </p>
 <ul>
-  <li><strong>Loop Mode</strong> — One-shot, Loop, or Ping-Pong</li>
+  <li><strong>Loop Mode</strong> — One-shot, Loop, or Ping-Pong. The three buttons carry glyphs rather than words; hover for the name. The arpeggiator's mode buttons and the sequencer's Division buttons are drawn the same way.</li>
   <li><strong>Crossfade</strong> — 0–500 ms equal-power crossfade at the loop boundary</li>
   <li><strong>Opt</strong> (Loop Optimize) — cross-correlation search for the smoothest loop point. Click to cycle <em>Off → Low → High</em>; High searches harder and costs more.</li>
   <li><strong>Norm</strong> (Normalize) — on by default. Levels the play region; see below.</li>
@@ -1012,7 +1012,7 @@ Seven buttons: Mono, 4, 6, 8, 12, 16, 64; the default is 8. (A 128-voice setting
 <p style="font-size:1.1rem; margin:0;">
 <strong style="color:var(--accent); font-size:1.15rem;">Drift &amp; Regenerate keeps the latent space moving.</strong><br>
 <span style="font-size:0.92rem; opacity:0.85;">This chapter is the T5 Oscillator's. Drift's generation-side targets &mdash; A/B, the axes, Emb. Noise, Magnitude, Resynth &mdash; do nothing in LRO mode, and a written instrument does not auto-regenerate. Drift's synth-side targets (filter, pitch, scan, the effects) work in both.</span><br>
-Without it, you shape one space, generate one fragment, and then process that fragment with conventional synth tools. With Drift &amp; Regenerate, the latent space itself evolves. The modulation system shifts generation parameters over time, triggering new inference runs in the background. The source is no longer a static waveform — it follows a changing path through the model's latent space.
+Three slow LFOs shift generation parameters over time and trigger new inference runs in the background, so the source follows a path through the latent space instead of standing still.
 </p>
 </div>
 
@@ -1799,7 +1799,11 @@ affects stage timing, bipolar (−1.0…+1.0).
   </ul>
 </div>
 
-<h3>LFOs (LFO 1, LFO 2 &amp; LFO 3)</h3>
+<h3>LFOs</h3>
+<p>
+All three are on screen at once as stacked modules. There is no LFO tab strip —
+the tabs above this area belong to the envelopes.
+</p>
 <table>
   <tr><th>Parameter</th><th>Range</th><th>Notes</th></tr>
   <tr><td><strong>Rate</strong></td><td>0.01 – 30 Hz</td><td>Active when Clock is Off</td></tr>
@@ -2020,6 +2024,11 @@ The Strand&nbsp;1 module slot holds the <strong>Core Monitor</strong>, a read-on
 </p>
 
 <p>
+Strands are also spread across the stereo field automatically, each on its own
+position — there is no control for it, but it is why a busy GEN pattern opens up
+rather than stacking in the centre.
+</p>
+<p>
 Each event is shown on three lines: the <strong>operation</strong> that fired, the <strong>result</strong> (which memory cell received which note, or the old&nbsp;&rarr;&nbsp;new value), and the <strong>rule</strong> that chose it.
 </p>
 
@@ -2030,6 +2039,7 @@ Each event is shown on three lines: the <strong>operation</strong> that fired, t
   <tr><td><strong>PULSE&nbsp;&minus;</strong></td><td><code>tightest gap</code></td><td>The most crowded beat &mdash; the one with the smallest gap to its neighbours &mdash; is removed. The result names the emptied cell.</td></tr>
   <tr><td><strong>STEPS</strong></td><td><code>steps drift</code></td><td>The pattern length changes by one. The result shows the old&nbsp;&rarr;&nbsp;new step count.</td></tr>
   <tr><td><strong>TURING</strong></td><td><code>random pitch</code></td><td>An active beat's pitch jumps to a new scale degree. This is the one mutation chosen at random rather than by rule, so it is drawn in amber while the others are green. The result shows the old&nbsp;&rarr;&nbsp;new note.</td></tr>
+  <tr><td><strong>DIALOG</strong></td><td><code>stance</code></td><td>Only in Dialog coordination mode: names how each strand is currently standing to the others — <em>S3 vs S1</em>, <em>with S1</em>, or <em>alone</em> — with its drift value.</td></tr>
 </table>
 
 <p>
@@ -2221,7 +2231,10 @@ one-shot voices switched under a running Step Sequencer pattern.
 <p>
 Most controls can also be put under a hardware knob: right-click one and choose
 <strong>MIDI Learn</strong>, then move the knob or fader you want to bind. The
-same menu shows which CC a control is bound to and clears the binding.
+same menu shows which CC a control is bound to and clears the binding. The
+sequencer panel's own sliders are the exception — they carry no MIDI-learn
+menu; everything in the synth and effects panels does, as do the aftertouch and
+velocity bars.
 </p>
 
 <h3>MIDI output and the Launch Control XL</h3>
