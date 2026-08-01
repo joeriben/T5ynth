@@ -163,7 +163,13 @@ never been measurable at all.**
 | `fm_ep` | ting | ring, hollowness, strike |
 | `drum_head` | pitched | strikepos, tension, damping |
 | `fm`, `fm_bell`, `metallic_fm` | index | ring, detune |
-| `string` | bow | pick, damp |
+| `string` | bow, ~~pick~~, ~~damp~~ | — |
+
+`string` left this table on 2026-08-02: `pick` and `damp` were prose with no code
+line at all, so the author invented an implementation for each at every generation
+(the shipped local 12B failed six times running on `Variable 'bow' used before
+defined`). Both are now lines in the body with three anchor bodies each — 08defb07,
+and 22ceea6b for the damp law, which was wired to the wrong loss on the first pass.
 
 Shipping a −4 dB fader under a colour name is failure mode §7.8, committed once on
 this project already, on `drum_head` — the same entry that today has three

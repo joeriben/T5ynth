@@ -757,7 +757,7 @@ def _shelf_params(sel=None):
             # — and, because the author is told to keep a kept line whole, for
             # RECOGNISING a line as this entry's. `params[name]["note"]` is the
             # measurement and runs to a paragraph; this is the same sentence
-            # written for a reader. Thirteen declared parameters across five
+            # written for a reader. Eleven declared parameters across five
             # entries have no line at all, and stay unrecognisable this way.
             glosses = {m.group("name").strip(): m.group("gloss").strip()
                        for m in _param_lines(entry.get("code") or "")}
