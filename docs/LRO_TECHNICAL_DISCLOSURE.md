@@ -279,6 +279,6 @@ These exist so the date does not rest on the repository alone.
 | Archive | Identifier | Status |
 |---|---|---|
 | Zenodo (DOI, via the GitHub–Zenodo integration on a tagged release) | — | to be issued with v3.0.0 |
-| Software Heritage (permanent SWHID for the archived source) | — | to be requested |
+| Software Heritage (permanent SWHID for the archived source) | — | archiving requested 2026-08-01 (save request 2407668) |
 
 When each is issued, its identifier belongs in this table and in `CITATION.cff`.

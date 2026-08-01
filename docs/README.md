@@ -12,7 +12,7 @@ This directory contains two kinds of files: current contributor reference materi
 orchestra for a described instrument, which is compiled and run live as the voice
 source. Read these in order:
 
-- [`LRO_TECHNICAL_DISCLOSURE.md`](LRO_TECHNICAL_DISCLOSURE.md) — What the oscillator is, for a reader outside the project. The citable description, and the record of public disclosure.
+- [`LRO_TECHNICAL_DISCLOSURE.md`](LRO_TECHNICAL_DISCLOSURE.md) — What the oscillator is, for a reader outside the project. The citable description, and the record of public disclosure. Also as a searchable [PDF](LRO_TECHNICAL_DISCLOSURE.pdf), regenerated from the Markdown by `tools/render_disclosure_pdf.py`.
 - [`LCO_CONCEPT.md`](LCO_CONCEPT.md) — **Authoritative** for the goal, the architecture and the platform invariants every instrument must obey. (Files carry the older `LCO` name; the oscillator is the LRO.)
 - [`plans/HANDOVER_LCO.md`](plans/HANDOVER_LCO.md) — The implementation as it actually runs today, the measured facts, and what is open.
 - [`CSOUND_INTEGRATION.md`](CSOUND_INTEGRATION.md) — How Csound ships inside the app on macOS and Windows, and what proves a build carries a working one.
