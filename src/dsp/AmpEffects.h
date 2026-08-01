@@ -167,24 +167,49 @@ private:
  * together (a Wurlitzer's tremolo, which is amplitude, because it has one
  * amplifier), at 1 they are in antiphase (a Rhodes suitcase's, which is a pan
  * between its two amplifier pairs). Bypassed at depth == 0.
+ *
+ * FOUR SHAPES. The classic tremolos are often square, or nearly, but triangle
+ * and sine are just as much part of the family (BJ, 2026-08-01). Three of the
+ * four come out of one construction — `tanh(k·sin) / tanh(k)`, the textbook
+ * soft-clipping saturator applied to the sine, which is also how the rounded
+ * switching of an optical/bias tremolo is usually approximated: the photocell
+ * cannot step, so its "square" has a finite edge. k = 0 is the sine itself,
+ * k = 3 the rounded square, k = 12 the fast-edged one. There is deliberately no
+ * `sign()` square: a gain that steps by the full depth twice per cycle is the
+ * click this file's contract is about, and the k = 12 edge (~T/37, so a few ms
+ * at musical rates) is as square as this can be while staying continuous.
+ * The triangle is the ordinary phase-domain one, sharing the sine's phase
+ * convention so the shapes line up.
  */
 class T5ynthTremolo
 {
 public:
+    /** Order = mildest to hardest, and matches the APVTS choice order. */
+    enum Wave { Sine = 0, Triangle, SoftSquare, Square, numWaves };
+
     void prepare(double sampleRate, int samplesPerBlock);
     void reset();
 
     void setRate(float hz);          ///< 0.1…20 Hz
     void setDepth(float depth);      ///< 0…1, 0 is bypass and the default
     void setStereo(float stereo);    ///< 0 = amplitude, 1 = full pan
+    void setWave(int wave);          ///< Wave; crossfades, never steps
 
     bool wants() const noexcept { return depth_ > 0.0001f; }
     void processBlock(juce::AudioBuffer<float>& buffer);
 
 private:
+    /** The LFO at `phase01`, in −1…+1, with +1 = loudest for every shape. */
+    static float shape(double phase01, int wave) noexcept;
+
     double phase_ = 0.0, inc_ = 0.0, sr_ = 44100.0;
     juce::SmoothedValue<float> depthS_, stereoS_;
     float depth_ = 0.0f, stereo_ = 0.0f, rateHz_ = 5.5f;
+    // Changing shape mid-note moves the gain wherever the two curves differ at
+    // the current phase, so the new shape is faded in over the same time
+    // constant every other control here uses rather than swapped.
+    int wave_ = Sine, waveFrom_ = Sine, wavePending_ = Sine;
+    juce::SmoothedValue<float> waveMixS_;
 };
 
 /** juce::dsp::Chorus. Bypassed at mix == 0, which is the default. */

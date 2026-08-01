@@ -55,6 +55,18 @@ namespace
     constexpr double kLoadAttackSec  = 0.002;
     constexpr double kLoadReleaseSec = 0.150;
     constexpr double kDcBlockHz = 10.0;
+
+    // The tremolo's two saturated-sine shapes and the constants that normalise
+    // them back to ±1. At namespace scope, NOT function-local statics: a
+    // function-local `static const double x = std::tanh(3.0)` is not folded —
+    // clang emits a guard byte and takes libc++abi's static-init mutex on first
+    // use, which here is the audio thread rendering the first Soft or Square
+    // block, and leaves two acquire-loads inside the per-sample loop for ever
+    // after. A lock on the audio thread, from two constants.
+    constexpr double kTremShapeSoft = 3.0;    // the rounded square
+    constexpr double kTremShapeHard = 12.0;   // the fast-edged one
+    const double kTremNormSoft = std::tanh(kTremShapeSoft);
+    const double kTremNormHard = std::tanh(kTremShapeHard);
 }
 
 // ── distortion ──────────────────────────────────────────────────────────────
@@ -268,15 +280,43 @@ void T5ynthDistortion::processBlock(juce::AudioBuffer<float>& buffer)
 
 // ── tremolo ─────────────────────────────────────────────────────────────────
 
+float T5ynthTremolo::shape(double phase01, int wave) noexcept
+{
+    // Wrapped here rather than by the caller: the stereo offset pushes channel 1
+    // past 1.0, and every shape below needs its phase inside one period.
+    double p = phase01 - std::floor(phase01);
+
+    if (wave == Triangle)
+    {
+        // Quarter-turn so it rises through zero at p = 0, like the sine.
+        const double q = p + 0.25 - std::floor(p + 0.25);
+        return static_cast<float>(1.0 - 4.0 * std::abs(q - 0.5));
+    }
+
+    const double s = std::sin(juce::MathConstants<double>::twoPi * p);
+    if (wave == SoftSquare || wave == Square)
+    {
+        // tanh(k·sin) / tanh(k): saturated sine, normalised back to ±1.
+        const double k = (wave == Square) ? kTremShapeHard : kTremShapeSoft;
+        const double norm = (wave == Square) ? kTremNormHard : kTremNormSoft;
+        return static_cast<float>(std::tanh(k * s) / norm);
+    }
+    return static_cast<float>(s);
+}
+
 void T5ynthTremolo::prepare(double sampleRate, int)
 {
     sr_ = sampleRate;
     phase_ = 0.0;
     depthS_.reset(sampleRate, kSmoothSeconds);
     stereoS_.reset(sampleRate, kSmoothSeconds);
+    waveMixS_.reset(sampleRate, kSmoothSeconds);
     setRate(rateHz_);          // the rate the player last set, not a fixed one
     depthS_.setCurrentAndTargetValue(depth_);
     stereoS_.setCurrentAndTargetValue(stereo_);
+    waveFrom_ = wave_;
+    wavePending_ = wave_;
+    waveMixS_.setCurrentAndTargetValue(1.0f);
 }
 
 void T5ynthTremolo::reset()
@@ -284,6 +324,9 @@ void T5ynthTremolo::reset()
     phase_ = 0.0;
     depthS_.setCurrentAndTargetValue(depth_);
     stereoS_.setCurrentAndTargetValue(stereo_);
+    waveFrom_ = wave_;
+    wavePending_ = wave_;
+    waveMixS_.setCurrentAndTargetValue(1.0f);
 }
 
 void T5ynthTremolo::setRate(float hz)
@@ -304,6 +347,15 @@ void T5ynthTremolo::setStereo(float stereo)
     stereoS_.setTargetValue(stereo_);
 }
 
+void T5ynthTremolo::setWave(int wave)
+{
+    // Only RECORDS the wish. processBlock starts the crossfade, and only when
+    // the previous one has finished: restarting a fade mid-flight would snap the
+    // blend back to its start, which is exactly the step the fade is there to
+    // avoid. Clicking through all four cells therefore walks through them.
+    wavePending_ = juce::jlimit(0, static_cast<int>(numWaves) - 1, wave);
+}
+
 void T5ynthTremolo::processBlock(juce::AudioBuffer<float>& buffer)
 {
     // The phase must keep running even while the depth is on its way to zero,
@@ -315,10 +367,20 @@ void T5ynthTremolo::processBlock(juce::AudioBuffer<float>& buffer)
     const int n = buffer.getNumSamples();
     if (numCh <= 0 || n <= 0) return;
 
+    if (wavePending_ != wave_ && ! waveMixS_.isSmoothing())
+    {
+        waveFrom_ = wave_;
+        wave_     = wavePending_;
+        waveMixS_.setCurrentAndTargetValue(0.0f);
+        waveMixS_.setTargetValue(1.0f);
+    }
+
     for (int i = 0; i < n; ++i)
     {
         const float d = depthS_.getNextValue();
         const float s = stereoS_.getNextValue();
+        const float wm = waveMixS_.getNextValue();
+        const bool morphing = wm < 0.9999f;
         const double ph = phase_;
         for (int ch = 0; ch < numCh; ++ch)
         {
@@ -326,8 +388,9 @@ void T5ynthTremolo::processBlock(juce::AudioBuffer<float>& buffer)
             // move together (amplitude tremolo), at 1 they are in antiphase (a
             // pan). Anything between is the suitcase's shallow stereo sweep.
             const double off = (ch == 1) ? 0.5 * static_cast<double>(s) : 0.0;
-            const float lfo = static_cast<float>(
-                std::sin(juce::MathConstants<double>::twoPi * (ph + off)));
+            float lfo = shape(ph + off, wave_);
+            if (morphing)                       // only while a shape change lasts
+                lfo = shape(ph + off, waveFrom_) * (1.0f - wm) + lfo * wm;
             buffer.getWritePointer(ch)[i] *= 1.0f - d * 0.5f * (1.0f - lfo);
         }
         phase_ += inc_;
