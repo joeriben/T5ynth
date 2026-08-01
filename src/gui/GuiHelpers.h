@@ -284,6 +284,18 @@ inline void setSwitchGlyph(juce::TextButton& b, SwitchGlyph glyph)
     b.getProperties().set("glyphId", static_cast<int>(glyph));
 }
 
+/** Mark a switchbox segment as one that OPENS A MENU rather than selecting a
+ *  value directly (the delay's Tape/BBD cells, the reverb's Plate/Freeverb
+ *  cells — each fronts a family of variants). It gets the same bottom-right
+ *  corner triangle every ComboBox in this UI wears, drawn in
+ *  T5ynthLookAndFeel::drawButtonBackground: the affordance for "there is more
+ *  behind this" already exists here, and a cell that hides four voicings has to
+ *  wear it too or nothing on screen says they are reachable. */
+inline void setSwitchMenuCell(juce::TextButton& b)
+{
+    b.getProperties().set("menuCell", true);
+}
+
 /** Draw a switchbox glyph centred in `area`, tinted `colour`. Geometry lives in
  *  a 0..24 design box scaled to fit (the Icon-registry convention). */
 inline void drawSwitchGlyph(juce::Graphics& g, SwitchGlyph glyph,

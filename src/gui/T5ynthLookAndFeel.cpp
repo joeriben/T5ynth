@@ -96,6 +96,26 @@ void T5ynthLookAndFeel::drawButtonBackground(juce::Graphics& g, juce::Button& bt
         if (! btn.isConnectedOnLeft())
             g.fillRect(r.getX(), r.getY(), 1, r.getHeight());      // left (group start)
     }
+
+    // Menu affordance. A segment that OPENS A DROPDOWN instead of selecting its
+    // value directly (setSwitchMenuCell) wears the same bottom-right corner
+    // triangle as every ComboBox here — same geometry, same 0.22 alpha on the
+    // resolved text colour — so "there is more behind this" reads identically
+    // whichever control carries it. Drawn after the frame so it sits on top of
+    // the bottom edge, exactly as drawComboBox draws it over the outline.
+    if (btn.getProperties().getWithDefault("menuCell", false))
+    {
+        const float tri = juce::jlimit(8.0f, 16.0f, bounds.getHeight() * 0.66f);
+        const auto textCol = btn.findColour(btn.getToggleState()
+                                                ? juce::TextButton::textColourOnId
+                                                : juce::TextButton::textColourOffId);
+        g.setColour(textCol.withAlpha(btn.isEnabled() ? 0.22f : 0.10f));
+        juce::Path triangle;
+        triangle.addTriangle(bounds.getRight() - tri, bounds.getBottom(),
+                             bounds.getRight(),       bounds.getBottom() - tri,
+                             bounds.getRight(),       bounds.getBottom());
+        g.fillPath(triangle);
+    }
 }
 
 void T5ynthLookAndFeel::drawButtonText(juce::Graphics& g, juce::TextButton& btn,
