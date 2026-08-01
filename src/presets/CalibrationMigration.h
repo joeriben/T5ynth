@@ -98,7 +98,39 @@ namespace Calibration
 //            keeps its resting resonance exactly, but a modulated sweep over it
 //            covers a different span. Same boundary every law change in this
 //            file has: epoch 5 migrated the FX mix knob, not modulation of it.
-inline constexpr int kEpoch = 7;
+//   Epoch 8: cutoff-bus depth law (2026-08-01). Epoch 2's unified bus was LINEAR
+//            onto ±4 octaves, and four octaves is not a filter envelope: from a
+//            low base (156 Hz → 2.5 kHz) nothing could open the filter, and the
+//            epoch-2 migration itself clamped every older preset that swept
+//            wider ("accepted trade-off for whole-slider controllability",
+//            17ba4844). The ceiling was never the problem it solved — the ±10
+//            law it replaced put the musical band in the bottom tenth of a
+//            LINEAR control. So the full-scale goes back to ±10 octaves (the
+//            whole 20 Hz–20 kHz span) and the travel gets the curve the old law
+//            lacked: ModCalib::cutoffDepthCurve, position^2.3 of full scale.
+//            The retired ±4 now sits at 0.67 of the travel and mid-travel is
+//            within 0.03 oct of what it was, so the usable half of every cutoff
+//            depth control keeps its feel.
+//            Every source on the bus is covered — env amounts, LFO depths,
+//            drift depths (each target-conditional on Filter) and the AT cutoff
+//            amount (unconditional, and bipolar, so the remap is sign-
+//            preserving). A stored position moves to the one producing the SAME
+//            octave swing (ModCalib::migrateCutoffDepth): a closed-form
+//            inversion, not a factor, like epochs 5 and 7.
+//            TWO deliberate non-identities, both restorations rather than side
+//            effects: (a) a pre-epoch-2 file chains ×2.5 then this remap and
+//            gets back the SWEEP it was authored with, including the part epoch
+//            2 clamped away — the old ±10 and the new ±10 are the same ten
+//            octaves, so full depth means full depth again (the knob POSITION
+//            moves, of course: a^(1/2.3) equals a only at 0 and 1);
+//            (b) MPE timbre has no stored depth (the CC 74 travel IS the
+//            amount), so it cannot be migrated and instead keeps its ±4 octaves
+//            by construction (SynthVoice::kTimbreCutoffScale).
+//            SAME BOUNDARY as epochs 5 and 7: modulation OF a depth (an env or
+//            LFO driving an LFO's Amt) is not migrated. The depth it lands on
+//            is curved live, so the destination is right; the swing an old
+//            stored modulation depth produces around it is not preserved.
+inline constexpr int kEpoch = 8;
 
 struct Rescale
 {
@@ -313,23 +345,65 @@ inline float migrateResoScalar(float value, int fromEpoch, int algIndex, int war
     return value;
 }
 
+// Epoch 8: a cutoff-bus depth control whose LAW changed — linear onto ±4 octaves
+// → ModCalib's curve onto ±10. Closed-form (ModCalib::migrateCutoffDepth), so
+// there is no factor here, only which sibling TARGET param has to select Filter
+// for the stored value to be a cutoff depth at all. `condId == nullptr` means
+// unconditional: the AT cutoff amount is a dedicated cutoff depth with no target
+// selector of its own.
+struct CutoffLawRemap
+{
+    const char* id;         // depth/amount parameter whose law changed
+    const char* condId;     // sibling target param, or nullptr if unconditional
+    int         condValue;  // remap only when condId's selected index == this
+    int         sinceEpoch; // applied when the file's epoch < this
+};
+
+inline const std::array<CutoffLawRemap, 12>& cutoffLawRemaps()
+{
+    static const std::array<CutoffLawRemap, 12> table = { {
+        { PID::ampAmount,          PID::ampTarget,    EnvTarget::Filter,   8 },
+        { PID::mod1Amount,         PID::mod1Target,   EnvTarget::Filter,   8 },
+        { PID::mod2Amount,         PID::mod2Target,   EnvTarget::Filter,   8 },
+        { PID::mod3Amount,         PID::mod3Target,   EnvTarget::Filter,   8 },
+        { PID::mod4Amount,         PID::mod4Target,   EnvTarget::Filter,   8 },
+        { PID::lfo1Depth,          PID::lfo1Target,   LfoTarget::Filter,   8 },
+        { PID::lfo2Depth,          PID::lfo2Target,   LfoTarget::Filter,   8 },
+        { PID::lfo3Depth,          PID::lfo3Target,   LfoTarget::Filter,   8 },
+        { PID::drift1Depth,        PID::drift1Target, DriftLFO::TgtFilter, 8 },
+        { PID::drift2Depth,        PID::drift2Target, DriftLFO::TgtFilter, 8 },
+        { PID::drift3Depth,        PID::drift3Target, DriftLFO::TgtFilter, 8 },
+        { PID::aftertouchAmtCutoff, nullptr,          0,                   8 },
+    } };
+    return table;
+}
+
 // Rescale a single stored scalar value for `id`. For load paths that apply
 // values one at a time from non-PID-keyed storage (the .t5p JSON), wrap each
 // stored value with this. Presence-aware BY CONSTRUCTION — it is only ever
 // called for a value the file actually carried, so it can never rescale a stale
 // live value left over from a previous patch. Range clamping happens when the
 // returned value is applied to the param (setParam → convertTo0to1).
+// Entries CHAIN in epoch order — a parameter can be recalibrated more than once
+// in its life, and a file old enough predates all of them. The AT cutoff amount
+// is the first such value: epoch 1 rescaled its full-scale, epoch 8 changed its
+// law, and a pre-epoch-1 file has to travel both in that order. (This is why no
+// loop below returns early on a match.)
 inline float migrateScalar(const char* id, float value, int fromEpoch)
 {
     if (fromEpoch >= kEpoch)
         return value;
+    float v = value;
     for (const auto& r : rescales())
         if (fromEpoch < r.sinceEpoch && juce::String(r.id) == id)
-            return value * r.factor;
+            v *= r.factor;
     for (const auto& s : sidedResets())
-        if (fromEpoch < s.sinceEpoch && juce::String(s.id) == id && value > s.above)
-            return s.toValue;
-    return value;
+        if (fromEpoch < s.sinceEpoch && juce::String(s.id) == id && v > s.above)
+            v = s.toValue;
+    for (const auto& c : cutoffLawRemaps())
+        if (c.condId == nullptr && fromEpoch < c.sinceEpoch && juce::String(c.id) == id)
+            v = ModCalib::migrateCutoffDepth(v);
+    return v;
 }
 
 // Target-conditional variant: rescale only when the file's sibling target value
@@ -339,10 +413,17 @@ inline float migrateScalarCond(const char* id, float value, int fromEpoch, int t
 {
     if (fromEpoch >= kEpoch)
         return value;
+    float v = value;
+    // Chained, in epoch order — see migrateScalar. A filter-targeted env amount
+    // written before epoch 2 takes that epoch's ×2.5 AND epoch 8's law remap.
     for (const auto& c : condRescales())
         if (fromEpoch < c.sinceEpoch && targetValue == c.condValue && juce::String(c.id) == id)
-            return value * c.factor;
-    return value;
+            v *= c.factor;
+    for (const auto& c : cutoffLawRemaps())
+        if (c.condId != nullptr && fromEpoch < c.sinceEpoch
+            && targetValue == c.condValue && juce::String(c.id) == id)
+            v = ModCalib::migrateCutoffDepth(v);
+    return v;
 }
 
 // Rescale the matching PARAM nodes inside a stored APVTS ValueTree — the DAW
@@ -426,6 +507,45 @@ inline void migrateValueTree(juce::ValueTree& tree, int fromEpoch)
             if (child.getProperty("id").toString() == c.id && child.hasProperty("value"))
                 child.setProperty("value",
                                   static_cast<float>(child.getProperty("value")) * c.factor,
+                                  nullptr);
+        }
+    }
+
+    // Cutoff-bus law remaps: the stored depth position moves to the one that
+    // produces the same octave swing under the curve. Runs AFTER the rescales
+    // above so a pre-epoch-2 file chains through both, in epoch order, exactly
+    // as migrateScalar/migrateScalarCond do. A conditional entry needs its
+    // sibling target to select Filter; a tree that carries the depth but not its
+    // target is left alone rather than migrated against a guessed routing — an
+    // absent target is unknown, not Filter.
+    for (const auto& c : cutoffLawRemaps())
+    {
+        if (fromEpoch >= c.sinceEpoch)
+            continue;
+
+        if (c.condId != nullptr)
+        {
+            int targetIndex = -1;
+            for (int i = 0; i < tree.getNumChildren(); ++i)
+            {
+                auto child = tree.getChild(i);
+                if (child.getProperty("id").toString() == c.condId && child.hasProperty("value"))
+                {
+                    targetIndex = juce::roundToInt(static_cast<double>(child.getProperty("value")));
+                    break;
+                }
+            }
+            if (targetIndex != c.condValue)
+                continue;
+        }
+
+        for (int i = 0; i < tree.getNumChildren(); ++i)
+        {
+            auto child = tree.getChild(i);
+            if (child.getProperty("id").toString() == c.id && child.hasProperty("value"))
+                child.setProperty("value",
+                                  ModCalib::migrateCutoffDepth(
+                                      static_cast<float>(child.getProperty("value"))),
                                   nullptr);
         }
     }

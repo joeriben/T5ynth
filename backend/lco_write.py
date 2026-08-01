@@ -593,8 +593,12 @@ HOW A MODULATION REACHES ITS TARGET — read this before you route anything.
 A source does not SET its target. The target's own knob holds the POSITION; the
 source MOVES it away from there, and Amount is how far it travels, measured in
 the target's own unit:
-  Filter (cutoff)   Amount 1 = 4 octaves     Pitch   Amount 1 = 12 semitones
+  Filter (cutoff)   Amount 1 = 10 octaves    Pitch   Amount 1 = 12 semitones
   everything else   Amount 1 = the target's whole range
+The filter's travel is not linear in the Amount: it is Amount^2.3 of those ten
+octaves, so 0.25 = 0.4 oct, 0.5 = 2 oct, 0.67 = 4 oct, 1.0 = the whole audible
+range. Full Amount from a low cutoff pins the filter open — for a sweep with a
+top to it, ask for the octaves you want and read the position off that list.
 Which way it moves is not yours to choose — it follows the source:
 - An ENVELOPE only ever moves its target UP from the knob. Its Amount is 0..1
   and its level is 0..1, so the product can never be negative.

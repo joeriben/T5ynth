@@ -1,4 +1,5 @@
 #include "DriftLFO.h"
+#include "BlockParams.h"   // ModCalib:: — the cutoff bus's depth law
 
 float DriftLFO::nextRandom(InternalLFO& lfo)
 {
@@ -62,6 +63,15 @@ float DriftLFO::halfRangeForTarget(int target)
     }
 }
 
+float DriftLFO::depthForTarget(int target, float depth)
+{
+    // Only the cutoff destination curves its depth controls; every other target
+    // takes the knob position as it stands.
+    if (target == TgtFilter)
+        return depth * ModCalib::cutoffDepthCurve(depth);
+    return depth;
+}
+
 void DriftLFO::reset()
 {
     for (auto& lfo : lfos)
@@ -119,7 +129,7 @@ float DriftLFO::getOffsetForTarget(int target) const
         if (lfo.target == target && lfo.depth != 0.0f)
         {
             float value = waveformValue(lfo);
-            totalOffset += value * lfo.depth * hr;
+            totalOffset += value * depthForTarget(target, lfo.depth) * hr;
         }
     }
 
@@ -143,7 +153,7 @@ float DriftLFO::getReachForTarget(int target) const
             continue;
 
         if (lfo.target == target)
-            total += std::abs(lfo.depth) * hr;
+            total += std::abs(depthForTarget(target, lfo.depth)) * hr;
     }
 
     return total;

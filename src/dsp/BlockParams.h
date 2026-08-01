@@ -466,8 +466,55 @@ namespace PID {
 // SAME constant — so the feel is calibrated here, once per destination, never
 // per-source. ±1 of summed contribution maps to the full-scale below.
 namespace ModCalib {
-    static constexpr float kCutoffModOctaves  = 4.0f;  // cutoff: ±1 summed → ±4 octaves
+    static constexpr float kCutoffModOctaves  = 10.0f; // cutoff: full depth → ±10 octaves (the whole 20 Hz–20 kHz span)
     static constexpr float kPitchModSemitones = 12.0f; // pitch:  ±1 summed → ±12 semitones (±1 octave)
+
+    // ── The cutoff bus's DEPTH law ──────────────────────────────────────────
+    // The full-scale above is reached along a curve, not linearly: a depth knob
+    // at position a spends |a|^kCutoffModCurve of it. The exponent is fixed by
+    // one requirement — the ±4 octaves that WERE the whole range must still sit
+    // where the hand expects them, at about two thirds of the travel:
+    //   a = 0.25 → 0.4 oct | a = 0.5 → 2.0 oct | a = 0.67 → 4.0 oct | a = 1 → 10 oct
+    // (0.5 lands within 0.03 oct of the retired linear ±4 law, so the whole
+    // lower half of every cutoff depth control keeps the feel it had.)
+    //
+    // Why a curve rather than the ±10 full-scale the law had before epoch 2: at
+    // ±10 LINEAR the musical band sat in the bottom tenth of the travel, which
+    // is what the ±4 ceiling was introduced to fix — at the price of the range
+    // itself. No filter envelope could open a filter from a low base, and any
+    // preset that used to sweep wider was clamped on load. The curve buys the
+    // controllability without paying in reach.
+    static constexpr float kCutoffModCurve = 2.3f;
+
+    // A source hands the bus its shape ALREADY scaled by its own depth knob
+    // (env level = contour·amount, LFO = wave·depth), so the factor that turns
+    // that linear product into the curved one is |a|^(curve−1): the product is
+    // shape·sign(a)·|a|^curve. Only the DEPTH travels the curve — the contour
+    // the source sends stays linear in octaves, so a drawn envelope and an LFO
+    // waveform still reach the filter with the shape they have.
+    inline float cutoffDepthCurve (float a) noexcept
+    {
+        const float m = std::abs(a);
+        return m > 0.0f ? std::pow(m, kCutoffModCurve - 1.0f) : 0.0f;
+    }
+
+    // ── Migration (calibration epoch 8) ──
+    // The retired law was linear onto ±4 octaves, so a stored position a meant
+    // 4·a octaves; the position producing the SAME octaves under the curve is
+    // (4·a / kCutoffModOctaves)^(1/curve). Sign-preserving — the aftertouch
+    // cutoff amount is bipolar. A stored 1.0 lands at 0.672, so nothing clamps;
+    // and a pre-epoch-2 value that chains through the ×2.5 of that epoch lands
+    // at exactly 1.0 for the old full-scale, because the old ±10 and the new
+    // ±10 are the same ten octaves. Presets clamped by epoch 2 get their sweep
+    // back — which is the point of this epoch, not a side effect of it.
+    inline float migrateCutoffDepth (float a) noexcept
+    {
+        const float m = std::abs(a);
+        if (m <= 0.0f)
+            return a;
+        const float moved = std::pow(m * 4.0f / kCutoffModOctaves, 1.0f / kCutoffModCurve);
+        return a < 0.0f ? -moved : moved;
+    }
 }
 
 namespace EnvTarget {
@@ -599,7 +646,7 @@ namespace LfoTarget {
         return t[i];
     }
     static_assert(kNumModEnvs == 4,
-                  "LfoTarget::modEnvAmt lists 4 entries — add one per new mod envelope.");
+                  "LfoTarget::modEnvAmt lists 4 entries -- add one per new mod envelope.");
 }
 
 // ── MIDI aftertouch performance targets ──
@@ -659,7 +706,7 @@ namespace AftertouchTarget {
         return t[i];
     }
     static_assert(kNumModEnvs == 4,
-                  "modEnvSustain lists 4 entries — add one per new mod envelope.");
+                  "modEnvSustain lists 4 entries -- add one per new mod envelope.");
 }
 
 // ── Drift LFO targets ──

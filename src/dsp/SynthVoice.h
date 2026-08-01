@@ -54,6 +54,11 @@ public:
     // controller resting at its centre detent — is exactly unmodulated. Routed to
     // filter brightness in the per-block cutoff chain.
     static constexpr float kTimbreNeutral = 64.0f / 127.0f;
+    // Timbre's share of the cutoff bus. It is the one source there with no depth
+    // control of its own — the CC 74 travel IS the amount — so it cannot take the
+    // bus's depth curve and instead keeps the ±4 octaves it has always had: half
+    // a travel (0.5) onto 0.4 of the ±10-octave full scale.
+    static constexpr float kTimbreCutoffScale = 0.8f;
     void setTimbre(float t) { timbre_ = juce::jlimit(0.0f, 1.0f, t); }
     float getTimbre() const { return timbre_; }
 

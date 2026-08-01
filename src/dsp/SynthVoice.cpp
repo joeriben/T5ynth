@@ -887,6 +887,23 @@ void SynthVoice::renderBlock(float* output, float* outputRight, const BlockParam
         }
     }
 
+    // Cutoff-bus depth curve for the sources whose depth is block-constant. The
+    // curve is a pow(); these five values cannot change inside the block (drift
+    // and LFO modulation of an env Amt already landed in `p` before the voice ran),
+    // so they are resolved once per block instead of once per 32 samples. The
+    // three LFO depths genuinely vary within the block — an env can be driving
+    // them — and stay at the sub-block boundary below.
+    float ampCutoffCurve = 0.0f, modCutoffCurve[kNumModEnvs] = {}, atCutoffCurve = 0.0f;
+    if (p.filterEnabled)
+    {
+        if (p.ampTarget == EnvTarget::Filter)
+            ampCutoffCurve = ModCalib::cutoffDepthCurve(p.ampAmount);
+        for (int m = 0; m < kNumModEnvs; ++m)
+            if (p.modEnv[m].target == EnvTarget::Filter)
+                modCutoffCurve[m] = ModCalib::cutoffDepthCurve(p.modEnv[m].amount);
+        atCutoffCurve = ModCalib::cutoffDepthCurve(p.aftertouchTargetAmt[AftertouchTarget::Cutoff]);
+    }
+
     int pos = 0;
     while (pos < numSamples && active)
     {
@@ -926,26 +943,33 @@ void SynthVoice::renderBlock(float* output, float* outputRight, const BlockParam
             // ── Cutoff modulation bus ──────────────────────────────────────
             // Every source contributes a NORMALIZED octave-fraction summed into a
             // single exponent; the destination owns the one full-scale, applied
-            // once. ±1 of summed contribution == ±ModCalib::kCutoffModOctaves
-            // octaves. Replaces three per-source constants (env/LFO/Drift were
-            // ±10, AT and MPE timbre ±4) so a LINEAR amount/depth maps to a
-            // musical sweep and no source needs its own filter calibration.
+            // once. Full depth == ±ModCalib::kCutoffModOctaves octaves — ten, the
+            // whole 20 Hz–20 kHz span, so a filter envelope can open a filter from
+            // any base. Each source's own DEPTH knob travels the shared curve
+            // (ModCalib::cutoffDepthCurve) on the way in; its SHAPE does not, so
+            // an envelope contour and an LFO waveform stay linear in octaves.
             //   env  → lastAmpEnvLevel etc. are already amount-scaled (peak == Amt)
             //   LFO  → lfo*Mid are already depth-scaled (lfoBuf · depth)
-            //   Drift→ p.driftFilterOffset is now normalized (filter half-range 1.0)
+            //   Drift→ p.driftFilterOffset is normalized AND already curved
+            //          (DriftLFO::depthForTarget owns the same law)
             //   AT   → signed pressure·amount drive in [-1..+1]
-            //   timbre→ bipolar Y around neutral, 0 when no MPE timbre data
+            //   timbre→ bipolar Y around neutral, 0 when no MPE timbre data. The
+            //          only source with no depth control of its own, so it keeps
+            //          the ±4 octaves it has always had: 0.4 of the full scale
+            //          over a half-travel of CC74 == kTimbreCutoffScale · 0.5.
             float cutoffOctaves = 0.0f;
-            if (p.ampTarget  == EnvTarget::Filter) cutoffOctaves += lastAmpEnvLevel;
+            if (p.ampTarget  == EnvTarget::Filter)
+                cutoffOctaves += lastAmpEnvLevel * ampCutoffCurve;
             for (int m = 0; m < kNumModEnvs; ++m)
-                if (p.modEnv[m].target == EnvTarget::Filter) cutoffOctaves += lastModVal_[m];
-            if (p.lfo1Target == LfoTarget::Filter) cutoffOctaves += lfo1Mid;
-            if (p.lfo2Target == LfoTarget::Filter) cutoffOctaves += lfo2Mid;
-            if (p.lfo3Target == LfoTarget::Filter) cutoffOctaves += lfo3Mid;
+                if (p.modEnv[m].target == EnvTarget::Filter)
+                    cutoffOctaves += lastModVal_[m] * modCutoffCurve[m];
+            if (p.lfo1Target == LfoTarget::Filter) cutoffOctaves += lfo1Mid * ModCalib::cutoffDepthCurve(lfo1Depth);
+            if (p.lfo2Target == LfoTarget::Filter) cutoffOctaves += lfo2Mid * ModCalib::cutoffDepthCurve(lfo2Depth);
+            if (p.lfo3Target == LfoTarget::Filter) cutoffOctaves += lfo3Mid * ModCalib::cutoffDepthCurve(lfo3Depth);
             cutoffOctaves += p.driftFilterOffset;
-            cutoffOctaves += aftertouchDrive(p, AftertouchTarget::Cutoff, aftertouch_);
+            cutoffOctaves += aftertouchDrive(p, AftertouchTarget::Cutoff, aftertouch_) * atCutoffCurve;
             if (timbre_ != kTimbreNeutral)
-                cutoffOctaves += (timbre_ - kTimbreNeutral) * 2.0f;
+                cutoffOctaves += (timbre_ - kTimbreNeutral) * kTimbreCutoffScale;
             cutoffMod *= std::pow(2.0f, cutoffOctaves * ModCalib::kCutoffModOctaves);
 
             cutoffMod = juce::jlimit(20.0f, 20000.0f, cutoffMod);

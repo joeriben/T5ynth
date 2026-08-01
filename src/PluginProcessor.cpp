@@ -1591,9 +1591,10 @@ juce::AudioProcessorValueTreeState::ParameterLayout T5ynthProcessor::createParam
             { PID::aftertouchAmtEnv5Sustain, "AT ENV5 Sustain" },
         };
         // Honest linear bipolar amount, 0.01 step (two decimals). The DSP
-        // full-scales are now musical (AT→Cutoff feeds the shared cutoff bus at
-        // ±4 oct, ModCalib::kCutoffModOctaves), so the control no longer needs a
-        // skew or 1/1000-scale values — the whole travel maps to a usable range.
+        // full-scales are musical, so the control needs no skew or 1/1000-scale
+        // values — the whole travel maps to a usable range. AT→Cutoff feeds the
+        // shared cutoff bus, whose own depth law (ModCalib::cutoffDepthCurve)
+        // curves this position on the way in: ±4 oct at 0.67, ±10 at full.
         for (const auto& a : atTargets)
             params.push_back(std::make_unique<juce::AudioParameterFloat>(
                 juce::ParameterID{ a.pid, 1 }, a.name,
@@ -5383,13 +5384,16 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
             else if (lfoModFilter)
             {
                 // Hypothetical cutoff from base + LFO (no envelope, no kbd track).
-                // Same per-destination full-scale as the audio path: each filter-
-                // targeted LFO contributes a normalized octave-fraction, summed,
-                // then scaled once by ModCalib::kCutoffModOctaves.
+                // Same per-destination law as the audio path: each filter-targeted
+                // LFO's depth travels ModCalib::cutoffDepthCurve, the normalized
+                // contributions sum, and the sum is scaled once by
+                // ModCalib::kCutoffModOctaves. lastLfo*Val_ is wave·depth, and with
+                // no voices sounding no envelope can be modulating that depth, so
+                // the base depth from bp is the effective one.
                 float hypoOct = 0.0f;
-                if (bp.lfo1Target == LfoTarget::Filter) hypoOct += lastLfo1Val_;
-                if (bp.lfo2Target == LfoTarget::Filter) hypoOct += lastLfo2Val_;
-                if (bp.lfo3Target == LfoTarget::Filter) hypoOct += lastLfo3Val_;
+                if (bp.lfo1Target == LfoTarget::Filter) hypoOct += lastLfo1Val_ * ModCalib::cutoffDepthCurve(bp.lfo1Depth);
+                if (bp.lfo2Target == LfoTarget::Filter) hypoOct += lastLfo2Val_ * ModCalib::cutoffDepthCurve(bp.lfo2Depth);
+                if (bp.lfo3Target == LfoTarget::Filter) hypoOct += lastLfo3Val_ * ModCalib::cutoffDepthCurve(bp.lfo3Depth);
                 float hypo = bp.baseCutoff * std::pow(2.0f, hypoOct * ModCalib::kCutoffModOctaves);
                 modulatedValues.filterCutoff.store(juce::jlimit(20.0f, 20000.0f, hypo), std::memory_order_relaxed);
             }
@@ -6882,7 +6886,7 @@ struct LfoPIDs {
     { return { rate, depth, wave, target, mode, clockMode, clockDivision }; }
 };
 static_assert(sizeof(LfoPIDs) == 7 * sizeof(const char*),
-              "LfoPIDs gained a field — add it to all().");
+              "LfoPIDs gained a field -- add it to all().");
 static constexpr LfoPIDs kLfoPIDs[] = {
     { PID::lfo1Rate, PID::lfo1Depth, PID::lfo1Wave, PID::lfo1Target, PID::lfo1Mode,
       PID::lfo1ClockMode, PID::lfo1ClockDivision },
@@ -6900,7 +6904,7 @@ struct DriftPIDs {
     { return { rate, depth, target, wave, clockMode, clockDivision }; }
 };
 static_assert(sizeof(DriftPIDs) == 6 * sizeof(const char*),
-              "DriftPIDs gained a field — add it to all().");
+              "DriftPIDs gained a field -- add it to all().");
 static constexpr DriftPIDs kDriftPIDs[] = {
     { PID::drift1Rate, PID::drift1Depth, PID::drift1Target, PID::drift1Wave,
       PID::drift1ClockMode, PID::drift1ClockDivision },

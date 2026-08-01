@@ -121,4 +121,11 @@ private:
 
     /** Get half-range for a target (APVTS index: 0=None, 1=Alpha, ..., 5=WtScan). */
     static float halfRangeForTarget(int target);
+
+    /** The depth a target actually receives for a knob position. Almost every
+     *  target takes the position as it stands; the cutoff bus owns a curve
+     *  (ModCalib::cutoffDepthCurve) that every source feeding it travels, drift
+     *  included — so the drift depth knob reaches the filter the same way an env
+     *  amount or an LFO depth does. */
+    static float depthForTarget(int target, float depth);
 };
