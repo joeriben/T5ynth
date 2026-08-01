@@ -895,7 +895,7 @@ Plays the generated audio buffer directly. Pitch follows MIDI via time-stretchin
   <li><strong>Loop Mode</strong> — One-shot, Loop, or Ping-Pong</li>
   <li><strong>Crossfade</strong> — 0–500 ms equal-power crossfade at the loop boundary</li>
   <li><strong>Opt</strong> (Loop Optimize) — cross-correlation search for the smoothest loop point. Click to cycle <em>Off → Low → High</em>; High searches harder and costs more.</li>
-  <li><strong>Normalize</strong> — Peak-normalizes the play region</li>
+  <li><strong>Norm</strong> (Normalize) — on by default. Levels the play region; see below.</li>
 </ul>
 
 <h4>Wavetable Mode</h4>
@@ -935,10 +935,10 @@ Before the generated audio reaches the sampler/wavetable/granular source, two fi
 <ul>
   <li><strong>Rumble filter</strong> — always on, 2nd-order Butterworth high-pass at 25&nbsp;Hz. Removes the DC offset and sub-bass rumble the VAE decoder tends to add. Not user-switchable; this is a baseline cleanup step.</li>
   <li><strong>HF</strong> (toggle, in Sampler controls) — two-band high shelf (+3&nbsp;dB @ 4&nbsp;kHz, +4.5&nbsp;dB @ 10&nbsp;kHz) that compensates the high-frequency rolloff inherent to the VAE decoder. Whether you prefer the brighter boosted or the darker raw sound is a matter of taste; akróasys stores both.</li>
-  <li><strong>Normalize</strong> (toggle, in Sampler controls) — peak-normalizes the play region to 0.95 before playback for quiet generations.</li>
+  <li><strong>Norm</strong> (toggle, in Sampler controls, on by default) — levels the play region, and reads the signal before deciding how. Near-silent material is left alone. Material that is already hot is only peak-capped. Short or sparse material is brought to −10&nbsp;dBFS at its 99.9th-percentile peak; sustained material to −18&nbsp;dBFS active RMS. Everything is capped at −1&nbsp;dBFS peak. It turns loud generations down as readily as it lifts quiet ones, which is what makes a session of wildly different generations playable at one monitoring level.</li>
 </ul>
 <p>
-All three operate on the generated buffer, not on the real-time voice signal — re-toggling HF or Normalize re-processes the stored audio from the raw source without regenerating.
+All three operate on the generated buffer, not on the real-time voice signal: re-toggling HF or Norm rebuilds the playback buffer from the retained raw audio, on a background thread, without calling the model again. Norm applies in Sampler and Freeze; the button is not shown in Wavetable or LRO mode.
 </p>
 
 <h4>Voice Count</h4>
@@ -1252,9 +1252,8 @@ makes sound by <em>writing software</em>: you describe an instrument in words,
 and a language model — local by default, or an external provider you pick in
 <a href="#setup-lm">Setup</a> — writes Csound synthesis code from that
 description. Compiled and run live, that code becomes the oscillator's voice
-for every note you play. It is not a preset and not a rendered sample: it is
-source code, written for this one prompt — software as culture, and readable
-as such.
+for every note you play. What is stored, recalled and played is the source code
+itself, written for this one prompt.
 </p>
 
 <div class="tip">
@@ -1359,8 +1358,7 @@ orchestra from what it was shown. The trace names every station of that:
     <td>Present only when the first attempt did not compile: the Csound errors
       it had to fix, in the order it fixed them, and how many attempts it took.
       Every distinct error seen so far travels back with each retry, up to six
-      attempts, after which the authoring fails rather than guessing. No
-      station here means it compiled first try.</td>
+      attempts, after which the authoring fails rather than guessing.</td>
   </tr>
   <tr>
     <td><strong>RUNNING</strong></td>
@@ -1438,11 +1436,11 @@ to, since the LRO has no A/B pair to couple.
 <p>
 A written instrument brings its own knobs, and they appear in the
 <strong>Synth</strong> panel where the engine-mode controls sit for the other
-oscillator. They are not a fixed set: each one is a parameter the library
-declared, which the model kept when it wrote this particular body. A body that
-keeps none gets none &mdash; you will never see a plausible-looking slider that
-moves nothing, because the wiring to the Csound channel is made by the host from
-the line that actually survived, not by the model.
+oscillator. Which knobs appear depends on the instrument: each one is a
+parameter the library declared and the model kept when it wrote this particular
+body. A body that keeps none gets none. The wiring to the Csound channel is made
+by the host from the line that survived into the body, so every knob on screen
+moves something in the running orchestra.
 </p>
 <table>
   <tr><th>What you see</th><th>Where it comes from</th></tr>
@@ -1677,13 +1675,13 @@ is what stands between a loud generation and your monitors.
 <h2 id="seq">11. Step Sequencer</h2>
 
 <p>
-A traditional step sequencer of 1 to 64 steps, 16 by default. Each step has:
+A traditional step sequencer of 2 to 32 steps, 16 by default. Each step has:
 </p>
 <ul>
   <li><strong>Note</strong> — MIDI note 0–127 (draggable vertical slider)</li>
   <li><strong>Velocity</strong> — 0.0–1.0 (bar at bottom)</li>
   <li><strong>Enable</strong> — toggle the step on/off</li>
-  <li><strong>Bind (Glide)</strong> — suppresses note-off, creating legato ties</li>
+  <li><strong>Bind / Glide</strong> — one button, cycling <em>Off → Bind → Glide → Off</em>. <strong>Bind</strong> suppresses the note-off so the step ties into the next one; <strong>Glide</strong> ties it and ramps the pitch across, over the global <em>Glide Time</em>. Glide is drawn brighter than Bind.</li>
   <li><strong>One-shot sample slots</strong> — three small per-step slots for drum-style sample triggers</li>
 </ul>
 <p>
@@ -1722,7 +1720,7 @@ Click a one-shot slot to cycle Normal / Accent / Mute. The step's <strong>On</st
   <tr><td><strong>Division</strong></td><td>1/1, 1/2, 1/4, 1/8, 1/16</td><td>Step duration relative to a quarter note</td></tr>
   <tr><td><strong>Gate</strong></td><td>0.1 – 1.0</td><td>Fraction of step duration that the note sustains</td></tr>
   <tr><td><strong>Shuffle</strong></td><td>0 – 75%</td><td>Pairwise swing: complete even/odd step pairs are long/short, while an unpaired final step in odd-length patterns stays straight</td></tr>
-  <tr><td><strong>Glide Time</strong></td><td>10 – 500 ms</td><td>Portamento between bound steps</td></tr>
+  <tr><td><strong>Glide Time</strong></td><td>10 – 500 ms</td><td>How long the pitch ramp takes on a step set to <em>Glide</em>.</td></tr>
   <tr><td><strong>Octave Shift</strong></td><td>-2 … +2</td><td>Transposes all steps</td></tr>
   <tr><td><strong>Presets</strong></td><td>10 built-in patterns</td><td>Octave Bounce, Wide Leap, Off-Beat Minor, Glide Groove, Sparse Stab, Rising Arc, Scatter, Chromatic, Bass Walk, Gated Pulse</td></tr>
   <tr><td><strong>Save / Load</strong></td><td>S / L buttons</td><td>Patterns are stored separately from presets, as <code>.t5seq</code> files in the app's <code>sequences</code> folder. <strong>L</strong> opens a Sequence Library with rename and delete.</td></tr>
@@ -1911,8 +1909,8 @@ and the current preset's name, and carries the controls that belong to no panel:
 The four <strong>SNAP</strong> slots are how akróasys is meant to be played
 live. They are bound to the number keys <strong>1 / 2 / 3 / 4</strong>, so with
 a state stored in each you have a four-button instrument: hit a number key and
-the whole oscillator changes &mdash; not a parameter morph, a different
-instrument. Recall is instantaneous, with no inference and no authoring call, so
+the whole oscillator changes. Recall is instantaneous, with no inference and no
+authoring call, so
 a switch lands cleanly inside a running sequence or a held phrase.
 </p>
 <table>
