@@ -1,5 +1,5 @@
 {
- "lexicon_version": 25,
+ "lexicon_version": 26,
  "techniques": [
   {
    "key": "sine",
@@ -2000,7 +2000,7 @@
       0.5
      ],
      "default": 0.185,
-     "note": "where along the string it is set going, as a fraction of its length. Not a tone control -- geometry: the body subtracts a copy of the drive delayed by `pick` of a period, so the harmonic whose node falls on that spot cannot be given any energy and is simply missing. That harmonic is 1/pick, so the axis is a NOTCH WALKING DOWN through the harmonics as it rises, and it bites hardest where 1/pick lands on one. Measured at 220 Hz, how far that harmonic sits below its neighbours: 0.10 takes 39 dB out of the 10th, 0.125 36 dB out of the 8th, 0.167 34 dB out of the 6th, 0.20 41 dB out of the 5th, 0.25 46 dB out of the 4th, 0.333 42 dB out of the 3rd, and 0.50 cancels EVERY even harmonic at once (44 dB, odd-to-even 44.1 dB) -- the hollow, woody one. BETWEEN those positions the notch falls between two harmonics and does much less: at the shipped default 0.185 it sits at 5.4 and takes only 1.75 dB out of the fifth, which is why that one setting sounds like no setting at all. The default is 0.185 because that is what the entry has always played; if the sound wants its pluck position HEARD, start it at 0.25, 0.333 or 0.50. Loudness across the whole axis and four registers: 0.035 dB.",
+     "note": "where along the string it is set going, as a fraction of its length. Not a tone control -- geometry: the body subtracts a copy of the drive delayed by `pick` of a period, so the harmonic whose node falls on that spot cannot be given any energy and is simply missing. That harmonic is 1/pick, so the axis is a NOTCH WALKING DOWN through the harmonics as it rises, and it bites hardest where 1/pick lands on one. Measured at 220 Hz, how far that harmonic sits below its neighbours: 0.10 takes 39 dB out of the 10th, 0.125 36 dB out of the 8th, 0.167 34 dB out of the 6th, 0.20 41 dB out of the 5th, 0.25 46 dB out of the 4th, 0.333 42 dB out of the 3rd, and 0.50 cancels EVERY even harmonic at once (44 dB, odd-to-even 44.1 dB) -- the hollow, woody one. BETWEEN those positions the notch falls between two harmonics and does much less: at the shipped default 0.185 the null sits at 5.4, BETWEEN two harmonics, so no harmonic is cancelled at all -- the fifth reads 1.8 to 10.0 dB below its neighbours depending on register (the comb's closed form 2|sin(pi n beta)| gives 6.6 dB; the spread is the broadband drive scattering the partial readings, not the axis), against the 34 to 46 dB above where the null lands ON one. That is why that one setting sounds like no setting at all. The default is 0.185 because that is what the entry has always played; if the sound wants its pluck position HEARD, start it at 0.25, 0.333 or 0.50. Loudness across the whole axis and four registers: 0.035 dB.",
      "anchors": {
       "wiry": {
        "value": 0.1,
@@ -2022,7 +2022,7 @@
       1.0
      ],
      "default": 0.0,
-     "note": "how freely the string is allowed to ring, as with the flat of the hand laid on it. It is the resonator's OWN loss and nothing added: `streson`'s feedback, running from 0.9884 at the open end to 0.70 at the stopped one. Open, the teeth of the comb are narrow and the string sings a clear note; stopped, they broaden and it reads as a knock with a colour rather than a pitch. Measured as comb contrast at the rate the LRO actually runs (4x oversampling): 36.6 dB at 0, 23.5 at 0.25, 18.8 at 0.5, 15.7 at 0.75, 13.4 at 1 -- and the axis is the same at every register, 110/440/880 Hz all within 1 dB of those numbers. It never stops ringing altogether: past the bottom of the axis the resonance is let go and what is left is audibly the thing driving it, not a string. Loudness across the whole axis and all four registers: 0.022 dB, because `balance` holds it. THE SHIPPED STRING IS THE OPEN ONE, so the default is 0 and the axis only ever stops it.",
+     "note": "how freely the string is allowed to ring, as with the flat of the hand laid on it. It is the resonator's OWN loss and nothing added: `streson`'s feedback, running from 0.9884 at the open end to 0.70 at the stopped one. Open, the teeth of the comb are narrow and the string sings a clear note; stopped, they broaden and it reads as a knock with a colour rather than a pitch. Measured as comb contrast at the rate the LRO actually runs (4x oversampling): 36.6 dB at 0, 23.5 at 0.25, 18.8 at 0.5, 15.7 at 0.75, 13.4 at 1 -- and the axis is the same at every register, 110/440/880 Hz all within 1 dB of those numbers. It never stops ringing altogether, and the axis stops at 0.70 because that is where a string stops being one: past the TOP of this axis the resonance is let go and what is left is audibly the thing driving it. Loudness across the whole axis and all four registers: 0.022 dB, because `balance` holds it. THE SHIPPED STRING IS THE OPEN ONE, so the default is 0 and the axis only ever stops it.",
      "anchors": {
       "open": {
        "value": 0.0,
@@ -2052,14 +2052,14 @@
    },
    "heard": {
     "status": "nicht abgenommen",
-    "bj_wortlaut": "2026-07-30: \"string gestrichen ist immer noch nur eine notloesung, gezupft ist es mir nicht vorgelegt worden\" -- 2026-08-01/02: \"'bowed string' ist voellig daneben\", \"bow ist auch furchtbar, ein einziges Gezitter\", \"'damp' verzerrt anstatt zu daempfen\", \"alles ist gut bei Damp=0, und wird sofort falsch bei Damp > 0\", \"bei pick kann ich keine unterschied hoeren. Bei bow nur sehr schwach\", \"sound ist insgesamt aber behaltenswert\", \"das gilt allerding seher fuer die tiefen Lagen bei C4 beginnt das rumbeln und klingeln\"",
+    "bj_wortlaut": "2026-07-30: \"string gestrichen ist immer noch nur eine notlösung, gezupft ist es mir nicht vorgelegt worden\" -- 2026-08-01/02: \"'bowed string' ist völlig daneben\", \"bow ist auch furchtbar, ein einziges Gezitter\", \"'damp' verzerrt anstatt zu dämpfen\", \"alles ist gut bei Damp=0, und wird sofort falsch bei Damp > 0\", \"bei pick kann ich keine unterschied hören. Bei bow nur sehr schwach\", \"sound ist insgesamt aber behaltenswert\", \"das gilt allerding seher für die tiefen Lagen bei C4 beginnt das rumbeln und klingeln\"",
     "datum": "2026-08-02",
     "params": {
-     "bow": "nur sehr schwach -- gemessen 0,77 Oktaven Helligkeit zwischen den drei Ankern, und angeregt wird an allen dreien mit `dust`. UNVERAENDERT gelassen (BJ 2026-08-02: nur damp und pick)",
-     "pick": "kein Unterschied -- gemessen: beim ausgelieferten 0.185 liegt die Kerbe zwischen dem 5. und 6. Teilton und nimmt 1,75 dB. Die Achse steht jetzt als Code im Koerper, Bereich 0.10..0.50",
-     "damp": "verzerrte statt zu daempfen und war ueber 0 sofort falsch. Ursache: die Bibliothek lieferte fuer `damp` ueberhaupt keinen Code, der Autor erfand die Zeile bei jeder Generierung neu -- und der lokale 12B scheiterte an derselben Luecke sechsmal hintereinander. Steht jetzt als Code im Koerper"
+     "bow": "nur sehr schwach -- gemessen 0,77 Oktaven Helligkeit zwischen den drei Ankern, und angeregt wird an allen dreien mit `dust`. UNVERÄNDERT gelassen (BJ 2026-08-02: nur damp und pick)",
+     "pick": "kein Unterschied -- gemessen: beim ausgelieferten 0.185 liegt die Kerbe ZWISCHEN dem 5. und 6. Teilton, also wird gar kein Teilton ausgelöscht (1,8 bis 10,0 dB je nach Lage, geschlossene Form 6,6 dB -- gegenüber 34 bis 46 dB dort, wo die Kerbe auf einem Teilton sitzt). Die Achse steht jetzt als Code im Körper, Bereich 0.10..0.50",
+     "damp": "verzerrte statt zu dämpfen und war über 0 sofort falsch. Ursache: die Bibliothek lieferte für `damp` überhaupt keinen Code, der Autor erfand die Zeile bei jeder Generierung neu -- und der lokale 12B scheiterte an derselben Lücke sechsmal hintereinander. Steht jetzt als Code im Körper"
     },
-    "offen": "das Rumpeln ueber C4 ist NICHT behoben und wurde hier auch nicht angefasst: der Antrieb ist Breitbandrauschen, und unter dem gespielten Grundton liegen 38,4 dB (A2) bis 27,8 dB (C6) davon frei. Dieselbe Ursache wie das Gezitter, eigene Entscheidung."
+    "offen": "das Rumpeln über C4 ist NICHT behoben und wurde hier auch nicht angefasst: der Antrieb ist Breitbandrauschen, und unter dem gespielten Grundton liegen 38,4 dB (A2) bis 27,8 dB (C6) davon frei. Dieselbe Ursache wie das Gezitter, eigene Entscheidung."
    }
   },
   {
