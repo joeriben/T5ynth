@@ -792,6 +792,12 @@ SynthPanel::SynthPanel(T5ynthProcessor& processor)
             // The oscillator's colour, because this IS the oscillator's panel —
             // the same kImpulseA the library list is drawn in.
             lroKnobRows[i] = std::make_unique<SliderRow>("", fmtF2, kImpulseA);
+            // The standard bar — name inside it on the left, value inside it on
+            // the right, as in the sequencer and the FX column. The instrument
+            // writes these names, so their length is not knowable here; a bar
+            // clips one word gracefully where a label cell had to be forced to
+            // a width that fits the longest of them.
+            lroKnobRows[i]->setInlineLabel(true);
             addChildComponent(*lroKnobRows[i]);        // shown only when declared
             lroKnobA[i] = std::make_unique<SA>(apvts, kLroIds[i],
                                                lroKnobRows[i]->getSlider());
@@ -807,6 +813,7 @@ SynthPanel::SynthPanel(T5ynthProcessor& processor)
             // host's, not something the library declared, so it is the one row
             // in this card whose word does not travel with the sound.
             lroLevelRows[i] = std::make_unique<SliderRow>("Level", fmtF2, kImpulseA);
+            lroLevelRows[i]->setInlineLabel(true);
             addChildComponent(*lroLevelRows[i]);
             lroLevelA[i] = std::make_unique<SA>(apvts, kLvlIds[i],
                                                 lroLevelRows[i]->getSlider());
@@ -1535,10 +1542,7 @@ void SynthPanel::layoutLroKnobs()
                 || lroLevelRows[static_cast<size_t>(layer - 1)] == nullptr)
                 continue;
             auto cell = (i + 1 == nLayers) ? band : band.removeFromLeft(cellW);
-            auto& lvl = *lroLevelRows[static_cast<size_t>(layer - 1)];
-            lvl.setBounds(cell.reduced(gutter / 2, 0));
-            lvl.setForcedLabelWidth(juce::jmin(lvl.getWidth() / 2,
-                                               juce::roundToInt(f * 5.5f)));
+            lroLevelRows[static_cast<size_t>(layer - 1)]->setBounds(cell.reduced(gutter / 2, 0));
         }
     }
 
@@ -1560,10 +1564,7 @@ void SynthPanel::layoutLroKnobs()
             if (idx < 0 || idx >= kNumLroKnobs || lroKnobRows[static_cast<size_t>(idx)] == nullptr)
                 continue;
             auto& row = *lroKnobRows[static_cast<size_t>(idx)];
-            auto r = inner.removeFromTop(rowH);
-            row.setBounds(r);
-            row.setForcedLabelWidth(juce::jmin(r.getWidth() / 2,
-                                               juce::roundToInt(f * 5.5f)));
+            row.setBounds(inner.removeFromTop(rowH));
         }
     }
 }
