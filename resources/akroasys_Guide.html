@@ -476,7 +476,7 @@ If you prefer to place files yourself, use these directories (each model lives i
 <table>
   <tr><th>Platform</th><th>Models Directory</th></tr>
   <tr><td>macOS</td><td><code>~/Library/T5ynth/models/</code></td></tr>
-  <tr><td>Linux</td><td><code>~/.local/share/T5ynth/models/</code></td></tr>
+  <tr><td>Linux</td><td><code>~/.config/share/T5ynth/models/</code> — this is where models are written. <code>~/.local/share/T5ynth/models/</code> is also scanned, so an existing install there keeps working.</td></tr>
   <tr><td>Windows 11</td><td><code>%APPDATA%\T5ynth\models\</code></td></tr>
 </table>
 <p>
@@ -493,8 +493,9 @@ its own <strong>Language Model</strong> tab in Settings, and the
 <ul>
   <li><strong>Local (the default).</strong> <strong>Gemma 4 12B</strong> — a
   4-bit quantization-aware build of Google's Gemma run through llama.cpp, about
-  7&nbsp;GB, downloaded ungated from HuggingFace under Apache&nbsp;2.0, no
-  account needed. It works on a 16&nbsp;GB machine, and nothing you type ever
+  7&nbsp;GB, downloaded ungated from HuggingFace &mdash; no account needed, but
+  it comes under Google's <strong>Gemma Terms of Use</strong> and Prohibited Use
+  Policy, not an open licence. It works on a 16&nbsp;GB machine, and nothing you type ever
   leaves this computer.</li>
   <li><strong>External API.</strong> If your machine cannot spare the local
   model, pick a provider by name — OpenRouter (US, free-tier models available),
@@ -758,7 +759,7 @@ disables those buttons and keeps <em>Linear</em> active.
   </tr>
   <tr>
     <td><strong>Layer</strong></td>
-    <td>The 16 cross-attention layers of the diffusion transformer are split into a B-zone defined by a two-thumb range slider. Layers inside the zone see Impulse B; layers outside see Impulse A. Different layer ranges produce qualitatively different mixes (low layers → surface texture, mid layers → structural conditioning).</td>
+    <td>The diffusion transformer's cross-attention layers are split into a B-zone defined by a two-thumb range slider. How many there are depends on the model &mdash; 16 in Stable Audio Open Small, 20 in SA3 Small, 24 in SA3 Medium and SAO 1.0 &mdash; and the slider's range follows the model you have selected. Layers inside the zone see Impulse B; layers outside see Impulse A. Different layer ranges produce qualitatively different mixes (low layers → surface texture, mid layers → structural conditioning).</td>
     <td>Two-thumb range slider 0–16, defining the B-zone start and end.</td>
   </tr>
   <tr>
@@ -779,11 +780,10 @@ disables those buttons and keeps <em>Linear</em> active.
 </table>
 
 <div class="note">
-  <strong>The slider relabels itself.</strong> It reads <strong>A ↔ B</strong> in
-  Linear, <strong>Step-in: A → mix</strong> or <strong>Combo 1/2/3: A →
-  mix</strong> in those modes, and <strong>Layer B-zone (low–high)</strong> in
-  Layer, where it becomes a two-thumb range. The label is always what the slider
-  is currently doing.
+  <strong>The slider carries no text.</strong> Its track is an A&rarr;B gradient
+  and its thumb takes the colour of the position it is standing on, which is the
+  whole read-out. In Layer mode it becomes a two-thumb range instead of a single
+  position.
 </div>
 <div class="tip">
   Drift LFOs targeting A/B automatically follow the active mode's
@@ -867,7 +867,7 @@ This is the most granular level of control akróasys offers. It bypasses languag
 </p>
 
 <div class="note">
-  A compact mini-view of the DimExplorer is always visible below the Axes panel. Click it to open the full interactive overlay. The overlay provides <strong>Undo</strong>, <strong>Redo</strong>, and <strong>Reset All</strong> controls for your edits.
+  The Axes panel and the DimExplorer share one box, behind a two-segment switch reading <strong>Semantic Axes</strong> / <strong>Dim Explorer</strong>. Exactly one of them is on screen at a time, and Semantic Axes is the one you start on. Click the DimExplorer to open the full interactive overlay, which adds <strong>Undo</strong>, <strong>Redo</strong> and <strong>Reset All</strong>. Both are hidden in LRO mode.
 </div>
 
 <!-- ═══════════════════════════════════════════ -->
@@ -1681,7 +1681,7 @@ selector in the filter header row.
 
 <h3>Tuning</h3>
 <p>
-A selector next to the waveform display sets the tuning the whole instrument
+The last item in the panel's top mode bar, immediately right of the voice-count buttons, sets the tuning the whole instrument
 plays in: <strong>12-TET</strong> (the default), <strong>Maqam</strong>,
 <strong>Shruti</strong>, <strong>Pelog</strong> and <strong>Slendro</strong>. It
 applies to both oscillators and to everything that generates notes — keyboard,
@@ -1705,7 +1705,7 @@ off (<code>---</code>) and route anywhere in the list below.
   <tr><td><strong>Decay</strong></td><td>0 – 5000 ms</td><td></td></tr>
   <tr><td><strong>Sustain</strong></td><td>0.0 – 1.0</td><td></td></tr>
   <tr><td><strong>Release</strong></td><td>0 – 10 000 ms</td><td></td></tr>
-  <tr><td><strong>A / D / R Curve</strong></td><td>Log / SLog / Lin / SExp / Exp</td><td>Per-stage slope shape. Each of the three stages (Attack, Decay, Release) has its own 5-position selector, so an envelope can e.g. be linear on the way up but exponential on release. Minimum ramp 3&nbsp;ms on every stage. Defaults: A = Lin, D = Lin, R = Exp. See the <em>Curve shapes</em> note below the table.</td></tr>
+  <tr><td><strong>A / D / R Curve</strong></td><td>Log / SLog / Lin / SExp / Exp</td><td>Per-stage slope shape. There is no selector and the current name is not shown: <strong>click the segment body in the ADSR graph</strong> to cycle that stage's curve. Three stages carry one (Attack, Decay, Release) has its own 5-position selector, so an envelope can e.g. be linear on the way up but exponential on release. Minimum ramp 3&nbsp;ms on every stage. Defaults: A = Lin, D = Lin, R = Exp. See the <em>Curve shapes</em> note below the table.</td></tr>
   <tr><td><strong>Amount</strong></td><td>0.0 – 1.0</td><td>Envelope ceiling — the maximum level the envelope can reach. Drag the peak handle on the ADSR graph vertically; the whole shape scales proportionally. At 1.0 the envelope reaches full range; at 0.5 it peaks at half regardless of ADSR times.</td></tr>
   <tr><td><strong>A / D / R Vel Sens</strong></td><td>−1.0 – +1.0</td><td>Per-stage velocity sensitivity for <em>timing</em>. Positive: harder hits shorten the stage (snappier attack or decay). Negative: harder hits lengthen it. 0 = fixed timing. Held-phase (pressure) response is handled by the <strong>AT</strong> panel.</td></tr>
   <tr><td><strong>Loop</strong></td><td>on / off</td><td>Runs the envelope as an A&ndash;D&ndash;Hold&ndash;R cycle. In loop mode <strong>Sustain stops being a level</strong> and sets the hold time of each cycle.</td></tr>
@@ -1883,7 +1883,7 @@ Click a one-shot slot to cycle Normal / Accent / Mute. The step's <strong>On</st
   <tr><td><strong>Glide ramp</strong></td><td>—</td><td>Not a control. The ramp follows the tempo: a quarter of the step's length, clamped between 10 and 200&nbsp;ms.</td></tr>
   <tr><td><strong>Octave Shift</strong></td><td>-2 … +2</td><td>Transposes all steps</td></tr>
   <tr><td><strong>Presets</strong></td><td>10 built-in patterns</td><td>Octave Bounce, Wide Leap, Off-Beat Minor, Glide Groove, Sparse Stab, Rising Arc, Scatter, Chromatic, Bass Walk, Gated Pulse</td></tr>
-  <tr><td><strong>Save / Load</strong></td><td>S / L buttons</td><td>Patterns are stored separately from presets, as <code>.t5seq</code> files in the app's <code>sequences</code> folder. <strong>L</strong> opens a Sequence Library with rename and delete.</td></tr>
+  <tr><td><strong>Save / Load</strong></td><td>Floppy-disk and folder icons</td><td>Both open the same overlay, titled <em>Save Pattern</em> or <em>Load Pattern</em>. Patterns are stored separately from presets, as <code>.t5seq</code> files in the app's <code>sequences</code> folder. <strong>L</strong> opens a Sequence Library with rename and delete.</td></tr>
 </table>
 
 <div class="note">
@@ -1910,7 +1910,7 @@ Press the <strong>GEN</strong> button to switch from the manual step sequencer t
   <tr><td><strong>Scale Type</strong></td><td>28 scales</td><td>Quantizes notes to scale degrees. <strong>Chromatic</strong> (the first entry) means no quantization. Then Major, Minor, Penta, Dorian, Harm.Min, WhlTone, Mixolyd, Phrygian, Lydian, Locrian, MinPent, Blues, Mel.Min, Hirajoshi, In-sen, Iwato, Kumoi, Ryukyu, Hijaz, DblHarm, R.Todi, R.Purvi, Persian, Hung.Min, Neap.Min, Pelog, Slendro.</td></tr>
 </table>
 
-<h4>Fix Toggles (Lock Icons)</h4>
+<h4>FIX Toggles</h4>
 <p>
 Each Euclidean parameter (Steps, Pulses, Rotation, Mutation) has a lock toggle. When unlocked, that parameter itself drifts over time — the pattern length, density, rotation, and mutation rate all evolve. Lock what you want stable, unlock what you want to breathe.
 </p>
@@ -2056,7 +2056,7 @@ and the current preset's name, and carries the controls that belong to no panel:
   <tr><td><strong>Init</strong></td><td>Returns the instrument to its initial state.</td></tr>
   <tr><td><strong>Save</strong></td><td>Opens the Library in save mode (also <strong>Ctrl/Cmd+S</strong>).</td></tr>
   <tr><td><strong>Library</strong></td><td>The preset browser: load, import, tag-filter, rename, duplicate, delete, and <em>Update Library</em>.</td></tr>
-  <tr><td><strong>Export</strong></td><td>Three items: <strong>Export WAV…</strong> writes the current sound to a file (it reads <em>Export Wavetable</em> in Wavetable mode); <strong>Save Session Log…</strong> and <strong>Play Session Log…</strong> are the two ends of the <a href="#sessionlog">session log</a>.</td></tr>
+  <tr><td><strong>Export</strong></td><td>Three items: <strong>Export WAV…</strong> writes the current sound to a file (the item always reads that; only the file-chooser's own title says <em>Export Wavetable</em> in Wavetable mode); <strong>Save Session Log…</strong> and <strong>Play Session Log…</strong> are the two ends of the <a href="#sessionlog">session log</a>.</td></tr>
   <tr><td><strong>Settings</strong></td><td>The three-tab panel described in <a href="#setup">Setup</a>. It carries an accent dot when an update is available.</td></tr>
   <tr><td><strong>Manual</strong></td><td>This document.</td></tr>
   <tr><td><strong>Panic</strong></td><td>All notes off, immediately. The one button worth knowing before you need it.</td></tr>
@@ -2100,9 +2100,9 @@ one-shot voices switched under a running Step Sequencer pattern.
   <tr><td><strong>Ctrl/Cmd+S</strong></td><td>Open the Library in Save mode.</td></tr>
   <tr><td><strong>Space</strong></td><td>While step recording is armed, enters a rest and advances the cursor.</td></tr>
   <tr><td><strong>1 / 2 / 3 / 4</strong></td><td>Recall snapshot slots 1–4. <strong>Shift+1</strong> … <strong>Shift+4</strong> stores the current state into a slot.</td></tr>
-  <tr><td><strong>Kbd</strong> in the status bar or <strong>Ctrl/Cmd+K</strong></td><td>Enable computer-keyboard note input: twenty keys, two octaves and a fifth from C4, laid out like a piano across the two letter rows (<code>a w s e d f t g y h u j k o l p</code> …). The keys are read by physical position, so the layout works on any national keyboard. <strong>y</strong> / <strong>x</strong> shift the octave, over a range of −5 to +4. Input is ignored automatically while a text field or overlay is active.</td></tr>
+  <tr><td><strong>Kbd</strong> in the status bar or <strong>Ctrl/Cmd+K</strong></td><td>Enable computer-keyboard note input: twenty keys, C4 to G5 — an octave and a fifth, laid out like a piano across the two letter rows (<code>a w s e d f t g y h u j k o l p</code> …). The keys are read by physical position, so the layout works on any national keyboard. <strong>y</strong> / <strong>x</strong> shift the octave, over a range of −5 to +4. Input is ignored automatically while a text field or overlay is active.</td></tr>
   <tr><td><strong>MIDI Pitch Bend</strong></td><td>±2 semitones by default, and settable by the standard RPN&nbsp;0 message (CC101/100/6) if your controller sends one.</td></tr>
-  <tr><td><strong>MPE</strong></td><td>Fully supported. Per-note channels 2–15 each carry their own pitch bend (±24 semitones by default), their own pressure as MPE Loudness, and their own timbre on CC74; the master channel's pressure applies to the whole zone. An MPE controller therefore plays this instrument per note, not per keyboard.</td></tr>
+  <tr><td><strong>MPE</strong></td><td>Fully supported. Per-note pitch bend is read on channels 2–16 (±24 semitones by default); per-note pressure and CC74 use 2–15. Their own pressure as MPE Loudness, and their own timbre on CC74; the master channel's pressure applies to the whole zone. An MPE controller therefore plays this instrument per note, not per keyboard.</td></tr>
   <tr><td><strong>CC1 / CC2</strong></td><td>Mod Wheel and Breath feed the same performance-pressure route as aftertouch, using the <strong>AT</strong> target and amount.</td></tr>
   <tr><td><strong>CC7 / CC11</strong></td><td>Channel Volume and Expression scale the live voice output.</td></tr>
   <tr><td><strong>MIDI CC64</strong></td><td>Sustain pedal. Notes released while the pedal is down keep sounding until CC64 returns below 64.</td></tr>
@@ -2141,7 +2141,7 @@ nothing to configure.
 akróasys uses <code>.t5p</code> preset files — a binary container that stores:
 </p>
 <ul>
-  <li>Every parameter value — over three hundred of them</li>
+  <li>Every parameter value but one — 281 of them. <strong>Master Volume is not stored</strong>, so loading a preset never changes your output level.</li>
   <li>Which oscillator was active</li>
   <li><strong>T5 Oscillator:</strong> both impulse texts, the generated audio itself
     (PCM, so the preset sounds right without re-generating), the inference cache
@@ -2666,7 +2666,7 @@ the modes are predictable rather than mysterious.
 <p>
 The Stable Audio Open diffusion transformer (DiT) consumes the
 text-conditioning embedding via <strong>cross-attention</strong>: every one of
-its 16 transformer blocks contains a <code>cross_attn</code> layer
+its transformer blocks contains a <code>cross_attn</code> layer
 that mixes the audio latent with a projected version of the
 T5-encoded text. The cross-attention <em>conditioning tensor</em>
 enters the DiT once per sampler step, gets projected through a
@@ -2684,7 +2684,7 @@ along two orthogonal axes:
 </ol>
 <p>
 The Combo modes combine both axes simultaneously: at a given step,
-each of the 16 blocks may see a different mix.
+each block may see a different mix.
 </p>
 
 <h3>The two PyTorch hooks that do the work</h3>
@@ -2766,8 +2766,12 @@ moderate slider settings.
 <p>
 The cross-attention layers in the SA Open Small DiT are not
 interchangeable — they appear to perform different work at different
-depths. The current Combo tuples (Combo 1 = blocks 0..3, Combo 2 =
-blocks 4..11, Combo 3 = blocks 6..9) reflect listening-test findings:
+depths. The Combo bands are <em>fractions</em> of whatever depth the selected model
+has, so the geometry stays proportional: Combo&nbsp;1 takes the lower quarter,
+Combo&nbsp;2 the broad middle (quarter to three-quarter), Combo&nbsp;3 a narrow
+centre (three-eighths to five-eighths). On the 16-block SA Open Small DiT those
+come out as blocks 0&ndash;3, 4&ndash;11 and 6&ndash;9, which is where the
+listening-test findings below were made:
 </p>
 <ul>
   <li><strong>Surface (low blocks)</strong> — narrow effect.
@@ -3010,13 +3014,15 @@ run through llama.cpp on your machine. Not bundled &mdash; installed from the
 Models tab, or replaced by an external provider.
 </p>
 
-<h3>CLAP &amp; Qwen2.5-1.5B-Instruct</h3>
+<h3>CLAP</h3>
 <p>
 <strong>CLAP:</strong> <a href="https://huggingface.co/laion/clap-htsat-unfused">laion/clap-htsat-unfused</a>, Apache&nbsp;2.0 &mdash; the machine-listening model
 <a href="#drift">Re-Prompt</a> uses to rank rendered audio against a tag
 vocabulary. About 1&nbsp;GB, fetched the first time a stance is engaged.<br>
-<strong>Qwen2.5-1.5B-Instruct:</strong> <a href="https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct">Qwen/Qwen2.5-1.5B-Instruct</a>, Apache&nbsp;2.0 &mdash; the small local
-instruct model that rewrites the prompt under the chosen stance.
+The rewriting itself is done by the instrument's one language model &mdash; the
+local Gemma&nbsp;4 12B, or the external provider you configured. There is no
+second, smaller instruct model; the separately-installed 1.5B translator that
+used to do this is gone.
 </p>
 
 <h3>JUCE Framework</h3>
