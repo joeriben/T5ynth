@@ -91,6 +91,20 @@ def authorisation(entry):
     status = h.get("status")
     if not (isinstance(status, str) and HEARD_STATUS.get(status)):
         return None
+
+    # VERSION CONTROL (BJ, 2026-07-31: „inkl. versionsverwaltung"). His verdict is
+    # about the instrument he HEARD, and nothing stopped the body being rewritten
+    # afterwards while the verdict stayed behind, still naming the entry, by then
+    # describing a sound nobody had listened to. `heard.version` is a hash over the
+    # fields that make the sound (tools/lco_approvals.py); when it no longer matches,
+    # the approval is withheld here and the entry leaves the panel by itself until he
+    # has heard the new version and it is restamped. An approval with NO version is
+    # withheld too — an unbound verdict is exactly the state this closes. Prose does
+    # not invalidate anything: `why`, surface forms and listening notes are outside
+    # the hash on purpose.
+    from lco_approvals import version_of
+    if h.get("version") != version_of(entry):
+        return None
     # `bj_wortlaut` is everything he said ABOUT the entry, and only one of those
     # sentences is usually the verdict: `ep_fm3` carries a judgement of its
     # predecessor and a build instruction alongside „ok, ep_fm3 funktioniert gut,
