@@ -546,6 +546,7 @@ The library declares what is playable about each of its bodies, and you can see 
 EVERY SUCH LINE YOU KEEP IN YOUR BODY BECOMES A SLIDER under the player's hands. The host connects it to the slider itself — you never write `kp` anything, you never declare anything after READING. Write the line and it is wired.
 
 - KEEP THE LINE WHOLE: the variable, a plain NUMBER, and the comment `; name[lo..hi]: what it does`, exactly as the library wrote it. Delete the comment and the sound is unchanged but the player loses the knob. Replace the number with an expression and the same is true — a knob is a number somebody can turn.
+- THE BRACKET IS NOT YOURS. `[lo..hi]` is the travel the player's slider is wired to, and it is the library's measurement of what that axis can take. Widen it, narrow it, or write a different one and the line is no longer that parameter: it stays in your code and works exactly as you wrote it, but it gives no knob.
 - KEEP IT WHERE THE LIBRARY PUT IT: at the TOP, ABOVE every line that reads the variable. Csound runs your body from the first line to the last, and a variable used before the line that sets it does not compile — `Variable 'kwidth' used before defined`. Collecting these lines at the end of the body, as if they were a declaration block, is the one way to lose a whole orchestra to this.
 - THE NUMBER IS YOURS, and it is the only part that is. It is where the knob STARTS, so write the value this sound wants; the player hears that first and moves away from it. Use the range in the brackets and stay inside it.
 - KEEP WHAT IS WORTH PLAYING for the sound you are writing, and let the rest go: a parameter you have no use for can be folded into your code as a plain number with no comment. Three per body is a good instrument; twelve is a wall.
@@ -798,25 +799,36 @@ def _param_lines(code):
             if not any(a <= m.start() < b for a, b in blocks)]
 
 
-def read_controls(body, sel=None):
+def read_controls(body):
     """The library parameters that survived into the body — the player's knobs.
 
     A knob is not something the author declares. It is a line of the library's
     own shape (`_LIBPARAM`) standing in the written body, and the author's only
-    say in it is the NUMBER: where the knob starts. The name, the range and the
-    words under it come from the entry that declares the parameter, so the panel
-    shows the library's vocabulary and cannot show anything else.
+    say in it is the NUMBER: where the knob starts. The name and the range must
+    be a parameter the library declares, so the panel shows the library's
+    vocabulary and can show nothing else; the words under it come from the line,
+    which is where the library wrote them.
 
-    `sel` is what `open_entries` put in front of the author; None means the whole
-    library, which is what a hand-edited body gets — there was no authoring turn
-    to have opened anything.
+    EVERYTHING HERE IS A FUNCTION OF THE BODY ALONE. What the authoring turn
+    opened is deliberately not consulted: it was, and that was a defect — the
+    same body then yielded different knobs on different channels depending on
+    which entries happened to be open, so recompiling an UNEDITED body (which has
+    no selection to consult at all) moved the player's `bowl` position onto
+    `detune`. Since the author can only copy a line out of an entry it was shown,
+    reading against the whole library costs nothing and makes the two paths agree
+    by construction.
 
     Refused, and reported rather than silently dropped:
-      * a name no opened entry declares. That is the author inventing a knob,
+      * a name the library does not declare. That is the author inventing a knob,
         and an invented one is exactly what this path exists to make impossible.
+      * a bracket that disagrees with the range the owning entry declares. The
+        range is the library's, not the author's: a `pick [0.25..0.35]` line
+        widened to `[0.0..1.0]` wires a slider that takes the instrument down
+        45 dB at both ends, and no compile and no `perform_check` sees it. Whose
+        range it was is then not decidable here, so it is not a knob.
       * a fourth column, or a fifth knob in a column: three parts of four is what
         the panel holds.
-    A starting value outside its own bracket is CLAMPED with a note, the same way
+    A starting value outside that range is CLAMPED with a note, the same way
     `read_settings` treats one — the number is a position, the knob is the
     deliverable."""
     code = body or ""
@@ -824,30 +836,28 @@ def read_controls(body, sel=None):
     if not hits:
         return {"parts": [], "params": [], "refused": []}
 
-    shelf = _shelf_params(sel)
+    shelf = _shelf_params()
     present = {m.group("name").strip() for m in hits}
     # WHICH ENTRY a name belongs to, when several declare it — `pick` is both
     # `plucked_wire`'s and `string`'s, `ring` belongs to four. This decides the
-    # COLUMN and its caption. It does NOT decide the wire: that is the bracket in
-    # the line itself, which stands beside the code that reads the value and is
-    # therefore the only range that is safe to map onto (an earlier version wired
-    # the winning ENTRY's declared range instead, and a `pick [0.25..0.35]` line
-    # captured by `string`'s 0..1 lost 45 dB at both ends of its own slider).
+    # COLUMN and its caption, and which declared range the line must match.
     #
-    # The vote is the FRACTION of an entry's parameters the body carries, not the
-    # count: an entry all of whose axes are present is the one that was opened
-    # and used, while a big entry that happens to share two names is not. A
-    # matching bracket outranks both — it is direct evidence of where the line
-    # was copied from. Ties fall to the entry the library lists first.
+    # COUNT FIRST: the entry whose other parameters this body also carries is the
+    # one it was written from. Not the fraction of that entry's own parameters —
+    # normalising by entry size hands `drive` to the two-parameter `driven_metal`
+    # over the five-parameter `analog_osc` whose other axis is right there, and
+    # splits one oscillator across two columns. Then a matching bracket, which
+    # discriminates the three names whose entries declare different ranges; then
+    # the fraction; then the library's own order.
     def owner_of(name, lo, hi):
         cands = shelf.get(name) or []
         if not cands:
             return None
         def score(r):
+            hit = len(r["siblings"] & present)
             same = 1 if (abs(r["range"][0] - lo) < 1e-9
                          and abs(r["range"][1] - hi) < 1e-9) else 0
-            covered = len(r["siblings"] & present) / max(1, len(r["siblings"]))
-            return (same, covered, len(r["siblings"] & present), -r["order"])
+            return (hit, same, hit / max(1, len(r["siblings"])), -r["order"])
         return max(cands, key=score)
 
     parts, params, refused, column = [], [], [], {}
@@ -867,6 +877,19 @@ def read_controls(body, sel=None):
         if rec is None:
             refused.append(f"{m.group('var')} — `{name}` is not a library parameter; "
                            f"only what the library declares becomes a knob")
+            continue
+        # THE RANGE IS THE LIBRARY'S TOO, and this is where that is enforced. A
+        # bracket the author changed is not a narrower knob, it is a knob whose
+        # provenance is gone: widened to a rival entry's range it is silently the
+        # wrong axis, and nothing downstream can see it — it compiles, it plays,
+        # and it takes the instrument down 45 dB at both ends of its own slider.
+        # So it is not a knob. The line still stands in the body exactly as
+        # written and the sound is unchanged; only the slider is withheld.
+        dlo, dhi = rec["range"]
+        if abs(dlo - lo) > 1e-9 or abs(dhi - hi) > 1e-9:
+            refused.append(f"{name} — the line reads {lo:g}..{hi:g} where "
+                           f"{rec['entry']} declares {dlo:g}..{dhi:g}; the range "
+                           f"is the library's, so this is no longer its parameter")
             continue
         if rec["key"] not in column:
             if len(parts) >= LRO_PARTS:
@@ -888,26 +911,15 @@ def read_controls(body, sel=None):
             continue
         pos, note = (v - lo) / (hi - lo), ""
         if pos < 0.0 or pos > 1.0:
-            note = f"the body set {v:g}, outside its own {lo:g}..{hi:g}"
+            note = f"the body set {v:g}, outside {name}'s {lo:g}..{hi:g}"
             pos = max(0.0, min(1.0, pos))
-        # The line's own bracket against the one the library declares. They agree
-        # whenever the line was kept as it stands, which is the normal case; when
-        # they do not, the line still wins — it is what the code beside it was
-        # written for — and the disagreement is said out loud rather than
-        # resolved in silence.
-        dlo, dhi = rec["range"]
-        if abs(dlo - lo) > 1e-9 or abs(dhi - hi) > 1e-9:
-            note = (note + "; " if note else "") + \
-                   f"the line reads {lo:g}..{hi:g} where {rec['entry']} declares " \
-                   f"{dlo:g}..{dhi:g}; the line stands"
         slot = LRO_SLOTS[taken]
         params.append({"ch": f"lroP{n}{slot}", "part": n, "slot": slot,
                        "name": _knob_label(name), "value": pos,
-                       # The library's own words when the line still carries the
-                       # range they were written about; the line's otherwise,
-                       # because then they describe different travel.
-                       "gloss": (rec["gloss"] if (rec["gloss"] and not note)
-                                 else m.group("gloss").strip() or rec["gloss"]),
+                       # The library's own short line on the parameter; the one in
+                       # the body only if the entry has none (five entries declare
+                       # parameters they never write a line for).
+                       "gloss": rec["gloss"] or m.group("gloss").strip(),
                        "note": note,
                        # For `wire_controls`, which rewrites exactly these lines:
                        # `line` is the ordinal among `_param_lines`, and lo/hi the
@@ -2409,8 +2421,9 @@ def compile_body(body):
     # The person editing is the author now, and the knobs come from the same
     # place: the library parameter lines standing in the text. So editing one
     # line of Csound cannot silently take a slider away, and writing a library
-    # line into the editor by hand gives one — with no library selection to
-    # consult, the WHOLE library declares what a knob may be.
+    # line into the editor by hand gives one — the same knobs on the same
+    # channels this body had when it was authored, because `read_controls` reads
+    # the body and nothing else.
     controls = read_controls(body)
     orchestra = wrap(wire_controls(body, controls), controls)
     try:
@@ -2578,7 +2591,7 @@ def build_csound_response(text, llm, correction="", previous="",
         # the wiring rewrites the body's own lines, and their starting values are
         # the head's `chnset` lines — so what is checked is the wired orchestra
         # at the position the author put each knob, not a different body at 0.5.
-        controls = read_controls(body, sel)
+        controls = read_controls(body)
         orchestra = wrap(wire_controls(body, controls), controls)
         try:
             ok, err = syntax_check(orchestra)

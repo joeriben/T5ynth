@@ -356,13 +356,19 @@ described. `line`/`lo`/`hi` are the wiring's own record — which `_LIBPARAM` ma
 the knob is and what range its 0..1 maps back onto — and the client ignores them.
 A column is one library entry, under the name the library gives it, and the
 grid holds three of four. `refused` carries every line that was thrown away and
-why: a name the library does not declare (the author inventing a knob), a fourth
-column, a fifth knob in a column. It travels with the sound — into the preset —
-but no client draws it today, so a refused line reaches the player as a knob that
-is simply not there. `note` says when a starting value was clamped into its own
-bracket, or when that bracket disagrees with the one the library declares (the
-line wins, because it is what the code beside it was written for); it stays in
-this response and does not travel further. A body that keeps no library line yields empty
+why: a name the library does not declare (the author inventing a knob), a bracket
+that disagrees with the range that entry declares (the range is the library's,
+so a changed one means the line is no longer that parameter — it stays in the
+body and sounds as written, it just gives no slider), a fourth column, a fifth
+knob in a column. It travels with the sound — into the preset — but no client
+draws it today, so a refused line reaches the player as a knob that is simply not
+there. `note` says when a starting value was clamped into the parameter's range;
+it stays in this response and does not travel further.
+
+Everything in `controls` is a function of the BODY alone — never of which library
+entries an authoring turn happened to open. That is what makes `csound_compile`
+of an unedited body return the same knobs on the same channels as the authoring
+that wrote it; a client may rely on it. A body that keeps no library line yields empty
 lists, which is a legitimate answer and not an error. A client older than this
 field ignores it; a backend older than it omits it, and the panel then shows no
 knobs.
