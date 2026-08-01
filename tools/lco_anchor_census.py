@@ -2,15 +2,20 @@
 """Does every ANCHOR the author is handed still move, at every register?
 
 The movement gate asks its question of the DEFAULT body at 220 Hz. But what the
-author is actually handed is `anchor_code` -- one whole body per named anchor (409 of
-them at lexicon_version 40; `_ANCHOR_COUNT` below fails the run if that has moved)
--- and a named anchor is a recommendation. An anchor that stands still at 55 Hz is a
-recommendation to break a platform fundamental ("movement by default",
-`docs/LCO_CONCEPT.md` §4), and until this file existed nothing looked.
+author is actually handed is `anchor_code` -- one whole body per named anchor (81 of
+them for 173 declared anchors at lexicon_version 28; `_ANCHOR_COUNT` below flags the
+run if that has moved) -- and a named anchor is a recommendation. An anchor that
+stands still at 55 Hz is a recommendation to break a platform fundamental ("movement
+by default", `docs/LCO_CONCEPT.md` §4), and until this file existed nothing looked.
 
 It reads the shipped `anchor_code` where there is one, because that string is what
 the author gets; where there is none it falls back to `lco_axis_probe.with_axis` on
-the declared value, and it says which of the two it used per row.
+the declared value, and it says which of the two it used per row. Reading it is the
+whole job and it was the part that did not work: the lookup built `damp=damped`
+against keys of the form `damp=0.5  (damped: ...)`, so it missed EVERY anchor in the
+lexicon and quietly measured a reconstruction of the base body instead -- while
+reporting the three anchors it could not reconstruct as bodies that do not exist.
+`anchor_bodies` is what reads them now.
 
 Two things it deliberately does NOT do:
 
@@ -42,6 +47,7 @@ instance, and `drum_head`'s coherence collapses from 0.099 to 0.000.
 import argparse
 import collections
 import json
+import re
 import sys
 import time
 from pathlib import Path
@@ -55,7 +61,7 @@ import lco_measure as M  # noqa: E402
 REGISTERS = (55.0, 110.0, 220.0, 440.0, 880.0, 1760.0)
 # The plugin's voice instances have been running since load, so a fresh instance is
 # not the case that matters. Long enough to settle a `balance` averager, short enough
-# that a full run's renders still finish -- 409 anchors x 6 registers as of v40.
+# that a full run's renders still finish -- 173 anchors x 6 registers as of v28.
 PREROLL = 0.5
 # `moves()`'s own two thresholds, restated here so the classifier splits on exactly
 # what the verdict used. Splitting on a raw hertz span instead mislabelled 28 of 250
@@ -66,8 +72,52 @@ MIN_COHERENCE = 0.35
 # were measured, and at which lexicon version. Checked at every full run, because this
 # file's own numbers went stale inside a day: it said 355 anchors and 2130 renders while
 # the lexicon had moved to 385 and then 409. A docstring nobody can trust is the same
-# loss as a tool nobody runs.
-_ANCHOR_COUNT = (409, 40)
+# loss as a tool nobody runs. It then went stale the other way and stayed there: the
+# revert of 39 entries (defd42c9) took the lexicon from 409 anchors at version 40 down
+# to 173 at version 25, and this constant went on naming the pre-revert library.
+_ANCHOR_COUNT = (173, 28)
+
+
+_ANCHOR_KEY = re.compile(r"^(?P<axis>[^=]+)=(?P<value>[^(]*)(?:\((?P<name>[^:)]+)[:)])?")
+
+
+def anchor_bodies(entry):
+    """`anchor_code` indexed the way an anchor can actually be looked up.
+
+    The keys are `axis=VALUE  (name: gloss)` — `damp=0.5  (damped: …)`. This file
+    used to build `f"{axis}={aname}"` and ask for `damp=damped`, which matches
+    nothing: the branch was dead for the ENTIRE lexicon, 0 of 173 anchors, so every
+    row was silently a `with_axis` reconstruction of the base body and the three
+    `string/bow=*` anchors were reported as not existing while their bodies sat in
+    the entry. The comment that stood here asserted the exact inverse ("every
+    shipped anchor has an `anchor_code`", so the fallback is never taken).
+
+    Indexed by NAME and by VALUE, because neither alone covers the shipped keys:
+    16 anchors match only by name (`plucked_wire`'s `refl=0.70` against a declared
+    0.7) and `fm3`'s `ratio 3=2.5  (under, low: …)` only by value, its key naming
+    two words where `params` names one. Ambiguity is impossible in the current
+    lexicon (no axis repeats a name) and would silently pick one, so it raises.
+    """
+    by_name, by_value = {}, {}
+    for key, body in (entry.get("anchor_code") or {}).items():
+        m = _ANCHOR_KEY.match(key)
+        if not m:
+            continue
+        axis = m.group("axis").strip()
+        for index, field in ((by_name, "name"), (by_value, "value")):
+            token = (m.group(field) or "").strip()
+            if not token:
+                continue
+            if field == "value":
+                try:
+                    token = float(token)
+                except ValueError:
+                    pass
+            if (axis, token) in index:
+                raise SystemExit(f"{entry['key']}: two anchor_code keys claim "
+                                 f"{axis}={token!r} — one of them will never be read")
+            index[(axis, token)] = body
+    return by_name, by_value
 
 
 def census(keys=None, registers=REGISTERS):
@@ -81,23 +131,25 @@ def census(keys=None, registers=REGISTERS):
         params = e.get("params") or {}
         if not params:
             continue
-        codes = e.get("anchor_code") or {}
+        by_name, by_value = anchor_bodies(e)
         texture = P.declares_texture(e["code"])
         for axis, spec in params.items():
             for aname, anchor in (spec.get("anchors") or {}).items():
                 ck = f"{axis}={aname}"
-                if ck in codes:
-                    body, src = codes[ck], "anchor_code"
+                body = by_name.get((axis, aname)) or by_value.get((axis, anchor["value"]))
+                if body is not None:
+                    src = "anchor_code"
                     # A default-valued anchor's `anchor_code` IS the default body, so
                     # its row is a re-measurement of the default and not of a variant.
                     # A minority of shipped anchors are in that position.
                     if body == e["code"]:
                         src = "anchor_code (= the default body)"
                 else:
-                    # Currently never taken: every shipped anchor has an
-                    # `anchor_code`. Kept for an entry that has not been generated yet,
-                    # and `with_axis` EXITS rather than returning the body unchanged
-                    # when there is no line to set, which is why that is caught here.
+                    # Taken by 100 of the 173 shipped anchors: an entry may declare an
+                    # axis in words long before it ships an exemplar for it, which is
+                    # what `lco_param_audit`'s S4 counts. `with_axis` EXITS rather than
+                    # returning the body unchanged when there is no line to set, which
+                    # is why that is caught here.
                     try:
                         body, src = (P.with_axis(e["code"], axis, anchor["value"]),
                                      "with_axis")
