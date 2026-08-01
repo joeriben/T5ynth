@@ -430,7 +430,7 @@ After a manual install, click *Auto-Scan* in Settings to register the model.
 
 ## License
 
-akróasys is licensed under the **GNU General Public License v3.0** — see [LICENSE](LICENSE).
+akróasys is licensed under the **GNU General Public License v3.0** — see [LICENSE.txt](LICENSE.txt).
 
 This means you are free to use, modify, and redistribute akróasys, provided that derivative works are also released under GPLv3 with source code available.
 
