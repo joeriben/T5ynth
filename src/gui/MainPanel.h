@@ -391,7 +391,7 @@ private:
     bool seqLibraryVisible = false;
 
     // Manual overlay — native WebView renders the shipped HTML guide
-    // (resources/T5ynth_Guide.html), bundled via juce_add_binary_data.
+    // (resources/akroasys_Guide.html), bundled via juce_add_binary_data.
     Scrim manualScrim;
     juce::Component manualPanel;
     juce::WebBrowserComponent manualWeb { juce::WebBrowserComponent::Options{} };

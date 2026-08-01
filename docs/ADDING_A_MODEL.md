@@ -605,24 +605,24 @@ models are documented at lines 7-54). That file should be updated in the
 same commit that lands AudioLDM2 support — if you are adding a fourth
 engine, add the AudioLDM2 section while you are there.
 
-### 7.2 `resources/T5ynth_Guide.html` — Third-Party Components
+### 7.2 `resources/akroasys_Guide.html` — Third-Party Components
 
 The Third-Party Components section starts at
-`resources/T5ynth_Guide.html:1113` (heading `<h2 id="thirdparty">`).
+`resources/akroasys_Guide.html:1113` (heading `<h2 id="thirdparty">`).
 Existing model subsections:
 
-- Stable Audio Open 1.0 & Small — `resources/T5ynth_Guide.html:1118-1129`
+- Stable Audio Open 1.0 & Small — `resources/akroasys_Guide.html:1118-1129`
   (shared `<h3>`)
-- AudioLDM2 — `resources/T5ynth_Guide.html:1131-1139`
+- AudioLDM2 — `resources/akroasys_Guide.html:1131-1139`
 
 Add a new `<h3>` subsection with publisher, license, URL, and the license
 terms in one paragraph. Mirror the HTML format of the AudioLDM2 block for
 non-commercial models; the Stability block for revenue-threshold models.
 
-### 7.3 `resources/T5ynth_Guide.html` — Setup: Model Installation
+### 7.3 `resources/akroasys_Guide.html` — Setup: Model Installation
 
 Separate from the legal section, the Setup chapter at
-`resources/T5ynth_Guide.html:246` ("Setup: Model Installation") has a
+`resources/akroasys_Guide.html:246` ("Setup: Model Installation") has a
 `<h4>` per model:
 
 - Stable Audio Open Small — line 256-276 (6-step browser walkthrough)
@@ -642,7 +642,7 @@ license, the walkthrough text (both `updateStatus()` and the HTML guide)
 
 verbatim or paraphrased with equivalent force. See the AudioLDM2
 precedent at `src/gui/SetupWizard.cpp:1014-1015` and
-`resources/T5ynth_Guide.html:283`. This is not legal advice — it is how
+`resources/akroasys_Guide.html:283`. This is not legal advice — it is how
 T5ynth has chosen to be honest with its users about the difference
 between "commercial up to $1M" and "no commercial".
 
@@ -776,7 +776,7 @@ Add one `else if` branch to `updateStatus()` at
 **`THIRD_PARTY_LICENSES.txt`** — add a `## Foo Audio` section between
 the existing model sections (see §7.1).
 
-**`resources/T5ynth_Guide.html`** — add a `<h4>Foo Audio</h4>` block
+**`resources/akroasys_Guide.html`** — add a `<h4>Foo Audio</h4>` block
 in the Setup chapter (after line 284) and a `<h3>Foo Audio</h3>` block
 in the Third-Party Components chapter (after line 1139).
 

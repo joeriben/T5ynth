@@ -3,8 +3,8 @@
 Code-level walkthrough for C++/JUCE developers new to the project. This document
 describes *where code lives* and *how the C++ layers are wired together*. It
 deliberately does **not** cover the audio signal flow — that is documented in
-`resources/T5ynth_Guide.html`, section 16 ("Signal flow reference"), which is
-shipped as `BinaryData::T5ynth_Guide_html` and reachable from the plugin's
+`resources/akroasys_Guide.html`, section 16 ("Signal flow reference"), which is
+shipped as `BinaryData::akroasys_Guide_html` and reachable from the plugin's
 `Manual` button.
 
 For sibling docs written alongside this one, see the cross-reference list at
@@ -39,7 +39,7 @@ t5ynth/
 │   ├── ir/                     # Convolution reverb impulse responses (.wav)
 │   ├── presets/                # Bundled .t5p presets (seeded into the UCDCAE AI Lab bank on first launch)
 │   ├── logos/                  # App icon, about-dialog logos
-│   └── T5ynth_Guide.html       # HTML user manual (rendered by WebBrowserComponent)
+│   └── akroasys_Guide.html       # HTML user manual (rendered by WebBrowserComponent)
 ├── docs/                       # Developer documentation (you are here's siblings)
 ├── tools/                      # Standalone Python + C++ validation/comparison scripts
 └── .github/workflows/build.yml # CI: Linux/macOS/Windows build + PyInstaller bundling
@@ -210,7 +210,7 @@ Three features render as full-window overlays instead of being inlined:
    `SetupWizard.{h,cpp}`; the class is `SettingsPage`). Shows model
    status, Smart Auto-Scan, HuggingFace download buttons, and backend
    connection state.
-3. **Manual** — renders `BinaryData::T5ynth_Guide_html` via a JUCE
+3. **Manual** — renders `BinaryData::akroasys_Guide_html` via a JUCE
    `WebBrowserComponent`. The HTML is extracted to a temp file on first
    open (`manualHtmlOnDisk`, `MainPanel.h:94`) because
    `WebBrowserComponent` loads URLs rather than raw HTML strings.
@@ -782,13 +782,13 @@ runtime assets into the plugin library. Current contents:
 - `resources/ir/emt_140_plate_medium.wav`
 - `resources/ir/emt_140_plate_dark.wav`
 - `resources/presets/DEMO T5-Oscillator-Drift.t5p`
-- `resources/T5ynth_Guide.html`
+- `resources/akroasys_Guide.html`
 
 These are accessed via the generated `BinaryData::` namespace symbols
 (`BinaryData::emt_140_plate_medium_wav`, `::emt_140_plate_medium_wavSize`,
 etc.). The convolution reverb loads its default IR this way in
 `prepareToPlay` (`src/PluginProcessor.cpp:482`), and the Manual overlay
-extracts `T5ynth_Guide_html` to a temp file before pointing
+extracts `akroasys_Guide_html` to a temp file before pointing
 `WebBrowserComponent` at it.
 
 Adding a new binary resource is a CMake-level change: append the source
@@ -901,7 +901,7 @@ followed once they land:
 - **`docs/PRESET_FORMAT.md`** — complete `.t5p` binary format spec,
   including the JSON payload schema, the current version byte, and the
   legacy JSON/XML fallback detection path. Referenced from §1 and §8.
-- **`resources/T5ynth_Guide.html`, section 16** — end-user and DSP
+- **`resources/akroasys_Guide.html`, section 16** — end-user and DSP
   signal flow reference. This is the "how does the audio actually get
   from MIDI to speakers" document and is intentionally not duplicated
   here. Accessible at runtime via the plugin's *Manual* button.

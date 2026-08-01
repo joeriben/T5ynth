@@ -384,7 +384,7 @@ source class.
      regeneration triggers (or doesn't, depending on your target).
 
 9. **Documentation.** Update the user-facing guide at
-   `resources/T5ynth_Guide.html`:
+   `resources/akroasys_Guide.html`:
    - Envelope target list: line 566
      (`<tr><td><strong>Target</strong></td>…`)
    - LFO target list: line 587

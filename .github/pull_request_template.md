@@ -30,7 +30,7 @@ Verified on:
 - [ ] I have read `CONTRIBUTING.md`
 - [ ] `cmake --build build_clean --config Release` succeeds on my machine
 - [ ] I ran the standalone and verified no regressions in the touched areas
-- [ ] Relevant documentation is updated (`docs/`, `README.md`, `resources/T5ynth_Guide.html`)
+- [ ] Relevant documentation is updated (`docs/`, `README.md`, `resources/akroasys_Guide.html`)
 - [ ] Commits follow the conventional-commit style used in the repo (`type(scope): subject`)
 - [ ] I understand that CI must be green on all three platforms before merge
 - [ ] If touching the IPC protocol: `docs/IPC_PROTOCOL.md` is updated

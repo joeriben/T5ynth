@@ -553,7 +553,7 @@ juce_add_binary_data(T5ynthData SOURCES
     resources/ir/emt_140_plate_medium.wav
     resources/ir/emt_140_plate_dark.wav
     resources/logos/t5ynth_icon.png
-    resources/T5ynth_Guide.html
+    resources/akroasys_Guide.html
     # SA3 metadata that the ungated Comfy-Org weight repos omit (~60 KB of JSON,
     # no model weights). Written into the model dir at install time by the
     # reassembly finalize step so SA3 can install login-free. model_config.json

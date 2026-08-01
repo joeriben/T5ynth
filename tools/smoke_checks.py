@@ -189,7 +189,7 @@ def check_presets_not_bundled() -> None:
 
 
 def check_guide_mentions_controls() -> None:
-    guide = read("resources/T5ynth_Guide.html")
+    guide = read("resources/akroasys_Guide.html")
     contains_all(
         guide,
         [

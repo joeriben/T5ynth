@@ -31,7 +31,7 @@ Files elsewhere in the repo:
 - [`/CONTRIBUTING.md`](../CONTRIBUTING.md) — Contributor entry point. Start here.
 - [`/ARCHITECTURE.md`](../ARCHITECTURE.md) — Code-level layout walkthrough.
 - [`/README.md`](../README.md) — Project overview, build summary, license.
-- [`/resources/T5ynth_Guide.html`](../resources/T5ynth_Guide.html) — User manual, loaded in-app via `WebBrowserComponent`.
+- [`/resources/akroasys_Guide.html`](../resources/akroasys_Guide.html) — User manual, loaded in-app via `WebBrowserComponent`.
 
 ---
 
@@ -49,7 +49,7 @@ In `docs/`:
 - `handover_distribution_session.md` — Distribution pipeline, Windows support, CI/CD, sampler latency session notes.
 - `devlog.md` — General chronological development log.
 - `bug_analysis_and_roadmap.md` — Point-in-time bug list and roadmap (Session 5 era).
-- `guide_audit.md` — Audit of an earlier version of `resources/T5ynth_Guide.html` against source code.
+- `guide_audit.md` — Audit of an earlier version of `resources/akroasys_Guide.html` against source code.
 - `portierung_referenz_tabelle.md` — Porting reference table (Vue/TypeScript → JUCE/C++), 3-column mapping.
 - `portierung_session5_audit.md` — Self-audit of the porting table against code as of Session 5.
 - `portierung_01_useAudioLooper.csv` — Porting tracking CSV: `useAudioLooper.ts`.

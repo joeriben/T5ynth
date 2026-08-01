@@ -113,7 +113,7 @@ Match this style.
   [docs/IPC_PROTOCOL.md](docs/IPC_PROTOCOL.md) in the same PR.
 - If your change adds a new inference engine: update
   [THIRD_PARTY_LICENSES.txt](THIRD_PARTY_LICENSES.txt) and the Third-Party
-  section of `resources/T5ynth_Guide.html`. Update
+  section of `resources/akroasys_Guide.html`. Update
   [docs/ADDING_A_MODEL.md](docs/ADDING_A_MODEL.md) only if the integration
   pattern itself changed.
 - If your change adds a new modulation destination: see
@@ -122,7 +122,7 @@ Match this style.
   [docs/PRESET_FORMAT.md](docs/PRESET_FORMAT.md). Preset format changes must
   be backward-compatible or include a clearly bumped version field.
 - If your change affects user-facing behaviour: update
-  `resources/T5ynth_Guide.html` accordingly.
+  `resources/akroasys_Guide.html` accordingly.
 
 ---
 

@@ -4520,9 +4520,9 @@ void MainPanel::showManual()
     {
         // Extract the bundled HTML to a temp file once per session.
         manualHtmlOnDisk = juce::File::getSpecialLocation(juce::File::tempDirectory)
-                               .getChildFile("T5ynth_Guide.html");
-        manualHtmlOnDisk.replaceWithData(BinaryData::T5ynth_Guide_html,
-                                         static_cast<size_t>(BinaryData::T5ynth_Guide_htmlSize));
+                               .getChildFile("akroasys_Guide.html");
+        manualHtmlOnDisk.replaceWithData(BinaryData::akroasys_Guide_html,
+                                         static_cast<size_t>(BinaryData::akroasys_Guide_htmlSize));
 
         manualWeb.goToURL(juce::URL(manualHtmlOnDisk).toString(false));
         manualLoaded = true;
