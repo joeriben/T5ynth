@@ -978,6 +978,7 @@ Seven buttons: Mono, 4, 6, 8, 12, 16, 64; the default is 8. (A 128-voice setting
 <div style="background:linear-gradient(135deg, rgba(233,69,96,0.15), rgba(255,152,0,0.15)); border:2px solid var(--accent); border-radius:8px; padding:1.2rem 1.5rem; margin-bottom:1.2rem;">
 <p style="font-size:1.1rem; margin:0;">
 <strong style="color:var(--accent); font-size:1.15rem;">Drift &amp; Regenerate keeps the latent space moving.</strong><br>
+<span style="font-size:0.92rem; opacity:0.85;">This chapter is the T5 Oscillator's. Drift's generation-side targets &mdash; A/B, the axes, Emb. Noise, Magnitude, Resynth &mdash; do nothing in LRO mode, and a written instrument does not auto-regenerate. Drift's synth-side targets (filter, pitch, scan, the effects) work in both.</span><br>
 Without it, you shape one space, generate one fragment, and then process that fragment with conventional synth tools. With Drift &amp; Regenerate, the latent space itself evolves. The modulation system shifts generation parameters over time, triggering new inference runs in the background. The source is no longer a static waveform — it follows a changing path through the model's latent space.
 </p>
 </div>
@@ -1106,6 +1107,11 @@ The <strong>coupling</strong> switch sets how far the rewrite reaches into your 
 <!-- ═══════════════════════════════════════════ -->
 <h2 id="resynth">1.5 Resynth</h2>
 
+<p>
+<em>Resynth belongs to the T5 Oscillator, and to its SA3 engines specifically.
+The row is switched off and dimmed in LRO mode and on the older Stable Audio
+Open models.</em>
+</p>
 <p>
 Re-Prompt closes the loop through language: the machine listens to its own
 output and rewrites the words. <strong>Resynth</strong> closes it through
@@ -2516,7 +2522,7 @@ Because all strands share the same field, harmonic coherence is provided at the 
 Understanding the inference pipeline helps explain why certain controls interact the way they do.
 </p>
 
-<h3>Complete Audio Flow</h3>
+<h3>Complete Audio Flow (T5 Oscillator)</h3>
 <p>
 Top-down view of every stage from text input to stereo output. Each outer box is one architectural layer; the arrow between layers crosses the Python/C++ boundary only once (Unix pipe, binary protocol).
 </p>
@@ -2580,17 +2586,17 @@ Top-down view of every stage from text input to stereo output. Each outer box is
 ┌────────────────────────────────┼────────────────────────────────┐
 │                           SYNTHESIZER                           │
 │                                                                 │
-│ Voice Manager  —  up to 16 voices, note stealing                │
+│ Voice Manager  —  Mono to 64 voices, tiered note stealing       │
 │                    │                                            │
 │                    ▼                                            │
 │ Per voice:  5× ADSR   (5 curves: Log/SLog/Lin/                  │
 │                               SExp/Exp, per stage)              │
-│             SVF filter   (LP/HP/BP, 6–24 dB/oct)                │
+│             Filter  (SVF / Ladder / Warp, LP/HP/BP, 6–24 dB/oct)│
 │                    │                                            │
 │                    ▼                                            │
-│ Global:     3× LFO   (sin/tri/saw/sq)                           │
+│ Global:     3× LFO  (sin/tri/saw/sq/S&H/SawD)                   │
 │             3× Drift LFO  → A/B, Axes → Auto-Regen             │
-│             Delay  ·  Reverb (EMT 140)  ·  Limiter              │
+│             Delay  ·  Reverb (plate / Freeverb)  ·  Limiter     │
 │                    │                                            │
 │                    ▼                                            │
 │ Sequencer (Step + Generative) → Arpeggiator → Out               │
@@ -2605,7 +2611,7 @@ and from there the two paths are identical &mdash; the same envelopes, the same
 filter, the same effects, the same sequencers.
 </p>
 
-<h3>Inference Pipeline Detail</h3>
+<h3>Inference Pipeline Detail (T5 Oscillator)</h3>
 <p>
 Same pipeline from a parameter-routing perspective: which UI control feeds
 which step of the inference backend. The diagram marks where the Injection
@@ -2635,9 +2641,9 @@ Modes enter the path; the detailed mode mechanics follow in the next section.
     │                                     │
     │                                  VAE Decoder → audio [ch, samples] @ 44.1 kHz
     │                                     │
-    │                                  HF Boost + Rumble Filter
-    │                                     │
     │◄──── Pipe (binary) ────────────── PCM float32 + embeddings [768] × 2
+    │
+ Rumble Filter → HF Boost → Normalize        (all three C++, on the raw buffer)
     │
  Load into Engine (Sampler, Wavetable, or Granular)
     │
