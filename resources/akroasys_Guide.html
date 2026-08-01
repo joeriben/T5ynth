@@ -617,7 +617,7 @@ every seed.
   <tr>
     <td><strong>A/B</strong></td>
     <td>-2.0 … +2.0</td>
-    <td>Moves through the latent space marked by Sound A (−1) and Sound B (+1). This is not a crossfade or mix of two audio signals — it changes what kind of sound can become audible in one generation. The midpoint (0) is not "half A plus half B" in any audible sense; it is a new internal sound-space position that the model interprets independently. For example, if Sound A is <em>"bowed cello, sustained"</em> and Sound B is <em>"crackling fire"</em>, the midpoint will not sound like cello mixed with fire — it might produce something like a warm, textured, resonant hum that resembles neither source directly. Values beyond ±1 <em>extrapolate</em> — pushing past either marker into regions no direct phrase would naturally reach. When one text field is left empty, the empty side is the Echoraum reflection of the other, so A/B sweeps from the impulse through the model-neutral midpoint to its antipode (see <a href="#gen">chapter 1</a>). The slider uses a quadratic curve for fine control near the center.</td>
+    <td>Moves through the latent space marked by Impulse A (−1) and Impulse B (+1). This is not a crossfade or mix of two audio signals — it changes what kind of sound can become audible in one generation. The midpoint (0) is not "half A plus half B" in any audible sense; it is a new internal sound-space position that the model interprets independently. For example, if Sound A is <em>"bowed cello, sustained"</em> and Sound B is <em>"crackling fire"</em>, the midpoint will not sound like cello mixed with fire — it might produce something like a warm, textured, resonant hum that resembles neither source directly. Values beyond ±1 <em>extrapolate</em> — pushing past either marker into regions no direct phrase would naturally reach. When one text field is left empty, the empty side is the Echoraum reflection of the other, so A/B sweeps from the impulse through the model-neutral midpoint to its antipode (see <a href="#gen">chapter 1</a>). The slider uses a quadratic curve for fine control near the center.</td>
   </tr>
   <tr>
     <td><strong>Magnitude</strong></td>
@@ -851,14 +851,14 @@ The Dimension Explorer gives you direct access to all <strong>768 internal contr
 After generating audio, akróasys receives the 768-dimensional source-control vectors for your A/B markers. The DimExplorer displays these as a row of vertical bars — one per dimension, sorted by magnitude (the most significant dimensions appear on the left).
 </p>
 <ul>
-  <li>Each bar shows the <em>difference</em> between Source A and Source B for that dimension. <span style="color:var(--green)">Green</span> bars point toward A, <span style="color:var(--accent2)">orange</span> bars toward B. The leftmost bars are the dimensions where the two sources differ most — editing here affects the A/B contrast. The rightmost bars are where A and B are nearly identical — editing here changes what both share, often producing more fundamental sonic shifts.</li>
-  <li>If one text field is empty, the absent side is the <strong>Echoraum reflection</strong> of the present one (<code>2·neutral − other</code>), not a zero vector. The orange/green bars then read as opposing in a structured way: dimensions where the present marker is most articulate are the dimensions where the echo opposes it most strongly.</li>
+  <li>Each bar shows the <em>difference</em> between Source A and Source B for that dimension. Bars pointing toward A are periwinkle, bars toward B are yellow &mdash; the same two colours the impulse fields carry. The leftmost bars are the dimensions where the two sources differ most — editing here affects the A/B contrast. The rightmost bars are where A and B are nearly identical — editing here changes what both share, often producing more fundamental sonic shifts.</li>
+  <li>If one text field is empty, the absent side is the <strong>echo-chamber reflection</strong> of the present one (<code>2·neutral − other</code>), not a zero vector. The bars then read as opposing in a structured way: dimensions where the present marker is most articulate are the dimensions where the echo opposes it most strongly.</li>
   <li>If both fields are empty, A and B are both the neutral encoding, so all bars collapse — there is no A↔B contrast to display.</li>
 </ul>
 
 <h4>What You Can Do</h4>
 <p>
-Drag any bar vertically to apply a per-dimension <strong>offset</strong>. Edited bars turn <span style="color:var(--accent3)">blue</span>. Click <strong>"Apply + Generate"</strong> to send these offsets to the inference engine, where they are added directly to the internal generation controls used by diffusion.
+Drag any bar vertically to apply a per-dimension <strong>offset</strong>. Edited bars turn cyan. Click <strong>"Apply + Generate"</strong> to send these offsets to the inference engine, where they are added directly to the internal generation controls used by diffusion.
 </p>
 
 <h4>What This Means</h4>
@@ -950,7 +950,7 @@ Before the generated audio reaches the sampler/wavetable/granular source, two fi
   <li><strong>Norm</strong> (toggle, in Sampler controls, on by default) — levels the play region, and reads the signal before deciding how. Near-silent material is left alone. Material that is already hot is only peak-capped. Short or sparse material is brought to −10&nbsp;dBFS at its 99.9th-percentile peak; sustained material to −18&nbsp;dBFS active RMS. Everything is capped at −1&nbsp;dBFS peak. It turns loud generations down as readily as it lifts quiet ones, which is what makes a session of wildly different generations playable at one monitoring level.</li>
 </ul>
 <p>
-All three operate on the generated buffer, not on the real-time voice signal: re-toggling HF or Norm rebuilds the playback buffer from the retained raw audio, on a background thread, without calling the model again. Norm applies in Sampler and Freeze; the button is not shown in Wavetable or LRO mode.
+All three operate on the generated buffer, not on the real-time voice signal: re-toggling HF or Norm rebuilds the playback buffer from the retained raw audio, on a background thread, without calling the model again. Norm applies in Sampler and Granular; the button is not shown in Wavetable or LRO mode.
 </p>
 
 <h4>Voice Count</h4>
@@ -1861,7 +1861,7 @@ A recorded note plays back at the pitch you played, independent of the <strong>O
 
 <h4>Per-Step One-Shot Slots</h4>
 <p>
-Each step can hold up to three independent one-shot samples. Drag from the waveform area onto a slot to copy the current <strong>P1→P3</strong> region into that slot. The copied audio is a physical sample owned by the step sequencer, not a reference to the current main buffer, so later generations do not overwrite it.
+Each step can hold up to three independent one-shot samples. Drag from the waveform area onto a slot to copy the region between the <strong>S</strong> handle and the <strong>]</strong> bracket into that slot. The copied audio is a physical sample owned by the step sequencer, not a reference to the current main buffer, so later generations do not overwrite it.
 </p>
 <table>
   <tr><th>Slot State</th><th>Meaning</th></tr>
@@ -2083,7 +2083,7 @@ What a slot holds depends on which oscillator was active when you stored it.
 From the <a href="#gen">T5 Oscillator</a>: the generated audio, both prompts,
 the seed and random state, the model choice, the generation parameters, the
 Semantic Axes, the Dimension Explorer offsets, the engine parameters, and the
-P1/P2/P3 markers with their lock state. From the
+<strong>S</strong> / <strong>[</strong> / <strong>]</strong> handles with their lock state. From the
 <a href="#lro">LRO</a>: the prompt, the authored Csound, and the sound it makes
 &mdash; a recalled slot recompiles and plays at once.
 </p>
@@ -2512,10 +2512,10 @@ Top-down view of every stage from text input to stereo output. Each outer box is
 │             EMBEDDING SPACE   (768d, JUCE → Python)             │
 │                                                                 │
 │ Impulse A ──→  T5 Encoder  ──→  Embedding A ─┐                  │
-│   (empty A → Echoraum: 2·neutral − B)         │                 │
+│   (empty A → echo chamber: 2·neutral − B)     │                 │
 │                                               │                 │
 │ Impulse B ──→  T5 Encoder  ──→  Embedding B ─┤                  │
-│   (empty B → Echoraum: 2·neutral − A)         ▼                 │
+│   (empty B → echo chamber: 2·neutral − A)     ▼                 │
 │                 Interpolate along alpha (A↔B)                   │
 │                               │                                 │
 │       Semantic Axes  ──→  + axis offsets                        │
