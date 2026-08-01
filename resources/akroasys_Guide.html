@@ -907,7 +907,8 @@ A pale vertical line runs through the display while a note sounds, showing the
 live read position — useful when a modulator is driving Scan. The
 <strong>LOCK</strong> button in the corner pins the three handles so a new
 generation cannot move them. Dragging from the waveform onto a step's one-shot
-slot copies the region between the brackets into that slot.
+slot copies the region from the <strong>S</strong> handle to the
+<strong>]</strong> bracket into that slot.
 </p>
 
 <h4>Sampler Mode</h4>
@@ -926,7 +927,7 @@ Plays the generated audio buffer directly. Pitch follows MIDI via time-stretchin
 Extracts pitch-synchronous frames from the audio to build a scannable wavetable. The <em>Scan</em> slider morphs between frames, and pitch follows MIDI directly (band-limited harmonic synthesis).
 </p>
 <ul>
-  <li><strong>Scan</strong> (0.0–1.0) — Selects the current frame position in the wavetable. Can be modulated by LFOs, envelopes, or drift.</li>
+  <li><strong>Scan</strong> (0.0–1.0) — the current frame position in the wavetable. There is no slider for it: drag the dot on the waveform strip below the display, or let an LFO, envelope or drift move it.</li>
   <li><strong>Frames</strong> (32 / 64 / 128 / 256, default 256) — How many frames are extracted from the fragment. Fewer frames means bigger steps between them and a coarser scan.</li>
   <li><strong>Smooth</strong> (on by default) — Interpolates between neighbouring frames instead of switching at frame boundaries.</li>
   <li><strong>Auto Scan</strong> (on by default) — Sweeps the scan position through the table on its own as a note is held, so a wavetable moves without a modulator assigned to it.</li>
@@ -1655,8 +1656,10 @@ rewriting the whole sentence.
 <h3>Filter</h3>
 <p>
 Three filter algorithms share the same Type / Slope / Cutoff / Resonance /
-Mix / Kbd Track controls; switch between them with the <strong>Algorithm</strong>
-selector in the filter header row.
+Mix / Kbd Track controls. Two of them, <strong>SVF</strong> and
+<strong>Ladder</strong>, are buttons in the filter header row; <strong>Warp</strong>
+is the third button in that same row, which doubles as the style control &mdash;
+hold it to pick the saturation curve.
 </p>
 <table>
   <tr><th>Parameter</th><th>Range</th><th>Notes</th></tr>
@@ -2131,8 +2134,8 @@ akróasys can also send MIDI out. In the standalone, the device is chosen under
 <strong>Output (LED / MIDI out)</strong> in the MIDI/Audio Settings dialog,
 together with the <strong>External MIDI Clock</strong> switch; in a plugin the
 same selector sits in the status bar. Selecting a <strong>Novation Launch
-Control XL</strong> applies its full mapping automatically — twenty-four
-encoders and eleven buttons land on their parameters, and the unit's LEDs are
+Control XL</strong> applies its full mapping automatically — eight faders,
+twenty-four encoders and eighteen buttons land on their parameters, and the unit's LEDs are
 driven back from akróasys so the hardware shows the instrument's state. There is
 nothing to configure.
 </p>
@@ -3020,7 +3023,8 @@ own.
 The default local language model: it writes the LRO's Csound, translates
 non-English prompts, and drives Re-Prompt. About 7&nbsp;GB, downloaded ungated,
 run through llama.cpp on your machine. Not bundled &mdash; installed from the
-Models tab, or replaced by an external provider.
+<strong>Language Model</strong> tab in Settings, or replaced by an external
+provider.
 </p>
 
 <h3>CLAP</h3>
