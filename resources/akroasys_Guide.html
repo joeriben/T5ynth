@@ -1000,7 +1000,7 @@ the sequencer plays.
 
 <h4>Voice Count</h4>
 <p>
-Seven buttons: Mono, 4, 6, 8, 12, 16, 64; the default is 8. (A 128-voice setting exists as an automatable parameter but has no button.) Gain follows how many notes are actually sounding, not the setting &mdash; a gentle 1/N<sup>0.1</sup>, about &minus;0.9&nbsp;dB at eight held notes. When the limit is reached, releasing voices are taken first, oldest first; if none are releasing, the <em>quietest</em> held voice goes, with age only as a tiebreaker, and a note held by the sequencer is never taken. 64 is there for dense generative sequencing and long release tails, not for keyboard play.
+Seven buttons: Mono, 4, 6, 8, 12, 16, 64; the default is 8. The panel stops at 64 on purpose &mdash; a host can automate the parameter to 128, but that is not a setting to reach for by hand. Gain follows how many notes are actually sounding, not the setting &mdash; a gentle 1/N<sup>0.1</sup>, about &minus;0.9&nbsp;dB at eight held notes. When the limit is reached, releasing voices are taken first, oldest first; if none are releasing, the <em>quietest</em> held voice goes, with age only as a tiebreaker, and a note held by the sequencer is never taken. 64 is there for dense generative sequencing and long release tails, not for keyboard play.
 </p>
 
 <!-- ═══════════════════════════════════════════ -->
@@ -1649,10 +1649,13 @@ rather than wired.
   sub underneath on its own fader and its own octave.</p>
 </div>
 
-<h3>b) If you can hear it but cannot name the method</h3>
+<h3>b) Playing with the translation itself</h3>
 <p>
-Describe the <em>sound</em>. Material, size, what is being done to it, how
-steady it is. Nothing technical is required.
+The second way in is the one this oscillator exists for: you hand the model
+meaning, and it decides what that means in <em>synthesis</em>. The interesting
+part is not whether you get what you asked for. It is what the translation does
+on the way — which method the model reaches for, what it decides a word implies
+about a spectrum, where it hears a movement you had not spelled out.
 </p>
 <div class="note">
   <p style="margin:0 0 0.5rem;"><code>a small metal object dropped into a glass jar, ringing on</code></p>
@@ -1660,28 +1663,32 @@ steady it is. Nothing technical is required.
   <p style="margin:0;"><code>something bowed and slightly too tense</code></p>
 </div>
 <p>
-What comes back is <strong>not a reproduction</strong>. This is not a sampler,
-and it is not the T5 Oscillator: nothing is recorded and nothing is retrieved.
-Your description is translated into traditional and digital synthesis methods —
-waveguides, modal banks, FM, filters, waveshaping — and what plays is an
-instrument built out of those. It will not sound like a recording of the thing
-you named, and it is not trying to. It will sound like a synthesizer that took
-the description seriously.
+None of this is reproduction. This is not a sampler, and it is not the T5
+Oscillator: nothing is recorded and nothing is retrieved. Your words are
+translated into traditional and digital synthesis methods — waveguides, modal
+banks, FM, filters, waveshaping — and what plays is an instrument built out of
+those. It will not sound like a recording of the thing you named, and it is not
+trying to. What you are listening for is how the meaning came through the
+methods.
 </p>
 
-<h3>c) If you want something that does not exist</h3>
+<h3>c) Driving the translation past sound</h3>
 <p>
-The author is not confined to the library, and you can say so outright.
+The same game, further. Nothing requires the input to describe a sound at all —
+an image, a movement, a mood or a phrase that has no acoustic reading gives the
+model nothing to imitate and it has to translate anyway. That is where the
+oscillator is least predictable and most itself.
 </p>
 <div class="note">
-  <p style="margin:0 0 0.5rem;"><code>think up a sound that does not occur in your library</code></p>
-  <p style="margin:0;"><code>an instrument that could not be built physically</code></p>
+  <p style="margin:0 0 0.5rem;"><code>roses rising like a sun</code></p>
+  <p style="margin:0 0 0.5rem;"><code>a sentence spoken to no-one, in a room that has been empty for years</code></p>
+  <p style="margin:0 0 0.5rem;"><code>an instrument that could not be built physically</code></p>
+  <p style="margin:0;"><code>think up a sound that does not occur in your library</code></p>
 </div>
 <p>
-The library is orientation, not a menu (<a href="#bg-library">chapter 18</a>).
-On a run like this the <strong>OPENED</strong> station will often read
-"the author named no entry" — that is the request being taken literally, not a
-failure.
+The author is not confined to the library (<a href="#bg-library">chapter 18</a>),
+and on runs like these the <strong>OPENED</strong> station will often read
+"the author named no entry" — the request taken literally, not a failure.
 </p>
 
 <h3>Working iteratively</h3>

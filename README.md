@@ -308,7 +308,7 @@ akróasys can play a generated fragment three ways:
   Step-in/Layer/Combo injection modes.
 - **Playback engine:** Sampler, Wavetable and Granular modes, loop
   optimization, wavetable scan, noise source.
-- **Synthesis:** voice manager with seven settings from Mono to 64 voices
+- **Synthesis:** voice manager, seven settings from Mono to 64 voices
   (capped at 16 in LRO mode), assignable envelopes, multimode filter algorithms,
   keyboard tracking, drive, modulation ghost indicators.
 - **Modulation:** 5 ADSR envelopes (ENV 1 starts on the DCA), 3 LFOs, 3 Drift
