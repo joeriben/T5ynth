@@ -39,6 +39,10 @@ hidden += ['transformers.generation.utils']
 hidden += ['transformers.models.auto.modeling_auto']
 hidden += ['transformers.models.auto.tokenization_auto']
 hidden += ['transformers.utils.quantization_config']
+# The LRO's local author is a 4-bit GGUF run through llama.cpp, and its import
+# (`from llama_cpp import Llama`) is lazy, inside `_get_gguf` — invisible to
+# PyInstaller's static analysis. Its shared libraries are collected below.
+hidden += collect_submodules('llama_cpp')
 
 # Qwen2 = the optional prompt-translation model. AutoModelForCausalLM /
 # AutoTokenizer resolve transformers.models.qwen2.* dynamically BY NAME from
@@ -219,6 +223,14 @@ datas += copy_metadata('torchvision')
 binaries = []
 binaries += collect_dynamic_libs('torchaudio')
 binaries += collect_dynamic_libs('torchvision')
+# llama.cpp, which is the LRO's LOCAL author. Two separate ways it goes missing,
+# and it went missing both ways at once: `from llama_cpp import Llama` sits inside
+# `_get_gguf`, so PyInstaller's static analysis never sees it, and the package's
+# real payload is nine shared libraries under `llama_cpp/lib/` that no default
+# hook collects. Without them the frozen backend raises ImportError the first time
+# a prompt reaches the local author -- and the LRO has no fallback by design, so
+# that is a silent oscillator for every user without an API key.
+binaries += collect_dynamic_libs('llama_cpp')
 
 # ── Analysis ────────────────────────────────────────────────────────
 
