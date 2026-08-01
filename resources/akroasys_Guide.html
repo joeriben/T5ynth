@@ -374,6 +374,7 @@ without whom AI4ArtsEd would not have come into being.
     <li class="sub" style="margin-left:2.4rem"><a href="#resynth">1.5 Resynth</a></li>
     <li class="sub"><a href="#lro">2. The Language-Resonant Oscillator (LRO)</a></li>
     <li class="sub" style="margin-left:2.4rem"><a href="#lrocontrols">2.1 The Written Instrument's Controls</a></li>
+    <li class="sub" style="margin-left:2.4rem"><a href="#lroprompt">2.2 Examples: Prompting an Oscillator</a></li>
     <li><strong>Part I — The Synth</strong></li>
     <li class="sub"><a href="#synth">3. Classic Synth Elements</a></li>
     <li class="sub"><a href="#fx">4. Effects</a></li>
@@ -557,7 +558,7 @@ On first launch, the status bar shows backend connection status. Once you see <s
 
 <!-- ═══════════════════════════════════════════ -->
 <div class="part-label" style="margin-top:3rem">The Two Oscillators</div>
-<p style="color:var(--text-dim); margin:0 0 1.2rem;">Chapter&nbsp;1 and its five subchapters are the T5 Oscillator; chapter&nbsp;2 and its one subchapter are the LRO. From chapter&nbsp;3 on, everything is shared &mdash; whichever oscillator is making the sound, it is played through the same synth.</p>
+<p style="color:var(--text-dim); margin:0 0 1.2rem;">Chapter&nbsp;1 and its five subchapters are the T5 Oscillator; chapter&nbsp;2 and its two subchapters are the LRO. From chapter&nbsp;3 on, everything is shared &mdash; whichever oscillator is making the sound, it is played through the same synth.</p>
 <h2 id="gen">1. The T5 Oscillator</h2>
 
 <p>
@@ -1523,6 +1524,116 @@ knowledge.
   stored in the preset, and they can be bound to a hardware controller by
   right-clicking. They change the running orchestra live, without re-authoring.
 </div>
+
+<!-- ═══════════════════════════════════════════ -->
+<h2 id="lroprompt">2.2 Examples: Prompting an Oscillator</h2>
+
+<p>
+There is no wrong way in. What follows is three different starting points, and
+they mix freely.
+</p>
+
+<h3>Three words that relate one sound to another</h3>
+<p>
+The author reads three relations, and they are the reason this oscillator can do
+something a panel cannot offer:
+</p>
+<table>
+  <tr><th>Written</th><th>Also</th><th>What it builds</th></tr>
+  <tr>
+    <td><code>a &gt; b</code></td>
+    <td>a into b · a morphing into b · a becomes b · a transition from a to b</td>
+    <td><strong>One</strong> voice that starts as <em>a</em> and becomes
+      <em>b</em> across the note — a real crossfade, with both ends built in
+      full. Whatever moved in <em>b</em> goes on moving after the morph
+      arrives.</td>
+  </tr>
+  <tr>
+    <td><code>a + b</code></td>
+    <td>a and b · a layered with b</td>
+    <td>Both sounding at once, up to <strong>three</strong> layers. Each layer
+      gets its own Level fader and its own Octave, so you balance them by ear
+      (<a href="#lrocontrols">chapter 2.1</a>).</td>
+  </tr>
+  <tr>
+    <td><code>a through b</code></td>
+    <td>a driven by b · a modulated by b · a ring modulated by b ·
+      a shaped by b · b opening a</td>
+    <td>Neither beside nor after: one sound <strong>acts on</strong> the other.
+      <em>b</em> becomes an argument inside <em>a</em> — a ring modulator, a
+      filter cutoff at audio rate, an index.</td>
+  </tr>
+</table>
+
+<h3>a) If you already know synthesis</h3>
+<p>
+Name the methods and say how they relate. This is where the instrument does what
+no other software synth makes easy, because no panel could offer it: an
+arbitrary combination of unrelated synthesis methods inside one voice, written
+rather than wired.
+</p>
+<div class="note">
+  <p style="margin:0 0 0.5rem;"><code>plucked string + 3-op FM bell &gt; singing bowl</code></p>
+  <p style="margin:0;">A plucked string and a three-operator FM bell sounding
+  together, the pair turning into a struck bowl over the note. Three unrelated
+  methods — a waveguide, an FM algorithm and a modal bank — in one voice, with
+  two Level faders to balance the layers.</p>
+</div>
+<div class="note">
+  <p style="margin:0 0 0.5rem;"><code>supersaw through a slowly opening ladder filter, + sub bass</code></p>
+  <p style="margin:0;">A detuned saw bank whose cutoff is driven, with a sine
+  sub underneath on its own fader and its own octave.</p>
+</div>
+
+<h3>b) If you can hear it but cannot name the method</h3>
+<p>
+Describe the <em>sound</em>. Material, size, what is being done to it, how
+steady it is. Nothing technical is required.
+</p>
+<div class="note">
+  <p style="margin:0 0 0.5rem;"><code>a small metal object dropped into a glass jar, ringing on</code></p>
+  <p style="margin:0 0 0.5rem;"><code>breath through a narrow tube, never quite steady</code></p>
+  <p style="margin:0;"><code>something bowed and slightly too tense</code></p>
+</div>
+<p>
+What comes back is <strong>not a reproduction</strong>. This is not a sampler,
+and it is not the T5 Oscillator: nothing is recorded and nothing is retrieved.
+Your description is translated into traditional and digital synthesis methods —
+waveguides, modal banks, FM, filters, waveshaping — and what plays is an
+instrument built out of those. It will not sound like a recording of the thing
+you named, and it is not trying to. It will sound like a synthesizer that took
+the description seriously.
+</p>
+
+<h3>c) If you want something that does not exist</h3>
+<p>
+The author is not confined to the library, and you can say so outright.
+</p>
+<div class="note">
+  <p style="margin:0 0 0.5rem;"><code>think up a sound that does not occur in your library</code></p>
+  <p style="margin:0;"><code>an instrument that could not be built physically</code></p>
+</div>
+<p>
+The library is orientation, not a menu (<a href="#bg-library">chapter 18</a>).
+On a run like this the <strong>OPENED</strong> station will often read
+"the author named no entry" — that is the request being taken literally, not a
+failure.
+</p>
+
+<h3>Working iteratively</h3>
+<p>
+Refining a prompt is usually worth more than pressing Generate again on the same
+one. Every authoring is a fresh piece of writing, so the same words twice give
+you two different instruments — but a <em>changed</em> sentence is the only thing
+that moves the result in a direction you chose.
+</p>
+<p>
+The <strong>WROTE</strong> station's one-line reading is what to read first: it
+says what the machine understood the instrument to be. When that reading is not
+what you meant, the words are what to change, not the knobs. Adding one concrete
+thing — a material, a relation, a way of moving — usually does more than
+rewriting the whole sentence.
+</p>
 
 <!-- ═══════════════════════════════════════════ -->
 <div class="part-label" style="margin-top:3rem">Part I — The Synth</div>
