@@ -1894,19 +1894,31 @@ _SCORE = "".join(f"i 1 0 360000 {v}\n" for v in range(1, NCHNLS + 1)) \
          + "e 360000\n</CsScore>\n</CsoundSynthesizer>\n"
 
 
-def wrap(body, controls=None):
-    """Authored body -> the full orchestra the engine compiles.
+def bake_knob_defaults(head, controls=None):
+    """Put the knob starting values into the head's twelve `chnset` lines.
 
-    `controls` is `read_controls`'s result, or None. Its starting values go into
-    the head's `chnset` lines, so an offline render — or a host that never
-    writes the channels — plays the sound the author actually described, with
-    every knob where the author put it. The plugin overwrites them from its own
-    parameters on the next block."""
+    `controls` is `read_controls`'s result, or None. THE HEAD IS NOT VALID CSOUND
+    UNTIL THIS HAS RUN: it carries `%LRO1A%`-style placeholders, and Csound's
+    parser stops at the `%`. So every path that builds an orchestra out of `_HEAD`
+    goes through here — `wrap` for the engine, `lco_measure.scaffold` for every
+    offline measurement — and there is no second copy of the substitution to fall
+    behind this one. It was written twice for one afternoon and the measuring side
+    was the copy that did not exist, which took out every offline render at once.
+
+    A channel no knob was wired to keeps LRO_DEFAULT, which is what the body's own
+    unwired lines were left at, so an offline render plays the sound the author
+    described with every knob where the author put it. The plugin overwrites all
+    twelve from its own parameters on the next block."""
     values = {p["ch"]: p["value"] for p in (controls or {}).get("params", [])}
-    head = _HEAD
     for c in LRO_CHANNELS:
         head = head.replace(f"%LRO{c.upper()}%",
                             f"{values.get(f'lroP{c}', LRO_DEFAULT):.4f}")
+    return head
+
+
+def wrap(body, controls=None):
+    """Authored body -> the full orchestra the engine compiles."""
+    head = bake_knob_defaults(_HEAD, controls)
     indented = "\n".join(("  " + l) if not l.startswith(" ") else l
                          for l in body.splitlines())
     return head + indented + _TAIL + _SCORE

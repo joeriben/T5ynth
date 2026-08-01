@@ -165,7 +165,12 @@ def scaffold(body, dur=4.0, freq=220.0, glide=None, preroll=0.0):
     would produce numbers that look like the plugin's and are not. The measurement
     that exists for it is `tools/audition_lro_oversampling.cpp`, on the real engine.
     """
-    head = W._HEAD
+    # The twelve knob channels FIRST, through lco_write's own substitution: the
+    # head carries `%LRO1A%` placeholders and is not parseable Csound until they
+    # are gone. Every knob the body declares starts where the body puts it — the
+    # same `read_controls` the plugin uses decides that, so a measurement here
+    # and a note in the plugin play the same instrument.
+    head = W.bake_knob_defaults(W._HEAD, W.read_controls(body))
     head = _sub(head, "<CsOptions>\n-n -d\n</CsOptions>",
                 "<CsOptions>\n-d\n</CsOptions>", "CsOptions")
     head = _sub(head, "sr = %SR%", f"sr = {SR}", "sample rate")
