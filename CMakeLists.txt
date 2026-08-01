@@ -412,6 +412,49 @@ endif()
 
 juce_generate_juce_header(T5ynth)
 
+# ── Charset gate ─────────────────────────────────────────────────────────────
+# `juce::String` reads a plain `const char*` one byte per character -- Latin-1
+# (juce_CharPointer_ASCII.h:108). So a source file saved as UTF-8, which is every
+# source file, hands it three bytes for one em dash and gets three characters
+# back: a stray "a-circumflex" plus two invisible controls where the dash was.
+# JUCE guards that with a `jassert`, and this project builds Release, where
+# `jassert` is nothing. The corruption is therefore invisible to the compiler,
+# invisible to the tests, and visible only in the shipped menus -- which is how
+# it reached the user repeatedly, most recently 2026-08-01.
+#
+# So it is checked here instead, before anything is compiled: every literal above
+# ASCII must state how its bytes are to be read, at the literal. Not advisory --
+# a violation fails the build, because every softer form of this rule has already
+# been tried and walked past. It is not hand-work either: the failure prints
+# `source_charset_gate.py --fix`, which does the repair (escape the bytes, wrap
+# in fromUTF8) and leaves only the literals whose intent a script cannot know.
+#
+# Python is not optional for this project (the whole inference backend is Python),
+# so a missing interpreter is a broken toolchain, not a reason to skip the check.
+find_package(Python3 COMPONENTS Interpreter REQUIRED)
+add_custom_target(t5ynth_charset_gate ALL
+    COMMAND ${Python3_EXECUTABLE} "${CMAKE_SOURCE_DIR}/tools/source_charset_gate.py"
+            "${CMAKE_SOURCE_DIR}/src"
+    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+    COMMENT "Charset gate: every non-ASCII literal in src/ states its encoding"
+    VERBATIM)
+# `T5ynth` is the target that actually compiles src/ -- juce_add_plugin renames
+# only its OUTPUT to libakroasys_SharedCode.a, so a target called
+# T5ynth_SharedCode does not exist. Naming one that does not exist is the way
+# this kind of edge goes missing without a word, so an unresolvable name is a
+# hard configure error here rather than a dropped dependency: a gate that is
+# still in the file but no longer attached is worse than no gate, because it
+# reads as protection.
+foreach(_t T5ynth ${T5YNTH_PLUGIN_FORMATS})
+    if(NOT TARGET ${_t})
+        set(_t T5ynth_${_t})
+    endif()
+    if(NOT TARGET ${_t})
+        message(FATAL_ERROR "charset gate: nothing named ${_t} to attach to")
+    endif()
+    add_dependencies(${_t} t5ynth_charset_gate)
+endforeach()
+
 target_sources(T5ynth PRIVATE
     # Core
     src/PluginProcessor.cpp

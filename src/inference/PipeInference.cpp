@@ -469,15 +469,18 @@ juce::String PipeInference::handleStatusTimeout(const char* what)
 {
     const bool alive = isChildAlive();
     juce::Logger::writeToLog(juce::String("PipeInference: no status byte while waiting for ")
-                             + what + (alive ? " (child alive — restarting to resynchronise "
-                                               "the pipe)"
-                                             : " (subprocess died)"));
+                             + what
+                             + (alive ? juce::String::fromUTF8(" (child alive \xe2\x80\x94 restarting "
+                                                               "to resynchronise the pipe)")
+                                      : juce::String(" (subprocess died)")));
     const bool restarted = tryRestart();
     if (! alive)
-        return restarted ? "Inference crashed — restarted, try again"
-                         : "Inference crashed — restart failed";
-    return restarted ? juce::String("Timeout waiting for ") + what + " — backend restarted"
-                     : juce::String("Timeout waiting for ") + what + " — restart failed";
+        return restarted ? juce::String::fromUTF8("Inference crashed \xe2\x80\x94 restarted, try again")
+                         : juce::String::fromUTF8("Inference crashed \xe2\x80\x94 restart failed");
+    return restarted ? juce::String("Timeout waiting for ") + what
+                           + juce::String::fromUTF8(" \xe2\x80\x94 backend restarted")
+                     : juce::String("Timeout waiting for ") + what
+                           + juce::String::fromUTF8(" \xe2\x80\x94 restart failed");
 }
 
 bool PipeInference::launch(const juce::File& backendDir)
@@ -645,7 +648,8 @@ bool PipeInference::launch(const juce::File& backendDir)
         {
             juce::Logger::writeToLog("PipeInference: job object could not be configured (error "
                                      + juce::String((int)GetLastError())
-                                     + ") — the backend may outlive a crashed host");
+                                     + juce::String::fromUTF8(") \xe2\x80\x94 the backend may "
+                                                              "outlive a crashed host"));
             CloseHandle(hJob);
             hJob = nullptr;
         }
@@ -677,7 +681,8 @@ bool PipeInference::launch(const juce::File& backendDir)
     {
         juce::Logger::writeToLog("PipeInference: backend could not be put in the kill-on-close job (error "
                                  + juce::String((int)GetLastError())
-                                 + ") — it may outlive a crashed host");
+                                 + juce::String::fromUTF8(") \xe2\x80\x94 it may outlive "
+                                                          "a crashed host"));
         CloseHandle(hJob);
         hJob = nullptr;
     }
@@ -1043,7 +1048,7 @@ PipeInference::Result PipeInference::generate(const Request& request)
         juce::Logger::writeToLog("PipeInference: subprocess died, restarting...");
         if (!tryRestart())
         {
-            result.errorMessage = "Inference crashed — restart failed";
+            result.errorMessage = juce::String::fromUTF8("Inference crashed \xe2\x80\x94 restart failed");
             return result;
         }
         juce::Logger::writeToLog("PipeInference: restarted successfully");
@@ -1144,10 +1149,10 @@ PipeInference::Result PipeInference::generate(const Request& request)
         // Write failed — subprocess likely dead
         if (tryRestart())
         {
-            result.errorMessage = "Inference restarted — try again";
+            result.errorMessage = juce::String::fromUTF8("Inference restarted \xe2\x80\x94 try again");
         }
         else
-            result.errorMessage = "Inference crashed — restart failed";
+            result.errorMessage = juce::String::fromUTF8("Inference crashed \xe2\x80\x94 restart failed");
         return result;
     }
 
@@ -1160,7 +1165,7 @@ PipeInference::Result PipeInference::generate(const Request& request)
         {
             juce::Logger::writeToLog("PipeInference: subprocess died during generation");
             tryRestart();
-            result.errorMessage = "Inference crashed — restarted, try again";
+            result.errorMessage = juce::String::fromUTF8("Inference crashed \xe2\x80\x94 restarted, try again");
         }
         else
             result.errorMessage = "Timeout waiting for response";
@@ -1281,7 +1286,7 @@ PipeInference::TranslateResult PipeInference::translate(const juce::String& text
         juce::Logger::writeToLog("PipeInference: subprocess died, restarting...");
         if (!tryRestart())
         {
-            result.errorMessage = "Inference crashed — restart failed";
+            result.errorMessage = juce::String::fromUTF8("Inference crashed \xe2\x80\x94 restart failed");
             return result;
         }
         juce::Logger::writeToLog("PipeInference: restarted successfully");
@@ -1309,9 +1314,9 @@ PipeInference::TranslateResult PipeInference::translate(const juce::String& text
     if (!writeExact(jsonStr.toRawUTF8(), static_cast<int>(jsonStr.getNumBytesAsUTF8())))
     {
         if (tryRestart())
-            result.errorMessage = "Inference restarted — try again";
+            result.errorMessage = juce::String::fromUTF8("Inference restarted \xe2\x80\x94 try again");
         else
-            result.errorMessage = "Inference crashed — restart failed";
+            result.errorMessage = juce::String::fromUTF8("Inference crashed \xe2\x80\x94 restart failed");
         return result;
     }
 
@@ -1385,7 +1390,7 @@ PipeInference::InterpretResult PipeInference::interpret(const juce::String& syst
         juce::Logger::writeToLog("PipeInference: subprocess died, restarting...");
         if (!tryRestart())
         {
-            result.errorMessage = "Inference crashed — restart failed";
+            result.errorMessage = juce::String::fromUTF8("Inference crashed \xe2\x80\x94 restart failed");
             return result;
         }
         juce::Logger::writeToLog("PipeInference: restarted successfully");
@@ -1422,9 +1427,9 @@ PipeInference::InterpretResult PipeInference::interpret(const juce::String& syst
     if (!writeExact(jsonStr.toRawUTF8(), static_cast<int>(jsonStr.getNumBytesAsUTF8())))
     {
         if (tryRestart())
-            result.errorMessage = "Inference restarted — try again";
+            result.errorMessage = juce::String::fromUTF8("Inference restarted \xe2\x80\x94 try again");
         else
-            result.errorMessage = "Inference crashed — restart failed";
+            result.errorMessage = juce::String::fromUTF8("Inference crashed \xe2\x80\x94 restart failed");
         return result;
     }
 
@@ -1506,7 +1511,7 @@ PipeInference::CsoundAuthorResult PipeInference::authorCsoundOrchestra(const juc
         juce::Logger::writeToLog("PipeInference: subprocess died, restarting...");
         if (!tryRestart())
         {
-            result.errorMessage = "Inference crashed — restart failed";
+            result.errorMessage = juce::String::fromUTF8("Inference crashed \xe2\x80\x94 restart failed");
             return result;
         }
         juce::Logger::writeToLog("PipeInference: restarted successfully");
@@ -1551,9 +1556,9 @@ PipeInference::CsoundAuthorResult PipeInference::authorCsoundOrchestra(const juc
     if (!writeExact(jsonStr.toRawUTF8(), static_cast<int>(jsonStr.getNumBytesAsUTF8())))
     {
         if (tryRestart())
-            result.errorMessage = "Inference restarted — try again";
+            result.errorMessage = juce::String::fromUTF8("Inference restarted \xe2\x80\x94 try again");
         else
-            result.errorMessage = "Inference crashed — restart failed";
+            result.errorMessage = juce::String::fromUTF8("Inference crashed \xe2\x80\x94 restart failed");
         return result;
     }
 
@@ -1757,7 +1762,7 @@ PipeInference::AnalyzeResult PipeInference::analyze(const juce::AudioBuffer<floa
         juce::Logger::writeToLog("PipeInference: subprocess died, restarting...");
         if (!tryRestart())
         {
-            result.errorMessage = "Inference crashed — restart failed";
+            result.errorMessage = juce::String::fromUTF8("Inference crashed \xe2\x80\x94 restart failed");
             return result;
         }
         juce::Logger::writeToLog("PipeInference: restarted successfully");
@@ -1794,9 +1799,9 @@ PipeInference::AnalyzeResult PipeInference::analyze(const juce::AudioBuffer<floa
     if (!writeExact(jsonStr.toRawUTF8(), static_cast<int>(jsonStr.getNumBytesAsUTF8())))
     {
         if (tryRestart())
-            result.errorMessage = "Inference restarted — try again";
+            result.errorMessage = juce::String::fromUTF8("Inference restarted \xe2\x80\x94 try again");
         else
-            result.errorMessage = "Inference crashed — restart failed";
+            result.errorMessage = juce::String::fromUTF8("Inference crashed \xe2\x80\x94 restart failed");
         return result;
     }
 
@@ -1808,7 +1813,7 @@ PipeInference::AnalyzeResult PipeInference::analyze(const juce::AudioBuffer<floa
         {
             juce::Logger::writeToLog("PipeInference: subprocess died during analyze");
             tryRestart();
-            result.errorMessage = "Inference crashed — restarted, try again";
+            result.errorMessage = juce::String::fromUTF8("Inference crashed \xe2\x80\x94 restarted, try again");
         }
         else
             result.errorMessage = "Timeout waiting for analysis";

@@ -104,7 +104,9 @@ void WaveformDisplay::paint(juce::Graphics& g)
         {
             float tStart = loopStart * bufferDurationSec;
             float tEnd   = loopEnd * bufferDurationSec;
-            juce::String timeStr = juce::String(tStart, 3) + "s \u2013 " + juce::String(tEnd, 3) + "s";
+            juce::String timeStr = juce::String(tStart, 3)
+                                 + juce::String::fromUTF8("s \xe2\x80\x93 ")
+                                 + juce::String(tEnd, 3) + "s";
             g.setColour(kAccent);
             g.drawText(timeStr, labelArea, juce::Justification::centredRight);
         }

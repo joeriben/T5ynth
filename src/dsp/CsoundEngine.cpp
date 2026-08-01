@@ -222,7 +222,7 @@ namespace
                 if (usable.empty())
                     std::fprintf (stderr, "CsoundEngine: the plugin opcode directory "
                                           "cannot be expressed in this machine's ANSI "
-                                          "code page — the LRO runs on core opcodes "
+                                          "code page -- the LRO runs on core opcodes "
                                           "only\n");
                 else
                     csoundSetOpcodedir (usable.c_str());

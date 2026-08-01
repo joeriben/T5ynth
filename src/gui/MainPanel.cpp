@@ -554,14 +554,14 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
     {
         processorRef.stopReplay();
         replayOverlay_.end();
-        statusBar.setStatusText("Replay stopped — patch restored");
+        statusBar.setStatusText(juce::String::fromUTF8("Replay stopped \xe2\x80\x94 patch restored"));
     };
     // Cleared in ~MainPanel: the processor outlives this panel and would otherwise
     // call into a dead `this` when a tape reaches its end.
     processorRef.onReplayFinished = [this]
     {
         replayOverlay_.end();
-        statusBar.setStatusText("Replay finished — patch restored");
+        statusBar.setStatusText(juce::String::fromUTF8("Replay finished \xe2\x80\x94 patch restored"));
     };
     statusBar.onSettings     = [this] { if (settingsVisible) hideSettings(); else showSettings(); };
     statusBar.onManual       = [this] { showManual(); };
@@ -860,7 +860,8 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
                         .withParentComponent(this),
                     nullptr);
                 presetManager.setStatusText("\"" + presetName + "\" already exists in \""
-                                                + collidingBank + "\" — pick another name",
+                                                + collidingBank
+                                                + juce::String::fromUTF8("\" \xe2\x80\x94 pick another name"),
                                             true);
                 return;
             }
@@ -898,7 +899,8 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
             retargetedToOtherBank
                 ? ("\"" + presetName + "\" already exists in bank \"" + replaceBankLabel
                    + "\".\n\nSaving replaces THAT file, in \"" + replaceBankLabel
-                   + "\" — not in the selected bank \"" + chosenBankLabel
+                   + juce::String::fromUTF8("\" \xe2\x80\x94 not in the selected bank \"")
+                   + chosenBankLabel
                    + "\". Two banks cannot share a preset name.")
                 : ("Replace \"" + target.getFileNameWithoutExtension()
                    + "\" in bank \"" + replaceBankLabel + "\"?");
@@ -1252,9 +1254,9 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
         },
         kOscCol);
     resynthRow->setInlineLabel(true);
-    resynthRow->getSlider().setTooltip(
+    resynthRow->getSlider().setTooltip(juce::String::fromUTF8(
         "Resynth (SA3): Off = normal generation. Drag right to feed the source back "
-        "as the seed — further right = the next render follows it more.");
+        "as the seed \xe2\x80\x94 further right = the next render follows it more."));
     addAndMakeVisible(*resynthRow);
 
     resynthA = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
@@ -2469,7 +2471,7 @@ void MainPanel::finishPresetUpdate(bool success,
     presetManager.refreshLibrary();
 
     juce::String summary;
-    summary << "Library up to date — "
+    summary << juce::String::fromUTF8("Library up to date \xe2\x80\x94 ")
             << stats.added     << " added, "
             << stats.updated   << " updated, "
             << stats.unchanged << " unchanged";
@@ -2873,8 +2875,8 @@ void MainPanel::tryLoadInferenceModels(bool forceRestart)
         const auto msg = forceBundledBackend
                          ? juce::String("Bundled backend not found in app")
                          : (juce::JUCEApplicationBase::isStandaloneApp()
-                            ? juce::String("Backend not found — reinstall ") + productName()
-                            : juce::String("Backend not found — install the ") + productName() + " app");
+                            ? juce::String::fromUTF8("Backend not found \xe2\x80\x94 reinstall ") + productName()
+                            : juce::String::fromUTF8("Backend not found \xe2\x80\x94 install the ") + productName() + " app");
         statusBar.setStatusText(msg);
         settingsPage.setBackendFailed(forceBundledBackend ? "Bundled backend missing" : "Not found");
     }
@@ -3507,7 +3509,8 @@ void MainPanel::activateSnapshot(int slot)
             // one over now would sound for a few seconds and then be replaced by a
             // sound the user did not ask for. Say so instead of half-doing it. A
             // prompt-only slot is unaffected — it touches no sound at all.
-            statusBar.setStatusText("LRO is authoring — recall when the bake lands");
+            statusBar.setStatusText(juce::String::fromUTF8(
+                "LRO is authoring \xe2\x80\x94 recall when the bake lands"));
             syncSnapshotUi();
             return;
         }
@@ -4444,7 +4447,8 @@ void MainPanel::loadReplaySession()
             // the current patch and restores it on Stop, so this is non-destructive.
             if (! self->processorRef.startReplay(reader))
             {
-                self->statusBar.setStatusText("Session log has no usable start patch — cannot replay");
+                self->statusBar.setStatusText(juce::String::fromUTF8(
+                    "Session log has no usable start patch \xe2\x80\x94 cannot replay"));
                 return;
             }
             self->statusBar.setStatusText("Replaying " + file.getFileName());
@@ -4457,7 +4461,8 @@ void MainPanel::saveSessionLog()
     const auto src = processorRef.getEventLogCurrentFile();
     if (! src.existsAsFile())
     {
-        statusBar.setStatusText("No session log yet — enable \"Record Event Log\" in Settings");
+        statusBar.setStatusText(juce::String::fromUTF8(
+            "No session log yet \xe2\x80\x94 enable \"Record Event Log\" in Settings"));
         return;
     }
 

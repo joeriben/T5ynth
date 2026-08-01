@@ -3840,7 +3840,8 @@ void PromptPanel::triggerGeneration()
     // generate and triggerGenerationWithOffsets.)
     if (processorRef.isReplayActive())
     {
-        if (onStatusChanged) onStatusChanged("replay running — stop it to generate", false);
+        if (onStatusChanged) onStatusChanged(juce::String::fromUTF8(
+            "replay running \xe2\x80\x94 stop it to generate"), false);
         return;
     }
 

@@ -48,7 +48,9 @@ public:
         addAndMakeVisible (outCombo);
 
         clockToggle.setButtonText ("External MIDI Clock (sync BPM to incoming clock)");
-        clockToggle.setTooltip ("Sync " + productName() + " BPM to incoming MIDI clock — overrides host transport + Seq BPM.");
+        clockToggle.setTooltip ("Sync " + productName()
+                                + juce::String::fromUTF8(" BPM to incoming MIDI clock \xe2\x80\x94 "
+                                                         "overrides host transport + Seq BPM."));
         clockToggle.onClick = [this] { proc.setMidiClockEnabled (clockToggle.getToggleState()); };
         addAndMakeVisible (clockToggle);
 

@@ -492,7 +492,7 @@ PresetFormat::LoadResult PresetFormat::loadFromFile(const juce::File& file, T5yn
             // mis-interpret the binary tail under the wrong schema.
             DBG("PresetFormat: unsupported .t5p version " << (int) version
                 << " (loader accepts " << (int) kMinLoadableVersion
-                << "…" << (int) kVersion << ")");
+                << ".." << (int) kVersion << ")");
             return result;
         }
         uint32_t jsonLen = *reinterpret_cast<const uint32_t*>(bytes + 8);

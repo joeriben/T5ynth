@@ -813,7 +813,8 @@ private:
     {
         auto t = s.trim();
         if (t.length() <= maxLen) return t;
-        return t.substring(0, maxLen - 1).trimEnd() + juce::String(juce::CharPointer_UTF8("…"));
+        return t.substring(0, maxLen - 1).trimEnd()
+             + juce::String(juce::CharPointer_UTF8("\xe2\x80\xa6"));
     }
 
     /** Bank label derived from a preset's location on disk:

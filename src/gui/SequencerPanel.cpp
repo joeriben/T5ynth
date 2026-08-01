@@ -525,7 +525,8 @@ SequencerPanel::SequencerPanel(T5ynthProcessor& p)
     // ── BPM ──
     bpmRow = std::make_unique<SliderRow>("BPM", [](double v) { return juce::String(juce::roundToInt(v)); }, kSeqCol);
     bpmRow->setInlineLabel(true);
-    bpmRow->getSlider().setTooltip("Tempo — drives the step sequencer, generative sequencer, and arpeggiator");
+    bpmRow->getSlider().setTooltip(juce::String::fromUTF8(
+        "Tempo \xe2\x80\x94 drives the step sequencer, generative sequencer, and arpeggiator"));
     addAndMakeVisible(*bpmRow);
     bpmA = std::make_unique<SA>(apvts, PID::seqBpm, bpmRow->getSlider());
     bpmRow->getSlider().onValueChange = [this] { bpmRow->updateValue(); };
@@ -892,7 +893,8 @@ SequencerPanel::SequencerPanel(T5ynthProcessor& p)
                 [](double v) { return juce::String(v, 2); }, kSeqFill);
             strandDomRows[i]->setInlineLabel(true);
             strandDomRows[i]->getSlider().setTooltip(sName
-                + " gravity — probability of snapping to field center at the cycle downbeat (0..1)");
+                + juce::String::fromUTF8(" gravity \xe2\x80\x94 probability of snapping to field "
+                                         "center at the cycle downbeat (0..1)"));
             addAndMakeVisible(*strandDomRows[i]);
             strandDomA[i] = std::make_unique<SA>(apvts, kDomPIDs[i], strandDomRows[i]->getSlider());
             strandDomRows[i]->getSlider().onValueChange = [this, i] { strandDomRows[i]->updateValue(); };
@@ -978,7 +980,8 @@ SequencerPanel::SequencerPanel(T5ynthProcessor& p)
     {
         arpOctBtns[i].setButtonText(juce::String(i + 1));
         styleSwitchButton(arpOctBtns[i], kSeqCol);
-        arpOctBtns[i].setTooltip("Arpeggiator octave range — repeats the arpeggio across this many octaves");
+        arpOctBtns[i].setTooltip(juce::String::fromUTF8(
+            "Arpeggiator octave range \xe2\x80\x94 repeats the arpeggio across this many octaves"));
         arpOctBtns[i].setClickingTogglesState(true);
         arpOctBtns[i].setRadioGroupId(2002);
         arpOctBtns[i].onClick = [this, i] { arpOctHidden.setSelectedId(i + 1); };
@@ -992,12 +995,12 @@ SequencerPanel::SequencerPanel(T5ynthProcessor& p)
         stepCols[static_cast<size_t>(i)] = std::make_unique<StepColumn>();
         stepCols[static_cast<size_t>(i)]->stepIndex = i;
         stepCols[static_cast<size_t>(i)]->processor = &p;
-        stepCols[static_cast<size_t>(i)]->setTooltip(
+        stepCols[static_cast<size_t>(i)]->setTooltip(juce::String::fromUTF8(
             "Note: drag vertically to set pitch (hold Shift to preview while dragging) \xe2\x80\xa2 "
             "Sample slots 1-3: click to cycle playback mode, right-click to clear, drag to/from the "
             "waveform or another slot to capture/copy \xe2\x80\xa2 "
             "Velocity: drag horizontally \xe2\x80\xa2 "
-            "On/Bind: click to toggle the step; Bind cycles Off \xe2\x86\x92 Bind \xe2\x86\x92 Glide");
+            "On/Bind: click to toggle the step; Bind cycles Off \xe2\x86\x92 Bind \xe2\x86\x92 Glide"));
         addAndMakeVisible(*stepCols[static_cast<size_t>(i)]);
     }
 

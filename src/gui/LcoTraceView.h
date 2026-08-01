@@ -535,7 +535,9 @@ private:
             else if (trace_.libraryEntryCount > 0)
                 note << openedCount << " of " << trace_.libraryEntryCount << " entries opened";
             if (trace_.namedMotions.isEmpty())
-                note << (note.isEmpty() ? "" : " \xc2\xb7 ") << "no movement asked for";
+                note << (note.isEmpty() ? juce::String()
+                                        : juce::String::fromUTF8(" \xc2\xb7 "))
+                     << "no movement asked for";
             if (note.isNotEmpty())
                 opened << "\n" << note;
             out.add(opened);
@@ -991,7 +993,9 @@ private:
             else if (trace_.libraryEntryCount > 0)
                 note << openedCount << " of " << trace_.libraryEntryCount << " entries opened";
             if (trace_.namedMotions.isEmpty())
-                note << (note.isEmpty() ? "" : " · ") << "no movement asked for";
+                note << (note.isEmpty() ? juce::String()
+                                        : juce::String::fromUTF8(" \xc2\xb7 "))
+                     << "no movement asked for";
             if (note.isNotEmpty())
                 yy += paragraph(g, note, fHint, kDimmer, static_cast<float>(textX()), yy, ww) + 2.0f;
             return yy - y0;
