@@ -291,6 +291,26 @@ namespace PID {
     // parameters are the player's alone; ON = an authored instrument may
     // also set the filter, envelopes, LFOs, drift and aftertouch it needs.
     static constexpr const char* lcoSetsParams    = "lco_sets_params";
+    // The knobs a written LRO instrument gives the player — twelve fixed slots,
+    // three parts of the instrument by four places each, every one 0..1. Fixed
+    // and always present, because they are automation targets and preset
+    // entries: a parameter that appears and disappears with the orchestra could
+    // be neither. What varies is only what they are CALLED and whether the body
+    // reads them, and that follows the library parameters the body kept
+    // (backend/lco_write.py: read_controls/wire_controls). A body that keeps
+    // none simply leaves all twelve unread at 0.5.
+    static constexpr const char* lroP1a           = "lro_p1a";
+    static constexpr const char* lroP1b           = "lro_p1b";
+    static constexpr const char* lroP1c           = "lro_p1c";
+    static constexpr const char* lroP1d           = "lro_p1d";
+    static constexpr const char* lroP2a           = "lro_p2a";
+    static constexpr const char* lroP2b           = "lro_p2b";
+    static constexpr const char* lroP2c           = "lro_p2c";
+    static constexpr const char* lroP2d           = "lro_p2d";
+    static constexpr const char* lroP3a           = "lro_p3a";
+    static constexpr const char* lroP3b           = "lro_p3b";
+    static constexpr const char* lroP3c           = "lro_p3c";
+    static constexpr const char* lroP3d           = "lro_p3d";
     static constexpr const char* noiseLevel       = "noise_level";
     static constexpr const char* noiseType        = "noise_type";
     static constexpr const char* wtFrames         = "wt_frames";

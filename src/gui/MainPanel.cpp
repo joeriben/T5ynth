@@ -3201,6 +3201,7 @@ MainPanel::LcoSnapshot MainPanel::captureLcoSnapshot()
     snapshot.reading     = processorRef.getCsoundReading();
     snapshot.paramsText  = processorRef.getCsoundParamsText();
     snapshot.authorModel = promptPanel.getLcoAuthorModel();
+    snapshot.controls    = processorRef.getCsoundControls();
     snapshot.parameters  = processorRef.getValueTreeState().copyState();
     // Prompt-only slots stay possible (nothing baked yet) — that was the whole
     // of the old behaviour and it is kept, not replaced. Neither prompt nor
@@ -3238,6 +3239,26 @@ void MainPanel::restoreLcoSnapshot(const LcoSnapshot& snapshot)
         for (auto* id : kMainSnapshotParamIds)
             if (!isLcoSnapshotSkippedParam(id))
                 restoreParameterFromState(apvts, snapshot.parameters, id);
+
+    // The knobs of the orchestra in this slot: what they MEAN first, then where
+    // the player had them. Both, and neither on its own — the reading without
+    // the positions gives correctly named sliders on a sound that is not the one
+    // the slot took, and the positions without the reading put the previous
+    // instrument's captions over this one's channels. `applyValues=false` because
+    // the values are the SLOT'S, not the author's starting positions: recalling a
+    // slot must return the sound that was stored, tuning included.
+    // They are restored here rather than through kMainSnapshotParamIds because
+    // they belong to a written orchestra, which is what only an LCO slot holds.
+    processorRef.setCsoundControls(snapshot.controls, /*applyValues=*/false);
+    if (snapshot.parameters.isValid())
+    {
+        static constexpr const char* kLroKnobIds[] = {
+            PID::lroP1a, PID::lroP1b, PID::lroP1c, PID::lroP1d,
+            PID::lroP2a, PID::lroP2b, PID::lroP2c, PID::lroP2d,
+            PID::lroP3a, PID::lroP3b, PID::lroP3c, PID::lroP3d };
+        for (auto* id : kLroKnobIds)
+            restoreParameterFromState(apvts, snapshot.parameters, id);
+    }
 
     // The disclosure travels with the code, so the card explains the orchestra
     // that is actually sounding — and a Save right after a recall round-trips the

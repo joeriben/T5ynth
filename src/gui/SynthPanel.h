@@ -6,6 +6,7 @@
 #include "AftertouchBar.h"
 #include "VelocityBar.h"
 #include "../dsp/BlockParams.h"   // kNumModEnvs, PID, AftertouchTarget
+#include "../dsp/LroControls.h"   // the authored instrument's own knobs
 
 class T5ynthProcessor;
 
@@ -31,6 +32,13 @@ private:
     void updateVisibility();
     void reconcileWaveformDisplayMode();   // WT fan vs sample view + region label
     void followModParamToTab(const juce::String& paramId);  // easy-mode tab follows controller
+    /** The LRO card's inner rectangle — the one area both the knob grid and the
+     *  library list live in. One definition, so the painted headings cannot
+     *  drift away from the placed sliders. */
+    juce::Rectangle<int> lroCardBounds() const;
+    /** Place the authored instrument's knobs in that card, one column per part.
+     *  Fills lroColumnBounds and hides every row the body did not declare. */
+    void layoutLroKnobs();
     bool initialized = false;
     bool pendingWtReextract_ = false;
 
@@ -113,6 +121,26 @@ private:
     juce::ComboBox noiseTypeHidden;
     juce::Rectangle<int> noiseSwitchBounds;
     std::unique_ptr<SliderRow> noiseLevelRow;
+
+    // ── LRO: the knobs the AUTHORED instrument gives the player ──
+    // Twelve rows, always constructed and always attached to the twelve fixed
+    // lro_p* parameters, because those parameters are always there. What
+    // CHANGES with each authored instrument is which of them are visible and
+    // what they are called — both from the library parameters the written body
+    // kept (LroControls). A row the current body has no line for is hidden,
+    // never relabelled with a guess.
+    static constexpr int kNumLroKnobs = 12;
+    std::array<std::unique_ptr<SliderRow>, kNumLroKnobs> lroKnobRows;
+    // Declared AFTER the rows: attachments must die before what they point at.
+    std::array<std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment>,
+               kNumLroKnobs> lroKnobA;
+    // The panel's copy of what the processor holds, refreshed when the
+    // processor's revision moves (timerCallback) rather than re-read per paint.
+    LroControls lroControls;
+    int lroControlsSeen = -1;
+    // Column geometry, computed in resized() and drawn in paintOverChildren:
+    // one rect per shown part, in the order the parts are drawn.
+    juce::Array<juce::Rectangle<int>> lroColumnBounds;
 
     // ── Section headers ──
     juce::Label engineHeader, filterHeader, modHeader, lfoHeader, driftHeader;

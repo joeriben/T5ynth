@@ -10,6 +10,7 @@
 #include "dsp/VoiceManager.h"
 #include "dsp/VoiceEvent.h"
 #include "dsp/CsoundEngine.h"
+#include "dsp/LroControls.h"
 #include "dsp/ParamCache.h"
 #include "dsp/LFO.h"
 #include "dsp/DriftLFO.h"
@@ -358,6 +359,22 @@ public:
     void setCsoundParamsText(const juce::String& text) { csoundParamsText_ = text; }
     const juce::String& getCsoundParamsText() const { return csoundParamsText_; }
 
+    /** The knobs the AUTHORED instrument gives the player — what the LRO panel
+     *  draws, and what the twelve `lro_p*` parameters mean for THIS sound.
+     *  Message-thread only, exactly like the reading and the params text beside
+     *  it; the audio thread never reads this, it reads the parameters.
+     *
+     *  `applyValues` writes each knob's authored starting value into its APVTS
+     *  parameter, which is what makes the sound the player first hears the sound
+     *  the author described. Not gated on lcoSetsParams: that switch is about
+     *  the PLAYER'S patch — filter, envelopes, LFOs — while these twelve belong
+     *  to the instrument the author just wrote and exist for nothing else. */
+    void setCsoundControls(const LroControls& c, bool applyValues);
+    const LroControls& getCsoundControls() const { return csoundControls_; }
+    /** Bumped on every setCsoundControls: the panel repaints its grid when this
+     *  changes rather than rebuilding it on a timer. */
+    int getCsoundControlsRevision() const { return csoundControlsRevision_; }
+
     // Semantic axes state (GUI-only, 3 slots: dropdownId + value)
     struct AxisSlotState { int dropdownId = 1; float value = 0.0f; };
     void setLastAxes(const std::array<AxisSlotState, 3>& a) { lastAxes = a; }
@@ -629,6 +646,12 @@ private:
 
     // Csound-authored parametrisation text cached for preset save (see setCsoundParamsText).
     juce::String csoundParamsText_;
+    // The authored instrument's own knobs — see setCsoundControls. Message
+    // thread only; saved with the preset, because a reload that brought the
+    // orchestra back but not the knobs would leave twelve live parameters with
+    // no names on them.
+    LroControls csoundControls_;
+    int csoundControlsRevision_ = 0;
     SamplePlayer masterSampler;
     FreezeTextureEngine masterFreeze;
     std::thread samplerReprepareThread;

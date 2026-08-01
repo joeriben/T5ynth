@@ -2564,6 +2564,13 @@ void PromptPanel::triggerDcoBake()
             self->processorRef.setCsoundPrompt(text);   // what was asked for, saved with it
             self->processorRef.setCsoundReading(authored.reading);
             self->processorRef.setCsoundParamsText(authored.paramsText);
+            // The knobs this instrument gives the player, and their starting
+            // positions. NOT gated on the KNOBS switch below: that switch is
+            // about the player's own patch (filter, envelopes, LFOs), while
+            // these twelve belong to the body that was just written and to
+            // nothing else — there is nothing of the player's to borrow here.
+            self->processorRef.setCsoundControls(
+                LroControls::fromVar(authored.controls), /*applyValues=*/true);
             // The knobs the author asked for, out on the synth itself. Empty
             // unless the switch was on when this authoring started — and the
             // switch is read again HERE, so turning it off while an authoring

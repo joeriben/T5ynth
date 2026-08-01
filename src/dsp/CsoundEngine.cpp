@@ -531,6 +531,10 @@ struct CsoundEngine::Impl
 
     static constexpr int kChannelsPerVoice = 6; // gate, freq, vel, pres, timb, trig
     MYFLT* channelPtr[CsoundEngine::kMaxVoices][kChannelsPerVoice] = {};
+    // The authored instrument's own knobs: not per voice, because they describe
+    // the INSTRUMENT. Resolved with the per-voice pointers in prepare() and
+    // written by the audio thread through setGlobalControls().
+    MYFLT* globalPtr[CsoundEngine::kNumGlobalControls] = {};
 
     std::vector<float> voiceBuf[CsoundEngine::kMaxVoices];
     std::array<float, CsoundEngine::kKsmps> carryBuf[CsoundEngine::kMaxVoices] {};
@@ -575,6 +579,12 @@ struct CsoundEngine::Impl
     {
         char name[16];
         std::snprintf(name, sizeof(name), "%s%d", prefix, voice1based);
+        return csoundGetChannelPtr(csound, &out, name,
+            CSOUND_CONTROL_CHANNEL | CSOUND_INPUT_CHANNEL) == 0 && out != nullptr;
+    }
+
+    bool resolveGlobalPtr (const char* name, MYFLT*& out)
+    {
         return csoundGetChannelPtr(csound, &out, name,
             CSOUND_CONTROL_CHANNEL | CSOUND_INPUT_CHANNEL) == 0 && out != nullptr;
     }
@@ -826,6 +836,19 @@ bool CsoundEngine::prepare (double sampleRate, int maxBlockSize, const char* orc
         for (int c = 0; c < Impl::kChannelsPerVoice && allResolved; ++c)
             allResolved = impl->resolveChannelPtr(kPrefixes[c], v + 1, impl->channelPtr[v][c]);
 
+    // The authored instrument's knobs. Deliberately NOT part of allResolved: an
+    // orchestra written before this contract existed — a .t5p saved last month,
+    // a hand-edited body — carries no lroP channel at all, and refusing to
+    // prepare would turn "this preset has no knobs" into "this preset does not
+    // play". A null stays null and setGlobalControls skips it.
+    for (int i = 0; i < kNumGlobalControls; ++i)
+    {
+        char name[16];
+        std::snprintf(name, sizeof(name), "lroP%d%c", 1 + i / 4, "abcd"[i % 4]);
+        if (! impl->resolveGlobalPtr(name, impl->globalPtr[i]))
+            impl->globalPtr[i] = nullptr;
+    }
+
     if (!allResolved)
     {
         std::fprintf(stderr, "CsoundEngine: failed to resolve one or more channel pointers\n");
@@ -902,6 +925,18 @@ void CsoundEngine::setVoiceControls (int voiceIndex, const VoiceControls& c)
     *ptrs[3] = (MYFLT) c.pressure;
     *ptrs[4] = (MYFLT) c.timbre;
     *ptrs[5] = (MYFLT) c.trigEpoch;
+}
+
+void CsoundEngine::setGlobalControls (const float* values)
+{
+    if (values == nullptr)
+        return;
+    if (! impl->ready.load(std::memory_order_acquire))
+        return;
+
+    for (int i = 0; i < kNumGlobalControls; ++i)
+        if (impl->globalPtr[i] != nullptr)
+            *impl->globalPtr[i] = (MYFLT) values[i];
 }
 
 void CsoundEngine::startBlock (int numSamples)

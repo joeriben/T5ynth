@@ -13,6 +13,7 @@
 #include "PresetManagerPanel.h"
 #include "SequenceLibraryPanel.h"
 #include "../dsp/BlockParams.h"
+#include "../dsp/LroControls.h"
 #include "../presets/PresetFormat.h"
 #include "../presets/PresetUpdater.h"
 
@@ -165,6 +166,11 @@ private:
         juce::String paramsText;    // the parametrisation behind that reading
         juce::String authorModel;   // which model wrote the orchestra
         juce::ValueTree parameters; // APVTS state (kMainSnapshotParamIds subset applies)
+        // What the twelve lro_p* parameters MEAN in this orchestra. Their VALUES
+        // ride in `parameters` like any other, but a value without its reading is
+        // worse than nothing here: recall a bowl into a panel still describing a
+        // supersaw and the slider captioned "Detune" turns the bowl's mode series.
+        LroControls controls;
     };
     std::array<LcoSnapshot, kNumSnapshotSlots> lcoSnapshots;
     std::array<LcoSnapshot, kNumSnapshotSlots> lcoPressCaptures;

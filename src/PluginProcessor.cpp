@@ -1437,6 +1437,31 @@ juce::AudioProcessorValueTreeState::ParameterLayout T5ynthProcessor::createParam
     // Default OFF: the knobs are the player's until the player says otherwise.
     params.push_back(std::make_unique<juce::AudioParameterBool>(
         juce::ParameterID{PID::lcoSetsParams, 1}, "LRO Sets Synth Params", false));
+    // The twelve knobs an authored LRO instrument gives the player — the
+    // library parameters its body kept (backend/lco_write.py, LroControls.h).
+    // They exist ALWAYS and under these fixed ids, even when no orchestra has
+    // one: a parameter that came and went with the sound could be neither
+    // automated nor stored in a preset, and the host would drop its automation
+    // lane every time a new instrument was written. What each one MEANS is not
+    // decided here — the name over the slider is the library's, travelling with
+    // the instrument. 0.5 is what a channel nothing reads sits at in the
+    // orchestra head, so an unused knob reads the same on both sides.
+    {
+        static constexpr const char* kLroIds[] = {
+            PID::lroP1a, PID::lroP1b, PID::lroP1c, PID::lroP1d,
+            PID::lroP2a, PID::lroP2b, PID::lroP2c, PID::lroP2d,
+            PID::lroP3a, PID::lroP3b, PID::lroP3c, PID::lroP3d };
+        for (int i = 0; i < 12; ++i)
+            params.push_back(std::make_unique<juce::AudioParameterFloat>(
+                juce::ParameterID{kLroIds[i], 1},
+                // charToString, not String(char): juce::String has no char
+                // constructor, so a char promotes to int and picks String(int)
+                // — the host's automation list would read "LRO 197".
+                "LRO " + juce::String(1 + i / 4)
+                       + juce::String::charToString(
+                             static_cast<juce::juce_wchar>("abcd"[i % 4])),
+                juce::NormalisableRange<float>(0.0f, 1.0f, 0.001f), 0.5f));
+    }
     params.push_back(std::make_unique<juce::AudioParameterChoice>(
         juce::ParameterID{PID::freezeTexture, 1}, "Granular Texture",
         toChoices(FreezeTexture::kEntries), FreezeTexture::Silk));
@@ -4347,9 +4372,28 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
         // touches the second engine at all (byte-identical to Phase 1).
         if (csoundActive)
         {
+            // The authored instrument's own knobs — the library parameters its
+            // body kept (LroControls.h). Once per block, not per voice: they
+            // describe the INSTRUMENT, so every voice reads the same twelve
+            // channels. Written to BOTH engines while a swap
+            // fades — the outgoing one is still sounding, and a knob that
+            // stopped answering for the length of a crossfade would read as the
+            // control breaking.
+            const float lroKnobs[CsoundEngine::kNumGlobalControls] = {
+                paramCache.lroP1a->load(), paramCache.lroP1b->load(),
+                paramCache.lroP1c->load(), paramCache.lroP1d->load(),
+                paramCache.lroP2a->load(), paramCache.lroP2b->load(),
+                paramCache.lroP2c->load(), paramCache.lroP2d->load(),
+                paramCache.lroP3a->load(), paramCache.lroP3b->load(),
+                paramCache.lroP3c->load(), paramCache.lroP3d->load() };
+
+            csoundEngines_[csoundActiveIdxNow].setGlobalControls(lroKnobs);
             csoundEngines_[csoundActiveIdxNow].startBlock(numSamples);
             if (csoundFadingNow)
+            {
+                csoundEngines_[csoundOtherIdx].setGlobalControls(lroKnobs);
                 csoundEngines_[csoundOtherIdx].startBlock(numSamples);
+            }
         }
 
         // LFO → normalized amount targets (additive, clamped to 0–1). Drift
@@ -6372,6 +6416,11 @@ void T5ynthProcessor::getStateInformation(juce::MemoryBlock& destData)
         xml->setAttribute("csoundPrompt", csoundPrompt_);
         xml->setAttribute("csoundReading", csoundReading_);
         xml->setAttribute("csoundParamsText", csoundParamsText_);
+        // The knob NAMES. Their VALUES are already saved — they are twelve
+        // ordinary parameters — but without the names the panel would come back
+        // with twelve unlabelled sliders on a sound whose author had said
+        // exactly what each of them does.
+        xml->setAttribute("csoundControls", juce::JSON::toString(csoundControls_.toVar(), true));
     }
     copyXmlToBinary(*xml, destData);
 }
@@ -6593,12 +6642,20 @@ void T5ynthProcessor::setStateInformation(const void* data, int sizeInBytes)
             setCsoundPrompt(xml->getStringAttribute("csoundPrompt"));
             setCsoundReading(xml->getStringAttribute("csoundReading"));
             setCsoundParamsText(xml->getStringAttribute("csoundParamsText"));
+            // Names only — applyValues stays FALSE. The twelve values are
+            // parameters and the state has already restored them; writing the
+            // author's starting positions over them here would throw away every
+            // knob the player had moved before saving.
+            setCsoundControls(LroControls::fromVar(
+                juce::JSON::parse(xml->getStringAttribute("csoundControls"))),
+                /*applyValues=*/false);
         }
         else if (static_cast<int>(paramCache.engineMode->load()) == static_cast<int>(EngineMode::Csound))
         {
             requestCsoundOrchestra(juce::String());
             setCsoundReading(juce::String()); // pairs with the built-in orchestra above, not a stale reading
             setCsoundParamsText(juce::String());
+            setCsoundControls({}, /*applyValues=*/false);   // ...and no knobs from the sound before it
             setCsoundPrompt(juce::String());  // ...and so does the prompt: a purge that
                                               // leaves it standing lets the next save write
                                               // the previous project's prompt beside an
@@ -7053,6 +7110,38 @@ juce::StringArray T5ynthProcessor::applyAuthorSettings(const juce::var& settings
     return applied;
 }
 
+void T5ynthProcessor::setCsoundControls(const LroControls& c, bool applyValues)
+{
+    csoundControls_ = c;
+    ++csoundControlsRevision_;
+
+    if (! applyValues)
+        return;
+
+    // Every one of the twelve, not only the declared ones. A knob left over
+    // from the previous instrument would otherwise keep the position the player
+    // had put it in and feed it to a body that means something entirely
+    // different by that channel — the new sound would not be the sound the
+    // author described, and nothing on screen would say why. Undeclared
+    // channels go back to 0.5, which is what the orchestra head gives them.
+    static constexpr const char* kLroIds[] = {
+        PID::lroP1a, PID::lroP1b, PID::lroP1c, PID::lroP1d,
+        PID::lroP2a, PID::lroP2b, PID::lroP2c, PID::lroP2d,
+        PID::lroP3a, PID::lroP3b, PID::lroP3c, PID::lroP3d };
+
+    for (const auto* id : kLroIds)
+    {
+        float target = 0.5f;
+        for (const auto& k : c.knobs)
+            if (k.paramId == id)
+            {
+                target = k.value;
+                break;
+            }
+        setParam(parameters, id, target);
+    }
+}
+
 // ═══════════════════════════════════════════════════════════════════
 // HF boost — two-band high shelf to compensate VAE decoder rolloff
 // ═══════════════════════════════════════════════════════════════════
@@ -7218,6 +7307,12 @@ juce::String T5ynthProcessor::exportJsonPreset() const
         engine->setProperty("csound_prompt", csoundPrompt_);
         engine->setProperty("csound_reading", csoundReading_);
         engine->setProperty("csound_params_text", csoundParamsText_);
+        // What each of the twelve lro_p* parameters MEANS in this instrument —
+        // the library parameters its body kept. Structured, not a text blob:
+        // the panel reads it straight, and only backend/lco_write.py ever reads
+        // a parameter line out of Csound.
+        if (! csoundControls_.isEmpty())
+            engine->setProperty("csound_controls", csoundControls_.toVar());
     }
     root->setProperty("engine", engine.get());
 
@@ -7707,6 +7802,13 @@ bool T5ynthProcessor::importJsonPreset(const juce::String& json)
             setCsoundParamsText(engine->hasProperty("csound_params_text")
                                  ? engine->getProperty("csound_params_text").toString()
                                  : juce::String());
+            // Names only. A .t5p carries the twelve values as ordinary
+            // parameters, so applying the author's starting positions here
+            // would overwrite what the preset actually stored. A preset written
+            // before this contract has no such block and gets no knobs, which
+            // is the truth about it.
+            setCsoundControls(LroControls::fromVar(
+                engine->getProperty("csound_controls")), /*applyValues=*/false);
         }
     }
 

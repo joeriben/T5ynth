@@ -102,6 +102,19 @@ public:
     // ---- audio thread (RT-safe: raw pointer writes + performKsmps, zero lookups/locks) ----
     struct VoiceControls { float gate, freqHz, velocity, pressure, timbre, trigEpoch; };
     void setVoiceControls (int voiceIndex, const VoiceControls&);   // writes via cached MYFLT*
+
+    /** The player's knobs for the AUTHORED instrument — twelve global control
+     *  channels `lroP1a`…`lroP3d`, all 0..1, shared by every voice because they
+     *  describe the instrument and not the note (backend/lco_write.py wires each
+     *  one into a library parameter line). Same discipline as setVoiceControls: cached raw
+     *  MYFLT* written straight, so this is audio-thread safe and does no name
+     *  lookup. `values` must point at kNumGlobalControls floats.
+     *
+     *  A body that reads none of them is not a special case — the channels
+     *  exist in every orchestra the host wraps, and writing an unread channel
+     *  costs a store. */
+    static constexpr int kNumGlobalControls = 12;
+    void setGlobalControls (const float* values);
     // Renders forward so that at least `upToSample+1` samples (block-relative) exist in every
     // per-voice buffer; carries ksmps surplus internally across calls and blocks.
     void renderUpTo (int upToSample);

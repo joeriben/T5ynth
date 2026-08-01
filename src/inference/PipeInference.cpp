@@ -1698,6 +1698,9 @@ PipeInference::CsoundAuthorResult PipeInference::authorCsoundOrchestra(const juc
             // Only present when the request carried the shelf; a backend that
             // does not know the field simply omits it and nothing is set.
             result.settings           = parsed.getProperty("settings", juce::var());
+            // Absent from a backend older than the knob contract, which then
+            // simply means "this instrument has no knobs".
+            result.controls           = parsed.getProperty("controls", juce::var());
             result.attempts           = static_cast<int>(parsed.getProperty("attempts", juce::var(0)));
 
             result.success    = result.orchestra.isNotEmpty();

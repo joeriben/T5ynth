@@ -95,7 +95,10 @@
     X(lfo2ClockMode)     X(lfo2ClockDivision)     X(lfo3ClockMode)     X(lfo3ClockDivision) \
     X(drift1ClockMode)     X(drift1ClockDivision)     X(drift2ClockMode)     X(drift2ClockDivision) \
     X(drift3ClockMode)     X(drift3ClockDivision)     X(delayClockMode)     X(delayClockDivision) \
-    X(resynthAmount)     X(velAmt)
+    X(resynthAmount)     X(velAmt) \
+    X(lroP1a)     X(lroP1b)     X(lroP1c)     X(lroP1d) \
+    X(lroP2a)     X(lroP2b)     X(lroP2c)     X(lroP2d) \
+    X(lroP3a)     X(lroP3b)     X(lroP3c)     X(lroP3d)
 
 struct ParamCache
 {

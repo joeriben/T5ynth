@@ -244,6 +244,13 @@ public:
         // `note` carries what it had to correct (a clamped value, an unknown
         // id) so the panel can say so rather than the value changing silently.
         juce::var settings;
+
+        // The knobs this body gives the PLAYER — the library parameters it kept,
+        // read out of the written code (backend/lco_write.py: read_controls).
+        // Decoded with LroControls::fromVar. Empty when the body kept none,
+        // which is a legitimate answer: the panel then shows no knobs rather
+        // than plausible ones.
+        juce::var controls;
     };
 
     /** External-API author config: an alternative to the local GGUF for a

@@ -192,7 +192,7 @@ then patched at `src/presets/PresetFormat.cpp:18-66`:
 | `name`          | save/export   | Preset display name when saved through `.t5p`; legacy raw exports may contain `"T5ynth Export"` and should fall back to the filename for UI display. |
 | `timestamp`     | export        | ISO-8601 UTC timestamp of the save. |
 | `synth`         | export+patch  | Core synth params + prompts + seed + device + model + randomSeed (see 3.2). |
-| `engine`        | export        | Engine mode, loop mode, crossfade, normalise, loop optimise, loop/start fractions. |
+| `engine`        | export        | Engine mode, loop mode, crossfade, normalise, loop optimise, loop/start fractions. In Csound (LRO) mode also `csound_orchestra`, `csound_prompt`, `csound_reading`, `csound_params_text` and `csound_controls` (see 3.2.1). |
 | `modulation`    | export        | `envs` (3 envelopes) + `lfos` (2 LFOs). |
 | `driftLfos`     | export        | Array of 3 drift LFO objects. |
 | `driftEnabled`  | export        | Bool. |
@@ -242,6 +242,30 @@ APVTS parameters. The `.t5p` save path overwrites them in
 in `src/gui/SequencerPanel.cpp`) does not run that patch, so such
 files lose the prompt text — this is by design for the JSON export
 path (see section 8.2).
+
+### 3.2.1 `engine.csound_controls` — what the twelve LRO knobs mean
+
+An authored LRO instrument carries the library parameters that survived into its
+body (`docs/IPC_PROTOCOL.md` §3.3, `controls`), and their VALUES are twelve
+ordinary APVTS parameters (`lro_p1a` … `lro_p3d`) that the preset already carries
+like any other. What those parameters MEAN is not derivable from a number, so the
+reading travels with them:
+
+```json
+"csound_controls": {
+  "parts":  [{"n": 1, "name": "singing bowl"}],
+  "params": [{"ch": "lroP1a", "part": 1, "slot": "a", "name": "Bowl",
+              "value": 0.5, "gloss": "which measured bowl the mode series is"}],
+  "refused": []
+}
+```
+
+Written only in Csound mode and only when the body carried such a line.
+On load the NAMES are restored and the values are NOT: the parameters have
+already been restored from the preset, and re-applying the author's starting
+positions would throw away every knob the player had moved before saving. A
+preset written before this contract simply has no such key, and its twelve
+parameters then sit unnamed and unshown — which is the truth about it.
 
 ### 3.3 What is not saved
 

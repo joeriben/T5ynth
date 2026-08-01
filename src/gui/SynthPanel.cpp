@@ -775,6 +775,32 @@ SynthPanel::SynthPanel(T5ynthProcessor& processor)
     noiseLevelRow->onRightClick = [this](juce::Point<int> pos) {
         showMidiLearnMenu(processorRef, PID::noiseLevel, pos); };
 
+    // ── The authored LRO instrument's own knobs ──
+    // Built once, all twelve, and attached to the twelve fixed parameters: what
+    // an instrument declares is a NAME and a starting value, never the
+    // existence of a parameter (a parameter that came and went could be neither
+    // automated nor stored). The label is set from the author's PARAM line in
+    // updateVisibility; nothing here invents one, so a row with no declaration
+    // is hidden rather than shown with a placeholder.
+    {
+        static constexpr const char* kLroIds[kNumLroKnobs] = {
+            PID::lroP1a, PID::lroP1b, PID::lroP1c, PID::lroP1d,
+            PID::lroP2a, PID::lroP2b, PID::lroP2c, PID::lroP2d,
+            PID::lroP3a, PID::lroP3b, PID::lroP3c, PID::lroP3d };
+        for (int i = 0; i < kNumLroKnobs; ++i)
+        {
+            // The oscillator's colour, because this IS the oscillator's panel —
+            // the same kImpulseA the library list is drawn in.
+            lroKnobRows[i] = std::make_unique<SliderRow>("", fmtF2, kImpulseA);
+            addChildComponent(*lroKnobRows[i]);        // shown only when declared
+            lroKnobA[i] = std::make_unique<SA>(apvts, kLroIds[i],
+                                               lroKnobRows[i]->getSlider());
+            lroKnobRows[i]->updateValue();
+            lroKnobRows[i]->onRightClick = [this, id = juce::String(kLroIds[i])]
+                (juce::Point<int> pos) { showMidiLearnMenu(processorRef, id, pos); };
+        }
+    }
+
     // ── Wavetable controls: frame count switchbox ──
     // Frame count switchbox: 32 | 64 | 128 | 256
     {
@@ -1274,6 +1300,19 @@ void SynthPanel::followModParamToTab(const juce::String& paramId)
 
 void SynthPanel::timerCallback()
 {
+    // A newly authored instrument brings its own knobs. One int compare per
+    // tick — the panel takes a copy only when the processor's revision moves,
+    // and a copy is the whole cost: the set is at most twelve short strings.
+    // No polling of the backend, no work while nothing is being written.
+    if (const int rev = processorRef.getCsoundControlsRevision(); rev != lroControlsSeen)
+    {
+        lroControlsSeen = rev;
+        lroControls = processorRef.getCsoundControls();
+        updateVisibility();   // which rows exist, and what they are called
+        resized();            // where they sit
+        repaint();            // the caption and the part names over them
+    }
+
     // Tab follows controller: when an incoming mapped CC changes a mod param,
     // switch the visible ENV/LFO/Drift tab to the affected one.
     {
@@ -1405,6 +1444,76 @@ void SynthPanel::timerCallback()
 // and set the region label to match. Idempotent and cheap (no per-tick cost of
 // note) — safe to call from updateVisibility AND the timer's new-data blocks so
 // an engine switch, a bake, or a neural gen each land on the right mode + label.
+juce::Rectangle<int> SynthPanel::lroCardBounds() const
+{
+    const float f = fs();
+    return waveformDisplay.getBounds().reduced(juce::roundToInt(f * 1.2f),
+                                               juce::roundToInt(f * 0.3f));
+}
+
+void SynthPanel::layoutLroKnobs()
+{
+    lroColumnBounds.clearQuick();
+
+    const bool showing = engineModeHidden.getSelectedId() == EngineMode::Csound + 1
+                      && ! lroControls.isEmpty();
+    if (! showing)
+    {
+        // Off-screen rather than merely hidden: a hidden component still owns
+        // its bounds, and the next mode switch would flash them before the next
+        // resized() ran.
+        for (auto& r : lroKnobRows)
+            if (r != nullptr)
+                r->setBounds(-1000, -1000, 10, 10);
+        return;
+    }
+
+    const float f = fs();
+    auto card = lroCardBounds();
+    // The caption line above the columns — the author's own READING, drawn in
+    // paintOverChildren. Same height there and here, from the same expression.
+    const float headFs = juce::jlimit(11.0f, 14.0f, f * 0.85f);
+    card.removeFromTop(juce::roundToInt(headFs * 1.7f));
+
+    const int nCols = juce::jmax(1, static_cast<int>(lroControls.parts.size()));
+    // Columns divide the card evenly and a single part uses the whole width:
+    // three narrow columns with two empty thirds beside them would be a grid
+    // pretending the instrument has parts it does not have.
+    const int colW = card.getWidth() / nCols;
+    const int gutter = juce::roundToInt(f * 0.8f);
+
+    // Rows are the panel's own row height, but never taller than the card can
+    // hold: four declared knobs must still fit, since four is what the contract
+    // allows. The label column is forced to the SAME width in every column so
+    // the tracks line up across the grid — the rows are the same component the
+    // rest of the synth uses, and this is the only thing that has to be said
+    // about them here.
+    const int maxRows = 4;
+    const int rowH = juce::jlimit(juce::roundToInt(f * 0.9f), juce::roundToInt(f * 1.5f),
+                                  card.getHeight() / maxRows);
+
+    for (size_t c = 0; c < lroControls.parts.size(); ++c)
+    {
+        auto col = card.removeFromLeft(c + 1 == lroControls.parts.size()
+                                       ? card.getWidth() : colW);
+        lroColumnBounds.add(col);
+        auto inner = col.reduced(gutter / 2, 0);
+
+        const auto knobs = lroControls.knobsOf(lroControls.parts[c].number);
+        for (const auto& k : knobs)
+        {
+            const int idx = (k.part - 1) * 4 + juce::jmax(0, k.slot[0] - 'a');
+            if (idx < 0 || idx >= kNumLroKnobs || lroKnobRows[static_cast<size_t>(idx)] == nullptr)
+                continue;
+            auto& row = *lroKnobRows[static_cast<size_t>(idx)];
+            auto r = inner.removeFromTop(rowH);
+            row.setBounds(r);
+            row.setForcedLabelWidth(juce::jmin(r.getWidth() / 2,
+                                               juce::roundToInt(f * 5.5f)));
+        }
+    }
+}
+
 void SynthPanel::reconcileWaveformDisplayMode()
 {
     // Fan for EVERY wavetable (DCO/LCO or neural), gated on "wavetable mode AND a
@@ -1524,6 +1633,31 @@ void SynthPanel::updateVisibility()
     wavetableBtn.setVisible(!isCsound);
     freezeBtn.setVisible(!isCsound);
     const bool isBufferSampler = isSampler && !isCsound;
+
+    // The authored instrument's knobs: which rows exist at all, and what each
+    // one is called. Both come from the library parameters the body kept and
+    // from nowhere else — a row without one is hidden, never labelled with
+    // something plausible. The tooltip carries the library's own line on what
+    // that parameter does.
+    for (int i = 0; i < kNumLroKnobs; ++i)
+    {
+        auto& row = *lroKnobRows[static_cast<size_t>(i)];
+        const juce::String want = juce::String(1 + i / 4) + juce::String::charToString(
+                                      static_cast<juce::juce_wchar>("abcd"[i % 4]));
+        const LroControls::Knob* found = nullptr;
+        for (const auto& k : lroControls.knobs)
+            if (juce::String(k.part) + k.slot == want)
+            {
+                found = &k;
+                break;
+            }
+        row.setVisible(isCsound && found != nullptr);
+        if (found != nullptr)
+        {
+            row.getLabel().setText(found->name, juce::dontSendNotification);
+            row.getSlider().setTooltip(found->gloss);
+        }
+    }
 
     // Re-read the curated instruments on every panel update while the LRO is
     // showing. Not once, and not "until it is non-empty": the list changes
@@ -2668,8 +2802,58 @@ void SynthPanel::paintOverChildren(juce::Graphics& g)
             g.fillRect(wfBounds);
 
             const float f = fs();
-            auto card = wfBounds.reduced(juce::roundToInt(f * 1.2f),
-                                          juce::roundToInt(f * 0.3f));
+            auto card = lroCardBounds();
+
+            // ── Once the author has written an instrument: ITS knobs ──
+            // The card has one subject at a time. Before an orchestra exists
+            // that is the library the coding LLM reads; after one exists it is
+            // the instrument that was written, and the library list would be a
+            // second list over a sound that is no longer being chosen
+            // (docs/plans/PLAN_lro_param_panel.md §8.3). The sliders themselves
+            // are real components laid out in layoutLroKnobs — what is painted
+            // here is only what a component cannot be: the author's READING as
+            // the card's caption, and the part names over their columns.
+            if (! lroControls.isEmpty() && ! lroColumnBounds.isEmpty())
+            {
+                const float capFs  = juce::jlimit(11.0f, 14.0f, f * 0.85f);
+                const float partFs = juce::jlimit(10.0f, 13.0f, f * 0.8f);
+                auto capArea = card.removeFromTop(juce::roundToInt(capFs * 1.7f));
+
+                const auto reading = processorRef.getCsoundReading().trim();
+                g.setColour(kImpulseA.withAlpha(0.75f));
+                g.setFont(juce::FontOptions(capFs));
+                g.drawText(reading.isNotEmpty() ? reading : juce::String("PROMPT ORCHESTRA"),
+                           capArea, juce::Justification::centred, true);
+
+                for (int c = 0; c < lroColumnBounds.size(); ++c)
+                {
+                    auto col = lroColumnBounds[c];
+                    if (c > 0)
+                    {
+                        // A thin rule between the parts — they are different
+                        // instruments, not one list of twelve knobs.
+                        g.setColour(kBorder);
+                        g.drawVerticalLine(col.getX(),
+                                           static_cast<float>(capArea.getBottom()),
+                                           static_cast<float>(card.getBottom()));
+                    }
+                    if (c < static_cast<int>(lroControls.parts.size()))
+                    {
+                        g.setColour(kImpulseA.withAlpha(0.95f));
+                        g.setFont(juce::FontOptions(partFs, juce::Font::bold));
+                        g.drawText(lroControls.parts[static_cast<size_t>(c)].name.toUpperCase(),
+                                   col.withY(capArea.getY()).withHeight(capArea.getHeight())
+                                      .reduced(juce::roundToInt(f * 0.5f), 0),
+                                   juce::Justification::centredLeft, true);
+                    }
+                }
+                // The library list below belongs to the empty card, not to this
+                // one. Returning is safe rather than merely convenient: what
+                // follows this block is the loop/ping-pong iconography, and its
+                // own first line returns when oneshotBtn is hidden — which it
+                // always is in Csound mode (updateVisibility).
+                return;
+            }
 
             // The LIST is the deliverable here, not a footnote under a headline
             // (BJ 2026-07-30: "eine liste vorhandener Orchester/Instrumente ...
@@ -3202,6 +3386,11 @@ void SynthPanel::resized()
         // Hide wavetable-only controls in sampler mode
         frameCountLabel.setBounds(-1000, -1000, 10, 10);
     }
+    // The authored instrument's knobs go into the LRO card — after the branch,
+    // because it is the branch that gave the card its bounds, and because every
+    // OTHER engine has to park the rows off-screen rather than leave them
+    // sitting on top of a sampler waveform.
+    layoutLroKnobs();
     area.removeFromTop(gap * 2);
 
     int sectionGap = gap * 3;

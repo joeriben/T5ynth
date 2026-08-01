@@ -1,9 +1,11 @@
 # Die Parameter des geschriebenen Instruments im LRO-Panel — ENTWURF
 
-**Status:** Entwurf, vollständig. Keine Implementation — die beginnt erst auf Dein Wort.
+**Status:** gebaut. **§1 und §2 sind einmal umgeworfen worden** — die Reglerquelle des Entwurfs
+(„der Autor erklärt sie selbst") ist gemessen gescheitert und durch die Bibliothek ersetzt; beide
+Abschnitte tragen die Korrektur, der Rest des Entwurfs steht unverändert.
 Skizze: `docs/plans/lro_param_panel_sketch.svg` (A = Karte ohne Orchester, B = die Parameterspalten,
-C = wie eine `PARAM`-Zeile zum Kanal wird). §8 hält die vier Punkte fest, die der erste Entwurf
-offengelassen hatte; sie sind jetzt entschieden und begründet, nicht als Fragen zurückgereicht.
+C = wie eine Bibliothekszeile zum Kanal wird). §8 hält die vier Punkte fest, die der erste
+Entwurf offengelassen hatte.
 
 **Der Auftrag (BJ, 2026-07-31, wörtlich):**
 > „Das LRO-Panel wird: SOBALD der Autor ein Instrument geschrieben hat die einstellbaren
@@ -23,50 +25,66 @@ Orchestra' Feld") entschieden — bis auf die vier Fragen am Ende.
 „Keine Halluzinationen" ist hier keine Stilregel, sondern die ganze Konstruktion. Es gibt drei
 denkbare Quellen, und nur eine hält.
 
-**(a) Die `params` der Bibliothekseinträge, die der Autor aufgeschlagen hat.** Falsch. Der Autor
-*adaptiert und kombiniert* — der geschriebene Körper ist nicht der Eintrag. Ein Regler „bowl",
-weil `singing_bowl` aufgeschlagen war, während im Code gar keine Schalenreihe mehr steht, ist
-exakt die Halluzination. Die Bibliothek ist Orientierung, kein Menü
-([[project_lco_llm_authors_csound]]) — und deshalb auch keine Parameterquelle.
+**(a) Die `params` der Bibliothekseinträge, die der Autor aufgeschlagen hat.** Im Entwurf
+verworfen — mit einem Argument, das nur die *rohe* Form von (a) trifft: ein Regler „bowl", bloß
+weil `singing_bowl` aufgeschlagen *war*, während im Code keine Schalenreihe mehr steht, wäre
+tatsächlich die Halluzination. Was daraus nicht folgt, und was der Entwurf übersprungen hat: ein
+Parameter, der **aufgeschlagen war UND im geschriebenen Körper steht**, ist keine Vermutung
+über den Körper, sondern eine Lesung davon.
 
-**(b) Den emittierten Csound nach `k…`-Zuweisungen absuchen.** Falsch. Ein Körper hat 20 bis 60
-k-Variablen; welche davon eine *Achse* ist, was sie bedeutet und welcher Bereich sicher ist, ist
-aus dem Code nicht ablesbar. Die Kommentar-Konvention der Bibliothek (`kbowl = 0.50 ;
-bowl[0.0..1.0]: …`) gilt für die **kuratierten** Einträge, nicht für frei geschriebenen Code —
-der Autor ist auf nichts dergleichen verpflichtet. Raten wäre hier Raten.
+**(b) Den emittierten Csound nach `k…`-Zuweisungen absuchen.** Falsch, und das bleibt es. Ein
+Körper hat 20 bis 60 k-Variablen; welche davon eine *Achse* ist, was sie bedeutet und welcher
+Bereich trägt, ist aus einer Zuweisung nicht ablesbar.
 
-**(c) Der Autor erklärt sie selbst.** Richtig, und die einzige Quelle, die etwas *weiß*: er hat
-den Körper geschrieben, er weiß, welche drei Größen ihn steuern, wie sie in der Sprache des
-Spielers heißen und welcher Bereich trägt. Er erklärt bereits zwei Dinge im Fence — die
-`READING`-Zeile und die `SET`-Zeilen — und für die gilt schon die richtige Disziplin:
-*„Anything else is refused rather than guessed at"* (`read_settings`, `backend/lco_write.py:626`).
+**(c) Der Autor erklärt sie selbst.** Die Entwurfsentscheidung — und **gemessen gescheitert.**
+gemma-4-12b, „a bowed steel bar under a breathing bottle": sechs formal einwandfreie
+`PARAM`-Zeilen mit guten Namen, und im Körper `kstr 0.9884`, `kblow = 0.57 + kdrift` — **kein
+einziges `kp`**. Alle sechs Regler wurden von der Anti-Halluzinationsprüfung verworfen, weil sie
+nichts bewegt hätten. Das Modell schreibt den Vertrag und verdrahtet ihn nicht; ein schärferer
+Prompt hat daran nichts geändert. BJ, 2026-07-31: *„Deine Annahme dass der Autor die Regler
+selbst schreiben soll und die NICHT in der Bibliothek stehen sollen ist offenkundig gescheitert."*
 
-**Entwurfsentscheidung: (c).** Alles, was das Panel zeigt, steht wörtlich in der Antwort des
-Autors. Das Plugin erfindet keinen Namen, keinen Bereich und keine Vorgabe.
+**Gebaut ist (a) in seiner tragenden Form: ein Bibliotheksparameter, der in den geschriebenen
+Körper überlebt hat.** Die Bibliothek deklariert, was an einem Körper spielbar ist, und zwar als
+eine Zeile, die zugleich der Wert im Code und ihre eigene Beschreibung ist:
+
+```csound
+kbowl   = 0.50   ; bowl[0.0..1.0]: which measured bowl the mode series is
+```
+
+Behält der Autor diese Zeile, ist es ein Regler. Streicht er sie, ist es keiner. **Der Host
+verdrahtet** — `wire_controls` schreibt genau diese eine Zeile in `kbowl = 0 + 1 * kp1a` um —,
+also kann der Fehlermodus aus (c) nicht mehr auftreten: der Autor schreibt nie ein `kp`, er kann
+es nicht vergessen. Sein einziger Anteil ist die **Zahl**, und die ist genau das Richtige: wo der
+Regler steht, wenn der Spieler den Klang zum ersten Mal hört.
 
 ---
 
-## 2. Der Vertrag: zwei neue Fence-Zeilen
+## 2. Der Vertrag: eine Bibliothekszeile, die stehen bleibt
 
-Neben `READING:` und `SET:` darf die Antwort tragen:
+Kein neuer Fence-Vertrag. Der Autor deklariert nichts; er *behält* oder er *lässt weg*:
 
+```csound
+k<var>  = <Zahl>   ; <name>[<lo>..<hi>]: <was er tut>
 ```
-LAYER: <1..3> "<Name des Teilinstruments>"
-PARAM: <1..3><a..d> "<Name des Reglers>" = <Vorgabe 0..1> ; <ein Satz, was er tut>
-```
 
-- **`LAYER`** ist die Spaltenüberschrift. Sie benennt das *Teilinstrument*, nicht die Technik.
-- **`PARAM`** ist eine Zeile in dieser Spalte. Die Ziffer ist die Spalte, der Buchstabe der Platz
-  darin: `1a` bis `3d`.
-- **Der Wertebereich ist immer 0..1.** Absichtlich, und es ist die zweite tragende Entscheidung
-  nach (c): ein einziger Reglertyp für alles, keine erfundene Einheit im UI, keine Skala, die
-  irgendwo falsch gerundet wird. Die Abbildung auf Hz, Q, Index, Verhältnis steht dort, wo sie
-  hingehört — im Code des Autors: `kbow = 0.10 + 3.90 * kp1a`.
-- **Makros kosten nichts.** Ein `kp1a`, das der Autor an drei Stellen einsetzt, IST ein Makro.
-  Das Panel muss dafür nichts können; die Freiheit liegt beim Schreiber, wo sie hingehört.
-- **Semantisch, nicht technisch** steht als Regel im Systemprompt, mit Beispielen: „Bow pressure",
-  „Breath", „Metal" — nicht „kbow", „Index", „Q", „Ratio". Ein Name, den ein Spieler nicht liest,
-  ist falsch (BJ, 2026-07-28).
+- **Der Name gehört der Bibliothek**, nicht dem Autor: er muss in den `params` eines Eintrags
+  stehen, der für diese Autorenschaft aufgeschlagen war. Ein selbst erfundener Name in derselben
+  Form ist **kein** Regler und wird mit Grund in `refused` gemeldet. Damit zeigt das Panel das
+  Vokabular der Bibliothek und kann gar kein anderes zeigen.
+- **Die Spalte ist der Bibliothekseintrag** — das Teilinstrument, unter dem Namen, den die
+  Bibliothek ihm gibt („singing bowl"), in der Reihenfolge, in der die Zeilen im Körper stehen.
+  Drei Spalten, vier Plätze. Trägt ein Name mehrere Einträge (`ring` gehört heute vieren), gewinnt
+  der Eintrag, dessen *übrige* Parameter der Körper ebenfalls trägt.
+- **Der Regler ist im UI immer 0..1**, abgebildet auf `[lo..hi]` der Bibliothek. Ein einziger
+  Reglertyp, keine erfundene Einheit, und die Abbildung steht dort, wo sie hingehört: in der
+  Zeile, die der Host schreibt.
+- **Semantisch, nicht technisch** ist damit keine Prompt-Regel mehr, sondern eine Eigenschaft der
+  Bibliothek: `bowl`, `warble`, `ring`, `sung`, `width`, `age` sind kuratierte Wörter. Der
+  Kurztext unter dem Regler ist der Glosse-Teil derselben Zeile — nicht `note` aus den `params`,
+  das ist die Messung und läuft über einen Absatz.
+- **Makros kosten nichts.** Eine Bibliotheksvariable, die im Körper an drei Stellen wirkt, IST ein
+  Makro. Das Panel muss dafür nichts können.
 
 **Spalte = Teilinstrument, nicht zwingend Layer.** Die Plattform kennt drei Layer (`kvol1..3` /
 `koct1..3`, „You may layer up to THREE oscillators", `lco_write.py:487`) — BJs „max 3
@@ -82,17 +100,23 @@ zu; eine fünfte wird verworfen.
 
 ## 3. Die Leitung: wie ein Regler den Klang erreicht
 
-Der Mechanismus existiert bereits und wird nur weitergeführt. Die Orchestra bekommt heute schon
-globale Kanäle mit Vorgabewerten im Kopf (`lco_write.py:1464`):
+Die Form existiert bereits im Orchestra-Kopf und wird weitergeführt. Der Kopf setzt heute für die
+Misch- und Oktavregler eine Vorgabe und liest sie in `instr 1` zurück:
 
 ```csound
 chnset 1.0000, "osc1vol"        →  kvol1  chnget "osc1vol"
 ```
 
-Genauso, mit der Vorgabe aus der `PARAM`-Zeile:
+(Nur die Form, nicht das Vorbild: `osc1vol`/`osc1oct` werden vom Plugin nie geschrieben — im
+`src/`-Baum steht keine einzige Referenz darauf. Die Vorgabe im Kopf ist alles, was diese beiden
+Kanäle je tragen. Für die zwölf Reglerkanäle gilt das nicht: die schreibt `processBlock` pro
+Block aus dem `paramCache`.)
+
+Genauso, mit der Zahl aus der Bibliothekszeile als Vorgabe:
 
 ```csound
-chnset 0.4200, "lroP1a"         →  kp1a   chnget "lroP1a"
+chnset 0.5000, "lroP1a"         →  kp1a   chnget "lroP1a"
+                                →  kbowl  = 0 + 1 * kp1a   ; bowl[0.0..1.0]: …
 ```
 
 - **12 feste Kanäle** (3 Spalten × 4 Plätze). Fest, weil die Orchestra-Kopfzeilen dann für jede
@@ -101,15 +125,18 @@ chnset 0.4200, "lroP1a"         →  kp1a   chnget "lroP1a"
 - **Ein Reglerzug schreibt den Kanal.** Kein Neu-Kompilieren, kein Neu-Schreiben, keine erneute
   Inferenz. Das ist der Unterschied zwischen einem Regler und einem neuen Prompt.
 - **12 feste APVTS-Parameter** halten die Werte — damit sind sie automatisierbar, MIDI-lernbar und
-  stehen im Preset. Die **Beschriftung** ist kein Parameter: sie kommt aus den `PARAM`-Zeilen, die
-  neben dem Orchestra-Text gespeichert werden.
+  stehen im Preset. Die **Beschriftung** ist kein Parameter: sie kommt aus der Bibliothekszeile,
+  die neben dem Orchestra-Text gespeichert wird.
 - `CsoundEngine` löst und cacht heute 16×6 Kanalzeiger; die 12 globalen kommen mit demselben
   Helfer dazu (`CsoundEngine.cpp:565/573`). Geschrieben wird pro Block, wie die Stimmkanäle.
 
-**Anti-Halluzinations-Prüfung auf der Maschinenseite:** eine `PARAM`-Zeile, deren `kp…` im Körper
-nirgends gelesen wird, wird **verworfen** — ein Regler, der nichts bewegt, ist genau der Defekt,
-den das Ganze ausschließen soll. Umgekehrt: ein `kp…` im Körper ohne `PARAM`-Zeile bekommt keinen
-Regler, sondern steht auf seiner Vorgabe.
+**Anti-Halluzination, jetzt konstruktiv statt prüfend:** die Prüfung des Entwurfs („eine `PARAM`-
+Zeile, deren `kp…` niemand liest, wird verworfen") war richtig und hat auch genau das getan — sie
+hat nur *alle* Regler verworfen, weil der Autor keinen einzigen verdrahtet hat. Da der Host jetzt
+verdrahtet, ist die Verbindung nicht mehr etwas, das schiefgehen und dann bemerkt werden kann:
+ein Regler existiert genau dann, wenn seine Zeile im Körper steht, und diese Zeile IST die
+Verbindung. Verworfen wird nur noch, was die Bibliothek nicht deklariert, und was über drei
+Spalten oder vier Plätze hinausgeht.
 
 ---
 
@@ -126,7 +153,7 @@ untere Zeile, die durch das Hochziehen von Oktave und Rauschen frei geworden ist
 | Autor hat geschrieben | die `READING`-Zeile als Überschrift, darunter die Spalten |
 
 **Aufbau:** bis zu drei Spalten nebeneinander, durch eine dünne Linie getrennt; Spaltenkopf = der
-`LAYER`-Name in der Osc-Farbe; darunter 3 (höchstens 4) Zeilen. Weniger Spalten werden breiter,
+Name des Bibliothekseintrags in der Osc-Farbe; darunter 3 (höchstens 4) Zeilen. Weniger Spalten werden breiter,
 nicht zentriert-schmal — eine Spalte nutzt die Karte.
 
 **Die Zeile ist die `SliderRow` aus `src/gui/GuiHelpers.h:858`**, unverändert, wie überall sonst
@@ -138,14 +165,16 @@ heißt genau das — dieselbe Komponente, keine zweite Bauform (§8 der Arbeitsa
 
 ## 5. Randfälle, ausgeschrieben
 
-- **Autor erklärt nichts.** Karte bleibt auf der Bibliotheksliste. Kein leeres Gitter, keine
-  erfundenen Regler.
+- **Der Körper trägt keine Bibliothekszeile.** Karte bleibt auf der Bibliotheksliste. Kein leeres
+  Gitter, keine erfundenen Regler. Das trifft heute auch fünf Einträge, die `params` deklarieren,
+  aber keine solche Zeile im Code haben (`fm_bell`, `drum_head`, `string`, `blown_bottle`,
+  `driven_metal`) — das ist Bibliotheksarbeit, ein Eintrag nach dem anderen, keine Panelarbeit.
 - **Neues Orchestra.** Neue Achsen, Werte auf die neuen Vorgaben. Ein Regler von vorher hat im
   neuen Körper keine Bedeutung; ihn stehen zu lassen wäre eine stille Lüge.
-- **Preset.** `PARAM`-Namen und -Vorgaben reisen mit dem Orchestra-Text im `.t5p`. Ohne das ist das
+- **Preset.** Namen und Vorgaben reisen mit dem Orchestra-Text im `.t5p`. Ohne das ist das
   Panel nach dem Laden leer, während der Klang weiterläuft. (Formatänderung → `docs/PRESET_FORMAT.md`.)
-- **Kaputte Zeile** (Bereich außerhalb 0..1, Platz `1e`, Name leer, doppelter Platz): verworfen wie
-  eine kaputte `SET`-Zeile, mit Vermerk in der Antwort — nie repariert, nie geraten.
+- **Zahl außerhalb des Bereichs.** Auf `[lo..hi]` geklemmt, mit Vermerk — dieselbe Behandlung wie
+  bei einer `SET`-Zeile: die Zahl ist eine Position, der Regler ist das Ergebnis.
 - **Der Autor ist ein kleines Modell.** Ob 3B/7B die zwei Zeilen zuverlässig schreiben, ist offen
   und wird gemessen, bevor gebaut wird: dieselbe Disziplin wie bei `SET`, und der Ausfallmodus ist
   gutartig (keine Zeilen → Bibliotheksliste, wie heute).
