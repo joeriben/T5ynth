@@ -34,6 +34,7 @@ drift), so the library cannot silently fall out of step with the lexicon.
 """
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -578,7 +579,20 @@ def main():
         print("library is in step")
         return 0
 
-    OUT.write_text(text)
+    # Atomic: write beside the target, then rename over it. The plugin reads
+    # this file straight off disk while it runs (PipeInference::
+    # getCuratedInstrumentNames, once per panel update), and `write_text`
+    # truncates to zero before writing the ~450 kB back -- a read landing in
+    # that window sees a half file, which parses as nothing and shows an LRO
+    # panel with no instruments in it. os.replace is atomic on POSIX and on
+    # Windows, so a reader sees either the old library or the new one.
+    tmp = OUT.with_name(OUT.name + ".tmp")
+    try:
+        tmp.write_text(text)
+        os.replace(tmp, OUT)
+    except BaseException:
+        tmp.unlink(missing_ok=True)   # no half-written file left beside the real one
+        raise
     # `lco_write.has_code`, and imported rather than restated. There were two copies of
     # this predicate, both testing the FIRST CHARACTER, and fixing only the one here --
     # which feeds a `print` -- left the one that decides what the author is SHOWN still

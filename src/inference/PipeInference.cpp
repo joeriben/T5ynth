@@ -206,19 +206,59 @@ juce::StringArray PipeInference::getCuratedInstrumentNames() const
     if (! dir.isDirectory())
         return {};
 
+    // findLibraryFile has already proved the file exists (each candidate is
+    // probed with existsAsFile) and returns a default File when none does, so
+    // re-probing here would only spend two more syscalls on the answer it just
+    // gave. A file that vanishes between the probe and the stats below reads
+    // as size 0, fails to parse, and is remembered as an empty list — which is
+    // the truthful answer for a library that is no longer there.
     auto libFile = findLibraryFile(dir);
-    if (! libFile.existsAsFile())
+    if (libFile == juce::File())
         return {};
+
+    // Same file, same timestamp, same size → the answer from last time. This
+    // side of the memo is a handful of stats; the other side parses ~450 kB of
+    // JSON, and this runs from SynthPanel::updateVisibility(), which resized()
+    // calls — i.e. once per frame of a window drag — while an empty answer is
+    // a real one (a library with nothing approved yet).
+    //
+    // SIZE is in the key, not decoration: the answer is remembered even when
+    // the file did not parse, and a file caught mid-rewrite does not parse. On
+    // Linux juce::File resolves mtime to the second, so a read landing in a
+    // writer's truncation window would otherwise pin the panel to an empty
+    // list for the rest of the session while a perfectly valid library sits on
+    // disk. A half-written file has a different length from the finished one,
+    // so the memo misses and the next call recovers. This covers the
+    // truncate-then-write shape, which is what tools/lco_build_library.py used
+    // to do and what any plain `open(path,'w')` does; that tool now renames
+    // over the target instead, so its window is gone entirely. It does NOT
+    // cover an in-place rewrite that keeps the length (`open(path,'r+')`) —
+    // nothing in this repo writes that way.
+    const auto path = libFile.getFullPathName();
+    const auto stamp = libFile.getLastModificationTime();
+    const auto size = libFile.getSize();
+
+    if (path == curatedNamesFile_ && stamp == curatedNamesStamp_ && size == curatedNamesSize_)
+        return curatedNames_;
+
+    auto remember = [&](juce::StringArray result) -> juce::StringArray
+    {
+        curatedNamesFile_ = path;
+        curatedNamesStamp_ = stamp;
+        curatedNamesSize_ = size;
+        curatedNames_ = result;
+        return result;
+    };
 
     auto parsed = juce::JSON::parse(libFile);
     auto* root = parsed.getDynamicObject();
     if (root == nullptr)
-        return {};
+        return remember({});
 
     auto instruments = root->getProperty("instruments");
     auto* arr = instruments.getArray();
     if (arr == nullptr)
-        return {};
+        return remember({});
 
     // "Curated" is BJ's AUTHORISATION, and it is only ever read here, never
     // re-derived. tools/lco_build_library.py composes the `curated` field from
@@ -263,7 +303,7 @@ juce::StringArray PipeInference::getCuratedInstrumentNames() const
                 names.add(name);
         }
 
-    return names;
+    return remember(names);
 }
 
 bool PipeInference::isCompatibleBundledBinary(const juce::File& binary) const

@@ -48,12 +48,14 @@ private:
     // already consults — never a menu, just the same orientation it reads
     // (project_lco_llm_authors_csound). Kept as the KEYS, not a pre-joined
     // sentence: paintOverChildren lays them out as a real multi-column list at
-    // a real font size, which a single run-on string cannot be. Loaded once
-    // from disk in updateVisibility() (retried while empty — the backend may
-    // not have launched yet) and only ever READ in paintOverChildren(), never
-    // loaded there: a paint callback doing file I/O on every repaint is
-    // exactly the idle-CPU regression class docs/PERFORMANCE_GUIDE.md warns
-    // about.
+    // a real font size, which a single run-on string cannot be. Refreshed in
+    // updateVisibility() while the LRO is showing — so an instrument approved
+    // and built into the library during the session arrives at the next panel
+    // event instead of only after the editor is reopened; PipeInference
+    // memoises the file, so a refresh that changes nothing costs a few stats —
+    // and only ever READ in paintOverChildren(), never loaded there: a paint
+    // callback doing file I/O on every repaint is exactly the idle-CPU
+    // regression class docs/PERFORMANCE_GUIDE.md warns about.
     juce::StringArray lroInstrumentNames_;
 
     // ── Voice count ──

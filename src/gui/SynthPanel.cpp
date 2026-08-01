@@ -1525,14 +1525,31 @@ void SynthPanel::updateVisibility()
     freezeBtn.setVisible(!isCsound);
     const bool isBufferSampler = isSampler && !isCsound;
 
-    // Cache the curated-instrument caption the first time it's needed (retried
-    // on every call while still empty, in case the backend hadn't launched
-    // yet — see the member comment). Cheap and bounded: updateVisibility()
-    // runs on UI events (mode switches, resizes), never on a timer.
-    if (isCsound && lroInstrumentNames_.isEmpty())
+    // Re-read the curated instruments on every panel update while the LRO is
+    // showing. Not once, and not "until it is non-empty": the list changes
+    // when BJ approves an instrument and tools/lco_build_library.py runs, and
+    // a latch here held the old list until the editor was reopened — the panel
+    // showing something other than what he has taken is the exact complaint
+    // this list was rebuilt for (2026-07-31).
+    //
+    // Costs a handful of stats, not a parse: PipeInference memoises on the
+    // file's path+timestamp+size and re-reads only when one of them moves. It
+    // has to be that cheap, because this runs from resized() — every frame of
+    // a window drag — and, rarely, from the timer via followModParamToTab().
+    //
+    // Nothing POLLS the library, deliberately: a rebuild during the session
+    // reaches the card at the next panel event (engine switch, window resize,
+    // any filter/env/LFO/drift control), and putting a file check on the 30 Hz
+    // timer to save that click would be idle work of exactly the kind
+    // docs/PERFORMANCE_GUIDE.md is about.
+    if (isCsound)
     {
         if (auto pipePtr = processorRef.getPipeInferencePtr())
-            lroInstrumentNames_ = pipePtr->getCuratedInstrumentNames();
+        {
+            auto names = pipePtr->getCuratedInstrumentNames();
+            if (names != lroInstrumentNames_)
+                lroInstrumentNames_ = std::move(names);
+        }
     }
 
     // A DCO/LCO table owns the oscillator: lock the engine away from Sampler/

@@ -84,7 +84,17 @@ public:
      *  project_lco_params_are_the_user_surface.
      *
      *  Empty before launch() has recorded a backendDir_, or if the file can't
-     *  be found/parsed. */
+     *  be found/parsed.
+     *
+     *  Message thread only, and memoised on the library file's path, timestamp
+     *  and size: the caller asks on every panel update, so without the memo a
+     *  juce::JSON::parse over the whole ~450 kB file would run on every call —
+     *  and SynthPanel::resized() is one of them, i.e. once per frame of a
+     *  window drag (docs/PERFORMANCE_GUIDE.md: GUI-CPU regressions are this
+     *  project's #1 historical bug class). Keyed rather than latched so that a
+     *  library rebuilt while the app runs — an instrument approved, then
+     *  tools/lco_build_library.py — reaches the panel at its next update
+     *  rather than only after the editor is reopened. Nothing polls it. */
     juce::StringArray getCuratedInstrumentNames() const;
 
     /** Per-model static metadata reported by Python at startup.
@@ -424,6 +434,13 @@ private:
                                                   // an LLM call. Blocking the message thread on
                                                   // that would freeze the GUI for as long as a bake
                                                   // is in flight.
+    // Memo for getCuratedInstrumentNames() — message thread only, hence no
+    // mutex; see that method's doc comment for why it exists.
+    mutable juce::String curatedNamesFile_;
+    mutable juce::Time curatedNamesStamp_;
+    mutable juce::int64 curatedNamesSize_ = -1;
+    mutable juce::StringArray curatedNames_;
+
     juce::String lastError_;  // human-readable error from last failed launch
     mutable std::mutex authorConfigMutex_;       // guards ONLY authorProviderConfig_ below —
                                                   // see setAuthorProviderConfig()'s doc comment
