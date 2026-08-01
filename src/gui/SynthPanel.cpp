@@ -1470,10 +1470,14 @@ void SynthPanel::layoutLroKnobs()
 
     const float f = fs();
     auto card = lroCardBounds();
-    // The caption line above the columns — the author's own READING, drawn in
-    // paintOverChildren. Same height there and here, from the same expression.
-    const float headFs = juce::jlimit(11.0f, 14.0f, f * 0.85f);
-    card.removeFromTop(juce::roundToInt(headFs * 1.7f));
+    // The two lines above the columns — the author's own READING across the
+    // card, then the part names over their columns. Both are drawn in
+    // paintOverChildren; both heights come from the same two expressions there,
+    // so a row can never start inside a heading.
+    const float capFs  = juce::jlimit(11.0f, 14.0f, f * 0.85f);
+    const float partFs = juce::jlimit(10.0f, 13.0f, f * 0.8f);
+    card.removeFromTop(juce::roundToInt(capFs * 1.7f));
+    card.removeFromTop(juce::roundToInt(partFs * 1.6f));
 
     const int nCols = juce::jmax(1, static_cast<int>(lroControls.parts.size()));
     // Columns divide the card evenly and a single part uses the whole width:
@@ -1534,6 +1538,14 @@ void SynthPanel::reconcileWaveformDisplayMode()
     // widget underneath still holds the last sampler buffer and its markers: a
     // click on the LRO card would drag P1/P2/P3 and move a loop nobody can see.
     waveformDisplay.setInert(isCsoundEngine);
+    // HIDDEN, not merely masked, because the mask cannot stay above it. The
+    // instrument's sliders are children of this panel, so they paint BETWEEN
+    // paint() and paintOverChildren(): a mask drawn over the children to blank
+    // this widget blanks the sliders with it, which is what it did — twelve rows
+    // laid out, painted, and painted out again, leaving the captions over an
+    // empty grid. So the widget goes away and the card's ground is drawn in
+    // paint(), under the rows.
+    waveformDisplay.setVisible(! isCsoundEngine);
     waveformDisplay.setRegionLabel(showWtTable        ? "Wavetable"
                                  : processorRef.isWavetableMode() ? "Extraction region"
                                  : processorRef.isFreezeMode()    ? "Granular position"
@@ -2657,6 +2669,22 @@ void SynthPanel::paint(juce::Graphics& g)
         int bot = engineCardBottom + inset;
         paintCard(g, juce::Rectangle<int>(padX, top, getWidth() - padX * 2, bot - top));
 
+        // The LRO card's ground. Drawn here and not in paintOverChildren
+        // because the authored instrument's sliders are children of this panel:
+        // anything painted over them to blank the waveform widget blanks the
+        // sliders too. The widget itself is hidden in this mode
+        // (reconcileWaveformDisplayMode), so there is nothing left to mask —
+        // this only gives the rows and the captions a ground to sit on.
+        if (engineModeHidden.getSelectedId() == EngineMode::Csound + 1)
+        {
+            const auto wf = waveformDisplay.getBounds();
+            if (! wf.isEmpty())
+            {
+                g.setColour(kBg);
+                g.fillRect(wf);
+            }
+        }
+
         // Switchbox borders
         if (samplerBtn.isVisible())
             paintSwitchBoxBorder(g, engineSwitchBounds);
@@ -2798,9 +2826,8 @@ void SynthPanel::paintOverChildren(juce::Graphics& g)
         auto wfBounds = waveformDisplay.getBounds();
         if (!wfBounds.isEmpty())
         {
-            g.setColour(kBg);
-            g.fillRect(wfBounds);
-
+            // The ground is paint()'s job — see there. Filling it HERE would
+            // paint over the instrument's sliders, which are children.
             const float f = fs();
             auto card = lroCardBounds();
 
@@ -2815,9 +2842,15 @@ void SynthPanel::paintOverChildren(juce::Graphics& g)
             // the card's caption, and the part names over their columns.
             if (! lroControls.isEmpty() && ! lroColumnBounds.isEmpty())
             {
+                // TWO strips, not one. The READING runs the width of the card
+                // and a part name sits over its own column, so sharing a strip
+                // put the instrument's own sentence through the middle of the
+                // column headings. `layoutLroKnobs` removes both, from the same
+                // two expressions, so the first row starts below them.
                 const float capFs  = juce::jlimit(11.0f, 14.0f, f * 0.85f);
                 const float partFs = juce::jlimit(10.0f, 13.0f, f * 0.8f);
-                auto capArea = card.removeFromTop(juce::roundToInt(capFs * 1.7f));
+                auto capArea  = card.removeFromTop(juce::roundToInt(capFs * 1.7f));
+                auto partArea = card.removeFromTop(juce::roundToInt(partFs * 1.6f));
 
                 const auto reading = processorRef.getCsoundReading().trim();
                 g.setColour(kImpulseA.withAlpha(0.75f));
@@ -2834,7 +2867,7 @@ void SynthPanel::paintOverChildren(juce::Graphics& g)
                         // instruments, not one list of twelve knobs.
                         g.setColour(kBorder);
                         g.drawVerticalLine(col.getX(),
-                                           static_cast<float>(capArea.getBottom()),
+                                           static_cast<float>(partArea.getY()),
                                            static_cast<float>(card.getBottom()));
                     }
                     if (c < static_cast<int>(lroControls.parts.size()))
@@ -2842,7 +2875,7 @@ void SynthPanel::paintOverChildren(juce::Graphics& g)
                         g.setColour(kImpulseA.withAlpha(0.95f));
                         g.setFont(juce::FontOptions(partFs, juce::Font::bold));
                         g.drawText(lroControls.parts[static_cast<size_t>(c)].name.toUpperCase(),
-                                   col.withY(capArea.getY()).withHeight(capArea.getHeight())
+                                   col.withY(partArea.getY()).withHeight(partArea.getHeight())
                                       .reduced(juce::roundToInt(f * 0.5f), 0),
                                    juce::Justification::centredLeft, true);
                     }
