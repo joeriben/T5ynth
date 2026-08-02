@@ -1560,7 +1560,15 @@ void SynthPanel::layoutLroKnobs()
         const auto knobs = lroControls.knobsOf(lroControls.parts[c].number);
         for (const auto& k : knobs)
         {
-            const int idx = (k.part - 1) * 4 + juce::jmax(0, k.slot[0] - 'a');
+            // static_cast before the subtraction, not after. `juce::String::operator[]`
+            // returns `juce_wchar`, which is a SIGNED 32-bit wchar_t on macOS and
+            // Linux and `juce::uint32` on Windows — so `k.slot[0] - 'a'` is `int`
+            // there and `unsigned int` here, `jmax(0, …)` cannot deduce one type, and
+            // MSVC refuses the whole line. Unsigned would also have made the `jmax`
+            // clamp dead: a slot below 'a' would wrap to a huge positive instead of
+            // going negative.
+            const int idx = (k.part - 1) * 4
+                          + juce::jmax(0, static_cast<int>(k.slot[0]) - 'a');
             if (idx < 0 || idx >= kNumLroKnobs || lroKnobRows[static_cast<size_t>(idx)] == nullptr)
                 continue;
             auto& row = *lroKnobRows[static_cast<size_t>(idx)];
