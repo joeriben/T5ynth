@@ -175,6 +175,13 @@ heißt genau das — dieselbe Komponente, keine zweite Bauform (§8 der Arbeitsa
   Gitter, keine erfundenen Regler. Das trifft heute auch fünf Einträge, die `params` deklarieren,
   aber keine solche Zeile im Code haben (`fm_bell`, `drum_head`, `string`, `blown_bottle`,
   `driven_metal`) — das ist Bibliotheksarbeit, ein Eintrag nach dem anderen, keine Panelarbeit.
+  `fm_bell` ist am 2026-08-03 gemacht: `index`, `ring` und `detune` stehen jetzt als eigene
+  Zeilen im Körper, die Konstanten, die sie ohnehin waren (Spitzenindex, Verdunkelungszeit,
+  Hz-Abstand der Doublette), und der Klang auf den deklarierten Vorgaben ist derselbe geblieben
+  (−64 dB Rest gegen den ausgelieferten Körper). Offen bleiben `drum_head` (drei seiner vier
+  Achsen haben nicht einmal ein `anchor_code`-Beispiel, zwei davon beschreiben nichts, was aus
+  der Membranphysik folgt — eigene Arbeit mit Verfahren und Quelle, kein Folgeschnitt),
+  `string.bow`, `blown_bottle.blow` und `driven_metal.stretch`/`drive`.
 - **Der Regler steht im Körper und erreicht nichts.** Der Autor darf eine Zeile auch dann
   schreiben, wenn die Bibliothek für diese Achse keine hat — und hat sie dann selbst zu
   verdrahten. Dass die Variable GELESEN wird, ist eine Textfrage und eine Stufe zu wenig:
