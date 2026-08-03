@@ -30,7 +30,7 @@ Links:
 - Preset collection: [`joeriben/T5ynth-Presets`](https://github.com/joeriben/T5ynth-Presets)
 - Technical description of the Language-Resonant Oscillator: [`docs/LRO_TECHNICAL_DISCLOSURE.md`](docs/LRO_TECHNICAL_DISCLOSURE.md)
 - Developer documentation index: [`docs/README.md`](docs/README.md) · release history: [`CHANGELOG.md`](CHANGELOG.md)
-- Latest release: [`v3.0.0-beta.0`](https://github.com/joeriben/akroasys/releases/tag/v3.0.0-beta.0) — the first release under the new name, and the first with the Language-Resonant Oscillator. [`v2.5.3-beta.1`](https://github.com/joeriben/akroasys/releases/tag/v2.5.3-beta.1) is the last one published as **T5ynth**.
+- Latest release: [`v3.0.0-beta.1`](https://github.com/joeriben/akroasys/releases/tag/v3.0.0-beta.1) — the first release under the new name, and the first with the Language-Resonant Oscillator. [`v2.5.3-beta.1`](https://github.com/joeriben/akroasys/releases/tag/v2.5.3-beta.1) is the last one published as **T5ynth**.
 
 Current tagged GitHub Releases publish:
 
