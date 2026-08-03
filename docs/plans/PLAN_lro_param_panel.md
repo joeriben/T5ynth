@@ -175,6 +175,39 @@ heißt genau das — dieselbe Komponente, keine zweite Bauform (§8 der Arbeitsa
   Gitter, keine erfundenen Regler. Das trifft heute auch fünf Einträge, die `params` deklarieren,
   aber keine solche Zeile im Code haben (`fm_bell`, `drum_head`, `string`, `blown_bottle`,
   `driven_metal`) — das ist Bibliotheksarbeit, ein Eintrag nach dem anderen, keine Panelarbeit.
+- **Der Regler steht im Körper und erreicht nichts.** Der Autor darf eine Zeile auch dann
+  schreiben, wenn die Bibliothek für diese Achse keine hat — und hat sie dann selbst zu
+  verdrahten. Dass die Variable GELESEN wird, ist eine Textfrage und eine Stufe zu wenig:
+  gemessen am 2026-08-03 an genau so einem Fall standen `ring` und `detune` als Regler unter der
+  Hand des Spielers und bewegten nichts. Seitdem entscheidet das nicht mehr der Text, sondern ein
+  Render (`lco_write.gate_knobs`): das fertige Orchestra auf der Position des Autors und dann auf
+  0.0 / 0.5 / 1.0. Ändert sich kein einziges Sample, wird der Regler einbehalten, die Zeile behält
+  ihre eigene Zahl, und die übrigen rücken in die frei gewordenen Kanäle. Schwelle gibt es keine —
+  „ändert kein Sample" braucht keine Hörtheorie; WIE VIEL eine Achse tut, entscheidet weiter BJs
+  Ohr. Ohne Compiler, ohne Regler oder bei einem Körper, der sich zweimal hintereinander nicht
+  gleich rendert, schweigt das Gate: fehlende Messung ist kein Urteil.
+  **Gemessen wird, wo das Instrument LÄUFT**, nicht wo es bequem ist: bei sr 176400 (die
+  Vorgabe-Überabtastung der LRO, nicht 44100), mit `ktimb` auf seiner Ruhelage 64/127 statt auf 0,
+  und an ZWEI Betriebspunkten — 220 Hz / 4 s / vel 0.80 / kein Druck, und 880 Hz / 8 s / vel 0.35 /
+  Druck 0.7 / `ktimb` 1.0. Ein Punkt kann nur „hier tot" sagen: an einem einzigen wurden ein
+  `warble` hinter `ktimb`, eines hinter `kpres` und eines, das erst eine Oktave höher greift,
+  einbehalten, obwohl alle drei im Plugin arbeiten. Der zweite Punkt kostet fast nichts, weil ein
+  lebendiger Regler schon beim ersten Render aussteigt (0,6–1,1 s pro Klang über die zehn
+  Bibliothekskörper mit Reglerzeilen).
+  Drei Dinge daran sind nicht Bequemlichkeit, sondern Voraussetzung. Die beiden Punkte spielen
+  **verschiedene Stimmen** (`ivoice` 1 und 5), sonst bliebe ein Körper ungemessen, der seine Achse
+  über den Stimmindex verteilt. Der Gate-Kanal wird nicht auf 1 geklemmt, sondern zu einer
+  **Flanke bei 0,01 s** umgeschrieben, damit `changed2(ktrig)` feuert und alles läuft, was am
+  Anschlag hängt — dieselbe Mechanik, die `tools/lco_measure.py` benutzt; ohne sie schweigt jeder
+  Körper, dessen Hülle auf den Anschlag zurückgesetzt wird. Und verglichen werden nicht die
+  Puffer, sondern ein **sha256 über den Render** plus eine Nicht-endlich-Marke; die Puffer selbst
+  sind 45–90 MB pro Punkt und lagen als Spitzenlast bei 426 MB im Backend.
+  Zwei Grenzen, ausgeschrieben statt verschwiegen: ein Regler, der erst **nach 8,5 s** etwas tut,
+  wird einbehalten (die längere Note verkleinert das Fenster, sie schließt es nicht). Und ein
+  Körper, dessen Summe ein NaN enthält, kommt hier gar nicht als NaN an — `clip` im `_TAIL` macht
+  daraus einen Gleichpegel; dann sind alle Regler wirklich tot und der Fehler liegt eine Stufe
+  früher, bei einer `perform_check`, die ein Orchester durchlässt, dessen Ausgang eine Konstante
+  ist.
 - **Neues Orchestra.** Neue Achsen, Werte auf die neuen Vorgaben. Ein Regler von vorher hat im
   neuen Körper keine Bedeutung; ihn stehen zu lassen wäre eine stille Lüge.
 - **Preset.** Namen und Vorgaben reisen mit dem Orchestra-Text im `.t5p`. Ohne das ist das

@@ -27,6 +27,7 @@ authored returns an honest ok=false, never a junk tone.
 """
 import ctypes
 import ctypes.util
+import hashlib
 import json
 import os
 import re
@@ -812,7 +813,7 @@ def _param_lines(code):
             if not any(a <= m.start() < b for a, b in blocks)]
 
 
-def read_controls(body):
+def read_controls(body, skip=None):
     """The library parameters that survived into the body — the player's knobs.
 
     A knob is not something the author declares. It is a line of the library's
@@ -844,11 +845,20 @@ def read_controls(body):
         range it was is then not decidable here, so it is not a knob.
       * a fourth column, or a fifth knob in a column: three parts of four is what
         the panel holds.
+      * a line `skip` names. That is the RENDERED verdict coming back — see
+        `dead_knobs`, which turns the wired orchestra at both ends of a knob and
+        finds that not one sample of the sound moved. It is a second pass because
+        it costs a render and this function costs nothing, and it comes back
+        HERE rather than pruning the result so that the slot and column
+        arithmetic stays in the one place that owns it: withdrawing the first
+        knob of a column has to free its channel for the second, and a column
+        whose every knob dies must not be left as a heading over nothing.
     A starting value outside that range is CLAMPED with a note, the same way
     `read_settings` treats one — the number is a position, the knob is the
     deliverable."""
     code = body or ""
     hits = _param_lines(code)
+    skip = skip or {}
 
     # THE BODY MUST ACTUALLY READ THE VARIABLE. Keeping the line guarantees the
     # wiring, not that anything downstream looks at it, and an author that keeps
@@ -969,6 +979,9 @@ def read_controls(body):
         if not is_read(m.group("var"), code[:m.start()].count("\n")):
             refused.append(f"{name} — nothing in the body reads "
                            f"{m.group('var')}, so the slider would move nothing")
+            continue
+        if index in skip:
+            refused.append(f"{name} — {skip[index]}")
             continue
         rec = owner_of(name, lo, hi, m.group("gloss").strip())
         if rec is None:
@@ -1981,6 +1994,21 @@ def wrap(body, controls=None):
 # The compile gate
 # ─────────────────────────────────────────────────────────────────────────────
 
+def _decode(raw):
+    """A Csound child's output as text, and never as an exception.
+
+    `subprocess.run(text=True)` decodes STRICTLY, so one byte that is not UTF-8 —
+    out of a path, a filename, a locale-encoded message — raises
+    UnicodeDecodeError. That is a ValueError, which none of the handlers around
+    these calls catch, and `gate_knobs` runs both of them AFTER a successful
+    authoring: a finished orchestra would come back as ok=false over a stray byte
+    in a message nobody reads. Nothing downstream needs the byte, only the
+    sentence around it, so it is replaced and the check keeps its verdict."""
+    if not raw:
+        return ""
+    return raw.decode("utf-8", "replace") if isinstance(raw, bytes) else raw
+
+
 _ANSI = re.compile(r"\x1b\[[0-9;]*m")
 # The CLI echoes its `>>> … <<<` source line one character at a time, with an SGR
 # escape between each and a raw NUL at the parser's error position. Stripping
@@ -2445,11 +2473,11 @@ def perform_check(orchestra):
             fh.write(csd)
         # -n: render nothing to a device. -d: no graphs. -m0: no per-note stats.
         r = subprocess.run([binary, "-n", "-d", "-m0", path],
-                           capture_output=True, text=True, timeout=90,
+                           capture_output=True, timeout=90,
                            env=_csound_child_env())
         if r.returncode == 0:
             return True, ""
-        return False, _explain_perf((r.stderr or "") + (r.stdout or ""), csd,
+        return False, _explain_perf(_decode(r.stderr) + _decode(r.stdout), csd,
                                     _BODY_OFFSET + inserted)
     except subprocess.TimeoutExpired:
         # A body that cannot render a quarter of a second in 90 s cannot be
@@ -2468,6 +2496,359 @@ def perform_check(orchestra):
             os.unlink(path)
         except OSError:
             pass
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# The knob gate — does turning it change the sound?
+# ─────────────────────────────────────────────────────────────────────────────
+# `read_controls` asks whether the body READS the variable. That is a textual
+# question and it is one step short of the promise the panel makes: a variable
+# can be read into an expression that reaches nothing audible, and the slider is
+# then still under the player's hand. Measured 2026-08-03 on a `bell` the author
+# was given no line to keep and no code exemplar for — five of the library's 49
+# declared parameters are in that state — and `ring` and `detune` came back as
+# sliders that moved nothing while `index`, the one axis of the three with an
+# `anchor_code` exemplar, worked.
+#
+# So this gate stops asking and RENDERS: the orchestra as it will play, once at
+# the position the author put the knob and once at each end of its travel. If not
+# one sample moved, the knob is withheld. The test is threshold-free on purpose —
+# "changes no sample of the output" needs no theory of hearing and no number this
+# file would have to defend (`tools/lco_param_audit.py` calls the same category
+# the only kind of finding that is valid without one). A knob that does anything
+# at all passes; judging how MUCH it does is BJ's ear, not this.
+#
+# WHERE a knob is judged, and it has to be where the INSTRUMENT actually runs.
+# `perform_check` writes three channels and leaves the rest at zero, which is
+# harmless when the only question is whether the orchestra stands up — and wrong
+# here, because a body is allowed to use every one of them (`ktimb`, `kpres` and
+# `kvel` are offered to the author under AVAILABLE IN SCOPE). At zero, `ktimb`
+# multiplies whatever it touches to nothing, and a knob behind it renders
+# identically at every position: measured, a `warble` scaled by `ktimb` was taken
+# off the panel while it worked perfectly in the plugin, where timbre RESTS at
+# 64/127 (`SynthVoice.h`, kTimbreNeutral) and never at 0.
+#
+# So: the plugin's own resting values, and then a SECOND point, because one
+# operating point can only ever say "dead here". The second is a different
+# register, a different velocity, under pressure and at the top of the timbre
+# travel, and it runs twice as long — the four dimensions a knob was measurably
+# alive in while the first point called it dead. A knob is withheld only when
+# every probe at BOTH points renders identically to that point's baseline.
+#
+# The second point is nearly free: a knob that moves the sound leaves at its
+# first probe, so only knobs that already look dead are ever rendered there.
+# FOUR SECONDS for the first, because that is what `tools/lco_measure.py` renders
+# and what every measurement on this platform is read over; eight for the second,
+# for an axis that takes its time (`ring` runs to 5.5 s).
+_KNOB_POINTS = (
+    {"secs": 4.0, "freq": 220.0, "vel": 0.80, "pres": 0.0,
+     "timb": 64.0 / 127.0, "voice": 1},
+    {"secs": 8.0, "freq": 880.0, "vel": 0.35, "pres": 0.7,
+     "timb": 1.0, "voice": 5},
+)
+# The two points are ALSO two different voices, because `ivoice` is a dimension
+# like the others and the system prompt tells the author to use it ("give each
+# voice its own phase or seed so a chord does not move in lockstep"). Held at 1,
+# `(ivoice - 1)` is zero and a knob that spreads a stack across the voices does
+# nothing at all — measured: a `detune` doing exactly that was taken off the panel
+# while it worked on every voice but the first.
+#
+# THE NOTE IS AN EDGE, not a level. `changed2(ktrig)` is how a body knows a note
+# began — three library entries reinitialise on it — and a channel written once
+# before the instrument starts never changes, so it never fires and a knob behind
+# it is judged in a body that thinks it has not been played yet. So gate and trig
+# are rewritten to rise at `_KNOB_ONSET`, which is what `tools/lco_measure.py`
+# does with its preroll and for the same reason. Far above two k-periods at any
+# rate this gate renders at.
+_KNOB_ONSET = 0.01
+# Where a knob is put to see whether the sound follows. The two ENDS, because an
+# axis with a `min`, a `limit` or a clamped index has stretches where it does
+# nothing and a body may well sit in one — and the MIDDLE, because both ends of
+# an axis folded around its centre (`0.5 - abs(k - 0.5)` and everything like it)
+# read alike while the travel between them does not. The author's own position is
+# dropped from the list: it IS the baseline, and comparing it with itself would
+# call every knob that starts at 0.0 dead.
+_KNOB_PROBES = (0.0, 0.5, 1.0)
+# The head's own `chnset` line for one knob channel, which is what a render moves.
+# Anchored at column 0: `wrap` indents the authored body by two spaces, so a body
+# that writes the same line for itself cannot be caught by this.
+_HEAD_CHNSET = r'^chnset[ \t]+[-+0-9.eE]+,[ \t]*"{ch}"[ \t]*$'
+
+
+# A float32 whose exponent bits are all ones is a NaN or an infinity, and in
+# little-endian bytes that is visible in the high byte of each four: bits 6..0 of
+# it are the top seven exponent bits. This table marks those bytes so a whole
+# render can be tested for them with two C-speed passes instead of eleven million
+# Python floats. It also marks the largest finite exponent, which is the
+# conservative direction: it can only make this gate go quiet.
+_NONFINITE_HIGH_BYTE = bytes(1 if (v & 0x7f) == 0x7f else 0 for v in range(256))
+
+
+def _fingerprint(path):
+    """(digest of the rendered samples, whether any of them is not finite).
+
+    A DIGEST, not the samples. One render at the rate this gate uses is 45 MB of
+    raw floats and the second point is 90, three of which were alive at once —
+    426 MB peak, in the process that also holds the inference model. Nothing here
+    needs the samples themselves: the question is only whether two renders are the
+    same, and comparing digests answers exactly that at a few megabytes.
+
+    THE NOT-FINITE FLAG is the same pass's other half, and what it is for has to
+    be said precisely because the obvious story is wrong. A body that puts a NaN
+    into its sum does NOT arrive here as NaN: the scaffold's own `clip` in `_TAIL`
+    turns it into a constant (measured: -0.87875 for every sample of the note), so
+    what such a body actually renders is a body with no sound in it, every knob
+    genuinely changes nothing, and "every knob is dead" is a true sentence about
+    it — the fault is upstream, in a perform check that passes an orchestra whose
+    output is a DC level. The flag guards the case the clip does not catch: a
+    render that reaches the file not finite is garbage, not a body whose knobs do
+    nothing, and this gate must not spend a verdict on it."""
+    digest, poisoned = hashlib.sha256(), False
+    with open(path, "rb") as fh:
+        while True:
+            # A multiple of four, so every chunk starts on a sample boundary and
+            # `[3::4]` is the high byte of each float and not a rotation of it.
+            chunk = fh.read(1 << 22)
+            if not chunk:
+                break
+            digest.update(chunk)
+            poisoned = poisoned or b"\x01" in chunk[3::4].translate(
+                _NONFINITE_HIGH_BYTE)
+    return digest.digest(), poisoned
+
+
+def _knob_render(binary, orchestra, overrides, point):
+    """This orchestra at one operating `point`, fingerprinted, or None.
+
+    ONE voice, not the sixteen `perform_check` plays: they all render the same
+    thing here (nothing writes the per-voice channels differently), so fifteen of
+    them are the same measurement again at sixteen times the cost. The voice is
+    p4=1 because several library bodies decorrelate on `ivoice`, and a comparison
+    has to hold that fixed like everything else.
+
+    Headerless floats (`-h -f`), so what comes back is samples and only samples —
+    a WAV header is a place for two identical renders to differ over nothing.
+
+    None on ANY failure, and the caller then withholds no knob: this runs after
+    `perform_check` has already passed, so a body that trips over a longer score
+    is a fact about this gate's own window and must never be dressed up as a
+    verdict on the author's knob."""
+    # AT THE RATE THE INSTRUMENT RUNS AT, which is not 44100. The engine compiles
+    # Csound at the host's rate times the LRO's oversampling — 4 by default
+    # (`PluginProcessor.h`, lroOsFactor_) — and this project has already paid for
+    # the difference: `dcblock2`'s corner scales with sr, `wgpluck2`'s ring length
+    # moves by more than a decade between 1x and 4x, and `singing_bowl`'s own
+    # comment records a 6.09x peak between exactly these two rates. `perform_check`
+    # may use 44100 because it only asks whether the body runs at all; a gate that
+    # takes a control away from the player has to look at the instrument the
+    # player has. 176400 is that default over the standard rate — a session at
+    # another host rate or another oversampling setting is a nearer neighbour of
+    # this than of 44100.
+    head, sep, _ = orchestra.replace("%SR%", "176400").rpartition("<CsScore>\n")
+    if not sep:
+        return None                     # not this module's scaffold
+    # The scaffold renders to nothing by default; this gate needs the samples.
+    # Replaced in the CSD rather than overridden on the command line because
+    # `-n` has no negation — and `-o` goes on the command line rather than into
+    # the CSD because a temp path with a space in it is one token there and two
+    # inside `<CsOptions>`.
+    options = "<CsOptions>\n-n -d\n</CsOptions>"
+    if options not in head:
+        return None
+    head = head.replace(options, "<CsOptions>\n-d\n</CsOptions>", 1)
+    # A real note, played the way the plugin plays one (see `_KNOB_POINTS`): with
+    # nothing writing the per-voice channels every voice would sit at the bottom
+    # of the scaffold's own clamp with its timbre at zero, and a knob that depends
+    # on either would be judged where the instrument never runs.
+    #
+    # A MISSING MARKER IS NOT A PASS. `perform_check` can shrug this off — it
+    # only means the body is checked at 20 Hz instead of 220 — but here the note
+    # would never open, every render would be the same silence, and this gate
+    # would take the player's whole panel away on the strength of a substitution
+    # that did not happen.
+    marker = 'chnset 1.0000, "osc3oct"\n'
+    if marker not in head:
+        return None
+    presets = "".join(f'chnset {point[c]}, "{c}{i}"\n'
+                      for c in ("freq", "vel", "pres", "timb")
+                      for i in range(1, NCHNLS + 1))
+    head = head.replace(marker, marker + presets, 1)
+    # Gate and trig are not channels here but an EDGE (see `_KNOB_ONSET`). Both
+    # lines are the scaffold's own and stand above the body; if either is not
+    # there this is not the scaffold and there is nothing to judge.
+    edge = f"(timeinsts() >= {_KNOB_ONSET} ? 1 : 0)"
+    for old, new in (("  kgateraw chnget Sgate\n", f"  kgateraw = {edge}\n"),
+                     ("  ktrig    chnget Strig\n", f"  ktrig    = {edge}\n")):
+        if old not in head:
+            return None
+        head = head.replace(old, new, 1)
+    for ch, value in (overrides or {}).items():
+        head, n = re.subn(_HEAD_CHNSET.format(ch=re.escape(ch)),
+                          f'chnset {value:.4f}, "{ch}"', head, count=1,
+                          flags=re.MULTILINE)
+        if n != 1:
+            return None                 # the channel this knob rides on is gone
+    csd = (f"{head}{sep}i 1 0 {point['secs']} {point['voice']}\n"
+           f"e {point['secs']}\n</CsScore>\n</CsoundSynthesizer>\n")
+    # Inside the guard, not above it: a temp directory that cannot be made is an
+    # environment fault like a fork that fails, and this whole gate is allowed to
+    # go quiet — but it is NOT allowed to raise, because it runs after a
+    # successful authoring and would take the finished orchestra down with it.
+    try:
+        work = tempfile.mkdtemp(prefix="t5ynth-knob-")
+    except OSError:
+        return None
+    csd_path, raw_path = os.path.join(work, "k.csd"), os.path.join(work, "k.raw")
+    try:
+        with open(csd_path, "w", encoding="utf-8", errors="replace") as fh:
+            fh.write(csd)
+        # Bytes, not `text=True`: nothing here reads the child's message, and
+        # decoding it strictly would let one non-UTF-8 byte out of Csound raise a
+        # UnicodeDecodeError — a ValueError, which the handler below does not
+        # catch — straight through a gate that runs AFTER a successful authoring.
+        # The finished orchestra would come back as ok=false over a stray byte.
+        r = subprocess.run([binary, "-d", "-m0", "-h", "-f", "-o", raw_path,
+                            csd_path], capture_output=True,
+                           timeout=90, env=_csound_child_env())
+        if r.returncode != 0:
+            return None
+        return _fingerprint(raw_path)
+    except (subprocess.TimeoutExpired, OSError):
+        return None
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+
+
+def dead_knobs(orchestra, controls):
+    """{line ordinal: why} for every knob that changes no sample of the sound.
+
+    Empty when they all do something, and empty as well whenever the question
+    could not be put — no compiler, no knobs, a body that will not render twice
+    the same way. Absence of data is not a verdict: withholding a working knob
+    takes a control out of the player's hand as surely as a dead one leaves a
+    useless one in it, so everything here fails towards keeping the knob.
+
+    THE BODY IS ASKED WHETHER IT IS DETERMINISTIC FIRST, by rendering the
+    baseline twice. Several library bodies are built on noise, and one that
+    reseeds per run differs from itself — every knob would then "move" it and
+    this gate would pass everything while reading as a check. That is the
+    failure mode a gate must not have, so a body that does not reproduce is
+    reported as unmeasurable (here: an empty result) rather than as clean.
+
+    MORE THAN ONE POSITION, and never only one end: see `_KNOB_PROBES` for which
+    and why. MORE THAN ONE OPERATING POINT, for the same reason one position is
+    not enough: see `_KNOB_POINTS`. A knob counts as dead only when every probe
+    at every point renders identically to that point's baseline, and each loop
+    leaves at the first render that does not.
+
+    The comparison is on the render's BYTES, which is very slightly stricter than
+    the sentence above: +0.0 and -0.0 are the same sample and different bytes. It
+    errs towards keeping the knob, which is the direction this whole function errs
+    in — as does a render that is not finite, which is thrown out rather than read
+    as a body whose knobs all do nothing (see `_fingerprint`)."""
+    params = list((controls or {}).get("params", ()))
+    if not params:
+        return {}
+    binary = _csound_binary()
+    if binary is None:
+        return {}
+    # One baseline per point, made only when a knob actually reaches that point —
+    # the second one is never rendered for a body whose knobs all move the sound.
+    # None means "not measurable here", and every caller reads that as: keep it.
+    bases = {}
+    def baseline(i):
+        if i not in bases:
+            first = _knob_render(binary, orchestra, {}, _KNOB_POINTS[i])
+            again = (_knob_render(binary, orchestra, {}, _KNOB_POINTS[i])
+                     if first else None)
+            bases[i] = (first[0] if first and not first[1] and first == again
+                        else None)
+        return bases[i]
+
+    dead = {}
+    for k in params:
+        probes = [p for p in _KNOB_PROBES if abs(k["value"] - p) > 1e-6]
+        moved = False
+        for i in range(len(_KNOB_POINTS)):
+            base = baseline(i)
+            if base is None:
+                moved = True            # unmeasurable here: no verdict, keep it
+                break
+            for probe in probes:
+                out = _knob_render(binary, orchestra, {k["ch"]: probe},
+                                   _KNOB_POINTS[i])
+                if out is None or out[0] != base:
+                    moved = True
+                    break
+            if moved:
+                break
+        if not moved and probes:
+            dead[k["line"]] = ("turning it changes no sample of the sound — the "
+                               "line stands in the body and the variable is read, "
+                               "but nothing it reaches comes out")
+    return dead
+
+
+def gate_knobs(body, orchestra, controls):
+    """(orchestra, controls) with every knob that moves nothing withheld.
+
+    The orchestra is rebuilt because the wiring is part of it: a withheld knob
+    gets its own number back in the line — the one the author wrote, which is
+    also the position the baseline render just proved the sound to be at — and
+    the knobs that survive move up into the freed channels.
+
+    UNTIL NOTHING NEW DIES, because withdrawing one knob can ADMIT another:
+    `read_controls` refuses a fourth column and a fifth knob in a column, and a
+    line that was over that limit comes in as soon as a column empties out — a
+    knob that has then never been rendered. The loop cannot run away: every round
+    adds at least one line to `skip` and there are only so many lines.
+
+    AND THE REBUILT ORCHESTRA IS PUT THROUGH BOTH GATES AGAIN, which the first
+    version of this argued was unnecessary. It is not. A knob that is WITHHELD
+    goes from `0 + 1 * kp1a` back to the author's own number and can break
+    nothing — but a knob that is PROMOTED goes the other way, and that line
+    reaches the wiring here for the first time: everything upstream only ever saw
+    it as a plain number. Worse than a compile risk, it does not carry the same
+    value — `wire_controls` rewrites it to `lo + span * kp` and the position is
+    baked as a decimal, so a line the author wrote as `age = 1.00` comes back as
+    0.9999 and an `int()` in the body reads 0. If the rebuild does not stand up,
+    the SOUND wins and the panel keeps the knobs it had: a slider that lies is a
+    smaller failure than an instrument that does not play. What was measured is
+    still SAID, in `refused` beside the knob it did not manage to withdraw —
+    dropping a verdict because it could not be acted on is how a decision stops
+    travelling with the sound."""
+    skip = {}
+    for _ in range(max(1, len(_param_lines(body or "")))):
+        dead = dead_knobs(orchestra, controls)
+        if not dead:
+            break
+        skip.update(dead)
+        pruned_controls = read_controls(body, skip=skip)
+        pruned = wrap(wire_controls(body, pruned_controls), pruned_controls)
+        try:
+            ok, _ = syntax_check(pruned)
+        except CompilerUnavailable:
+            # The compiler went away between the render and here. Not a verdict
+            # about the rebuild, and treated like a failed one for the same
+            # reason: without a check there is nothing to stand on.
+            ok = False
+        if ok:
+            ok, _ = perform_check(pruned)
+        if not ok:
+            kept = dict(controls)
+            kept["refused"] = list(controls.get("refused", ())) + [
+                f"{n} — measured dead, and kept anyway: the body no longer "
+                f"stands up once the wiring is rebuilt without it"
+                for n in sorted(_names_of(controls, dead))]
+            return orchestra, kept
+        orchestra, controls = pruned, pruned_controls
+    return orchestra, controls
+
+
+def _names_of(controls, lines):
+    """The player-facing names of the knobs sitting on those body lines."""
+    return {p["name"] for p in (controls or {}).get("params", ())
+            if p["line"] in lines}
 
 
 def syntax_check(orchestra):
@@ -2518,11 +2899,11 @@ def _check_via_cli(binary, csd, orchestra):
         with fh:
             fh.write(csd)
         r = subprocess.run([binary, "--syntax-check-only", path],
-                           capture_output=True, text=True, timeout=90,
+                           capture_output=True, timeout=90,
                            env=_csound_child_env())
         if r.returncode == 0:
             return True, ""
-        return False, _explain((r.stderr or "") + (r.stdout or ""), orchestra)
+        return False, _explain(_decode(r.stderr) + _decode(r.stdout), orchestra)
     except subprocess.TimeoutExpired:
         return False, "csound syntax check timed out"
     finally:
@@ -2571,6 +2952,10 @@ def compile_body(body):
     ok, err = perform_check(orchestra)
     if not ok:
         return {"ok": False, "error": err}
+    # A hand edit can take a knob's wiring out and leave its line standing, the
+    # same way an authoring turn can, and the person editing has exactly the same
+    # claim on being told. So the same gate, on the same body.
+    orchestra, controls = gate_knobs(body, orchestra, controls)
     return {"ok": True, "orchestra": orchestra, "params_text": body,
             "controls": controls}
 
@@ -2742,6 +3127,11 @@ def build_csound_response(text, llm, correction="", previous="",
             # failure the repair loop can neither see nor answer.
             ok, err = perform_check(orchestra)
         if ok:
+            # …and does every knob it hands the player do anything? The last
+            # gate, because it is the only one that costs a render per knob, and
+            # the only one whose verdict is about the PANEL rather than about
+            # whether the orchestra stands up (`gate_knobs`).
+            orchestra, controls = gate_knobs(body, orchestra, controls)
             return {"ok": True, "orchestra": orchestra,
                     "reading": reading or _fallback_reading(body),
                     # What the author asked the SYNTH to set, checked against
