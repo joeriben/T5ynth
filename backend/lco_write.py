@@ -1949,11 +1949,23 @@ def bake_knob_defaults(head, controls=None):
     A channel no knob was wired to keeps LRO_DEFAULT, which is what the body's own
     unwired lines were left at, so an offline render plays the sound the author
     described with every knob where the author put it. The plugin overwrites all
-    twelve from its own parameters on the next block."""
+    twelve from its own parameters on the next block.
+
+    EVERY DIGIT, because this number is not a display. What stands in the body is
+    `lo + span * kp`, so a position written to four decimals comes back as the
+    author's number to four decimals TIMES THE SPAN, and the span is not always
+    one: `age [0..3] = 1.00` becomes 0.3333, `3 * 0.3333` is 0.9999, and the
+    body's own `int(kage)` then reads 0 where the author wrote 1 — a whole step
+    of a five-step axis, gone, in a render that is supposed to BE the author's
+    sound. Eight of the library's own lines land off their number this way,
+    `fm3`'s `ratio 3 = 6` among them, whose gloss reads "a whole number is
+    harmonic, between them not". At full precision the round trip is exact to
+    the last bit a double holds, and the plugin's own float32 parameter is then
+    the only rounding left."""
     values = {p["ch"]: p["value"] for p in (controls or {}).get("params", [])}
     for c in LRO_CHANNELS:
         head = head.replace(f"%LRO{c.upper()}%",
-                            f"{values.get(f'lroP{c}', LRO_DEFAULT):.4f}")
+                            f"{values.get(f'lroP{c}', LRO_DEFAULT):.17g}")
     return head
 
 

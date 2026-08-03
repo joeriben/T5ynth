@@ -115,9 +115,15 @@ Block aus dem `paramCache`.)
 Genauso, mit der Zahl aus der Bibliothekszeile als Vorgabe:
 
 ```csound
-chnset 0.5000, "lroP1a"         →  kp1a   chnget "lroP1a"
+chnset 0.5, "lroP1a"            →  kp1a   chnget "lroP1a"
                                 →  kbowl  = 0 + 1 * kp1a   ; bowl[0.0..1.0]: …
 ```
+
+Die Vorgabe im Kopf ist die **zurückgerechnete Reglerstellung** zur Zahl des Autors, und sie wird
+mit allen Stellen geschrieben (`%.17g`), nicht auf vier Nachkommastellen gerundet. Vier Stellen
+genügen nicht: bei `age [0..3] = 1.00` ergibt gerundetes `0.3333` über `3 * 0.3333 = 0.9999` ein
+`int()` von 0 statt 1 — die Vorgabe hätte einen anderen Klang gehabt als die Zeile, aus der sie
+stammt. Die Zahl ist keine Anzeige, sie ist der Klang.
 
 - **12 feste Kanäle** (3 Spalten × 4 Plätze). Fest, weil die Orchestra-Kopfzeilen dann für jede
   Zahl von Achsen gleich aussehen und ein Offline-Render ohne Host genau das spielt, was der Autor
