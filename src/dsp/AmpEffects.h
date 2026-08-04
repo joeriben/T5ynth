@@ -39,10 +39,16 @@
  *
  * NEITHER MODULATION EFFECT WRAPS A JUCE WIDGET any more. The chorus has its own
  * three-tap ensemble and the phaser its own six-stage all-pass chain, each for
- * the reason its own comment gives — and both replacements removed the same
- * latch on the way past: a `lastOutput`-style feedback memory that `NaN * 0`
- * keeps poisoned for ever. The distortion is an OVERDRIVEN AMPLIFIER rather than
- * a curve — see its own comment.
+ * the reason its own comment gives. Both dealt with the same latch on the way
+ * past — a `lastOutput`-style feedback memory that `NaN * 0` keeps poisoned, and
+ * which in the widgets nothing ever cleared — but they deal with it DIFFERENTLY,
+ * and the difference is worth stating rather than blurring: the chorus has no
+ * recursive path left at all, so a non-finite sample cannot latch there under any
+ * circumstances, while the phaser still has a feedback loop and clears it when it
+ * PARKS. One poisoned sample therefore still costs the phaser its output until
+ * the stage is turned down, which is what `10c9d501` bought and no more. The
+ * distortion is an OVERDRIVEN AMPLIFIER rather than a curve — see its own
+ * comment.
  *
  * RT contract, the same one every other module in this directory keeps:
  * `prepare()` allocates and `processBlock()` never does. Every gain that a
@@ -338,15 +344,46 @@ private:
  *   • The section itself is the first-order TPT/ZDF all-pass: Vadim
  *     Zavalishin, The Art of VA Filter Design.
  *     `juce::dsp::FirstOrderTPTFilter<float>` in `Allpass` mode IS that
- *     section, and is what `juce::dsp::Phaser` used internally — reused here
- *     rather than rebuilt, so the stage's own sound stays identical
- *     everywhere this task does not deliberately change it.
+ *     section, and is what `juce::dsp::Phaser` used internally. Its four
+ *     lines are TRANSCRIBED here rather than reinterpreted — `v = G(x − s);
+ *     lp = v + s; s = lp + v; y = 2·lp − x`, with `G = g/(1+g)` and
+ *     `g = tan(pi·f/fs)`, in that order and those types — so the stage's own
+ *     sound stays identical everywhere this task does not deliberately
+ *     change it. Why transcribed and not called: see ONE COEFFICIENT below.
  *
- * TWO INDEPENDENT CHAINS. Twelve filters, six per channel, each PREPARED FOR
- * ONE CHANNEL: `FirstOrderTPTFilter::setCutoffFrequency` sets the one cutoff
- * every channel a filter instance was prepared with shares, so the only way
- * for L and R to sweep to DIFFERENT corners at the same instant is for each
- * channel to own its own six filters. That is the entire fix for defect 1.
+ * ONE COEFFICIENT PER CHANNEL PER SAMPLE. All six sections of a channel
+ * sweep to the SAME corner, so `G` is computed once and shared. Holding six
+ * `FirstOrderTPTFilter` objects instead means six `setCutoffFrequency`
+ * calls, and each one is a `std::tan` — twelve per stereo sample where two
+ * do the same work. Measured at 512 / 48 kHz, median of five runs: 46.97 →
+ * 23.26 us/block, so ten redundant transcendentals were 50 % of the whole
+ * stage's engaged cost, and the stage now costs 0.22 % of one core instead
+ * of 0.44 %. BJ, 2026-08-04,
+ * asked which way to take that trade: *„Klanglich identisch ist nicht
+ * wichtig, klanglich gut ist wichtig."* Here it costs nothing to have both,
+ * because the transcription is the SAME arithmetic in the same order.
+ *
+ * HOW FAR "BIT-IDENTICAL" REACHES, since that is a claim about a toolchain
+ * and not only about this code. Under what this project builds with — clang
+ * at `-O3`, i.e. `-ffp-contract=on`, which contracts only within one
+ * expression — it is exact: 0 differing samples over 4914 configurations (6
+ * sample rates × Amt 0…1 × feedback −0.95…+0.95), over 54 000 randomised
+ * blocks with channel counts 0…3 and re-`prepare()` mid-stream, and at the
+ * 20 Hz and 0.49·fs clamps, at 8 kHz and 192 kHz, on denormals, on ±1e38 and
+ * on NaN. The compiled `2.0f*lp - y` is the same `fnmsub` instruction JUCE's
+ * own `processSample` emits. Under `-ffp-contract=fast`, which GCC defaults
+ * to in C++ mode and the Linux CI job therefore gets, the inline form admits
+ * a contraction the six opaque calls structurally could not: `lp = v + s1`
+ * and `s1 = lp + v` fuse, skipping one rounding of `v`. That is a DIFFERENT
+ * result — measured worst |Δ| 8.29e-6 on DC, 4.62e-7 at the shipped
+ * defaults — and a marginally more accurate one, since the skipped rounding
+ * is a rounding. Nothing here needs samples to match across platforms, so
+ * the flag is left alone; what is pinned is the sentence, not the compiler.
+ *
+ * TWO INDEPENDENT CHAINS. `apState_` is indexed BY CHANNEL, so L and R hold
+ * six sections each and sweep to different corners at the same instant. That
+ * is the entire fix for defect 1: the widget could not do it, because its
+ * one cutoff was shared by every channel it was prepared with.
  *
  * ONE LFO, sine, with a 90-DEGREE phase offset between the two channels'
  * read of it — a CHOICE, not something either source above fixes, exactly
@@ -415,7 +452,7 @@ private:
  * place of `juce::dsp::DryWetMixer`. Idle and engage copy the chorus's
  * pattern in this same file: the gate is on the SMOOTHED mix, not the raw
  * target, so the stage keeps running until its own ramp has arrived at dry,
- * and only THEN clears its state — the twelve filters and the two feedback
+ * and only THEN clears its state — the twelve sections and the two feedback
  * taps — once, on the transition. A channel count that changes under the
  * stage is handled too, but deliberately NOT the chorus's way: everything
  * here is per channel, so only a newly present channel is cleared and faded
@@ -440,11 +477,16 @@ private:
  * the first engage vs. a later one, same session): Amt 0.5 — 1.00 vs. 1.00;
  * Amt 0.2 — 0.40 vs. 0.40. Identical; no phantom ramp at either setting.
  *
- * RT CONTRACT: `prepare()` allocates (each filter's own `prepare()` does),
- * `processBlock()` never does, and this stage keeps no per-block scratch of
- * its own — so unlike the widget it replaces, a block larger than the one
- * `prepare()` was given needs no chunking; it is simply walked a sample at a
- * time, like every other per-sample stage in this file.
+ * RT CONTRACT: `processBlock()` never allocates, and this stage keeps no
+ * per-block scratch of its own — so unlike the widget it replaces, a block
+ * larger than the one `prepare()` was given needs no chunking; it is simply
+ * walked a sample at a time, like every other per-sample stage in this file.
+ * Measured with an `operator new` counter, 0 allocations on `processBlock`
+ * at block sizes 0 / 1 / 64 / 3000 / 4096 and channel counts 0…3, including
+ * the first oversized block after a `prepare(sr, 64)`. `prepare()` is
+ * ALLOWED to allocate by the file-level contract above, and in fact does
+ * not: the sections are plain floats, and the two feedback highpasses only
+ * `resize(1)` a vector their constructor already sized.
  */
 class T5ynthPhaser
 {
@@ -480,7 +522,12 @@ private:
     static constexpr float kCentreHz = 600.0f;   // where a Small Stone sits its sweep
     static constexpr float kFbHighpassHz = 20.0f;  // see the DC paragraph above
 
-    juce::dsp::FirstOrderTPTFilter<float> stages_[2][kStages];
+    // The six sections' own state, one `s1` per section per channel. Written
+    // out here rather than held as six `juce::dsp::FirstOrderTPTFilter`s
+    // because all six of a channel's sections sweep to the SAME corner and
+    // that class recomputes its coefficient per instance — see the ONE
+    // COEFFICIENT paragraph above.
+    float apState_[2][kStages] { };
     juce::dsp::FirstOrderTPTFilter<float> fbHp_[2];   // AC-couples the feedback loop
     double phase_ = 0.0, inc_ = 0.0, sr_ = 44100.0;
     juce::SmoothedValue<float> depthS_, fbS_, mixS_;

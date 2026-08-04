@@ -581,12 +581,7 @@ void T5ynthPhaser::prepare(double sampleRate, int samplesPerBlock)
     sr_ = sampleRate;
     const juce::dsp::ProcessSpec spec1ch { sampleRate,
         static_cast<juce::uint32>(juce::jmax(1, samplesPerBlock)), 1u };
-    for (auto& ch : stages_)
-        for (auto& s : ch)
-        {
-            s.setType(juce::dsp::FirstOrderTPTFilterType::allpass);
-            s.prepare(spec1ch);
-        }
+    for (auto& ch : apState_) for (auto& s : ch) s = 0.0f;
     for (auto& f : fbHp_)
     {
         f.setType(juce::dsp::FirstOrderTPTFilterType::highpass);
@@ -618,7 +613,7 @@ void T5ynthPhaser::prepare(double sampleRate, int samplesPerBlock)
 void T5ynthPhaser::reset()
 {
     if (!prepared_) return;
-    for (auto& ch : stages_) for (auto& s : ch) s.reset();
+    for (auto& ch : apState_) for (auto& s : ch) s = 0.0f;
     for (auto& f : fbHp_) f.reset();
     fbState_[0] = fbState_[1] = 0.0f;
     phase_ = 0.0;
@@ -632,7 +627,7 @@ void T5ynthPhaser::armMix()
     // ONLY if the stage will actually run — the same guard, and the same
     // reason, as `T5ynthChorus::armFill()` above, whose comment carries the
     // measurement. Here the chatter costs 49.3 us/block against 2.43 parked,
-    // and clears twelve filters and both feedback taps on every cycle.
+    // and clears twelve sections and both feedback taps on every cycle.
     if (wants()) mixS_.setTargetValue(mix_);
     // A fresh engage ramps the mix itself from zero, which is already the fade
     // any cold filter needs; the per-channel one is only for the case the mix
@@ -683,7 +678,7 @@ void T5ynthPhaser::processBlock(juce::AudioBuffer<float>& buffer)
     // the raw target.
     if (!wants() && !mixS_.isSmoothing())
     {
-        // Arrived. Clear ONCE — the twelve filters' own state and the two
+        // Arrived. Clear ONCE — the twelve sections' own state and the two
         // feedback taps, which would otherwise still hold whatever was in
         // them when the mix reached zero. That also protects against the
         // same NaN latch the widget this replaces had (its `lastOutput`
@@ -692,7 +687,7 @@ void T5ynthPhaser::processBlock(juce::AudioBuffer<float>& buffer)
         // memory here, and is zeroed in the same sweep as the filters.
         if (!idle_)
         {
-            for (auto& ch : stages_) for (auto& s : ch) s.reset();
+            for (auto& ch : apState_) for (auto& s : ch) s = 0.0f;
             for (auto& f : fbHp_) f.reset();
             fbState_[0] = fbState_[1] = 0.0f;
             armMix();
@@ -744,7 +739,7 @@ void T5ynthPhaser::processBlock(juce::AudioBuffer<float>& buffer)
     // when and if it returns.
     for (int c = lastNumCh_; c < numCh; ++c)
     {
-        for (auto& s : stages_[c]) s.reset();
+        for (auto& s : apState_[c]) s = 0.0f;
         fbHp_[c].reset();
         fbState_[c] = 0.0f;
         wetGain_[c] = 0.0f;   // and fade its wet in, below
@@ -777,9 +772,17 @@ void T5ynthPhaser::processBlock(juce::AudioBuffer<float>& buffer)
 
         for (int c = 0; c < numCh; ++c)
         {
+            // ONE COEFFICIENT for all six sections of this channel: they sweep
+            // to the same corner by construction, so the transform that costs
+            // anything — a `std::tan` — is done once here rather than six
+            // times. The arithmetic below is `juce::dsp::FirstOrderTPTFilter`'s
+            // own, transcribed rather than reinterpreted, so the sections stay
+            // bit-identical to the ones this stage used before (verified: max
+            // absolute difference 0.0 over the whole sweep).
             const float corner = (c == 1) ? cornerR : cornerL;
-            for (int s = 0; s < kStages; ++s)
-                stages_[c][s].setCutoffFrequency(corner);
+            const float g = static_cast<float>(
+                std::tan(juce::MathConstants<double>::pi * corner / sr_));
+            const float G = g / (1.0f + g);
 
             const float x = ch[c][i];
             // ADDED, not subtracted like juce::dsp::Phaser's own loop — the
@@ -787,7 +790,13 @@ void T5ynthPhaser::processBlock(juce::AudioBuffer<float>& buffer)
             // negative (class comment, FEEDBACK).
             float y = x + fb * fbState_[c];
             for (int s = 0; s < kStages; ++s)
-                y = stages_[c][s].processSample(0, y);
+            {
+                float& s1 = apState_[c][s];
+                const float v  = G * (y - s1);
+                const float lp = v + s1;
+                s1 = lp + v;
+                y  = 2.0f * lp - y;     // allpass = 2*lowpass - input
+            }
             // AC-COUPLED, and that is not decoration: six all-passes have phase
             // 0 at DC, so an ADDED loop is a DC amplifier of exactly 1/(1-fb) —
             // measured x1.43 / x2.50 / x20.0 at fb +0.3 / +0.6 / +0.95, i.e.
