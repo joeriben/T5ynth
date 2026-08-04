@@ -25,13 +25,17 @@
 //              COLOUR rather than its level cannot hide from it.
 //
 // Then it repeats the measurement with one suspect removed at a time, which is
-// what turns a number into a cause: the master limiter (threshold to 0 dB),
-// the level reaching it (master volume down 12 dB), and the filter envelope
-// itself (ENV2 target -> none). Two couplings are KNOWN and expected, and are
-// printed as reference lines rather than left for the reader to rediscover:
-// VoiceManager's 1/N^0.1 voice-count compensation is -0.30 dB at the 1->2
-// transition by construction, and the always-on limiter is shared by everything
-// downstream of the voice sum.
+// what turns a number into a cause: the master stage's own gain (threshold to
+// 0 dB), the level reaching it (master volume down 18 dB), and the filter
+// envelope itself (ENV2 target -> none). The suspect those two level variations
+// were aimed at -- the compressor `juce::dsp::Limiter` hid inside that stage --
+// is GONE as of 6c10bee3, and they are kept because a level sweep is what
+// proves the absence: a shared level-dependent stage cannot survive reading the
+// same -0.60 dB at three different levels.
+//
+// One coupling is KNOWN and expected, and is printed as a reference line rather
+// than left for the reader to rediscover: VoiceManager's 1/N^0.1 voice-count
+// compensation, -0.60 dB at the 1->2 transition by construction.
 //
 // WHAT IT FOUND, 2026-08-04, 48 kHz / 512, wavetable engine, LP at 200 Hz with
 // ENV2 -> Filter:
@@ -68,7 +72,8 @@
 //   CSOUND_FW="$(brew --prefix csound)/Frameworks"
 //   clang++ -std=c++17 -O2 @/tmp/h.rsp \
 //     tools/measure_poly_independence.cpp \
-//     build_clean/T5ynth_artefacts/Release/libT5ynth_SharedCode.a \
+//     build_clean/T5ynth_artefacts/Release/libakroasys_SharedCode.a \
+//     build_clean/libT5ynthData.a \
 //     -F"$CSOUND_FW" -framework CsoundLib64 -Wl,-rpath,"$CSOUND_FW" \
 //     -framework Accelerate -framework AudioToolbox -framework Cocoa -framework CoreAudio \
 //     -framework CoreAudioKit -framework CoreMIDI -framework DiscRecording -framework Foundation \
@@ -333,7 +338,7 @@ int main (int argc, char** argv)
     std::printf ("known couplings, for reference:\n");
     std::printf ("  voice-count compensation 1/N^0.1 : 1->2 voices = %+.2f dB, by construction\n",
                  20.0 * std::log10 (1.0 / std::pow (2.0f, 0.1f)));
-    std::printf ("  master limiter                   : always on, default threshold -3 dB\n");
+    std::printf ("  master output gain               : static, no compressor since 6c10bee3\n");
 
     T5ynthProcessor proc;
     proc.setRateAndBufferSizeDetails (gSampleRate, gBlockSize);
@@ -380,9 +385,9 @@ int main (int argc, char** argv)
     const Config configs[] = {
         { "1. filter envelope at FULL amount, everything at default",
           1.0f, EnvTarget::Filter, -3.0f,   0.0f },
-        { "2. same, but the master limiter cannot act (threshold 0 dB)",
+        { "2. same, but the master output gain is at its smallest (threshold 0 dB)",
           1.0f, EnvTarget::Filter,  0.0f,   0.0f },
-        { "3. same as 1, but 18 dB quieter INTO the limiter (master vol -18 dB)",
+        { "3. same as 1, but 18 dB quieter into the master stage (master vol -18 dB)",
           1.0f, EnvTarget::Filter, -3.0f, -18.0f },
         { "4. same as 1, but NO filter envelope (ENV2 -> none)",
           1.0f, EnvTarget::None,   -3.0f,   0.0f },
