@@ -10,7 +10,10 @@
  * are properties of an AMPLIFIER and not of a body — a Rhodes suitcase has ONE
  * tremolo for the whole instrument, not one per key — and because at this point
  * in the chain they serve every engine, not only the oscillator that prompted
- * them. No UI yet, by the same instruction.
+ * them. The same instruction allowed them to arrive without one — *„ggf noch
+ * ohne UI"* — and they did; the FX card reached them in `aa868fde`, so each
+ * one's parameters are on the panel now and this file's defaults are what a
+ * player sees at rest, not what they are stuck with.
  *
  * WHY THESE FOUR CLASSES SHARE A FILE. They are one chain with one contract,
  * stated once here rather than four times: **each is bypassed at its own default
@@ -28,16 +31,18 @@
  * −1.29 on the phaser and −0.31 on the distortion against a signal whose own
  * largest step at 220 Hz is 0.0144. So each gate here is a gate on the SMOOTHED
  * value: the effect keeps running until its own ramp has arrived, and only then
- * stops. The tremolo did this from the start; the other three now do it too. The
- * chorus asks its own mix smoother whether it has arrived, because it owns one;
- * the phaser cannot, so it counts out the 50 ms the `DryWetMixer` inside
- * `juce::dsp::Phaser` ramps for (juce_DryWetMixer.cpp:
- * `smoothedGains.reset(sampleRate, 0.05)`).
+ * stops. The tremolo did this from the start; the other three now do it too, and
+ * all of them can now simply ASK — each owns the `SmoothedValue` its own mix
+ * rides on, so `isSmoothing()` answers the question directly. The phaser used to
+ * be the exception, counting out the 50 ms a `juce::dsp::DryWetMixer` it did not
+ * own would ramp for; owning its mix retired that count.
  *
- * Of the two modulation effects only the PHASER wraps a JUCE widget. The chorus
- * has its own three-tap ensemble, for the reason its comment gives. The
- * distortion is an OVERDRIVEN AMPLIFIER rather than a curve — see its own
- * comment.
+ * NEITHER MODULATION EFFECT WRAPS A JUCE WIDGET any more. The chorus has its own
+ * three-tap ensemble and the phaser its own six-stage all-pass chain, each for
+ * the reason its own comment gives — and both replacements removed the same
+ * latch on the way past: a `lastOutput`-style feedback memory that `NaN * 0`
+ * keeps poisoned for ever. The distortion is an OVERDRIVEN AMPLIFIER rather than
+ * a curve — see its own comment.
  *
  * RT contract, the same one every other module in this directory keeps:
  * `prepare()` allocates and `processBlock()` never does. Every gain that a
@@ -48,8 +53,9 @@
  * prepared-size chunks rather than trusted: ASan caught `juce::dsp::Chorus` and
  * `Phaser` writing past their `bufferDelayTimes` / `bufferFrequency` scratch on
  * the first oversized block. The chorus no longer needs that chunking — it holds
- * no per-block buffer at all now, only per-sample state — but the phaser still
- * does, and the distortion chunks for its oversampler.
+ * no per-block buffer at all now, only per-sample state — and now neither does
+ * the phaser, for the same reason; only the distortion still chunks, for its
+ * oversampler.
  */
 
 /**
@@ -301,28 +307,199 @@ private:
     bool prepared_ = false, idle_ = true;
 };
 
-/** juce::dsp::Phaser. Bypassed at mix == 0, which is the default. */
+/**
+ * A six-stage all-pass phaser, its own all-pass chain rather than a wrap of
+ * `juce::dsp::Phaser`. REPLACES that widget on three measured defects, all
+ * from the same multitone through the real class (60 sine partials, 59 Hz –
+ * 16 kHz, bin-aligned to a 16384-point STFT, mix 0.5, rate 0.4 Hz):
+ *   1. NO STEREO WIDTH AT ALL. The widget sweeps its cutoff into ONE mono
+ *      buffer (`bufferFrequency`, juce_Phaser.h) and applies it to every
+ *      channel through the same six filters — side-to-mid measured at
+ *      exactly −600 dB (L and R bit-identical) at every setting tried. A
+ *      shared cutoff cannot be widened; that is why this is a replacement
+ *      and not a retune.
+ *   2. THE SWEEP WAS TOO WIDE AT THE DEFAULT: 7.3 octaves of notch travel
+ *      (67–10957 Hz) at the shipped Amt 0.5, and turning Amt DOWN measurably
+ *      IMPROVED it — deeper notches, because they stayed in band (Amt 0.2:
+ *      22.6/49.2 dB median/max depth against 15.9/36.0 at Amt 0.5).
+ *   3. THE FEEDBACK KNOB RAN BACKWARDS. Turning it up FLATTENED the response
+ *      (peak-over-median 3.0 → 2.0 dB going fb 0 → +0.7) while the resonance
+ *      sat on the NEGATIVE half instead (3.0 → 8.9 dB going fb 0 → −0.7).
+ *
+ * METHOD AND SOURCES, before the first line, per the authoring rule.
+ *   • Phasing is a cascade of first-order all-pass sections whose corner is
+ *     swept, summed with the dry; the notches sit where the cascade's
+ *     accumulated phase passes odd multiples of pi, so N stages give N/2
+ *     notches. Udo Zölzer (ed.), DAFX: Digital Audio Effects, 2nd ed., Wiley
+ *     2011, ch. 2 (delay-based effects / phasing). The classic circuits it
+ *     names, MXR Phase 90 and EHX Small Stone, are four stages; six and
+ *     eight are equally standard, and six is what this replaces, UNCHANGED,
+ *     so the character does not move for a reason nobody asked for.
+ *   • The section itself is the first-order TPT/ZDF all-pass: Vadim
+ *     Zavalishin, The Art of VA Filter Design.
+ *     `juce::dsp::FirstOrderTPTFilter<float>` in `Allpass` mode IS that
+ *     section, and is what `juce::dsp::Phaser` used internally — reused here
+ *     rather than rebuilt, so the stage's own sound stays identical
+ *     everywhere this task does not deliberately change it.
+ *
+ * TWO INDEPENDENT CHAINS. Twelve filters, six per channel, each PREPARED FOR
+ * ONE CHANNEL: `FirstOrderTPTFilter::setCutoffFrequency` sets the one cutoff
+ * every channel a filter instance was prepared with shares, so the only way
+ * for L and R to sweep to DIFFERENT corners at the same instant is for each
+ * channel to own its own six filters. That is the entire fix for defect 1.
+ *
+ * ONE LFO, sine, with a 90-DEGREE phase offset between the two channels'
+ * read of it — a CHOICE, not something either source above fixes, exactly
+ * the way `T5ynthChorus`'s comment declares its own tap-to-channel pairing.
+ * At 180 degrees the two channels' notches sit at opposite ends of the sweep
+ * at every instant, the worst case for the mono sum (neither channel's notch
+ * is ever near the other's); 90 degrees keeps the two apart for width while
+ * costing the mono sum less. MEASURED at the shipped default (fb 0, Amt 0.5,
+ * mix 0.5, rate 0.4 Hz): side-to-mid RMS −6.0 dB (was −600, i.e. bit-
+ * identical); the mono sum's own notch depth median/max 10.6/24.1 dB against
+ * the stereo channels' own 20.6/47.3 — the width costs real notch depth in
+ * the mono fold-down, on the record rather than assumed.
+ *
+ * SWEEP GEOMETRY: logarithmic about a FIXED centre of 600 Hz (the widget's
+ * own `setCentreFrequency(600.0f)` — where a Small Stone sits its sweep —
+ * kept unchanged), spanning `kSpanOctaves` octaves either side at Amt 1.0,
+ * LINEAR IN OCTAVES with Amt. `kSpanOctaves` = 2.0, so Amt 1.0 sweeps
+ * 150–2400 Hz and Amt 0.5 sweeps 300–1200 Hz. This puts the knob's MIDDLE
+ * where defect 2's own table measured best: the OLD widget's Amt 0.2 swept
+ * 301–1197 Hz — verified from `Phaser::setCentreFrequency`/`update`'s own
+ * arithmetic (depth 0.2 → oscVolume 0.5·0.2 = 0.1; normCentreFrequency =
+ * mapFromLog10(600, 20, 20000) = 0.49237; lfo = 0.49237 ± 0.1; freq =
+ * mapToLog10(lfo, 20, 20000) = 300.75 Hz / 1197.4 Hz) — the arithmetic
+ * holds. That is the SAME sweep this class now puts at Amt 0.5, not a fifth
+ * of the way up the knob.
+ *
+ * FEEDBACK. The loop wraps the WHOLE six-stage cascade once per channel (not
+ * once per stage) — the same topology `juce::dsp::Phaser` uses internally
+ * (`output = input − lastOutput; … lastOutput = output * feedback;`) — but
+ * ADDED rather than subtracted, which is the entire fix for defect 3: with
+ * every stage a true all-pass (|H(jw)| = 1 always), the closed loop's gain
+ * at a frequency where the cascade's phase returns to a multiple of 2·pi is
+ * 1/|1 ∓ feedback|, and JUCE's subtraction puts the resonant sign on
+ * NEGATIVE feedback (measured above); addition puts it on POSITIVE, the
+ * knob direction asked for. MEASURED (peak over frame median, fb 0 / +0.7 /
+ * −0.7 at Amt 0.5): 3.0 → 11.2 → 1.7 dB — positive resonates, negative
+ * flattens, the sign is the intended one and was not flipped. Because the
+ * loop gain magnitude at any frequency is exactly |feedback| (never more,
+ * since |H| = 1 exactly), clamping the parameter to ±0.95 — its unchanged
+ * range — is what keeps the loop from running away; no separate runtime
+ * clamp does anything a stricter parameter range would not already do.
+ * "Does not run away" is the whole of what that clamp promises, and it is
+ * worth saying what it still permits: the closed loop peaks at
+ * 1/(1 − |feedback|), so the knob's own end is a +26 dB resonance — bounded,
+ * stable, and loud. That is the sound the control exists for and not a
+ * defect, but nothing in this stage attenuates it; the amp chain's limiter
+ * downstream is what the level meets.
+ *
+ * THE FEEDBACK LOOP IS AC-COUPLED, and that is the price of the sign above
+ * rather than a separate idea. Six all-passes have phase 0 at DC, so an
+ * ADDED loop is a DC amplifier of exactly the same 1/(1 − fb) — measured
+ * ×1.43 / ×2.50 / ×20.0 at fb +0.3 / +0.6 / +0.95, which is +19.5 dB at 2 Hz
+ * and +8.1 dB at 20 Hz, crossing unity only near 55 Hz. The widget got its
+ * DC ATTENUATION for free from the very subtraction that put its resonance
+ * on the wrong half of the knob (1/(1 + fb) at DC, below one), so flipping
+ * the sign without blocking DC would have traded a backwards knob for a
+ * subsonic amplifier — a regression, and one the ear would meet as pumping
+ * on the chain's limiter rather than as a sound. One pole at 20 Hz in the
+ * loop (`kFbHighpassHz`) removes it: DC gain measures ×1.000 at every
+ * feedback setting, while the resonance the knob exists for is untouched
+ * (fb +0.7, corner parked at 600 Hz: +10.4 dB at 346 Hz and +10.2 dB at
+ * 1 kHz against −2.5 to −4.6 dB off-resonance). `T5ynthDistortion` in this
+ * same file blocks DC for the same reason.
+ *
+ * OWN MIX: a `juce::SmoothedValue` linear dry/wet, like `T5ynthChorus`'s, in
+ * place of `juce::dsp::DryWetMixer`. Idle and engage copy the chorus's
+ * pattern in this same file: the gate is on the SMOOTHED mix, not the raw
+ * target, so the stage keeps running until its own ramp has arrived at dry,
+ * and only THEN clears its state — the twelve filters and the two feedback
+ * taps — once, on the transition. A channel count that changes under the
+ * stage is handled too, but deliberately NOT the chorus's way: everything
+ * here is per channel, so only a newly present channel is cleared and faded
+ * in, and the channel that was already running is left alone. The measured
+ * reason is in the .cpp at that site — re-arming the whole stage, as the
+ * chorus rightly does for its one shared delay line, puts a 0.59093 step on
+ * a channel that never lost its input.
+ *
+ * THIS IS ALSO WHAT REMOVES TWO COLD-START STEPS the widget had, both from
+ * the same mechanism: `T5ynthPhaser::prepare()` used to prepare the widget
+ * BEFORE the processor's first real `setMix`/`setDepth` calls arrived, which
+ * left `DryWetMixer` parked at the widget's class default mix (0.5) and
+ * `oscVolume` parked at its class default depth (0.5) until then — measured
+ * 0.0421 on the mix, and a second, quieter case on depth: a preset whose Amt
+ * is NOT 0.5 started its first engage ramping the sweep width in from that
+ * phantom 0.5 over the same 50 ms, invisible only because the shipped
+ * default Amt already IS 0.5. Owning the smoothers here repeats neither:
+ * `setDepth`/`setFeedback` snap current-to-target on the FIRST call after
+ * `prepare()` (`depthSeeded_`/`fbSeeded_` below) instead of smoothing away
+ * from a value nobody set, so whatever the processor's first real call says
+ * is what plays from sample one, at any Amt. MEASURED (span in octaves at
+ * the first engage vs. a later one, same session): Amt 0.5 — 1.00 vs. 1.00;
+ * Amt 0.2 — 0.40 vs. 0.40. Identical; no phantom ramp at either setting.
+ *
+ * RT CONTRACT: `prepare()` allocates (each filter's own `prepare()` does),
+ * `processBlock()` never does, and this stage keeps no per-block scratch of
+ * its own — so unlike the widget it replaces, a block larger than the one
+ * `prepare()` was given needs no chunking; it is simply walked a sample at a
+ * time, like every other per-sample stage in this file.
+ */
 class T5ynthPhaser
 {
 public:
+    /** The sweep's total span at Amt 1.0, either side of the fixed 600 Hz
+        centre, in octaves — Amt 0.5 therefore spans ±1.0 oct (300–1200 Hz)
+        and Amt 1.0 spans ±2.0 oct (150–2400 Hz). Public because the panel
+        reads the span Amt is a fraction of, out of the same constant the DSP
+        uses rather than a second copy of the number. */
+    static constexpr float kSpanOctaves = 2.0f;
+
     void prepare(double sampleRate, int samplesPerBlock);
     void reset();
 
     void setRate(float hz);         ///< 0.02…10 Hz
-    void setDepth(float depth);     ///< 0…1
-    void setFeedback(float fb);     ///< -0.95…0.95
+    void setDepth(float depth);     ///< 0…1 ("Amt"); ± kSpanOctaves·depth octaves
+    void setFeedback(float fb);     ///< -0.95…0.95; positive resonates
     void setMix(float mix);         ///< 0…1, 0 is bypass and the default
 
     bool wants() const noexcept { return mix_ > 0.0001f; }
     void processBlock(juce::AudioBuffer<float>& buffer);
 
+    /** Diagnostic only: the octave span the sweep is CURRENTLY using, after
+        smoothing (`kSpanOctaves` * Amt's smoothed value). Exists so "no ramp
+        from a phantom default on the first engage of a session" (class
+        comment, above) can be verified from outside instead of asserted;
+        read-only, costs one `SmoothedValue` read, and is never called from
+        `processBlock`. */
+    float currentSpanOctaves() const noexcept { return kSpanOctaves * depthS_.getCurrentValue(); }
+
 private:
-    juce::dsp::Phaser<float> phaser_;
-    float mix_ = 0.0f;
-    int flush_ = 0, flushLen_ = 0, maxBlock_ = 0;
-    bool prepared_ = false;
-    /** True from the first block that actually reaches `phaser_.process()` until
-        the disengage-clear below has fired. Lets `processBlock` tell "just
-        arrived at idle, clear once" apart from "already idle, nothing to do". */
-    bool running_ = false;
+    static constexpr int kStages = 6;
+    static constexpr float kCentreHz = 600.0f;   // where a Small Stone sits its sweep
+    static constexpr float kFbHighpassHz = 20.0f;  // see the DC paragraph above
+
+    juce::dsp::FirstOrderTPTFilter<float> stages_[2][kStages];
+    juce::dsp::FirstOrderTPTFilter<float> fbHp_[2];   // AC-couples the feedback loop
+    double phase_ = 0.0, inc_ = 0.0, sr_ = 44100.0;
+    juce::SmoothedValue<float> depthS_, fbS_, mixS_;
+    float depth_ = 0.5f, fb_ = 0.0f, mix_ = 0.0f, rateHz_ = 0.4f;
+    float fbState_[2] { 0.0f, 0.0f };
+    int lastNumCh_ = 2;         // see the newly-present-channel clear in processBlock
+    float wetGain_[2] { 1.0f, 1.0f };   // the same clear's wet fade, per channel
+    float fadeInc_ = 1.0f;              // one kSmoothSeconds' worth per sample
+    // "First call after prepare() snaps current==target" latches: without
+    // these, the very first setDepth()/setFeedback() call after a cold
+    // prepare() would SMOOTH from whatever depth_/fb_ happened to hold (a
+    // constructor default, possibly stale) towards the processor's real
+    // value, instead of starting there. See the class comment's COLD-START
+    // paragraph, above.
+    bool depthSeeded_ = false, fbSeeded_ = false;
+    /** Arms `mixS_` at true dry (0) with a ramp up to `mix_`, and marks the
+        stage idle. Called from `prepare()`, `reset()`, and the processBlock
+        idle-transition clear — the one place a fresh engage should ever ramp
+        FROM, mirroring `T5ynthChorus::armFill()` in this same file. */
+    void armMix();
+    bool prepared_ = false, idle_ = true;
 };

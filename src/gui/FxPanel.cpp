@@ -27,6 +27,16 @@ static juce::String fmtChorusSweep(double v)
          + juce::String(v * T5ynthChorus::kSweepMs, 2) + "ms";
 }
 
+// The phaser's Amt is a fraction of its own sweep span, so it can say what it
+// actually does: how far the corner travels either side of the fixed 600 Hz
+// centre. The span comes from T5ynthPhaser rather than a second copy of the
+// number here, which could drift away from the one the DSP uses.
+static juce::String fmtPhaserSweep(double v)
+{
+    return juce::String::charToString(0x00b1)   // PLUS-MINUS SIGN, never a literal
+         + juce::String(v * T5ynthPhaser::kSpanOctaves, 2) + "oct";
+}
+
 static juce::String fmtDampPct(double v)
 {
     // Damp is a normalized 0..1 trim, NOT a single cutoff: the DSP adds a
@@ -344,7 +354,7 @@ FxPanel::FxPanel(juce::AudioProcessorValueTreeState& apvts, T5ynthProcessor& pro
     chorAmtRow     = std::make_unique<SliderRow>("Amt",    fmtChorusSweep, kFxCol);
     chorMixRow     = std::make_unique<SliderRow>("Mix",    fmtF2,   kFxCol);
     phasRateRow    = std::make_unique<SliderRow>("Rate",   fmtHz2,  kFxCol);
-    phasAmtRow     = std::make_unique<SliderRow>("Amt",    fmtF2,   kFxCol);
+    phasAmtRow     = std::make_unique<SliderRow>("Amt",    fmtPhaserSweep, kFxCol);
     phasFbRow      = std::make_unique<SliderRow>("FB",     fmtF2,   kFxCol);
     phasMixRow     = std::make_unique<SliderRow>("Mix",    fmtF2,   kFxCol);
     tremRateRow    = std::make_unique<SliderRow>("Rate",   fmtHz2,  kFxCol);

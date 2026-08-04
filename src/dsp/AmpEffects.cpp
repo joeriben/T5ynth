@@ -8,13 +8,6 @@ namespace
     // several, because drive and depth travel much further per unit of knob.
     constexpr double kSmoothSeconds = 0.02;
 
-    // juce::dsp::DryWetMixer resets its gain smoothers to 0.05 s
-    // (juce_DryWetMixer.cpp), and Phaser owns one. After its mix is turned to
-    // zero it therefore needs that long to actually ARRIVE at dry; stopping
-    // sooner is the click this margin exists to avoid. The chorus owns its mix
-    // smoother outright and asks it directly instead of counting.
-    constexpr double kWidgetFlushSeconds = 0.06;
-
     // sin(120°) = sin(240°) negated. The three ensemble taps come out of one
     // sine and one cosine by angle addition rather than three calls to std::sin,
     // which also puts the 120° into the arithmetic where it can be read.
@@ -585,104 +578,236 @@ void T5ynthChorus::processBlock(juce::AudioBuffer<float>& buffer)
 
 void T5ynthPhaser::prepare(double sampleRate, int samplesPerBlock)
 {
-    maxBlock_ = juce::jmax(1, samplesPerBlock);
-    juce::dsp::ProcessSpec spec { sampleRate,
-                                  static_cast<juce::uint32>(maxBlock_), 2 };
-    phaser_.prepare(spec);
-    phaser_.setCentreFrequency(600.0f);   // Hz; where a Small Stone sits its sweep
-    phaser_.setMix(mix_);
-    flushLen_ = static_cast<int>(kWidgetFlushSeconds * sampleRate);
-    flush_ = 0;
+    sr_ = sampleRate;
+    const juce::dsp::ProcessSpec spec1ch { sampleRate,
+        static_cast<juce::uint32>(juce::jmax(1, samplesPerBlock)), 1u };
+    for (auto& ch : stages_)
+        for (auto& s : ch)
+        {
+            s.setType(juce::dsp::FirstOrderTPTFilterType::allpass);
+            s.prepare(spec1ch);
+        }
+    for (auto& f : fbHp_)
+    {
+        f.setType(juce::dsp::FirstOrderTPTFilterType::highpass);
+        f.prepare(spec1ch);
+        f.setCutoffFrequency(kFbHighpassHz);   // fixed, so no per-sample tan
+    }
+    fbState_[0] = fbState_[1] = 0.0f;
+    phase_ = 0.0;
+    setRate(rateHz_);
+
+    depthS_.reset(sampleRate, kSmoothSeconds);
+    fbS_.reset(sampleRate, kSmoothSeconds);
+    mixS_.reset(sampleRate, kSmoothSeconds);
+    // Sane fallback only — the actual guarantee against a phantom-default
+    // ramp is the "first call after prepare" latch in setDepth()/setFeedback()
+    // below, which fires on whatever the processor calls next regardless of
+    // what depth_/fb_ happen to hold here (the constructor default on a cold
+    // start, or the last live knob position across a re-prepare).
+    depthS_.setCurrentAndTargetValue(depth_);
+    fbS_.setCurrentAndTargetValue(fb_);
+    depthSeeded_ = false;
+    fbSeeded_ = false;
+
+    fadeInc_ = static_cast<float>(1.0 / juce::jmax(1.0, sampleRate * kSmoothSeconds));
     prepared_ = true;
+    armMix();
 }
 
-void T5ynthPhaser::reset() { if (prepared_) phaser_.reset(); flush_ = 0; }
+void T5ynthPhaser::reset()
+{
+    if (!prepared_) return;
+    for (auto& ch : stages_) for (auto& s : ch) s.reset();
+    for (auto& f : fbHp_) f.reset();
+    fbState_[0] = fbState_[1] = 0.0f;
+    phase_ = 0.0;
+    armMix();
+}
 
-void T5ynthPhaser::setRate(float hz)      { phaser_.setRate(juce::jlimit(0.02f, 10.0f, hz)); }
-void T5ynthPhaser::setDepth(float depth)  { phaser_.setDepth(juce::jlimit(0.0f, 1.0f, depth)); }
-void T5ynthPhaser::setFeedback(float fb)  { phaser_.setFeedback(juce::jlimit(-0.95f, 0.95f, fb)); }
+void T5ynthPhaser::armMix()
+{
+    idle_ = true;
+    mixS_.setCurrentAndTargetValue(0.0f);
+    // ONLY if the stage will actually run — the same guard, and the same
+    // reason, as `T5ynthChorus::armFill()` above, whose comment carries the
+    // measurement. Here the chatter costs 49.3 us/block against 2.43 parked,
+    // and clears twelve filters and both feedback taps on every cycle.
+    if (wants()) mixS_.setTargetValue(mix_);
+    // A fresh engage ramps the mix itself from zero, which is already the fade
+    // any cold filter needs; the per-channel one is only for the case the mix
+    // ramp does NOT cover, a single channel appearing mid-signal.
+    wetGain_[0] = wetGain_[1] = 1.0f;
+    // Every channel's state was just cleared, so none of them is the "newly
+    // present" case the processBlock loop exists for. Saying so here rather
+    // than only in prepare() is what keeps a stage that parked while mono from
+    // fading channel 1's wet in a second time on the next stereo engage, which
+    // would put its wet at mix^2 against channel 0's mix — measured as a worst
+    // |L-R| of 0.15222 on identical input, against the stage's own width of
+    // 0.06747.
+    lastNumCh_ = 2;
+}
+
+void T5ynthPhaser::setRate(float hz)
+{
+    rateHz_ = juce::jlimit(0.02f, 10.0f, hz);
+    inc_ = static_cast<double>(rateHz_) / juce::jmax(sr_, 1.0);   // phase is in turns
+}
+
+void T5ynthPhaser::setDepth(float depth)
+{
+    depth_ = juce::jlimit(0.0f, 1.0f, depth);
+    if (!depthSeeded_) { depthS_.setCurrentAndTargetValue(depth_); depthSeeded_ = true; }
+    else depthS_.setTargetValue(depth_);
+}
+
+void T5ynthPhaser::setFeedback(float fb)
+{
+    fb_ = juce::jlimit(-0.95f, 0.95f, fb);
+    if (!fbSeeded_) { fbS_.setCurrentAndTargetValue(fb_); fbSeeded_ = true; }
+    else fbS_.setTargetValue(fb_);
+}
 
 void T5ynthPhaser::setMix(float mix)
 {
-    const float m = juce::jlimit(0.0f, 1.0f, mix);
-    if (m <= 0.0001f && mix_ > 0.0001f) flush_ = flushLen_;   // as the chorus, same reason
-    mix_ = m;
-    phaser_.setMix(mix_);
+    mix_ = juce::jlimit(0.0f, 1.0f, mix);
+    mixS_.setTargetValue(mix_);
 }
 
 void T5ynthPhaser::processBlock(juce::AudioBuffer<float>& buffer)
 {
     if (!prepared_) return;
 
-    // Cleared at DISENGAGE — never at engage — so a non-finite sample cannot
-    // latch here permanently. juce::dsp::Phaser::reset() clears the two places
-    // that would otherwise hold a NaN forever: `lastOutput` (its own feedback
-    // path — NaN * 0 is still NaN, so a feedback of zero does not protect it)
-    // and the six all-pass filters' own state. Nothing in src/ ever called
-    // reset() before this (only prepare() does), so a poisoned sample used to
-    // outlive every later mix change; only reopening the audio device forced a
-    // fresh prepare() and actually cleared it. Measured on the unpatched code:
-    // one NaN pushed in while engaged stayed non-finite through a full
-    // disengage AND the following re-engage. With the clear below, the same
-    // sequence comes back finite the block after the clear fires.
-    //
-    // Engage was tried first, mirroring the distortion above, and measured
-    // wrong: reset() also clears the widget's own DryWetMixer, and
-    // DryWetMixer::reset() calls SmoothedValue::reset(sampleRate, 0.05), which
-    // PARKS dry/wet at their CURRENT TARGET rather than at zero. At engage the
-    // target is already the new nonzero mix, so the wet would jump in on
-    // sample one — the exact click this file's gate exists to avoid. At
-    // disengage the target is already 0 (this function only reaches here once
-    // `wants()` is false), so the same parking lands the mixer at dry, which is
-    // where it already was, and the next engage arms an ordinary ramp from
-    // zero. Measured with a driven harness (220 Hz/0.5 amplitude sine, 48 kHz,
-    // mix 0<->0.6, largest step in the 4 blocks around each edge): the clear
-    // below changes NEITHER edge's audible output at all — release step 0.01305
-    // before this change and 0.01305 after, engage 0.04210 both — because it
-    // only clears state the object stops reading the moment it fires (the
-    // early `return` above means `phaser_.process()` is never called again
-    // until the next engage starts it fresh). Release is at or under the
-    // sine's own 0.01443 either way, already silent because the flush margin
-    // (kWidgetFlushSeconds, above) outlasts the mixer's own 0.05 s ramp; this
-    // change does not reopen that question, only engaging here could have.
-    // (The 0.0421 on engage is a pre-existing, unrelated cold-start artefact —
-    // identical with and without this fix, so not this comment's concern, and
-    // not touched here; reported separately.)
-    //
-    // reset() also rewinds the LFO (Oscillator::reset() zeros its Phase), so
-    // this is a real behaviour change: every engage now starts the sweep at
-    // phase 0 rather than wherever the LFO last was.
-    //
-    // reset() itself is RT-safe to call here: every sub-reset it calls
-    // (FirstOrderTPTFilter::reset, Oscillator::reset, DryWetMixer::reset,
-    // SmoothedValue::reset) is std::fill / arithmetic over buffers already
-    // sized by prepare() — verified against the JUCE source, nothing allocates,
-    // locks or touches a file.
-    if (!wants() && flush_ <= 0)
+    // The gate is on the SMOOTHED mix, per this file's contract: the stage
+    // keeps running until its own ramp has arrived at dry, never stopping on
+    // the raw target.
+    if (!wants() && !mixS_.isSmoothing())
     {
-        if (running_) { phaser_.reset(); running_ = false; }
+        // Arrived. Clear ONCE — the twelve filters' own state and the two
+        // feedback taps, which would otherwise still hold whatever was in
+        // them when the mix reached zero. That also protects against the
+        // same NaN latch the widget this replaces had (its `lastOutput`
+        // feedback memory: NaN * 0 is still NaN, so a feedback of zero does
+        // not clear a poisoned sample by itself) — `fbState_` is exactly that
+        // memory here, and is zeroed in the same sweep as the filters.
+        if (!idle_)
+        {
+            for (auto& ch : stages_) for (auto& s : ch) s.reset();
+            for (auto& f : fbHp_) f.reset();
+            fbState_[0] = fbState_[1] = 0.0f;
+            armMix();
+        }
         return;
     }
 
-    const int numCh = buffer.getNumChannels();
-    const int total = buffer.getNumSamples();
-    if (numCh <= 0 || total <= 0) return;
-
-    // Only set once a block has actually reached the widget below — an empty
-    // block must not leave a false "still running" behind for the clear above
-    // to trip over.
-    running_ = true;
-
-    if (!wants()) flush_ = juce::jmax(0, flush_ - total);
-
-    for (int start = 0; start < total; start += maxBlock_)
+    const int numCh = juce::jmin(2, buffer.getNumChannels());   // prepared for two;
+                                                                //   channels past the
+                                                                //   second pass through
+    const int n = buffer.getNumSamples();
+    if (numCh <= 0 || n <= 0)
     {
-        const int n = juce::jmin(maxBlock_, total - start);
-        juce::dsp::AudioBlock<float> block(buffer.getArrayOfWritePointers(),
-                                           static_cast<size_t>(numCh),
-                                           static_cast<size_t>(start),
-                                           static_cast<size_t>(n));
-        juce::dsp::ProcessContextReplacing<float> ctx(block);
-        phaser_.process(ctx);
+        // A buffer with NO channels is a gap for channel 0 as much as for
+        // channel 1, and returning without recording it gave `lastNumCh_` a
+        // floor of 1 — so the loop below could never reach c == 0 and a
+        // channel-0 gap came back unfaded with its pre-gap state, measured at
+        // 0.52092 against the source sine's own 0.01440. A zero-LENGTH block
+        // is not that: its channels are still there and one sample behind.
+        if (numCh <= 0) lastNumCh_ = 0;
+        return;   // before idle_ moves: an empty block feeds nothing
+    }
+
+    // A channel that stopped being fed and comes back still holds the signal it
+    // stopped on — six filters and a feedback tap, from however long ago — and
+    // hands it straight to the output. So a channel index that is newly present
+    // is cleared, and ONLY that one. Not reachable through a JUCE host, which
+    // re-prepares on a bus change; reachable from a tool that hands this stage
+    // mono and then stereo buffers, and measured there against the 220 Hz sine's
+    // own largest step of 0.01453: a returning channel stepped 0.24447 at a
+    // neighbourhood ratio of 4.2, a fresh second channel 0.18334 at 4.8. The
+    // clear alone takes the first to 0.04799 and leaves the second untouched —
+    // its state was zero already, so what is left in both is not stale content
+    // but the cold start of a six-stage all-pass chain handed a live signal
+    // mid-waveform. Hence `wetGain_`: the wet fade the mix ramp performs at
+    // every ordinary engage, done per channel for the one case the shared mix
+    // ramp cannot cover. With it, 0.01452 at ratio 1.02 and 0.01992 at 1.01 —
+    // the sine's own step, and slope rather than a step.
+    //
+    // This is where the phaser DIVERGES from T5ynthChorus's guard rather than
+    // copying it, and the divergence is the measurement's, not a preference:
+    // the chorus holds ONE delay line that both channels read, so a channel
+    // change invalidates the whole line and `armFill()` is right there. Every
+    // piece of state here is per channel. Clearing the surviving channel too,
+    // and re-arming the shared mix with it, puts a 0.59093 step (ratio 300) on
+    // a channel that never lost its input — measured, after writing exactly
+    // that. A shrinking count therefore clears nothing at all: the channel that
+    // remains is continuous and must stay so, and the one that left is cleared
+    // when and if it returns.
+    for (int c = lastNumCh_; c < numCh; ++c)
+    {
+        for (auto& s : stages_[c]) s.reset();
+        fbHp_[c].reset();
+        fbState_[c] = 0.0f;
+        wetGain_[c] = 0.0f;   // and fade its wet in, below
+    }
+    lastNumCh_ = numCh;
+    idle_ = false;
+
+    float* ch[2] { buffer.getWritePointer(0),
+                   numCh > 1 ? buffer.getWritePointer(1) : nullptr };
+    const float nyqCap = static_cast<float>(0.49 * sr_);
+
+    for (int i = 0; i < n; ++i)
+    {
+        const float d  = depthS_.getNextValue();
+        const float fb = fbS_.getNextValue();
+        const float m  = mixS_.getNextValue();
+
+        // One LFO, read 90 degrees apart by the two channels — sin and cos of
+        // the SAME phase, so no second oscillator and no extra call to
+        // std::sin is needed for the offset (class comment, ONE LFO).
+        const double a = juce::MathConstants<double>::twoPi * phase_;
+        const float lfoL = static_cast<float>(std::sin(a));
+        const float lfoR = static_cast<float>(std::cos(a));
+
+        const float spanOct = kSpanOctaves * d;
+        const float cornerL = juce::jlimit(20.0f, nyqCap,
+                                            kCentreHz * std::pow(2.0f, spanOct * lfoL));
+        const float cornerR = juce::jlimit(20.0f, nyqCap,
+                                            kCentreHz * std::pow(2.0f, spanOct * lfoR));
+
+        for (int c = 0; c < numCh; ++c)
+        {
+            const float corner = (c == 1) ? cornerR : cornerL;
+            for (int s = 0; s < kStages; ++s)
+                stages_[c][s].setCutoffFrequency(corner);
+
+            const float x = ch[c][i];
+            // ADDED, not subtracted like juce::dsp::Phaser's own loop — the
+            // sign that puts the resonance on POSITIVE feedback rather than
+            // negative (class comment, FEEDBACK).
+            float y = x + fb * fbState_[c];
+            for (int s = 0; s < kStages; ++s)
+                y = stages_[c][s].processSample(0, y);
+            // AC-COUPLED, and that is not decoration: six all-passes have phase
+            // 0 at DC, so an ADDED loop is a DC amplifier of exactly 1/(1-fb) —
+            // measured x1.43 / x2.50 / x20.0 at fb +0.3 / +0.6 / +0.95, i.e.
+            // +19.5 dB at 2 Hz and +8.1 dB at 20 Hz, crossing unity only at
+            // ~55 Hz. The widget this replaces got its DC attenuation for free
+            // from the very subtraction that put its resonance on the wrong
+            // knob half, so blocking DC in the loop is the price of fixing the
+            // knob rather than a separate idea. One pole at 20 Hz: the audible
+            // resonance lives at 150-2400 Hz where this is unity, and the
+            // distortion in this same file blocks DC for the same reason.
+            fbState_[c] = fbHp_[c].processSample(0, y);
+
+            // wetGain_ is 1 except while a channel that just appeared fades its
+            // own wet in — arithmetic rather than a branch, so the steady state
+            // pays one multiply and never a misprediction.
+            wetGain_[c] = juce::jmin(1.0f, wetGain_[c] + fadeInc_);
+            ch[c][i] = x + m * wetGain_[c] * (y - x);   // linear, so mix 0.5 sums dry and wet equally
+        }
+
+        phase_ += inc_;
+        if (phase_ >= 1.0) phase_ -= 1.0;
     }
 }
