@@ -27,6 +27,27 @@ import gc
 from collections import OrderedDict
 from pathlib import Path
 
+# BEFORE ANYTHING HEAVY. The LRO's gates have to hear a body before it is called
+# a finished instrument, and performing a Csound orchestra inside this process
+# would put an authored endless loop or abort in the same address space as a
+# multi-GB model. It goes in a child — and the only child available used to be an
+# installed csound CLI, which no app bundle contains, so on a machine without
+# Homebrew Csound nothing was ever heard and everything passed. This app is that
+# missing binary: re-run with --lro-render, it performs one CSD through the
+# CsoundLib64 the engine already carries and exits. Dispatched here, above the
+# torch import, because the child must not pay for or touch a model.
+#
+# The flag comes FROM lco_write, it is not spelled again here: the two halves are
+# a process boundary apart, so a literal that drifted would not fail a build or a
+# test — this branch would simply not be taken, and the child would fall through
+# into a second full backend that inherits the host's IPC pipe on stdin and eats
+# the requests meant for the real one. lco_write is standard library only, so the
+# import costs a normal launch nothing.
+from lco_write import RENDER_FLAG, render_child_main  # noqa: E402
+
+if len(sys.argv) > 1 and sys.argv[1] == RENDER_FLAG:
+    sys.exit(render_child_main(sys.argv[2:]))
+
 
 def _configure_cpu_budget_env():
     """Keep inference helper threads from starving the real-time audio process."""

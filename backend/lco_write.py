@@ -2052,6 +2052,15 @@ _BODY_OFFSET = _HEAD.count("\n")
 #
 # Both are the same compiler the engine runs, which is the point: a gate that
 # is not the thing that later judges is not a gate.
+#
+# A gate that PERFORMS needs both halves at once, and for a long time it only
+# had the first: `csoundStart` in this process would run an authored orchestra
+# beside the loaded model, so the perform check took route 1 and simply gave up
+# where there was no CLI — which is every install the app is shipped to, since
+# the bundle carries the library and not a command-line binary. Route 3 closes
+# it: `render_child_main` is this app, re-run with `--lro-render`, performing
+# through route 2's library. A child process for the isolation, the bundled
+# library for the compiler, nothing installed.
 _CSOUND_CANDIDATES = (
     "/opt/homebrew/bin/csound",
     "/usr/local/bin/csound",
@@ -2186,6 +2195,30 @@ def _csound_library():
             lib.csoundDestroy.argtypes = [ctypes.c_void_p]
         except (OSError, AttributeError):
             continue
+        # The performing half, in its own try: a library that compiles but is
+        # missing one of these must still serve the syntax gate, which is all it
+        # was ever asked for. Absence disables `render_child_main`, nothing else.
+        try:
+            lib.csoundStart.restype = ctypes.c_int
+            lib.csoundStart.argtypes = [ctypes.c_void_p]
+            lib.csoundPerformKsmps.restype = ctypes.c_int
+            lib.csoundPerformKsmps.argtypes = [ctypes.c_void_p]
+            lib.csoundCleanup.restype = ctypes.c_int
+            lib.csoundCleanup.argtypes = [ctypes.c_void_p]
+        except AttributeError:
+            pass
+        # csoundErrCnt is EXPORTED but not declared in csound.h (it lives on the
+        # internal struct as GetErrorCnt, csoundCore.h:1402), so it is bound on
+        # its own and never required: measured on 6.18, a body that compiles and
+        # then dies at its first k-cycle leaves csoundCleanup returning 0 and
+        # csoundPerform returning its ordinary end-of-score 2 — the public API
+        # simply does not carry the perf error count out. Where the symbol is
+        # missing, render_child_main reads Csound's own printed verdict instead.
+        try:
+            lib.csoundErrCnt.restype = ctypes.c_int
+            lib.csoundErrCnt.argtypes = [ctypes.c_void_p]
+        except AttributeError:
+            pass
         # Before the first csoundCreate: the setting is global to this loaded
         # image and is read when an instance is created.
         opcodedir = _opcodedir_beside(cand)
@@ -2229,6 +2262,153 @@ def _check_via_library(csd):
     finally:
         lib.csoundDestroyMessageBuffer(cs)
         lib.csoundDestroy(cs)
+
+
+RENDER_FLAG = "--lro-render"    # public: pipe_inference.py dispatches on it
+_RENDER_BAD_CALL = 2        # this module called the child wrongly
+_RENDER_NO_COMPILER = 3     # the child found no compiler
+# Neither is a statement about the orchestra, and no caller may read one as one.
+_RENDER_ENV_FAULT = (_RENDER_BAD_CALL, _RENDER_NO_COMPILER)
+
+
+def render_child_main(argv):
+    """`csound(1)`, reduced to what these gates ask of it, on the BUNDLED library.
+
+    Every check in this module that has to hear a body — the perform check and
+    the knob gate — needs a real performance, and performing means csoundStart.
+    Doing that in this process would run an authored orchestra inside the backend
+    that holds a multi-GB model: an endless loop hangs the instrument, an abort
+    takes the loaded model with it. So it goes in a child, as it always did.
+
+    What changed is WHICH child. Until now it could only ever be an installed
+    csound CLI, and there is none inside the app: tools/bundle_csound_macos.sh
+    ships CsoundLib64 and its Opcodes64, not a command-line binary. On every
+    machine without Homebrew Csound — which is every user machine the bundling
+    exists for — both checks therefore returned "unchecked, fine", and a body
+    that compiles but makes no sound went to the engine as a finished
+    instrument. The engine plays such an install perfectly; nobody was ever
+    checking what it played.
+
+    This is that missing binary: the app re-runs ITSELF with `--lro-render`, and
+    this function loads the library the engine loads and performs the CSD with
+    it. Process boundary kept, no system install needed, one compiler.
+
+    argv is Csound's own: options first, the CSD path last. They are passed
+    through verbatim to csoundSetOption, which is the same parser the CLI uses,
+    so both call sites keep the flags they already had.
+
+    ONE DIFFERENCE, measured, and it is not removable from this side: where an
+    option is given BOTH on the command line and in the CSD's own `<CsOptions>`,
+    the CLI's command line wins and this child's loses — csoundSetOption runs
+    before csoundCompileCsdText, and the CSD's block overrides it. Nothing here
+    hits that today because `_knob_render` already rewrites the scaffold's
+    `<CsOptions>` before it asks for a file, which it has to do for the CLI as
+    well. A future caller that adds a flag the scaffold also names would find the
+    two children disagreeing, so: strip it from the CSD, do not merely pass it.
+
+    Returns a process exit code: 0 played, 1 Csound refused it, and
+    `_RENDER_ENV_FAULT` for the codes that say nothing about the orchestra."""
+    if not argv:
+        print("lro-render: no CSD given", file=sys.stderr, flush=True)
+        return _RENDER_BAD_CALL
+    options, csd_path = argv[:-1], argv[-1]
+    lib = _csound_library()
+    if lib is None or not hasattr(lib, "csoundPerformKsmps"):
+        print(f"lro-render: {NO_COMPILER}", file=sys.stderr, flush=True)
+        return _RENDER_NO_COMPILER
+    try:
+        with open(csd_path, "r", encoding="utf-8", errors="replace") as fh:
+            csd = fh.read()
+    except OSError as exc:
+        print(f"lro-render: {exc}", file=sys.stderr, flush=True)
+        return _RENDER_BAD_CALL
+
+    cs = lib.csoundCreate(None)
+    if not cs:
+        print(f"lro-render: {NO_COMPILER}", file=sys.stderr, flush=True)
+        return _RENDER_NO_COMPILER
+    drained = []
+    try:
+        lib.csoundCreateMessageBuffer(cs, 0)
+        for opt in options:
+            if lib.csoundSetOption(cs, opt.encode("utf-8")) != 0:
+                # Not fatal — Csound goes on with the option ignored — but silence
+                # here would make this child differ from the CLI without saying so.
+                print(f"lro-render: Csound rejected the option {opt!r}",
+                      file=sys.stderr, flush=True)
+
+        def drain():
+            for _ in range(lib.csoundGetMessageCnt(cs)):
+                msg = lib.csoundGetFirstMessage(cs)
+                if msg:
+                    drained.append(msg.decode("utf-8", "replace"))
+                lib.csoundPopFirstMessage(cs)
+
+        rc = lib.csoundCompileCsdText(cs, csd.encode("utf-8"))
+        if rc == 0:
+            rc = lib.csoundStart(cs)
+        if rc == 0:
+            # The CLI's own loop: csoundPerformKsmps returns non-zero at the end
+            # of the score.
+            while lib.csoundPerformKsmps(cs) == 0:
+                drain()
+            rc = lib.csoundCleanup(cs)
+            # AND THEN THE PART THE RETURN CODES DO NOT TELL. A body that
+            # compiles and dies at its first k-cycle — `vco2 kamp, kcps, 1`,
+            # imode bit 1 being "skip initialisation" — is exactly what this
+            # check exists to catch, and after it csoundCleanup returns 0 and
+            # csoundPerform returns its ordinary 2 while the CLI exits 1
+            # (measured, 6.18). Csound counts the errors; only the count says so.
+            counter = getattr(lib, "csoundErrCnt", None)
+            if rc == 0 and counter is not None:
+                rc = 1 if counter(cs) > 0 else 0
+        drain()
+        if rc == 0 and getattr(lib, "csoundErrCnt", None) is None:
+            # ONLY where the counter is missing, and this `if` is the whole point
+            # of the line: `drained` holds the BODY's output too, and a body is
+            # arbitrary model text that may `prints` anything, including the
+            # sentence being matched. Reading it where the counter already
+            # answered would let a body talk this gate into rejecting it — a
+            # verdict that would differ between an install with a Csound CLI and
+            # one without, which is the one property a gate may not have.
+            # The LAST match, for the same reason: Csound's own count is printed
+            # by csoundCleanup, after everything the body ever prints.
+            hits = re.findall(r"(\d+)\s+errors? in performance", "".join(drained))
+            if hits and int(hits[-1]) > 0:
+                rc = 1
+    finally:
+        lib.csoundDestroyMessageBuffer(cs)
+        lib.csoundDestroy(cs)
+    # Csound's words go to stderr because that is where the CLI puts them and
+    # where _explain_perf reads them from.
+    if drained:
+        sys.stderr.write("".join(drained))
+        sys.stderr.flush()
+    return 0 if rc == 0 else 1
+
+
+def _render_command():
+    """The argv prefix that performs a CSD, or None when nothing here can.
+
+    An installed CLI first — it is a plain binary with no interpreter to start,
+    and on a developer machine it is already there. Otherwise this app itself,
+    through `render_child_main`. Both are a separate process holding the same
+    compiler the engine holds; the caller appends Csound options and a path and
+    cannot tell them apart."""
+    binary = _csound_binary()
+    if binary is not None:
+        return [binary]
+    lib = _csound_library()
+    if lib is None or not hasattr(lib, "csoundPerformKsmps"):
+        return None
+    if getattr(sys, "frozen", False):
+        return [sys.executable, RENDER_FLAG]
+    # Source tree: the frozen bundle's single entry point is this module's
+    # neighbour, and it dispatches the flag before it imports anything heavy.
+    entry = Path(__file__).resolve().parent / "pipe_inference.py"
+    if entry.is_file():
+        return [sys.executable, str(entry), RENDER_FLAG]
+    return None
 
 
 # `kx = limit kfreq, 20, 12000` — an opcode STATEMENT written as an assignment.
@@ -2432,13 +2612,15 @@ def perform_check(orchestra):
     against a score shortened to a fraction of a second. ~0.1 s. Csound's own exit
     code is the verdict, and its own message is what goes back to the author.
 
-    CLI only, deliberately: performing means `csoundStart`, and doing that
-    in-process would run an authored orchestra inside the backend that holds the
-    model. A separate process is the whole reason the CLI is preferred for the
-    syntax gate too. Where only CsoundLib64 exists this returns (True, "") —
-    unchecked, never falsely failed."""
-    binary = _csound_binary()
-    if binary is None:
+    In a CHILD, always: performing means `csoundStart`, and doing that in-process
+    would run an authored orchestra inside the backend that holds the model. The
+    child is an installed CLI where there is one and this app itself where there
+    is not (`_render_command`) — until 2026-08-04 it could only be the CLI, and
+    since no app bundle contains one, this check silently returned "fine" on
+    every install that has no Homebrew Csound. Only where nothing at all can
+    perform does it still return (True, "") — unchecked, never falsely failed."""
+    command = _render_command()
+    if command is None:
         return True, ""
     # Cut at the LAST `<CsScore>`, not by pattern search: the authored body sits
     # above it and is arbitrary model output, so a comment containing the tag
@@ -2472,10 +2654,20 @@ def perform_check(orchestra):
         with fh:
             fh.write(csd)
         # -n: render nothing to a device. -d: no graphs. -m0: no per-note stats.
-        r = subprocess.run([binary, "-n", "-d", "-m0", path],
+        r = subprocess.run(command + ["-n", "-d", "-m0", path],
                            capture_output=True, timeout=90,
                            env=_csound_child_env())
         if r.returncode == 0:
+            return True, ""
+        if r.returncode in _RENDER_ENV_FAULT:
+            # The child could not put the question, so there is no answer about
+            # this orchestra. Handing it back as a verdict would show the author
+            # an install instruction as if it were a Csound diagnostic and send
+            # it round the repair loop five more times over code that may be
+            # perfectly good — the very thing the syntax gate raises
+            # CompilerUnavailable to prevent.
+            print(f"lco_write: perform check could not run: "
+                  f"{_decode(r.stderr).strip()[:200]}", file=sys.stderr, flush=True)
             return True, ""
         return False, _explain_perf(_decode(r.stderr) + _decode(r.stdout), csd,
                                     _BODY_OFFSET + inserted)
@@ -2488,7 +2680,7 @@ def perform_check(orchestra):
     except OSError as exc:
         # Same reasoning as the syntax gate's spawn failure: an environment that
         # cannot fork must not be reported as the author's mistake.
-        print(f"lco_write: perform check could not run {binary}: {exc}",
+        print(f"lco_write: perform check could not run {command[0]}: {exc}",
               file=sys.stderr, flush=True)
         return True, ""
     finally:
@@ -2617,7 +2809,7 @@ def _fingerprint(path):
     return digest.digest(), poisoned
 
 
-def _knob_render(binary, orchestra, overrides, point):
+def _knob_render(command, orchestra, overrides, point):
     """This orchestra at one operating `point`, fingerprinted, or None.
 
     ONE voice, not the sixteen `perform_check` plays: they all render the same
@@ -2707,7 +2899,12 @@ def _knob_render(binary, orchestra, overrides, point):
         # UnicodeDecodeError — a ValueError, which the handler below does not
         # catch — straight through a gate that runs AFTER a successful authoring.
         # The finished orchestra would come back as ok=false over a stray byte.
-        r = subprocess.run([binary, "-d", "-m0", "-h", "-f", "-o", raw_path,
+        # `-o<path>` glued, not `-o path`: Csound's own csoundSetOption takes one
+        # option per call and rejects a blank, so the child in render_child_main
+        # could not put a split pair back together without knowing which flags
+        # carry a value. The CLI has accepted the glued form since forever, so
+        # both children get the identical argument list.
+        r = subprocess.run(command + ["-d", "-m0", "-h", "-f", f"-o{raw_path}",
                             csd_path], capture_output=True,
                            timeout=90, env=_csound_child_env())
         if r.returncode != 0:
@@ -2749,8 +2946,8 @@ def dead_knobs(orchestra, controls):
     params = list((controls or {}).get("params", ()))
     if not params:
         return {}
-    binary = _csound_binary()
-    if binary is None:
+    command = _render_command()
+    if command is None:
         return {}
     # One baseline per point, made only when a knob actually reaches that point —
     # the second one is never rendered for a body whose knobs all move the sound.
@@ -2758,8 +2955,8 @@ def dead_knobs(orchestra, controls):
     bases = {}
     def baseline(i):
         if i not in bases:
-            first = _knob_render(binary, orchestra, {}, _KNOB_POINTS[i])
-            again = (_knob_render(binary, orchestra, {}, _KNOB_POINTS[i])
+            first = _knob_render(command, orchestra, {}, _KNOB_POINTS[i])
+            again = (_knob_render(command, orchestra, {}, _KNOB_POINTS[i])
                      if first else None)
             bases[i] = (first[0] if first and not first[1] and first == again
                         else None)
@@ -2775,7 +2972,7 @@ def dead_knobs(orchestra, controls):
                 moved = True            # unmeasurable here: no verdict, keep it
                 break
             for probe in probes:
-                out = _knob_render(binary, orchestra, {k["ch"]: probe},
+                out = _knob_render(command, orchestra, {k["ch"]: probe},
                                    _KNOB_POINTS[i])
                 if out is None or out[0] != base:
                     moved = True

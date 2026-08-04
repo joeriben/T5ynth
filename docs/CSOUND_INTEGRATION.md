@@ -83,6 +83,36 @@ opcode-dir global, and we set it to our own stock 6.18.1 modules rather than los
 them. Shipping the DLL under a unique base name plus a delay-load hook would remove
 the sharing entirely; that is an open decision, not something this change does.
 
+## The backend needs the same Csound, and for a long time it did not have it
+
+The engine PLAYS the orchestra; the Python backend GATES it before it ever gets
+there — `backend/lco_write.py` compiles what the author wrote, plays a fraction of
+a second of it, and turns each of its knobs to see whether the sound moves. Those
+gates have to hold the same compiler the engine holds, or they judge a different
+instrument than the one that sounds. Being Python, the backend reaches it through
+`ctypes` on the very library the app ships.
+
+Compiling is enough for the syntax gate and it happens in-process. **Playing is
+not**: it means `csoundStart`, and an authored endless loop or abort inside the
+backend would take a multi-GB model down with it. So the perform check and the
+knob gate run in a child process — and until 2026-08-04 the only child they could
+use was an installed `csound` CLI. **No bundle contains one.** On every machine
+without Homebrew Csound both checks therefore returned "unchecked, fine": a body
+that compiled and made no sound went to the engine as a finished instrument, and
+nothing anywhere had listened. The engine played it perfectly. That is the
+failure this section exists to prevent repeating — a gate whose absence looks
+exactly like a pass.
+
+The app is now its own missing binary. `pipe_inference.py` dispatches
+`--lro-render` before it imports torch; `lco_write.render_child_main` loads the
+shipped library and performs the CSD, forwarding argv straight to
+`csoundSetOption`. Process boundary kept, nothing installed, one compiler.
+
+Where the backend looks for the library it was given (`_bundled_csound_libs`):
+
+- **macOS** — an ancestor directory named `Contents`, then `Contents/libs/CsoundLib64`,
+  with `Opcodes64` beside it. This is the layout `tools/bundle_csound_macos.sh` writes.
+
 ## Failsafe
 
 `csoundLibraryReady()` is the single gate. On Windows it loads the DLL and returns
@@ -122,6 +152,14 @@ below then catches, loudly.
   matters most there, because the build machine is exactly the machine that has
   Csound in `/usr/lib` — plus `ldd` over every bundled ELF. All three then compile
   and PLAY a real library orchestra and require non-silent samples.
+- The backend's own reach, macOS, measured 2026-08-04 under the same denial: with
+  `/opt/homebrew`, `/usr/local` and `/Library/Frameworks/CsoundLib64.framework`
+  unreadable and only the bundle's `CsoundLib64` named, a body that plays passes
+  the perform check, `vco2 kamp, kcps, 1` is caught with Csound's own diagnostic, a
+  knob that changes no sample is withheld and a working one survives. The shipped
+  binary's `--lro-render` exits 0 on the first and 1 on the second. This has no
+  tool of its own yet; `tools/verify_csound_bundle.py` proves the ENGINE's reach,
+  not the gates'.
 - `tools/verify_lro_in_standalone.py` — requirement 4, macOS: launches the built
   Standalone with a throwaway settings home and a preset that selects the LRO,
   Homebrew Csound denied, records the audio and checks the pitch. `--prove-it-can-fail`
