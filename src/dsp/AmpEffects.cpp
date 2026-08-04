@@ -459,7 +459,21 @@ void T5ynthChorus::armFill()
     idle_ = true;
     fill_ = fillLen_;
     mixS_.setCurrentAndTargetValue(0.0f);
-    mixS_.setTargetValue(mix_);
+    // ONLY if the stage will actually run. Arming unconditionally makes the
+    // idle gate chatter for ever at any mix inside (0, 0.0001]: `wants()` reads
+    // the RAW mix and says no, but `setTargetValue` on a DIFFERENT target
+    // restarts the smoother, so `isSmoothing()` says yes on the very next block
+    // — the gate falls through, the stage runs a smoothing window, parks,
+    // clears the line, and re-arms, for ever. Measured at 48 kHz / 512:
+    // 16.4 us/block at every mix in that interval against 2.50 parked and
+    // 22.3 fully engaged, i.e. a stage the code reports as bypassed at three
+    // quarters of the cost of a working one, refilling its delay line 31 times
+    // a second. Reachable because the value the processor reads is continuous:
+    // NormalisableRange::convertFrom0to1 does not apply the parameter's 0.01
+    // interval, so host automation and a state restore both land there.
+    // Below the threshold the only truthful mix is dry, and leaving the
+    // smoother arrived at 0 is what lets the gate latch.
+    if (wants()) mixS_.setTargetValue(mix_);
 }
 
 void T5ynthChorus::setRate(float hz)
