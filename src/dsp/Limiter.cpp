@@ -1,43 +1,43 @@
 #include "Limiter.h"
 
-void T5ynthLimiter::prepare(double sampleRate, int samplesPerBlock)
-{
-    juce::dsp::ProcessSpec spec;
-    spec.sampleRate = sampleRate;
-    spec.maximumBlockSize = static_cast<juce::uint32>(samplesPerBlock);
-    spec.numChannels = 2;
+#include <cmath>
 
-    limiter.prepare(spec);
-    limiter.setThreshold(-3.0f);   // Reference: threshold = -3dB
-    limiter.setRelease(100.0f);    // Reference: release = 100ms
-    prepared = true;
+float OutputCeiling::shape (float x) noexcept
+{
+    const float a = std::abs (x);
+    if (a <= kKnee)
+        return x;
+
+    // The excess above the knee, normalised to the space left below the
+    // ceiling, through tanh and scaled back into that space. At a == kKnee this
+    // is kKnee with slope 1, so it meets the linear region with no corner; as
+    // a grows it approaches 1.0 and never reaches it.
+    const float over = (a - kKnee) / (1.0f - kKnee);
+    const float y    = kKnee + (1.0f - kKnee) * std::tanh (over);
+    return x < 0.0f ? -y : y;
 }
 
-void T5ynthLimiter::processBlock(juce::AudioBuffer<float>& buffer)
+void OutputCeiling::scrubNonFinite (juce::AudioBuffer<float>& buffer) noexcept
 {
-    if (!prepared)
-        return;
+    const int numSamples = buffer.getNumSamples();
 
-    // Skip limiter entirely when buffer is silent (no tail to process)
-    if (buffer.getMagnitude(0, buffer.getNumSamples()) < 1e-6f)
-        return;
-
-    juce::dsp::AudioBlock<float> block(buffer);
-    juce::dsp::ProcessContextReplacing<float> context(block);
-    limiter.process(context);
+    for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+    {
+        auto* d = buffer.getWritePointer (ch);
+        for (int i = 0; i < numSamples; ++i)
+            if (! std::isfinite (d[i]))
+                d[i] = 0.0f;
+    }
 }
 
-void T5ynthLimiter::reset()
+void OutputCeiling::processBlock (juce::AudioBuffer<float>& buffer) const noexcept
 {
-    limiter.reset();
-}
+    const int numSamples = buffer.getNumSamples();
 
-void T5ynthLimiter::setThreshold(float dB)
-{
-    limiter.setThreshold(dB);
-}
-
-void T5ynthLimiter::setRelease(float ms)
-{
-    limiter.setRelease(ms);
+    for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+    {
+        auto* d = buffer.getWritePointer (ch);
+        for (int i = 0; i < numSamples; ++i)
+            d[i] = shape (d[i]);
+    }
 }

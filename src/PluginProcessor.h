@@ -845,7 +845,16 @@ private:
     T5ynthDelayLine delay;
     ConvolutionReverb reverb;
     AlgorithmicReverb algoReverb;
-    T5ynthLimiter limiter;
+    OutputCeiling outputCeiling;      // standalone only -- see its own header
+
+    // The static output gain, one block behind, so a moved control RAMPS across
+    // the block instead of stepping. It replaces the makeup gain that
+    // juce::dsp::Limiter used to apply (and smoothed over 1 ms for the same
+    // reason), so the level every preset was authored at is preserved exactly;
+    // what went away with that widget is only its compression. Seeded in
+    // prepareToPlay from the parameter, so the first block after a device
+    // change does not ramp up from silence.
+    float outputGainPrev_ = 1.0f;
 
     // Sequencer
     T5ynthStepSequencer stepSequencer;

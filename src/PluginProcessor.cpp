@@ -242,6 +242,26 @@ inline int osQualityIndexFromFactor(int factor) noexcept
 {
     switch (factor) { case 4: return 2; case 2: return 1; default: return 0; }
 }
+
+// The output gain the master stage applies, from the `limiterThresh` parameter.
+//
+// This is `juce::dsp::Limiter::update()`'s own `outputVolume`, transcribed
+// rather than reinterpreted: `10^(10*(1 - 1/4)/40) * decibelsToGain(-threshold)`,
+// where the first factor is the makeup for a 4:1 ratio and the second is the
+// threshold read back as gain. That widget applied it as MAKEUP behind two
+// compressors; it is kept here as a plain static gain, and only the compression
+// went away with the widget (see dsp/Limiter.h for what that was and why).
+//
+// It is transcribed EXACTLY, including the -100 dB floor, so that every preset
+// and every DAW session keeps the level it was authored at: a stored threshold
+// still maps to the same number of dB it always did. What the control now does
+// is only that -- set the output gain -- and it still runs in the same
+// direction, more negative being louder, which is how it always behaved.
+inline float outputGainForThreshold(float thresholdDb) noexcept
+{
+    return std::pow(10.0f, 10.0f * (1.0f - 0.25f) / 40.0f)
+         * juce::Decibels::decibelsToGain(-thresholdDb, -100.0f);
+}
 } // namespace
 
 T5ynthProcessor::T5ynthProcessor()
@@ -1833,7 +1853,18 @@ juce::AudioProcessorValueTreeState::ParameterLayout T5ynthProcessor::createParam
         juce::ParameterID{PID::reverbType, 1}, "Reverb Type",
         toChoices(ReverbType::kEntries), 0));
 
-    // Limiter
+    // The master output stage. Neither of these is on the panel (FxPanel.h:
+    // "Limiter is internal only"), so both are reachable only through a preset
+    // or host automation.
+    //
+    // `limiterThresh` now sets the STATIC output gain, through the same
+    // arithmetic juce::dsp::Limiter derived its makeup from
+    // (outputGainForThreshold), so every stored value keeps the level it was
+    // authored at. `limiterRelease` drives nothing any more -- a release time is
+    // exactly what the master stage no longer has, and having one was the
+    // paraphony (dsp/Limiter.h). It is KEPT rather than removed because the
+    // APVTS stores a DAW session by parameter index: dropping it would re-point
+    // every parameter after it in every saved session.
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{PID::limiterThresh, 1}, "Limiter Threshold",
         juce::NormalisableRange<float>(-30.0f, 0.0f, 0.1f), -3.0f));
@@ -2249,7 +2280,11 @@ void T5ynthProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
     ampChorus.prepare(sampleRate, samplesPerBlock);
     ampPhaser.prepare(sampleRate, samplesPerBlock);
     ampTremolo.prepare(sampleRate, samplesPerBlock);
-    limiter.prepare(sampleRate, samplesPerBlock);
+    // OutputCeiling holds no state and needs no preparing. The output gain does:
+    // seeded here so the first block after a rate/size change starts AT the
+    // parameter's gain instead of ramping up to it from whatever the last
+    // session left behind.
+    outputGainPrev_ = outputGainForThreshold(paramCache.limiterThresh->load());
     // Pre-size the internal note-event buffer so the audio thread never grows it
     // (a push_back reallocation would be a heap alloc on the audio thread). Worst
     // case is pathological — max BPM (300) + smallest division + all 5 strands +
@@ -3419,9 +3454,29 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
     audioIdle.store(false, std::memory_order_relaxed);
 
     // ── GAIN STAGING ────────────────────────────────────────────────────────
-    // Per Voice: Osc +-1.0 → VCA up to +-4.0 → Filter (gain-neutral, reso +12dB)
-    // Sum:       N voices * 1/sqrt(N) scaling → ~constant perceived loudness
-    // Post-Sum:  Delay+Reverb up to ~2.7x → Master 0dB max → Limiter -3dB
+    // Per Voice: Osc +-1.0 → VCA → Filter (gain-neutral, reso +12dB)
+    // Sum:       N voices * 1/N^0.1 (VoiceManager::updateGainTarget)
+    // Post-Sum:  Delay+Reverb up to ~2.7x → Master 0dB max → output gain
+    //            (+6.75 dB at the default) → ceiling, STANDALONE only
+    //
+    // Three numbers here were stale and are corrected rather than carried:
+    // the per-voice VCA is `ampEnvVal * prod(1 + Amt_m)` over the mod envelopes
+    // pointed at the DCA (SynthVoice.cpp, computeDcaGain), so with all four at
+    // Amt 1.0 it reaches x16, not the +-4.0 this line claimed from the two-mod-
+    // envelope era; the sum scaling is 1/N^0.1 and not 1/sqrt(N), which is a
+    // factor-of-five difference in the exponent; and the master stage is no
+    // longer a limiter at all (dsp/Limiter.h).
+    //
+    // What this adds up to is worth stating plainly, because it is the reason
+    // the old master stage was doing so much. On a deliberately hot patch --
+    // tools/measure_poly_independence.cpp's, amp Amt 1.0 into a full-amount
+    // filter envelope -- ONE held note leaves this chain at 1.86, and the LRO
+    // playing its own default leaves it at 0.36. So the structure has headroom
+    // for the quiet engines and none at all for a hot patch, and where the old
+    // compressor used to absorb that difference, a memoryless ceiling can only
+    // flat-top it. Reducing the per-voice level is the actual repair, it is NOT
+    // done here, and it is BJ's to rule on: it changes the loudness of every
+    // preset that reaches these levels.
     // ────────────────────────────────────────────────────────────────────────
 
     // ── Voice count ──────────────────────────────────────────────────────────
@@ -5650,10 +5705,33 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
     // ── Master volume ───────────────────────────────────────────────────────
     buffer.applyGain(masterGain);
 
-    // ── Limiter (always on, internal safety) ────────────────────────────────
-    limiter.setThreshold(paramCache.limiterThresh->load());
-    limiter.setRelease(paramCache.limiterRelease->load());
-    limiter.processBlock(buffer);
+    // ── Output gain ─────────────────────────────────────────────────────────
+    // The static half of what juce::dsp::Limiter used to do here. Ramped across
+    // the block, because a moved control would otherwise step the whole mix by
+    // whatever the control moved -- the widget smoothed the same value over
+    // 1 ms for the same reason.
+    {
+        const float outGain = outputGainForThreshold(paramCache.limiterThresh->load());
+        buffer.applyGainRamp(0, numSamples, outputGainPrev_, outGain);
+        outputGainPrev_ = outGain;
+    }
+
+    // ── Output ceiling: the STANDALONE only ─────────────────────────────────
+    // A host carries float and lets a plugin exceed 0 dBFS; the standalone hands
+    // its buffer to a converter that clips hard, so only it needs a bound. Both
+    // used to get the same stage because both run this function, which is how
+    // the plugin came to carry the standalone's converter protection -- and, in
+    // the compressor that stage used to be, a coupling between every sounding
+    // voice. Memoryless here, so meeting the ceiling costs the waveform its top
+    // and not every held note its level. See dsp/Limiter.h for what it does and
+    // does not promise.
+    //
+    // The non-finite scrub is NOT gated: the widget's own unconditional
+    // clip(-1, 1) used to keep an Inf from reaching any host, and removing the
+    // stage from plugin builds was meant to free the LEVEL, not that.
+    OutputCeiling::scrubNonFinite(buffer);
+    if (wrapperType == wrapperType_Standalone)
+        outputCeiling.processBlock(buffer);
 
     midiClockBlockStart_ += static_cast<uint64_t>(numSamples);
 }
