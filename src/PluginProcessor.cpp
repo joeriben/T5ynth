@@ -245,22 +245,55 @@ inline int osQualityIndexFromFactor(int factor) noexcept
 
 // The output gain the master stage applies, from the `limiterThresh` parameter.
 //
-// This is `juce::dsp::Limiter::update()`'s own `outputVolume`, transcribed
-// rather than reinterpreted: `10^(10*(1 - 1/4)/40) * decibelsToGain(-threshold)`,
-// where the first factor is the makeup for a 4:1 ratio and the second is the
-// threshold read back as gain. That widget applied it as MAKEUP behind two
-// compressors; it is kept here as a plain static gain, and only the compression
-// went away with the widget (see dsp/Limiter.h for what that was and why).
+// WHAT THIS REPLACES. Until the compressor came out of the master stage, this
+// was `juce::dsp::Limiter::update()`'s own `outputVolume`:
+// `10^(10*(1 - 1/4)/40) * decibelsToGain(-threshold)`, i.e. +6.75 dB of MAKEUP
+// for a 4:1 compressor plus the threshold read back as gain. Carrying the
+// makeup forward without the compression it was compensating for is not a
+// calibration, it is a leftover -- and it was 6.75 dB of the instrument's
+// loudness borrowed from a stage that was squashing every chord to pay for it.
 //
-// It is transcribed EXACTLY, including the -100 dB floor, so that every preset
-// and every DAW session keeps the level it was authored at: a stored threshold
-// still maps to the same number of dB it always did. What the control now does
-// is only that -- set the output gain -- and it still runs in the same
-// direction, more negative being louder, which is how it always behaved.
+// WHAT IT IS NOW: the one number that sets how loud the instrument is, chosen
+// against the measurement in EngineCalib (dsp/BlockParams.h).
+//
+// The criterion is the DEFAULT polyphony, 8 voices, on EVERY engine -- not the
+// 16-voice extreme and not one chosen engine. EngineCalib matches the engines
+// at a single note, but they do not grow with polyphony at the same rate: 16
+// notes cost the LRO +11.0 dB and the wavetable +15.7 dB, because a wavetable's
+// voices all read one spectrum and their partials coincide far more often.
+// Matching single notes therefore cannot match chords, and the engine that
+// grows fastest is the one that sets the gain. Post-trim voice-chain peaks:
+//
+//                1 note   4 notes   8 notes  16 notes
+//     Wavetable    0.278     0.724     1.079     1.688   <- sets this constant
+//     Sampler      0.278     0.606     0.828     1.151
+//     Granular     0.278     0.433     0.717     1.000
+//     LRO          0.278     0.510     0.697     0.988
+//
+// x0.891 at the default threshold puts the worst 8-note chord at 0.962, and a
+// single note at 0.248 -- -12.1 dBFS. That gap is the honest one: voices at
+// different pitches add incoherently, so a full chord really is ~11 dB above
+// one note, and an instrument that fits both has to put the single note that
+// far down. The old chain hid the gap by compressing it to 3.6 dB, which is
+// exactly the coupling BJ heard.
+//
+// WHAT IS STILL OVER, stated rather than glossed: a SIXTEEN-voice chord on the
+// wavetable engine reaches 1.504, +3.5 dBFS. Fitting that too would cost every
+// engine another 3.5 dB and put a single note at -15.6 dBFS, to buy headroom
+// for one engine's worst case. In a host it is float and it is the player's
+// fader; in the standalone the ceiling takes the top off (dsp/Limiter.h).
+//
+// `kOutputTrimDb` IS the loudness control for the whole instrument -- one
+// number, one line, and the only thing that has to move if that trade is
+// judged the wrong way round.
+//
+// The parameter's own behaviour is unchanged: same -30..0 dB range, same
+// direction (more negative is louder), same -100 dB floor.
+constexpr float kOutputTrimDb = -4.0f;
+
 inline float outputGainForThreshold(float thresholdDb) noexcept
 {
-    return std::pow(10.0f, 10.0f * (1.0f - 0.25f) / 40.0f)
-         * juce::Decibels::decibelsToGain(-thresholdDb, -100.0f);
+    return juce::Decibels::decibelsToGain(kOutputTrimDb - thresholdDb, -100.0f);
 }
 } // namespace
 
@@ -1857,10 +1890,13 @@ juce::AudioProcessorValueTreeState::ParameterLayout T5ynthProcessor::createParam
     // "Limiter is internal only"), so both are reachable only through a preset
     // or host automation.
     //
-    // `limiterThresh` now sets the STATIC output gain, through the same
-    // arithmetic juce::dsp::Limiter derived its makeup from
-    // (outputGainForThreshold), so every stored value keeps the level it was
-    // authored at. `limiterRelease` drives nothing any more -- a release time is
+    // `limiterThresh` now sets the STATIC output gain (outputGainForThreshold),
+    // over the same range and in the same direction it always ran. The DEFAULT
+    // is where the instrument's loudness is calibrated, so a stored value no
+    // longer means the same absolute level it did when the master stage still
+    // carried a compressor's makeup -- the whole instrument is 7.75 dB quieter
+    // than that, deliberately, and a preset that stores this parameter moves
+    // with it. `limiterRelease` drives nothing any more -- a release time is
     // exactly what the master stage no longer has, and having one was the
     // paraphony (dsp/Limiter.h). It is KEPT rather than removed because the
     // APVTS stores a DAW session by parameter index: dropping it would re-point
@@ -3454,10 +3490,11 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
     audioIdle.store(false, std::memory_order_relaxed);
 
     // ── GAIN STAGING ────────────────────────────────────────────────────────
-    // Per Voice: Osc +-1.0 → VCA → Filter (gain-neutral, reso +12dB)
+    // Per Voice: Osc +-1.0 → engine trim (EngineCalib) → VCA → Filter
+    //            (gain-neutral, reso +12dB)
     // Sum:       N voices * 1/N^0.1 (VoiceManager::updateGainTarget)
     // Post-Sum:  Delay+Reverb up to ~2.7x → Master 0dB max → output gain
-    //            (+6.75 dB at the default) → ceiling, STANDALONE only
+    //            (x1.0 at the default) → ceiling, STANDALONE only
     //
     // Three numbers here were stale and are corrected rather than carried:
     // the per-voice VCA is `ampEnvVal * prod(1 + Amt_m)` over the mod envelopes
@@ -3467,16 +3504,21 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
     // factor-of-five difference in the exponent; and the master stage is no
     // longer a limiter at all (dsp/Limiter.h).
     //
-    // What this adds up to is worth stating plainly, because it is the reason
-    // the old master stage was doing so much. On a deliberately hot patch --
-    // tools/measure_poly_independence.cpp's, amp Amt 1.0 into a full-amount
-    // filter envelope -- ONE held note leaves this chain at 1.86, and the LRO
-    // playing its own default leaves it at 0.36. So the structure has headroom
-    // for the quiet engines and none at all for a hot patch, and where the old
-    // compressor used to absorb that difference, a memoryless ceiling can only
-    // flat-top it. Reducing the per-voice level is the actual repair, it is NOT
-    // done here, and it is BJ's to rule on: it changes the loudness of every
-    // preset that reaches these levels.
+    // WHERE THE HEADROOM WENT, measured (tools/measure_engine_levels.cpp). The
+    // engines were 13.7 dB apart at a single note and none of them was placed
+    // against full scale; EngineCalib now matches them, and kOutputTrimDb puts
+    // the result where a 16-note chord lands at 0.988. A neutral single note is
+    // then 0.278 and the whole polyphonic range fits below 1.0.
+    //
+    // What still does NOT fit is the mod matrix on top of it: with all four mod
+    // envelopes pointed at the DCA at Amt 1.0 the VCA alone is x16, and on
+    // tools/measure_poly_independence.cpp's deliberately hot patch ONE held
+    // note used to leave this chain at 1.86. No master stage can carry that --
+    // the old compressor absorbed it, a memoryless ceiling can only flat-top
+    // it. Whether the DCA product should be bounded is a separate question
+    // about the modulation law, it is NOT decided here, and it is BJ's: it
+    // changes the loudness of every preset that stacks mod envelopes on the
+    // DCA.
     // ────────────────────────────────────────────────────────────────────────
 
     // ── Voice count ──────────────────────────────────────────────────────────

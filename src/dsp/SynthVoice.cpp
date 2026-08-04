@@ -812,6 +812,12 @@ void SynthVoice::renderBlock(float* output, float* outputRight, const BlockParam
     bool freezeMode = (engineMode == EngineMode::Freeze) && freezeEngine.hasAudio();
     bool oscReady = (engineMode == EngineMode::Wavetable) && osc.hasFrames();
 
+    // Block-constant: the branch below picks ONE engine for the whole block.
+    const float engineTrim = samplerMode ? EngineCalib::kSampler
+                           : freezeMode  ? EngineCalib::kFreeze
+                           : oscReady    ? EngineCalib::kWavetable
+                                         : EngineCalib::kCsound;
+
     // Single wavetable oscillator (the dual A+B DCO split is dead — BJ
     // 2026-07-17). Hoist: setInterpolation is a pure setter; tunedHz is
     // block-constant, so the base note is resolved once here, not per sample.
@@ -1179,7 +1185,19 @@ void SynthVoice::renderBlock(float* output, float* outputRight, const BlockParam
 
             output[i] = sample;
             outputRBuf[i - pos] = sampleR;
-            vcaScratch[i - pos] = vca;
+            // Level-match the engines to one another (EngineCalib in
+            // BlockParams.h carries the measurement and why the LRO is the
+            // anchor). It rides the VCA, which puts it at the END of the voice
+            // chain — after the noise mix, after drive, after the filter — so
+            // it changes the LEVEL of the voice and nothing else about it.
+            // Trimming the engine at its source instead would have retuned two
+            // things a stored preset owns: the noise oscillator's balance
+            // against the tone (noise is summed pre-filter and has its own
+            // absolute level control), and how hard the tone drives the
+            // saturating stages. Both would have moved by the trim, up to
+            // 10.5 dB on the wavetable engine, and a level calibration has no
+            // business changing anybody's timbre.
+            vcaScratch[i - pos] = vca * engineTrim;
 
             // Freeing the voice cuts its output dead AND ends it as a modulation
             // source, so it may only happen once neither job is left.

@@ -517,6 +517,42 @@ namespace ModCalib {
     }
 }
 
+// ── Engine level calibration ────────────────────────────────────────────────
+//
+// The four engines were never matched to one another. Measured on the real
+// processor with `tools/measure_engine_levels.cpp` — filter OFF, one amp
+// envelope holding at sustain, no mod envelope, no LFO, no drift, no effects,
+// velocity taken out — a single note leaves the voice chain at:
+//
+//     Wavetable  0.931   |   Sampler  0.358   |   LRO  0.278   |   Granular  0.193
+//
+// which is a spread of 13.7 dB between the loudest and the quietest engine.
+// Switching engines changed the loudness of the instrument by more than a
+// fader move, and nothing in the signal path corrected for it.
+//
+// WHY THE LRO IS THE ANCHOR, at ×1.0 and therefore bit-identical. Its level is
+// not a property of a playback path — it is set body by body in
+// `backend/lco_library.json`, on RMS, tuned by ear against neighbouring
+// entries. That tuning is the one level convention in the instrument that
+// somebody listened to, so it is the one the others move to. The other three
+// play back a peak-normalised buffer and have no such convention.
+//
+// A caveat the numbers do not carry on their own: the LRO row was measured on
+// the BUILT-IN fallback orchestra, not on an LLM-authored body. It is the
+// reference point, not a guarantee about every body the author writes.
+//
+// These are RELATIVE, and they are applied AT THE VCA (SynthVoice.cpp), i.e.
+// at the end of the voice chain, so that they move the level and touch neither
+// the noise balance nor the drive into the saturating stages. The absolute
+// level is `outputGainForThreshold` in PluginProcessor.cpp; the two are set
+// together, and the engine that grows fastest with polyphony is what fixes it.
+namespace EngineCalib {
+    static constexpr float kSampler   = 0.7765f;  // 0.278 / 0.358
+    static constexpr float kWavetable = 0.2986f;  // 0.278 / 0.931
+    static constexpr float kFreeze    = 1.4404f;  // 0.278 / 0.193  (Granular)
+    static constexpr float kCsound    = 1.0f;     // the anchor
+}
+
 namespace EnvTarget {
     // Keep the shared target order aligned with LfoTarget: Filter, Scan,
     // Pitch, Delay, Reverb, Noise. Env-only targets stay in their own blocks.
