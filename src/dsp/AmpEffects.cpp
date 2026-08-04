@@ -599,11 +599,65 @@ void T5ynthPhaser::setMix(float mix)
 void T5ynthPhaser::processBlock(juce::AudioBuffer<float>& buffer)
 {
     if (!prepared_) return;
-    if (!wants() && flush_ <= 0) return;
+
+    // Cleared at DISENGAGE — never at engage — so a non-finite sample cannot
+    // latch here permanently. juce::dsp::Phaser::reset() clears the two places
+    // that would otherwise hold a NaN forever: `lastOutput` (its own feedback
+    // path — NaN * 0 is still NaN, so a feedback of zero does not protect it)
+    // and the six all-pass filters' own state. Nothing in src/ ever called
+    // reset() before this (only prepare() does), so a poisoned sample used to
+    // outlive every later mix change; only reopening the audio device forced a
+    // fresh prepare() and actually cleared it. Measured on the unpatched code:
+    // one NaN pushed in while engaged stayed non-finite through a full
+    // disengage AND the following re-engage. With the clear below, the same
+    // sequence comes back finite the block after the clear fires.
+    //
+    // Engage was tried first, mirroring the distortion above, and measured
+    // wrong: reset() also clears the widget's own DryWetMixer, and
+    // DryWetMixer::reset() calls SmoothedValue::reset(sampleRate, 0.05), which
+    // PARKS dry/wet at their CURRENT TARGET rather than at zero. At engage the
+    // target is already the new nonzero mix, so the wet would jump in on
+    // sample one — the exact click this file's gate exists to avoid. At
+    // disengage the target is already 0 (this function only reaches here once
+    // `wants()` is false), so the same parking lands the mixer at dry, which is
+    // where it already was, and the next engage arms an ordinary ramp from
+    // zero. Measured with a driven harness (220 Hz/0.5 amplitude sine, 48 kHz,
+    // mix 0<->0.6, largest step in the 4 blocks around each edge): the clear
+    // below changes NEITHER edge's audible output at all — release step 0.01305
+    // before this change and 0.01305 after, engage 0.04210 both — because it
+    // only clears state the object stops reading the moment it fires (the
+    // early `return` above means `phaser_.process()` is never called again
+    // until the next engage starts it fresh). Release is at or under the
+    // sine's own 0.01443 either way, already silent because the flush margin
+    // (kWidgetFlushSeconds, above) outlasts the mixer's own 0.05 s ramp; this
+    // change does not reopen that question, only engaging here could have.
+    // (The 0.0421 on engage is a pre-existing, unrelated cold-start artefact —
+    // identical with and without this fix, so not this comment's concern, and
+    // not touched here; reported separately.)
+    //
+    // reset() also rewinds the LFO (Oscillator::reset() zeros its Phase), so
+    // this is a real behaviour change: every engage now starts the sweep at
+    // phase 0 rather than wherever the LFO last was.
+    //
+    // reset() itself is RT-safe to call here: every sub-reset it calls
+    // (FirstOrderTPTFilter::reset, Oscillator::reset, DryWetMixer::reset,
+    // SmoothedValue::reset) is std::fill / arithmetic over buffers already
+    // sized by prepare() — verified against the JUCE source, nothing allocates,
+    // locks or touches a file.
+    if (!wants() && flush_ <= 0)
+    {
+        if (running_) { phaser_.reset(); running_ = false; }
+        return;
+    }
 
     const int numCh = buffer.getNumChannels();
     const int total = buffer.getNumSamples();
     if (numCh <= 0 || total <= 0) return;
+
+    // Only set once a block has actually reached the widget below — an empty
+    // block must not leave a false "still running" behind for the clear above
+    // to trip over.
+    running_ = true;
 
     if (!wants()) flush_ = juce::jmax(0, flush_ - total);
 

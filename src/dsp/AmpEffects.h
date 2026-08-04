@@ -321,4 +321,8 @@ private:
     float mix_ = 0.0f;
     int flush_ = 0, flushLen_ = 0, maxBlock_ = 0;
     bool prepared_ = false;
+    /** True from the first block that actually reaches `phaser_.process()` until
+        the disengage-clear below has fired. Lets `processBlock` tell "just
+        arrived at idle, clear once" apart from "already idle, nothing to do". */
+    bool running_ = false;
 };
