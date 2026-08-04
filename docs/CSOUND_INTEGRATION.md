@@ -112,6 +112,14 @@ Where the backend looks for the library it was given (`_bundled_csound_libs`):
 
 - **macOS** — an ancestor directory named `Contents`, then `Contents/libs/CsoundLib64`,
   with `Opcodes64` beside it. This is the layout `tools/bundle_csound_macos.sh` writes.
+- **Windows** — `csound64.dll` in any ancestor of the backend's own directory, with
+  `plugins64` beside it. That is where CMakeLists.txt:440 puts them, next to the
+  module that loads them. Nothing else in the module can find it: it is not on
+  `PATH`, and `ctypes.util.find_library` looks for a different base name. Without
+  this the backend reports `NO_COMPILER`, which on Windows does not merely silence
+  the gates — `build_csound_response` refuses to author at all, before it spends an
+  inference. **Not yet run on Windows:** the path logic is tested against a
+  fabricated copy of the shipped layout, the DLL load itself is not.
 
 ## Failsafe
 

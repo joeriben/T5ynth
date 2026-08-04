@@ -2116,14 +2116,31 @@ def _csound_binary():
 
 
 def _bundled_csound_libs():
-    """CsoundLib64 inside the host app bundle, if the backend runs from one.
-    tools/bundle_csound_macos.sh flattens it to <App>.app/Contents/libs/CsoundLib64
-    and rewrites every load command to @loader_path/../libs."""
+    """The Csound the HOST ships, if the backend runs from inside one.
+
+    macOS: tools/bundle_csound_macos.sh flattens the framework to
+    <App>.app/Contents/libs/CsoundLib64 and rewrites every load command to
+    @loader_path/../libs.
+
+    Windows: CMakeLists.txt:440 copies csound64.dll and its plugins64 beside the
+    module that loads it — the .exe for the standalone, Contents/x86_64-win for
+    the VST3 — and the backend sits in a directory under that. Nothing else here
+    can find it: it is not on PATH, ctypes.util.find_library looks for
+    "CsoundLib64.dll" under a different name, and every other candidate in this
+    file is a POSIX path. Without this walk the whole module reports NO_COMPILER
+    on Windows, which does not merely silence the gates — build_csound_response
+    refuses to author at all before it spends an inference."""
     here = Path(getattr(sys, "_MEIPASS", "") or os.path.abspath(sys.argv[0]))
-    for parent in [here] + list(here.parents):
+    ancestors = [here] + list(here.parents)
+    for parent in ancestors:
         if parent.name == "Contents":
             yield str(parent / "libs" / "CsoundLib64")
-            return
+            break
+    for parent in ancestors:
+        dll = parent / "csound64.dll"
+        if dll.is_file():
+            yield str(dll)
+            break
 
 
 def _opcodedir_beside(lib_path):
@@ -2137,11 +2154,19 @@ def _opcodedir_beside(lib_path):
     tools/bundle_csound_macos.sh therefore
     ships Opcodes64 beside the library, and both the engine (CsoundEngine.cpp) and
     this gate point Csound at it — the same directory for both, or the gate would
-    judge an orchestra by a different vocabulary than the one that plays it."""
+    judge an orchestra by a different vocabulary than the one that plays it.
+
+    `plugins64` is the same directory under its Windows name: CMakeLists.txt:440
+    copies it beside csound64.dll, and CsoundEngine.cpp:218 points Csound there
+    from the module's own directory. Same rule, same reason."""
     if not lib_path or not os.path.isabs(lib_path):
         return None
-    cand = os.path.join(os.path.dirname(lib_path), "Opcodes64")
-    return cand if os.path.isdir(cand) else None
+    beside = os.path.dirname(lib_path)
+    for name in ("Opcodes64", "plugins64"):
+        cand = os.path.join(beside, name)
+        if os.path.isdir(cand):
+            return cand
+    return None
 
 
 def _csound_opcodedir():
