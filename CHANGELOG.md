@@ -112,6 +112,15 @@ leaving the machine. The separately-installed 1.5B translator is gone.
 - **Re-Prompt listens on both oscillators** — for the LRO it renders a probe of
   the compiled orchestra and hands that to CLAP, rather than re-reading its own
   text.
+- **A preset restores what it does not say.** A preset file that leaves a
+  setting out now loads that setting's default. Before, a missing entry was read
+  as a literal zero — so a hand-edited, converted or older-format file could
+  arrive with the filter closed down to 20 Hz, the amplitude envelope at no
+  depth, the sequencer at 0 BPM, the loop reduced to a sliver, or the output
+  three decibels down, none of which looks like a gap once loaded. Files this
+  instrument writes itself carry every entry and load exactly as before; the
+  rule third-party writers can rely on is now written down in
+  `docs/PRESET_FORMAT.md`.
 - **Session log** (`.t5evt`) — opt-in recording and replay of a playing session.
 - **The in-app manual rewritten** against the code, with the two oscillators as
   peers and background chapters on Csound's MUSIC-N lineage and on the code

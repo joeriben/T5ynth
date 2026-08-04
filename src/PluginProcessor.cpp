@@ -7122,6 +7122,97 @@ static void setParamToLayoutDefault(juce::AudioProcessorValueTreeState& p, const
         param->setValueNotifyingHost(param->getDefaultValue());
 }
 
+// ── Reading a preset key the file may not carry ────────────────────────────
+// getProperty() returns a VOID juce::var for a key that is not there, and a
+// void var converts to 0.0f. So `static_cast<float>(obj->getProperty(key))` is
+// not a tolerant read that falls back to anything — it writes a hard 0 into
+// the parameter. For every parameter whose declared default is not 0 that is
+// silently a different patch: a limiter threshold at 0 dB instead of -3 (which
+// since the master-stage fix is 3 dB of output gain), a cutoff at 20 Hz
+// instead of 20 kHz, a sequencer at 0 BPM, an amp envelope at Amt 0.
+//
+// The law is the one the Drift block below already states in prose: a key the
+// file does not carry means the value createParameterLayout declared, never
+// the void var's zero. The helpers below are how that law is applied, so no
+// reader has to re-derive it per key. A key the file DOES carry is read
+// exactly as before — this changes nothing about well-formed presets, only
+// about hand-edited, foreign, truncated or older-format ones.
+static void setParamFromJson(juce::AudioProcessorValueTreeState& p, const juce::String& id,
+                             const juce::DynamicObject* obj, const char* key) {
+    if (obj != nullptr && obj->hasProperty(key)) setParam(p, id, static_cast<float>(obj->getProperty(key)));
+    else                                         setParamToLayoutDefault(p, id);
+}
+
+// Same, for a key the exporter writes as a bool.
+static void setBoolParamFromJson(juce::AudioProcessorValueTreeState& p, const juce::String& id,
+                                 const juce::DynamicObject* obj, const char* key) {
+    if (obj != nullptr && obj->hasProperty(key))
+        setParam(p, id, static_cast<bool>(obj->getProperty(key)) ? 1.0f : 0.0f);
+    else
+        setParamToLayoutDefault(p, id);
+}
+
+// Same, for a value that has to be converted or calibration-migrated on the
+// way in: `read` receives the file's var and runs ONLY when the key is there,
+// so a migration can never be handed a void var to rescale.
+template <typename ReadFn>
+static void setParamFromJson(juce::AudioProcessorValueTreeState& p, const juce::String& id,
+                             const juce::DynamicObject* obj, const char* key, ReadFn&& read) {
+    if (obj != nullptr && obj->hasProperty(key)) setParam(p, id, read(obj->getProperty(key)));
+    else                                         setParamToLayoutDefault(p, id);
+}
+
+// Same, for a choice parameter stored as its stable snake_case key string.
+// This one is the quiet half of the defect: choiceFromKey("") is 0, which is
+// the right answer only where the layout's default is index 0 as well. Where
+// it is not, an absent key picks the FIRST entry and reads as a deliberate
+// setting — Octave -2, 32 frames, a 1/1 sequencer division, Anchor instead of
+// Line. Declared after choiceFromKey, which it needs.
+template <std::size_t N>
+static void setChoiceParamFromJson(juce::AudioProcessorValueTreeState& p, const juce::String& id,
+                                   const juce::DynamicObject* obj, const char* key,
+                                   const ChoiceEntry (&entries)[N]) {
+    if (obj != nullptr && obj->hasProperty(key))
+        setParam(p, id, static_cast<float>(choiceFromKey(obj->getProperty(key).toString(), entries)));
+    else
+        setParamToLayoutDefault(p, id);
+}
+
+// Same, for the choices that have a NAMED key->index helper above. Those
+// helpers are the single place a renamed or retired key can be repaired on the
+// way in — filterWarpStyleFromString's "ojd" is the one that carries such a
+// repair today, and it is hand-rolled below rather than routed through here —
+// so a site that went straight to the table would be the wrong place to add
+// the next one. A plain function pointer, not a template, so it cannot compete
+// with the table overload above.
+static void setChoiceParamFromJson(juce::AudioProcessorValueTreeState& p, const juce::String& id,
+                                   const juce::DynamicObject* obj, const char* key,
+                                   int (*fromString)(const juce::String&)) {
+    if (obj != nullptr && obj->hasProperty(key))
+        setParam(p, id, static_cast<float>(fromString(obj->getProperty(key).toString())));
+    else
+        setParamToLayoutDefault(p, id);
+}
+
+// A non-APVTS destination (the sampler's markers, a sequencer step, the LCO
+// bake snapshot) has no layout to ask, so the fallback is stated at the call
+// site and cited there. Returns the file's value, or `fallback` when the key
+// is absent.
+static float jsonFloatOr(const juce::DynamicObject* obj, const char* key, float fallback) {
+    return (obj != nullptr && obj->hasProperty(key))
+               ? static_cast<float>(static_cast<double>(obj->getProperty(key))) : fallback;
+}
+
+// The layout's default in the parameter's OWN units, for the cases that cannot
+// just call setParamToLayoutDefault: a parameter two JSON keys share, and one
+// whose value is also needed as a count before it is written. Rounds rather
+// than truncates, because the round trip through the normalised domain does not
+// always land back exactly on the integer (see exportJsonPreset's getInt).
+static int layoutDefaultIntOf(juce::AudioProcessorValueTreeState& p, const juce::String& id) {
+    auto* param = p.getParameter(id);
+    return param != nullptr ? juce::roundToInt(param->convertFrom0to1(param->getDefaultValue())) : 0;
+}
+
 // ── The shelf of synth knobs the LRO author is shown ──
 // BJ 2026-07-29: the author steers the filter (and the envelopes and LFOs) from
 // OUTSIDE — through the synth's own parameters — not with a `tone` baked into
@@ -8056,15 +8147,18 @@ bool T5ynthProcessor::importJsonPreset(const juce::String& json)
     // ── Synth params ──
     if (auto* synth = root->getProperty("synth").getDynamicObject())
     {
-        setParam(parameters, PID::genAlpha, static_cast<float>(synth->getProperty("alpha")));
-        setParam(parameters, PID::genMagnitude, static_cast<float>(synth->getProperty("magnitude")));
-        setParam(parameters, PID::genNoise, static_cast<float>(synth->getProperty("noise")));
+        setParamFromJson(parameters, PID::genAlpha, synth, "alpha");
+        // Magnitude scales the conditioning the whole oscillator exists to
+        // drive; its default is 1.0, and an absent key used to land on 0 —
+        // i.e. no conditioning at all, the model's own prior.
+        setParamFromJson(parameters, PID::genMagnitude, synth, "magnitude");
+        setParamFromJson(parameters, PID::genNoise, synth, "noise");
         if (synth->hasProperty("axesAmount"))
             setParam(parameters, PID::genAxesAmount, static_cast<float>(synth->getProperty("axesAmount")));
-        // resynth default is 0 (off), so an unconditional read is correct: a preset
-        // saved before Resynth existed lacks the property -> var() -> 0.0f -> the
-        // Resynth slider resets to off on load, as a preset's full state should.
-        setParam(parameters, PID::resynthAmount, static_cast<float>(synth->getProperty("resynth")));
+        // resynth's layout default is 0 (off), so absence lands on off either
+        // way: a preset saved before Resynth existed resets the slider to off
+        // on load, as a preset's full state should.
+        setParamFromJson(parameters, PID::resynthAmount, synth, "resynth");
         // velAmt default is 1.0 (full velocity→peak). A preset saved before VEL AMT
         // existed lacks the property; treat absence as 1.0 so old patches regain full
         // velocity response (the chosen "1.0 global"), not silence-on-soft-notes 0.
@@ -8083,20 +8177,24 @@ bool T5ynthProcessor::importJsonPreset(const juce::String& json)
         // restored stance re-captures the just-loaded prompts on its first step. The
         // DAW host-state path (setStateInformation) STILL forces the stance Off — a
         // host re-opening a project is a passive load that must not render unbidden.
-        // An older .t5p missing the keys -> choiceFromKey("") -> 0 -> Off / B-only.
-        setParam(parameters, PID::repromptStance, static_cast<float>(
-                     choiceFromKey(synth->getProperty("repromptStance").toString(), RepromptStance::kEntries)));
-        setParam(parameters, PID::repromptCoupling, static_cast<float>(
-                     choiceFromKey(synth->getProperty("repromptCoupling").toString(), RepromptCoupling::kEntries)));
-        // Absence of "resynthSource" (old presets) -> choiceFromKey("") -> 0 -> Internal,
-        // restoring the original self-feedback behaviour so old presets load correctly.
-        setParam(parameters, PID::resynthSource, static_cast<float>(
-                     choiceFromKey(synth->getProperty("resynthSource").toString(), ResynthSource::kEntries)));
-        setParam(parameters, PID::genDuration, static_cast<float>(synth->getProperty("duration")));
-        setParam(parameters, PID::genStart, static_cast<float>(synth->getProperty("startPosition")));
-        setParam(parameters, PID::infSteps, static_cast<float>(static_cast<int>(synth->getProperty("steps"))));
-        setParam(parameters, PID::genCfg, static_cast<float>(synth->getProperty("cfg")));
-        setParam(parameters, PID::genSeed, static_cast<float>(static_cast<int>(synth->getProperty("seed"))));
+        // An older .t5p missing the keys -> the layout default, which for all
+        // three is index 0 -> Off / B-only / Internal, restoring the original
+        // behaviour so old presets load correctly.
+        setChoiceParamFromJson(parameters, PID::repromptStance, synth, "repromptStance",
+                               RepromptStance::kEntries);
+        setChoiceParamFromJson(parameters, PID::repromptCoupling, synth, "repromptCoupling",
+                               RepromptCoupling::kEntries);
+        setChoiceParamFromJson(parameters, PID::resynthSource, synth, "resynthSource",
+                               ResynthSource::kEntries);
+        // duration (3 s), steps (8), cfg (1.0) and seed all have non-zero
+        // defaults; absence used to mean a 0-second, 0-step generation.
+        setParamFromJson(parameters, PID::genDuration, synth, "duration");
+        setParamFromJson(parameters, PID::genStart, synth, "startPosition");
+        setParamFromJson(parameters, PID::infSteps, synth, "steps",
+                         [](const juce::var& v) { return static_cast<float>(static_cast<int>(v)); });
+        setParamFromJson(parameters, PID::genCfg, synth, "cfg");
+        setParamFromJson(parameters, PID::genSeed, synth, "seed",
+                         [](const juce::var& v) { return static_cast<float>(static_cast<int>(v)); });
         if (synth->hasProperty("hfBoost"))
             setParam(parameters, PID::genHfBoost, static_cast<bool>(synth->getProperty("hfBoost")) ? 1.0f : 0.0f);
         // Modality epoch (v2.5.0+): which TrackType-routing behaviour this preset was
@@ -8119,8 +8217,7 @@ bool T5ynthProcessor::importJsonPreset(const juce::String& json)
         // about to be written over every one of these knobs anyway, and putting
         // the previous patch's values back first would only be a detour.
         dropAuthorSettings();
-        setParam(parameters, PID::engineMode,
-                 static_cast<float>(choiceFromKey(engine->getProperty("mode").toString(), EngineMode::kEntries)));
+        setChoiceParamFromJson(parameters, PID::engineMode, engine, "mode", EngineMode::kEntries);
         // Old .t5p files predate voiceCount / tuning being saved; guard
         // with hasProperty so they keep loading with their previous
         // (now-default) polyphony and tuning instead of being rejected.
@@ -8142,12 +8239,29 @@ bool T5ynthProcessor::importJsonPreset(const juce::String& json)
         if (engine->hasProperty("tuning"))
             setParam(parameters, PID::tuning,
                      static_cast<float>(choiceFromKey(engine->getProperty("tuning").toString(), TuningType::kEntries)));
-        setParam(parameters, PID::loopMode,
-                 static_cast<float>(choiceFromKey(engine->getProperty("loopMode").toString(), LoopMode::kEntries)));
+        setChoiceParamFromJson(parameters, PID::loopMode, engine, "loopMode", LoopMode::kEntries);
 
         // Restore P1/P2/P3 directly — the explicit pointsLocked flag gates
         // auto-bracketing in loadGeneratedAudio so no pending-apply dance is
         // needed. Older v3 presets without the flag default to unlocked.
+        // The three markers are not APVTS parameters, so their fallbacks are
+        // SamplePlayer's own declared values — P2 = 0, P3 = 1, P1 = 0, i.e. the
+        // whole buffer. Notably P3: an absent loopEndFrac used to ask for 0,
+        // which the pair clamp opens to loopStart + 0.01, a sliver one
+        // hundredth of the buffer wide.
+        //
+        // Every value is read BEFORE the lock is taken. Each hasProperty() and
+        // getProperty() builds a juce::Identifier from a char literal, which
+        // takes the global StringPool's CriticalSection and may allocate, and
+        // this lock is the one the audio callback needs — same rule the CC
+        // block at the end of this function states for getParameter().
+        const float loopStartFrac  = jsonFloatOr(engine, "loopStartFrac", 0.0f);
+        const float loopEndFrac    = jsonFloatOr(engine, "loopEndFrac", 1.0f);
+        const float startPosFrac   = jsonFloatOr(engine, "startPosFrac", 0.0f);
+        const bool  haveWtExtract  = engine->hasProperty("wtExtractStart");
+        const float wtExtractStart = jsonFloatOr(engine, "wtExtractStart", 0.0f);
+        const float wtExtractEnd   = jsonFloatOr(engine, "wtExtractEnd", 1.0f);
+        const bool  pointsLocked   = static_cast<bool>(engine->getProperty("pointsLocked"));
         {
             const juce::ScopedLock sl (getCallbackLock());
             // As a PAIR: setLoopStart clamps against whatever loop END is live,
@@ -8155,26 +8269,30 @@ bool T5ynthProcessor::importJsonPreset(const juce::String& json)
             // currently loaded had its start silently pulled back to the old
             // end — the region a preset played then depended on the preset
             // before it.
-            masterSampler.setLoopRegion(static_cast<float>(engine->getProperty("loopStartFrac")),
-                                        static_cast<float>(engine->getProperty("loopEndFrac")));
-            masterSampler.setStartPos(static_cast<float>(engine->getProperty("startPosFrac")));
-            // WT extraction region (fallback to P2/P3 for presets without it)
-            if (engine->hasProperty("wtExtractStart"))
+            masterSampler.setLoopRegion(loopStartFrac, loopEndFrac);
+            masterSampler.setStartPos(startPosFrac);
+            // WT extraction region (fallback to P2/P3 for presets without it).
+            // Read BACK from the sampler, not from the locals above: a pair
+            // that is degenerate in the FILE (end below start + 1%) still gets
+            // opened up, so the pair that landed is not always the pair named.
+            if (haveWtExtract)
             {
-                masterSampler.setWtExtractStart(static_cast<float>(engine->getProperty("wtExtractStart")));
-                masterSampler.setWtExtractEnd(static_cast<float>(engine->getProperty("wtExtractEnd")));
+                masterSampler.setWtExtractStart(wtExtractStart);
+                masterSampler.setWtExtractEnd(wtExtractEnd);
             }
             else
             {
                 masterSampler.setWtExtractStart(masterSampler.getLoopStart());
                 masterSampler.setWtExtractEnd(masterSampler.getLoopEnd());
             }
-            masterSampler.setPointsLocked(static_cast<bool>(engine->getProperty("pointsLocked")));
+            masterSampler.setPointsLocked(pointsLocked);
         }
-        setParam(parameters, PID::crossfadeMs, static_cast<float>(engine->getProperty("crossfadeMs")));
-        setParam(parameters, PID::normalize, static_cast<bool>(engine->getProperty(PID::normalize)) ? 1.0f : 0.0f);
-        setParam(parameters, PID::loopOptimize,
-                 static_cast<float>(choiceFromKey(engine->getProperty("loopOptimize").toString(), LoopOptimize::kEntries)));
+        // crossfadeMs defaults to 150 and normalize to ON; absence used to mean
+        // a 0 ms loop crossfade and normalisation silently switched off.
+        setParamFromJson(parameters, PID::crossfadeMs, engine, "crossfadeMs");
+        setBoolParamFromJson(parameters, PID::normalize, engine, PID::normalize);
+        setChoiceParamFromJson(parameters, PID::loopOptimize, engine, "loopOptimize",
+                               LoopOptimize::kEntries);
 
         // Csound orchestra (Phase 5, SPEC_phase4_5_csound_llm_preset.md).
         // Ordering: the engineMode setParam() just above already fired
@@ -8284,14 +8402,21 @@ bool T5ynthProcessor::importJsonPreset(const juce::String& json)
                 const int envTarget = env->hasProperty("target")
                     ? envTargetFromString(env->getProperty("target").toString())
                     : (i == 0 ? EnvTarget::DCA : EnvTarget::None);
-                setParam(parameters, ep.attack, static_cast<float>(env->getProperty("attackMs")));
-                setParam(parameters, ep.decay, static_cast<float>(env->getProperty("decayMs")));
-                setParam(parameters, ep.sustain, static_cast<float>(env->getProperty("sustain")));
-                setParam(parameters, ep.release, static_cast<float>(env->getProperty("releaseMs")));
-                setParam(parameters, ep.amount,
-                         Calibration::migrateScalarCond(ep.amount,
-                             static_cast<float>(env->getProperty("amount")), fileCalibEpoch, envTarget));
-                setParam(parameters, ep.loop, env->getProperty("loop") ? 1.0f : 0.0f);
+                // An entry that carries SOME stage keys and not others is a
+                // half-written envelope, not a zeroed one: D/S/R and Amt all
+                // have non-zero defaults (amp 200/0.1/180, mod 2500/0.1/4000,
+                // Amt 1.0 on every envelope), and Amt 0 on the amp envelope is
+                // a patch that makes no sound.
+                setParamFromJson(parameters, ep.attack, env, "attackMs");
+                setParamFromJson(parameters, ep.decay, env, "decayMs");
+                setParamFromJson(parameters, ep.sustain, env, "sustain");
+                setParamFromJson(parameters, ep.release, env, "releaseMs");
+                setParamFromJson(parameters, ep.amount, env, "amount",
+                                 [&](const juce::var& v) {
+                                     return Calibration::migrateScalarCond(ep.amount,
+                                         static_cast<float>(v), fileCalibEpoch, envTarget);
+                                 });
+                setBoolParamFromJson(parameters, ep.loop, env, "loop");
                 // Velocity sensitivity = signed per-stage A/D/R TIME only.
                 // Any "sustainVelSens" from older presets (velocity→peak) is
                 // intentionally ignored — peak is Amt's job now. Legacy format:
@@ -8342,14 +8467,26 @@ bool T5ynthProcessor::importJsonPreset(const juce::String& json)
                 if (!lfo) continue;   // malformed entry: leave it to the fill below
                 lfoWritten[i] = true;
                 const auto& lp = kLfoPIDs[i];
-                const int lfoTarget = lfoTargetFromString(lfo->getProperty("target").toString());
-                setParam(parameters, lp.rate, static_cast<float>(lfo->getProperty("rate")));
-                setParam(parameters, lp.depth,
-                         Calibration::migrateScalarCond(lp.depth,
-                             static_cast<float>(lfo->getProperty("depth")), fileCalibEpoch, lfoTarget));
-                setParam(parameters, lp.wave, static_cast<float>(lfoWaveFromString(lfo->getProperty("waveform").toString())));
-                setParam(parameters, lp.target, static_cast<float>(lfoTarget));
-                setParam(parameters, lp.mode, static_cast<float>(lfoModeFromString(lfo->getProperty("mode").toString())));
+                // Resolved once: the depth migration is target-conditional, and
+                // it has to see the SAME target the target parameter gets. When
+                // the key is absent that is the layout's default, not index 0 —
+                // the two agree for all three LFOs today, and would part company
+                // the moment a target default moved.
+                const int lfoTarget = lfo->hasProperty("target")
+                    ? lfoTargetFromString(lfo->getProperty("target").toString())
+                    : layoutDefaultIntOf(parameters, lp.target);
+                // Rate defaults differ per LFO (2.0 / 0.5 / 0.2 Hz) and the
+                // LFO 2 waveform default is triangle, not the first entry —
+                // absence has to reach the layout, not index 0 / 0 Hz.
+                setParamFromJson(parameters, lp.rate, lfo, "rate");
+                setParamFromJson(parameters, lp.depth, lfo, "depth",
+                                 [&](const juce::var& v) {
+                                     return Calibration::migrateScalarCond(lp.depth,
+                                         static_cast<float>(v), fileCalibEpoch, lfoTarget);
+                                 });
+                setChoiceParamFromJson(parameters, lp.wave, lfo, "waveform", lfoWaveFromString);
+                setChoiceParamFromJson(parameters, lp.target, lfo, "target", lfoTargetFromString);
+                setChoiceParamFromJson(parameters, lp.mode, lfo, "mode", lfoModeFromString);
                 // Pre-v1.7 presets have no clock fields — default to Off / 1/4
                 // explicitly so the previous session's clock state cannot stick.
                 setParam(parameters, lp.clockMode, lfo->hasProperty("clockMode")
@@ -8440,13 +8577,19 @@ bool T5ynthProcessor::importJsonPreset(const juce::String& json)
             if (!d) continue;   // malformed entry: leave it to the fill below
             driftWritten[i] = true;
             const auto& dp = kDriftPIDs[i];
-            const int driftTarget = driftTargetFromString(d->getProperty("target").toString());
-            setParam(parameters, dp.rate, static_cast<float>(d->getProperty("rate")));
-            setParam(parameters, dp.depth,
-                     Calibration::migrateScalarCond(dp.depth,
-                         static_cast<float>(d->getProperty("depth")), fileCalibEpoch, driftTarget));
-            setParam(parameters, dp.wave, static_cast<float>(driftWaveFromString(d->getProperty("waveform").toString())));
-            setParam(parameters, dp.target, static_cast<float>(driftTarget));
+            // Same as the LFO block: the depth migration must see the target
+            // the target parameter actually gets, layout default included.
+            const int driftTarget = d->hasProperty("target")
+                ? driftTargetFromString(d->getProperty("target").toString())
+                : layoutDefaultIntOf(parameters, dp.target);
+            setParamFromJson(parameters, dp.rate, d, "rate");   // default 0.25 Hz, not 0
+            setParamFromJson(parameters, dp.depth, d, "depth",
+                             [&](const juce::var& v) {
+                                 return Calibration::migrateScalarCond(dp.depth,
+                                     static_cast<float>(v), fileCalibEpoch, driftTarget);
+                             });
+            setChoiceParamFromJson(parameters, dp.wave, d, "waveform", driftWaveFromString);
+            setChoiceParamFromJson(parameters, dp.target, d, "target", driftTargetFromString);
             setParam(parameters, dp.clockMode, d->hasProperty("clockMode")
                 ? static_cast<float>(clockModeFromString(d->getProperty("clockMode").toString()))
                 : static_cast<float>(ClockMode::Off));
@@ -8469,32 +8612,24 @@ bool T5ynthProcessor::importJsonPreset(const juce::String& json)
     // held-note follow into the hard swap the platform invariant forbids.
     if (! importingSequencePattern)
     {
-        auto fromFileOrDefault = [&] (const char* key, const char* pid, auto&& read)
-        {
-            if (root->hasProperty(key)) setParam(parameters, pid, read());
-            else                        setParamToLayoutDefault(parameters, pid);
-        };
-        fromFileOrDefault("driftEnabled", PID::driftEnabled,
-            [&] { return static_cast<bool>(root->getProperty("driftEnabled")) ? 1.0f : 0.0f; });
-        fromFileOrDefault("driftCrossfade", PID::driftCrossfade,
-            [&] { return static_cast<float>(root->getProperty("driftCrossfade")); });
-        fromFileOrDefault("regenMode", PID::driftRegen,
-            [&] { return static_cast<float>(choiceFromKey(root->getProperty("regenMode").toString(),
-                                                          DriftRegen::kEntries)); });
+        setBoolParamFromJson(parameters, PID::driftEnabled, root, "driftEnabled");
+        setParamFromJson(parameters, PID::driftCrossfade, root, "driftCrossfade");
+        setChoiceParamFromJson(parameters, PID::driftRegen, root, "regenMode", DriftRegen::kEntries);
     }
 
     // ── Wavetable + Noise ──
     if (auto* wt = root->getProperty("wavetable").getDynamicObject())
     {
-        setParam(parameters, PID::oscScan, static_cast<float>(wt->getProperty("scan")));
-        setParam(parameters, PID::oscOctave,
-                 static_cast<float>(choiceFromKey(wt->getProperty("octaveShift").toString(), OscOctave::kEntries)));
-        setParam(parameters, PID::noiseLevel, static_cast<float>(wt->getProperty("noiseLevel")));
-        setParam(parameters, PID::noiseType,
-                 static_cast<float>(choiceFromKey(wt->getProperty("noiseType").toString(), NoiseKind::kEntries)));
-        setParam(parameters, PID::wtFrames,
-                 static_cast<float>(choiceFromKey(wt->getProperty("frames").toString(), WtFrames::kEntries)));
-        setParam(parameters, PID::wtSmooth, wt->getProperty("smooth") ? 1.0f : 0.0f);
+        setParamFromJson(parameters, PID::oscScan, wt, "scan");
+        // Three of these have a default that is NOT the first entry: octave 0
+        // is index 2 (index 0 is -2 octaves), 256 frames is index 3 (index 0
+        // is 32), and smoothing is on. An absent key used to transpose the
+        // oscillator two octaves down and drop it to the coarsest table.
+        setChoiceParamFromJson(parameters, PID::oscOctave, wt, "octaveShift", OscOctave::kEntries);
+        setParamFromJson(parameters, PID::noiseLevel, wt, "noiseLevel");
+        setChoiceParamFromJson(parameters, PID::noiseType, wt, "noiseType", NoiseKind::kEntries);
+        setChoiceParamFromJson(parameters, PID::wtFrames, wt, "frames", WtFrames::kEntries);
+        setBoolParamFromJson(parameters, PID::wtSmooth, wt, "smooth");
         bool autoScan = wt->hasProperty("autoScan") ? static_cast<bool>(wt->getProperty("autoScan")) : true;
         setParam(parameters, PID::wtAutoScan, autoScan ? 1.0f : 0.0f);
     }
@@ -8505,23 +8640,26 @@ bool T5ynthProcessor::importJsonPreset(const juce::String& json)
     // BulkParamLoadGuard's normal param flow, nothing else to do).
     if (auto* lco = root->getProperty("lco").getDynamicObject())
     {
+        // The two gains are not APVTS parameters; their fallback is the
+        // processor's own declared unity (PluginProcessor.h:676), because an
+        // lco block without them would otherwise bake both oscillators silent.
         setLcoBakeSnapshot(lco->getProperty("prompt").toString(),
                            lco->getProperty("readingA").toString(),
                            lco->getProperty("readingB").toString(),
-                           static_cast<float>(static_cast<double>(lco->getProperty("motionRateHz"))),
+                           jsonFloatOr(lco, "motionRateHz", 0.0f),
                            static_cast<bool>(lco->getProperty("oscAHasContent")),
-                           static_cast<float>(static_cast<double>(lco->getProperty("gainA"))),
+                           jsonFloatOr(lco, "gainA", 1.0f),
                            static_cast<bool>(lco->getProperty("oscBHasContent")),
-                           static_cast<float>(static_cast<double>(lco->getProperty("gainB"))));
-        setParam(parameters, PID::dcoRepromptStance, static_cast<float>(
-                     choiceFromKey(lco->getProperty("repromptStance").toString(), RepromptStance::kEntries)));
+                           jsonFloatOr(lco, "gainB", 1.0f));
+        setChoiceParamFromJson(parameters, PID::dcoRepromptStance, lco, "repromptStance",
+                               RepromptStance::kEntries);
     }
     if (auto* freeze = root->getProperty("freeze").getDynamicObject())
     {
-        setParam(parameters, PID::freezeTexture,
-                 static_cast<float>(choiceFromKey(freeze->getProperty("texture").toString(),
-                                                  FreezeTexture::kEntries)));
-        setParam(parameters, PID::freezeStereo, static_cast<float>(freeze->getProperty("stereo")));
+        // Silk is index 1, so an absent texture used to select Hold.
+        setChoiceParamFromJson(parameters, PID::freezeTexture, freeze, "texture",
+                               FreezeTexture::kEntries);
+        setParamFromJson(parameters, PID::freezeStereo, freeze, "stereo");
     }
 
     // ── Effects ──
@@ -8532,37 +8670,50 @@ bool T5ynthProcessor::importJsonPreset(const juce::String& json)
         // Off (choiceFromKey returns 0 for an unknown key).
         juce::String delayTypeKey = fx->getProperty("delayType").toString();
         if (delayTypeKey == "tape2") delayTypeKey = "tape3";
-        const int delayTypeIdx = choiceFromKey(delayTypeKey, DelayType::kEntries);
+        // Absent still has to reach the layout rather than index 0 — the two
+        // agree today, and the point of saying so here is that they need not.
+        const int delayTypeIdx = fx->hasProperty("delayType")
+            ? choiceFromKey(delayTypeKey, DelayType::kEntries)
+            : layoutDefaultIntOf(parameters, PID::delayType);
         setParam(parameters, PID::delayType, static_cast<float>(delayTypeIdx));
-        setParam(parameters, PID::delayTime, static_cast<float>(fx->getProperty("delayTimeMs")));
-        setParam(parameters, PID::delayFeedback, static_cast<float>(fx->getProperty("delayFeedback")));
+        setParamFromJson(parameters, PID::delayTime, fx, "delayTimeMs");
+        setParamFromJson(parameters, PID::delayFeedback, fx, "delayFeedback");
         // Epoch 5: the mix LAW changed, and how it changed depends on which delay
         // voicing the file selected — hence the type index rather than a factor.
-        setParam(parameters, PID::delayMix,
-                 Calibration::migrateMixScalar(PID::delayMix,
-                     static_cast<float>(fx->getProperty("delayMix")), fileCalibEpoch,
-                     delayTypeIdx));
-        setParam(parameters, PID::delayDamp, static_cast<float>(fx->getProperty("delayDamp")));
+        // Absent = the layout's 0.3, unmigrated: there is no stored value to
+        // rescale, and a default is already expressed in today's law.
+        setParamFromJson(parameters, PID::delayMix, fx, "delayMix",
+                         [&](const juce::var& v) {
+                             return Calibration::migrateMixScalar(PID::delayMix,
+                                 static_cast<float>(v), fileCalibEpoch, delayTypeIdx);
+                         });
+        setParamFromJson(parameters, PID::delayDamp, fx, "delayDamp");
         setParam(parameters, PID::delayClockMode, fx->hasProperty("delayClockMode")
             ? static_cast<float>(clockModeFromString(fx->getProperty("delayClockMode").toString()))
             : static_cast<float>(ClockMode::Off));
         setParam(parameters, PID::delayClockDivision, fx->hasProperty("delayClockDivision")
             ? static_cast<float>(clockDivisionFromString(fx->getProperty("delayClockDivision").toString()))
             : static_cast<float>(ClockDivision::D1_4));
-        const int reverbTypeIdx = choiceFromKey(fx->getProperty("reverbType").toString(),
-                                                ReverbType::kEntries);
+        const int reverbTypeIdx = fx->hasProperty("reverbType")
+            ? choiceFromKey(fx->getProperty("reverbType").toString(), ReverbType::kEntries)
+            : layoutDefaultIntOf(parameters, PID::reverbType);
         setParam(parameters, PID::reverbType, static_cast<float>(reverbTypeIdx));
         // Epoch 5: Algo and Plate had DIFFERENT old laws (squared vs linear) and
         // different old path gains, so the remap needs the reverb type.
-        setParam(parameters, PID::reverbMix,
-                 Calibration::migrateMixScalar(PID::reverbMix,
-                     static_cast<float>(fx->getProperty("reverbMix")), fileCalibEpoch,
-                     reverbTypeIdx));
-        setParam(parameters, PID::algoRoom, static_cast<float>(fx->getProperty("algoRoom")));
-        setParam(parameters, PID::algoDamping, static_cast<float>(fx->getProperty("algoDamping")));
-        setParam(parameters, PID::algoWidth, static_cast<float>(fx->getProperty("algoWidth")));
-        setParam(parameters, PID::limiterThresh, static_cast<float>(fx->getProperty("limiterThreshold")));
-        setParam(parameters, PID::limiterRelease, static_cast<float>(fx->getProperty("limiterRelease")));
+        setParamFromJson(parameters, PID::reverbMix, fx, "reverbMix",
+                         [&](const juce::var& v) {
+                             return Calibration::migrateMixScalar(PID::reverbMix,
+                                 static_cast<float>(v), fileCalibEpoch, reverbTypeIdx);
+                         });
+        setParamFromJson(parameters, PID::algoRoom, fx, "algoRoom");
+        setParamFromJson(parameters, PID::algoDamping, fx, "algoDamping");
+        setParamFromJson(parameters, PID::algoWidth, fx, "algoWidth");
+        // The threshold's default is -3 dB and it now drives the static output
+        // gain (outputGainForThreshold), so a file without the key used to load
+        // 0 dB and play 3 dB quieter than the patch it describes. This is the
+        // site the whole class was found through.
+        setParamFromJson(parameters, PID::limiterThresh, fx, "limiterThreshold");
+        setParamFromJson(parameters, PID::limiterRelease, fx, "limiterRelease");
 
         // The amplifier chain. `importJsonPreset` deliberately does not reset the
         // APVTS first, so a key that is not read here does not fall back to its
@@ -8604,16 +8755,24 @@ bool T5ynthProcessor::importJsonPreset(const juce::String& json)
     // ── Filter — CRITICAL: cutoff is normalized 0-1, convert to Hz ──
     if (auto* filt = root->getProperty("filter").getDynamicObject())
     {
-        // Merge enabled + type: if enabled=false, force type to Off
-        bool filtEnabled = filt->getProperty("enabled");
-        int filtType = filterTypeFromString(filt->getProperty("type").toString());
-        if (!filtEnabled) filtType = FilterType::Off;
+        // Merge enabled + type: if enabled=false, force type to Off. The two
+        // are views of ONE parameter, so they default together — a file
+        // carrying neither lands on the layout's own type, and a file carrying
+        // `type` alone is taken at its word instead of being forced Off by a
+        // bool that simply is not there.
+        int filtType = filt->hasProperty("type")
+            ? filterTypeFromString(filt->getProperty("type").toString())
+            : layoutDefaultIntOf(parameters, PID::filterType);
+        if (filt->hasProperty("enabled") && ! static_cast<bool>(filt->getProperty("enabled")))
+            filtType = FilterType::Off;
         setParam(parameters, PID::filterType, static_cast<float>(filtType));
-        setParam(parameters, PID::filterSlope,
-                 static_cast<float>(filterSlopeFromString(filt->getProperty("slope").toString())));
-        // Convert normalized cutoff to Hz: 20 * pow(1000, n)
-        setParam(parameters, PID::filterCutoff,
-                 cutoffNormToHz(static_cast<float>(filt->getProperty("cutoff"))));
+        setChoiceParamFromJson(parameters, PID::filterSlope, filt, "slope", filterSlopeFromString);
+        // Convert normalized cutoff to Hz: 20 * pow(1000, n). Absent is the
+        // sharpest case in the whole importer: the conversion is exact at 0,
+        // so a missing cutoff used to load a perfectly plausible 20 Hz — an
+        // open filter closed all the way down, with nothing to look wrong.
+        setParamFromJson(parameters, PID::filterCutoff, filt, "cutoff",
+                         [](const juce::var& v) { return cutoffNormToHz(static_cast<float>(v)); });
         // Filter algorithm: absent in pre-Ladder/Warp presets -> SVF (bit-identical).
         // Read BEFORE the resonance, along with the warp style, because epoch 7
         // changed the resonance law for the two ladder algorithms — and the Warp's
@@ -8624,12 +8783,14 @@ bool T5ynthProcessor::importJsonPreset(const juce::String& json)
         const int filtWarpStyleIdx = filt->hasProperty("warpStyle")
             ? filterWarpStyleFromString(filt->getProperty("warpStyle").toString())
             : FilterWarpStyle::Tanh;
-        setParam(parameters, PID::filterResonance,
-                 Calibration::migrateResoScalar(
-                     static_cast<float>(filt->getProperty("resonance")), fileCalibEpoch,
-                     filtAlgIdx, filtWarpStyleIdx));
-        setParam(parameters, PID::filterMix, static_cast<float>(filt->getProperty("mix")));
-        setParam(parameters, PID::filterKbdTrack, static_cast<float>(filt->getProperty("kbdTrack")));
+        setParamFromJson(parameters, PID::filterResonance, filt, "resonance",
+                         [&](const juce::var& v) {
+                             return Calibration::migrateResoScalar(
+                                 static_cast<float>(v), fileCalibEpoch,
+                                 filtAlgIdx, filtWarpStyleIdx);
+                         });
+        setParamFromJson(parameters, PID::filterMix, filt, "mix");   // default 1.0, not 0
+        setParamFromJson(parameters, PID::filterKbdTrack, filt, "kbdTrack");
         // Drive: absent in older presets -> treat as 0 dB.
         setParam(parameters, PID::filterDrive,
                  filt->hasProperty("drive") ? static_cast<float>(filt->getProperty("drive")) : 0.0f);
@@ -8655,8 +8816,14 @@ bool T5ynthProcessor::importJsonPreset(const juce::String& json)
         // Preserve current seq_running state — don't stop playback on preset load
         // bool seqEnabled = seq->getProperty("enabled");
         // setParam(parameters, PID::seqRunning, seqEnabled ? 1.0f : 0.0f);
-        setParam(parameters, PID::seqBpm, static_cast<float>(seq->getProperty("bpm")));
-        int stepCount = static_cast<int>(seq->getProperty("stepCount"));
+        // 0 BPM and a 0-step pattern are not states this sequencer has; the
+        // layout says 120 and 16, and stepCount also drives setNumSteps and
+        // the loop over the steps array below, so an absent key used to load a
+        // sequencer with nothing in it.
+        setParamFromJson(parameters, PID::seqBpm, seq, "bpm");
+        const int stepCount = seq->hasProperty("stepCount")
+            ? static_cast<int>(seq->getProperty("stepCount"))
+            : layoutDefaultIntOf(parameters, PID::seqSteps);
         setParam(parameters, PID::seqSteps, static_cast<float>(stepCount));
         stepSequencer.setNumSteps(stepCount);
         if (!importingSequencePattern)
@@ -8669,10 +8836,16 @@ bool T5ynthProcessor::importJsonPreset(const juce::String& json)
             {
                 auto* s = (*stepsArr)[i].getDynamicObject();
                 if (!s) continue;
+                // A step is not an APVTS parameter, so the fallbacks are
+                // T5ynthStepSequencer::Step's own declared values
+                // (StepSequencer.h:137-140 — note 60, velocity 0.8, enabled).
+                // A step object that omits "velocity" or "active" describes a
+                // step it did not think about, not a silent disabled one.
                 int semitone = static_cast<int>(s->getProperty("semitone"));
                 stepSequencer.setStepNote(i, 60 + semitone); // C3 + semitone offset
-                stepSequencer.setStepVelocity(i, static_cast<float>(s->getProperty("velocity")));
-                stepSequencer.setStepEnabled(i, static_cast<bool>(s->getProperty("active")));
+                stepSequencer.setStepVelocity(i, jsonFloatOr(s, "velocity", 0.8f));
+                stepSequencer.setStepEnabled(i, s->hasProperty("active")
+                                                    ? static_cast<bool>(s->getProperty("active")) : true);
                 if (s->hasProperty("gate"))
                     stepSequencer.setStepGate(i, static_cast<float>(s->getProperty("gate")));
                 if (s->hasProperty("bindMode"))
@@ -8702,46 +8875,47 @@ bool T5ynthProcessor::importJsonPreset(const juce::String& json)
                 }
             }
         }
-        setParam(parameters, PID::seqOctave,
-                 static_cast<float>(choiceFromKey(seq->getProperty("octaveShift").toString(), SeqOctave::kEntries)));
-        setParam(parameters, PID::seqDivision,
-                 static_cast<float>(choiceFromKey(seq->getProperty("division").toString(), SeqDivision::kEntries)));
-        setParam(parameters, PID::seqGlideTime, static_cast<float>(seq->getProperty("glideTime")));
-        setParam(parameters, PID::seqGate, static_cast<float>(seq->getProperty("gate")));
-        setParam(parameters, PID::seqShuffle,
-                 seq->hasProperty("shuffle")
-                     ? static_cast<float>(seq->getProperty("shuffle"))
-                     : 0.0f);
-        setParam(parameters, PID::scaleRoot,
-                 static_cast<float>(choiceFromKey(seq->getProperty("scaleRoot").toString(), ScaleRoot::kEntries)));
-        setParam(parameters, PID::scaleType,
-                 static_cast<float>(choiceFromKey(seq->getProperty("scaleType").toString(), ScaleType::kEntries)));
+        // Octave 0 is index 2 and 1/16 is index 4 — an absent key used to drop
+        // the pattern two octaves and slow it to whole notes.
+        setChoiceParamFromJson(parameters, PID::seqOctave, seq, "octaveShift", SeqOctave::kEntries);
+        setChoiceParamFromJson(parameters, PID::seqDivision, seq, "division", SeqDivision::kEntries);
+        setParamFromJson(parameters, PID::seqGlideTime, seq, "glideTime");
+        setParamFromJson(parameters, PID::seqGate, seq, "gate");   // default 0.8; 0 is a gate that never opens
+        setParamFromJson(parameters, PID::seqShuffle, seq, "shuffle");
+        setChoiceParamFromJson(parameters, PID::scaleRoot, seq, "scaleRoot", ScaleRoot::kEntries);
+        setChoiceParamFromJson(parameters, PID::scaleType, seq, "scaleType", ScaleType::kEntries);
     }
 
     // ── Arpeggiator ──
     if (auto* arp = root->getProperty("arpeggiator").getDynamicObject())
     {
-        int arpModeIdx = choiceFromKey(arp->getProperty("pattern").toString(), ArpMode::kEntries);
-        setParam(parameters, PID::arpMode, static_cast<float>(arpModeIdx));
-        setParam(parameters, PID::arpRate,
-                 static_cast<float>(choiceFromKey(arp->getProperty("rate").toString(), ArpRate::kEntries)));
-        setParam(parameters, PID::arpOctaves, static_cast<float>(static_cast<int>(arp->getProperty("octaveRange"))));
+        setChoiceParamFromJson(parameters, PID::arpMode, arp, "pattern", ArpMode::kEntries);
+        // 1/16 is index 2 and the octave range defaults to 1 — absence used to
+        // mean quarter notes over no octaves at all.
+        setChoiceParamFromJson(parameters, PID::arpRate, arp, "rate", ArpRate::kEntries);
+        setParamFromJson(parameters, PID::arpOctaves, arp, "octaveRange",
+                         [](const juce::var& v) { return static_cast<float>(static_cast<int>(v)); });
     }
 
     // ── Generative sequencer ──
     if (auto* gs = root->getProperty("generativeSeq").getDynamicObject())
     {
-        setParam(parameters, PID::genSeqRunning, static_cast<bool>(gs->getProperty("enabled")) ? 1.0f : 0.0f);
-        setParam(parameters, PID::genSteps,    static_cast<float>(static_cast<int>(gs->getProperty("steps"))));
-        setParam(parameters, PID::genPulses,   static_cast<float>(static_cast<int>(gs->getProperty("pulses"))));
-        setParam(parameters, PID::genRotation, static_cast<float>(static_cast<int>(gs->getProperty("rotation"))));
-        setParam(parameters, PID::genMutation, static_cast<float>(gs->getProperty("mutation")));
-        setParam(parameters, PID::genRange,
-                 static_cast<float>(choiceFromKey(gs->getProperty("range").toString(), GenRange::kEntries)));
-        setParam(parameters, PID::genFixSteps,    static_cast<bool>(gs->getProperty("fixSteps")) ? 1.0f : 0.0f);
-        setParam(parameters, PID::genFixPulses,   static_cast<bool>(gs->getProperty("fixPulses")) ? 1.0f : 0.0f);
-        setParam(parameters, PID::genFixRotation, static_cast<bool>(gs->getProperty("fixRotation")) ? 1.0f : 0.0f);
-        setParam(parameters, PID::genFixMutation, static_cast<bool>(gs->getProperty("fixMutation")) ? 1.0f : 0.0f);
+        setBoolParamFromJson(parameters, PID::genSeqRunning, gs, "enabled");
+        // Every one of these has a non-zero default (21 steps, 16 pulses,
+        // rotation 2, mutation 0.80, range 3, and two of the four Fix switches
+        // on). A Euclidean strand of 0 steps and 0 pulses is not a pattern.
+        setParamFromJson(parameters, PID::genSteps, gs, "steps",
+                         [](const juce::var& v) { return static_cast<float>(static_cast<int>(v)); });
+        setParamFromJson(parameters, PID::genPulses, gs, "pulses",
+                         [](const juce::var& v) { return static_cast<float>(static_cast<int>(v)); });
+        setParamFromJson(parameters, PID::genRotation, gs, "rotation",
+                         [](const juce::var& v) { return static_cast<float>(static_cast<int>(v)); });
+        setParamFromJson(parameters, PID::genMutation, gs, "mutation");
+        setChoiceParamFromJson(parameters, PID::genRange, gs, "range", GenRange::kEntries);
+        setBoolParamFromJson(parameters, PID::genFixSteps,    gs, "fixSteps");
+        setBoolParamFromJson(parameters, PID::genFixPulses,   gs, "fixPulses");
+        setBoolParamFromJson(parameters, PID::genFixRotation, gs, "fixRotation");
+        setBoolParamFromJson(parameters, PID::genFixMutation, gs, "fixMutation");
 
         // Inter-strand coordination (persisted since 2026-07-16). Absent in
         // older presets → restore the defaults (Density Budget, cap 3, both
@@ -8762,23 +8936,25 @@ bool T5ynthProcessor::importJsonPreset(const juce::String& json)
         // Shared pitch field (optional — absent in pre-polyphonic presets)
         if (auto* pf = gs->getProperty("pitchField").getDynamicObject())
         {
-            setParam(parameters, PID::genFieldMode,
-                     static_cast<float>(choiceFromKey(pf->getProperty("mode").toString(), FieldMode::kEntries)));
-            setParam(parameters, PID::genFieldRate, static_cast<float>(static_cast<int>(pf->getProperty("rate"))));
-            setParam(parameters, PID::genFieldCenterPc, static_cast<float>(static_cast<int>(pf->getProperty("centerPc"))));
-            setParam(parameters, PID::genFieldPivot,
-                     static_cast<float>(choiceFromKey(pf->getProperty("pivot").toString(), FieldPivot::kEntries)));
+            // Drift is index 1, so an absent mode used to freeze the field.
+            setChoiceParamFromJson(parameters, PID::genFieldMode, pf, "mode", FieldMode::kEntries);
+            setParamFromJson(parameters, PID::genFieldRate, pf, "rate",
+                             [](const juce::var& v) { return static_cast<float>(static_cast<int>(v)); });
+            setParamFromJson(parameters, PID::genFieldCenterPc, pf, "centerPc",
+                             [](const juce::var& v) { return static_cast<float>(static_cast<int>(v)); });
+            setChoiceParamFromJson(parameters, PID::genFieldPivot, pf, "pivot", FieldPivot::kEntries);
         }
 
         // Strand 0 extras (optional)
         if (auto* s0 = gs->getProperty("strand0").getDynamicObject())
         {
-            setParam(parameters, PID::genRole,
-                     static_cast<float>(choiceFromKey(s0->getProperty("role").toString(), StrandRole::kEntries)));
-            setParam(parameters, PID::genOctave, static_cast<float>(static_cast<int>(s0->getProperty("octave"))));
-            setParam(parameters, PID::genDivMult,
-                     static_cast<float>(choiceFromKey(s0->getProperty("divMult").toString(), StrandDivMult::kEntries)));
-            setParam(parameters, PID::genDominance, static_cast<float>(s0->getProperty("dominance")));
+            // Line is index 1 and x1 is index 6 — absence used to make the
+            // strand an Anchor running at a sixteenth of its speed.
+            setChoiceParamFromJson(parameters, PID::genRole, s0, "role", StrandRole::kEntries);
+            setParamFromJson(parameters, PID::genOctave, s0, "octave",
+                             [](const juce::var& v) { return static_cast<float>(static_cast<int>(v)); });
+            setChoiceParamFromJson(parameters, PID::genDivMult, s0, "divMult", StrandDivMult::kEntries);
+            setParamFromJson(parameters, PID::genDominance, s0, "dominance");
         }
 
         // Strands 2..5 (optional — pre-polyphonic presets and 4-strand
@@ -8809,19 +8985,22 @@ bool T5ynthProcessor::importJsonPreset(const juce::String& json)
             auto* sn = gs->getProperty(kExtraKeysImport[i]).getDynamicObject();
             if (!sn) continue;
             const auto& ids = kExtrasImport[i];
-            setParam(parameters, ids.enable,    static_cast<bool>(sn->getProperty("enabled")) ? 1.0f : 0.0f);
-            setParam(parameters, ids.role,      static_cast<float>(choiceFromKey(sn->getProperty("role").toString(), StrandRole::kEntries)));
-            setParam(parameters, ids.octave,    static_cast<float>(static_cast<int>(sn->getProperty("octave"))));
-            setParam(parameters, ids.divMult,   static_cast<float>(choiceFromKey(sn->getProperty("divMult").toString(), StrandDivMult::kEntries)));
-            setParam(parameters, ids.dominance, static_cast<float>(sn->getProperty("dominance")));
-            setParam(parameters, ids.steps,     static_cast<float>(static_cast<int>(sn->getProperty("steps"))));
-            setParam(parameters, ids.pulses,    static_cast<float>(static_cast<int>(sn->getProperty("pulses"))));
-            setParam(parameters, ids.rotation,  static_cast<float>(static_cast<int>(sn->getProperty("rotation"))));
-            setParam(parameters, ids.mutation,  static_cast<float>(sn->getProperty("mutation")));
-            setParam(parameters, ids.fS,        static_cast<bool>(sn->getProperty("fixSteps")) ? 1.0f : 0.0f);
-            setParam(parameters, ids.fP,        static_cast<bool>(sn->getProperty("fixPulses")) ? 1.0f : 0.0f);
-            setParam(parameters, ids.fR,        static_cast<bool>(sn->getProperty("fixRotation")) ? 1.0f : 0.0f);
-            setParam(parameters, ids.fM,        static_cast<bool>(sn->getProperty("fixMutation")) ? 1.0f : 0.0f);
+            // Same defaults as strand 0's, plus 16 steps / 5 pulses / 0.20
+            // mutation of their own — none of which is 0.
+            const auto readInt = [](const juce::var& v) { return static_cast<float>(static_cast<int>(v)); };
+            setBoolParamFromJson(parameters, ids.enable, sn, "enabled");
+            setChoiceParamFromJson(parameters, ids.role, sn, "role", StrandRole::kEntries);
+            setParamFromJson(parameters, ids.octave, sn, "octave", readInt);
+            setChoiceParamFromJson(parameters, ids.divMult, sn, "divMult", StrandDivMult::kEntries);
+            setParamFromJson(parameters, ids.dominance, sn, "dominance");
+            setParamFromJson(parameters, ids.steps,    sn, "steps",    readInt);
+            setParamFromJson(parameters, ids.pulses,   sn, "pulses",   readInt);
+            setParamFromJson(parameters, ids.rotation, sn, "rotation", readInt);
+            setParamFromJson(parameters, ids.mutation, sn, "mutation");
+            setBoolParamFromJson(parameters, ids.fS, sn, "fixSteps");
+            setBoolParamFromJson(parameters, ids.fP, sn, "fixPulses");
+            setBoolParamFromJson(parameters, ids.fR, sn, "fixRotation");
+            setBoolParamFromJson(parameters, ids.fM, sn, "fixMutation");
         }
     }
 
