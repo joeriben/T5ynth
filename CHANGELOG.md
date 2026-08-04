@@ -97,6 +97,9 @@ leaving the machine. The separately-installed 1.5B translator is gone.
   [clap-juce-extensions](https://github.com/free-audio/clap-juce-extensions).
   Windows and Linux keep Standalone + VST3. (Not to be confused with CLAP the
   audio-text model that Re-Prompt listens with — same acronym, unrelated thing.)
+- **MPE is now declared, not just implemented.** The synth has always parsed a
+  full MPE zone from raw MIDI; it never told the host so. CLAP hosts and Logic
+  now see it and send per-note channels.
 - **Five envelopes** instead of three, with COPY/PASTE between the tabs.
 - **Amp effects chain** — distortion as an overdriven amplifier, tremolo with
   four shapes, chorus and phaser, behind the voices.

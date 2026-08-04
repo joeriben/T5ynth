@@ -49,6 +49,16 @@ public:
     const juce::String getName() const override { return juce::String::fromUTF8(JucePlugin_Name); }
     bool acceptsMidi() const override { return true; }
     bool producesMidi() const override { return false; }
+
+    // The MPE zone is parsed from raw MIDI in processBlock (ch1/ch16 master,
+    // member channels per-note bend/pressure/timbre/CC74, RPN 0 for the bend
+    // range), so this is
+    // a capability the plugin has always HAD and never declared. Two wrappers ask:
+    // the CLAP one only offers the host CLAP_NOTE_DIALECT_MIDI_MPE when this is
+    // true, and the AU one answers kAudioUnitProperty_SupportsMPE with it — so
+    // without this an MPE controller in a CLAP host, and in Logic, reaches a synth
+    // that would have understood it. The VST3 and Standalone paths never read it.
+    bool supportsMPE() const override { return true; }
     double getTailLengthSeconds() const override { return 0.0; }
 
     int getNumPrograms() override { return 1; }
