@@ -1,5 +1,142 @@
 # T5ynth Development Log
 
+## 2026-08-04 — CLAP plug-in format, macOS only
+
+A fourth artefact, `akroasys.clap`, built from the same shared code as the
+Standalone, VST3 and AU by [clap-juce-extensions](https://github.com/free-audio/clap-juce-extensions)
+(MIT, pinned to commit `54b3c326`). One processor, one APVTS, one preset format —
+there is no second implementation to keep in step.
+
+**Why macOS only.** On macOS a `.clap` is a real bundle, so everything the VST3
+and AU already do applies to it unchanged: the Csound payload goes into
+`Contents/libs`, the binary's `@loader_path/../libs/CsoundLib64` resolves,
+`tools/bundle_csound_macos.sh` and `tools/verify_csound_bundle.py` work without a
+line of change, and the `.pkg` gains a component. On Windows and Linux a `.clap`
+is a bare DLL / `.so` with nothing around it: the Csound payload beside it would
+land in `Common Files\CLAP\` or `~/.clap`, a directory shared with every other
+vendor. `src/dsp/CsoundEngine.cpp` deliberately anchors both the library load and
+the opcode directory on *our own module's* directory (the Windows loader keys
+modules by base name, so anchoring on the loaded library would hand us another
+Csound plugin's installation) — so those two platforms need a per-product data
+directory and a loader fallback first. That is its own piece of work, not a
+side effect of this one.
+
+**What it cost, beyond the two lines of CMake:** `T5YNTH_CLAP_FORMAT`, a variable
+that is `CLAP` when the target exists and empty otherwise, appended to the three
+per-format loops that already existed (ad-hoc signing, Csound bundling, the
+charset gate). CLAP cannot go in `T5YNTH_PLUGIN_FORMATS` — `juce_add_plugin`
+would reject the name, because JUCE has no CLAP client and has never promised
+one.
+
+**`CLAP_USE_JUCE_PARAMETER_RANGES ALL`**, not the default. Without it the wrapper
+hands the host normalised 0..1 values while JUCE's own formats expose the
+parameter's real range, so one automation lane would read `0.5` in a CLAP host and
+`10010 Hz` in the VST3. Verified through the CLAP ABI: `Filter Cutoff` reports
+`20.000 .. 20000.000`.
+
+**One real find.** `supportsMPE()` was never overridden, so it returned JUCE's
+default `false`. The synth has always parsed a full MPE zone out of raw MIDI
+(ch1/ch16 master, member channels for per-note bend, pressure and CC74, RPN 0 for
+the bend range) — it simply never told anyone. Two wrappers ask: the CLAP one
+only offers `CLAP_NOTE_DIALECT_MIDI_MPE` when it is true, and the AU one answers
+`kAudioUnitProperty_SupportsMPE` with it. So an MPE controller in a CLAP host, and
+in Logic, was reaching a synth that would have understood it. The VST3 and
+Standalone paths never read the flag, so nothing there changes.
+
+**And behind it, a second one that was already live.** Channel 16 was treated as a
+zone master for pressure, CC74 timbre and the RPN 0 bend range, while pitch bend
+already treated it as a member. Per MMA MPE — read off `juce::MPEZoneLayout` in
+this tree rather than from memory — channel 16 masters the UPPER zone and nothing
+else; in the fifteen-channel lower zone that Logic, Bitwig and Live default to it
+is an ordinary member, so one note in fifteen was swelling every voice and losing
+its slide. The layout is now learned from the MPE Configuration Message (RPN 6)
+instead of assumed, with JUCE's own shrink rule for two zones that would exceed
+fifteen channels.
+
+Two adversarial passes were needed and both were worth it. The first revision
+tried to keep the Launch Control XL safe by folding `dawModeActive_` into the
+predicate — which quietly turned channel-16 pitch bend into a global bend for
+anyone who merely had an XL selected as MIDI *output*, at the one site that never
+had the defect. The second tried to fix channel 1 for an upper zone of fifteen
+members, which split channel 1's meaning between the expressions for a layout
+nothing else in the file handles. Both came back out. What remains is one
+predicate, three call sites, and a stated cost: a plain non-MPE controller
+transmitting on channel 16 now sends per-note pressure rather than zone-wide.
+
+---
+
+## 2026-08-04 — Where the synth sits between the two modular traditions (analysis, no code change)
+
+BJ raised the question: the T5 Oscillator looks West-Coast-ish (timbre made at
+the source, not carved out of a sawtooth), but the machine around it is
+East Coast — filter, classical modulators, effects. Is that inconsistent?
+Nothing was rebuilt; this entry records the reading and the one manual change
+that came out of it.
+
+**The chain as built**, re-read rather than remembered. Per voice: engine
+(Wavetable / Sampler / Granular / Csound) → noise mix → drive (pre-filter
+`tanh`, 2/4/8× oversampled, or the Ladder's own stages) → filter (SVF /
+Ladder / CutoffWarp) → VCA. Post-sum: `AmpEffects` (distortion → chorus →
+phaser → tremolo) → delay → parallel reverb send → limiter → master.
+Source → VCF → VCA with ADSR and LFOs beside it. Grepped for the West Coast
+idioms: no wavefolder, no low-pass gate, no vactrol, no function generator,
+and the terms appear nowhere in the tree.
+
+**The T5 Oscillator is not actually a West Coast source.** It has one of the
+three load-bearing properties — complexity at the source rather than by
+subtraction. The other two are absent: the timbre is not playable at audio
+rate (a generation is a fixed buffer; A/B, Magnitude, Emb. Noise and the axes
+move at regeneration rate with the equal-power crossfade), and there is no
+non-linear timbre-generating element under CV. What it is, architecturally, is
+a PCM/digital source — the PPG Wave / Fairlight / Prophet VS / wavetable
+lineage, which has always been paired with exactly this subtractive machine.
+The topology is the norm for this kind of source, not a mismatch.
+
+**Where the West Coast idiom does sit in this synth**, unlabelled: in the
+modulation destination lists, not in the module chain. `DriftTarget`'s first
+seven entries are generation-side (A/B, Emb. Noise, Magnitude, Axis 1–3,
+Resynth), and Scan is a destination for envelope, LFO, aftertouch and drift —
+modulation into the making of the timbre rather than into the subtraction
+behind it. Add the looping envelopes and the ENV↔LFO cross-wiring
+(`EnvTarget::LFO*Rate/Depth`, `AftertouchTarget::Env*Sustain`) and the
+modulator section is closer to a patch than to a Minimoog.
+
+**The LRO side is where the real tension is**, and it is documented rather
+than accidental: `docs/LCO_CONCEPT.md` §4 states the East Coast contract
+outright — the oscillator is a spectrum source, the synth owns envelope,
+glide, filter and expression. But that same section has moved the boundary
+four times, always toward the body (three withdrawn clauses 2026-07-27/28,
+the `wave` convention retired 2026-07-26), and movement-by-default plus
+`; DECAY: SELF` describe a source that is already complete. That is the West
+Coast stance returning through the back door — inside the LRO's own rule set,
+not between the two oscillators.
+
+**What the filter actually does to this material** (the part that reached the
+manual). A lowpass over a sawtooth performs a *count*: partials sit on an
+exact grid with nothing between them, and the source's own spectral envelope
+(1/n, i.e. 6 dB per octave of harmonic number — not the filter's slope) falls
+evenly, so cutoff decides how many survive and the filter's slope becomes the
+resulting spectral envelope. Over the T5 Oscillator's material it performs a *tilt*
+instead. Sampler and Granular pass the generated buffer's own spectrum, which
+has energy between the partials (noise floor, transients, room) and already
+carries a spectral envelope of its own — so the filter multiplies onto an
+existing envelope instead of authoring one, the same cutoff value reads
+differently from generation to generation, and resonance colours a band
+rather than lighting single partials. Wavetable is the honest exception:
+`extractFramesFromBuffer` (`WavetableOscillator.cpp:475`) resamples one
+detected period per frame, snaps to a zero crossing and ramps out the
+boundary difference, so the frame is periodic and therefore strictly
+harmonic — but the amplitudes come from an arbitrary period of a recording
+(peaks and gaps, not a monotone rolloff) and shift as Scan moves, so a given
+cutoff is still not a fixed amount of brightness. And subtraction never adds
+structure: a grainy or inharmonic generation stays that way.
+
+Practical consequence, and the only change made: Bandpass, the 6/12 dB slopes
+and Filter Mix shape this material more predictably than the 24 dB resonant
+sweep, which is at its strongest on a spectrum the filter itself builds. A
+note to that effect was added to §1.3 of `resources/akroasys_Guide.html`, with
+a pointer from the Filter section of §3.
+
 ## 2026-06-12 — Maintainer machine: bank saves overwrite directly (no "(mine)" fork)
 
 "(mine)" semantics clarified by the maintainer: on the mother machine those
