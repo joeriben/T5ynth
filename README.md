@@ -34,7 +34,7 @@ Links:
 
 Current tagged GitHub Releases publish:
 
-- **macOS** — single `.pkg` containing Standalone, VST3 plugin, and Audio Unit (AU) plugin.
+- **macOS** — single `.pkg` containing Standalone, VST3 plugin, Audio Unit (AU) plugin and CLAP plugin.
 - **Windows** — `.exe` setup containing Standalone and VST3 plugin.
 - **Linux** — *best-effort.* Build from source via [`docs/DEV_BUILD.md`](docs/DEV_BUILD.md) or [`docs/LINUX_INSTALLATION.md`](docs/LINUX_INSTALLATION.md). The CI builds Linux Standalone and VST3 archives plus an Ubuntu `.deb` on every push; they are downloadable as workflow artifacts under the *Actions* tab but are intentionally not attached to release pages and are not officially supported.
 

@@ -15,10 +15,12 @@ correct and file a fix against this document.
 
 A akróasys build produces two artefacts that must be assembled together:
 
-1. **The C++ JUCE plugin.** A single CMake target produces three formats:
+1. **The C++ JUCE plugin.** A single CMake target produces four formats:
    - `Standalone` on every platform
    - `VST3` on every platform
    - `AU` on macOS only
+   - `CLAP` on macOS only — via clap-juce-extensions, fetched at configure
+     time; turn it off with `-DT5YNTH_BUILD_CLAP=OFF`
    These are emitted under `build_clean/T5ynth_artefacts/Release/<format>/`.
 
 2. **The Python inference backend.** During development this is an ordinary
@@ -352,6 +354,7 @@ After a Release build the artefacts are at:
 build_clean/T5ynth_artefacts/Release/Standalone/akroasys(.app|.exe|)
 build_clean/T5ynth_artefacts/Release/VST3/akroasys.vst3
 build_clean/T5ynth_artefacts/Release/AU/akroasys.component        # macOS only
+build_clean/T5ynth_artefacts/Release/CLAP/akroasys.clap           # macOS only
 ```
 
 ---
@@ -413,6 +416,7 @@ your platform.
 | --- | --- | --- |
 | macOS | AU | `~/Library/Audio/Plug-Ins/Components/akroasys.component` |
 | macOS | VST3 | `~/Library/Audio/Plug-Ins/VST3/akroasys.vst3` |
+| macOS | CLAP | `~/Library/Audio/Plug-Ins/CLAP/akroasys.clap` |
 | Linux | VST3 | `~/.vst3/akroasys.vst3` |
 | Windows | VST3 | `%CommonProgramFiles%\VST3\akroasys.vst3` |
 

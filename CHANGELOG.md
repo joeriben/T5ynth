@@ -90,6 +90,13 @@ leaving the machine. The separately-installed 1.5B translator is gone.
 
 ### Also in 3.0.0
 
+- **CLAP plug-in format on macOS.** The `.pkg` now installs a fourth artefact,
+  `akroasys.clap`, into `/Library/Audio/Plug-Ins/CLAP` — selectable in the
+  installer like the VST3 and the AU. It is the same instrument: one processor,
+  one parameter set, one preset format, built from the same shared code by
+  [clap-juce-extensions](https://github.com/free-audio/clap-juce-extensions).
+  Windows and Linux keep Standalone + VST3. (Not to be confused with CLAP the
+  audio-text model that Re-Prompt listens with — same acronym, unrelated thing.)
 - **Five envelopes** instead of three, with COPY/PASTE between the tabs.
 - **Amp effects chain** — distortion as an overdriven amplifier, tremolo with
   four shapes, chorus and phaser, behind the voices.

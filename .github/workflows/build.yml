@@ -73,11 +73,13 @@ jobs:
           fi
 
       - name: Configure CMake
-        # Build all three plugin formats — Standalone, VST3 and AU — so the
+        # Build all four macOS formats — Standalone, VST3, AU and CLAP — so the
         # .pkg builder downstream can stage every component. The legacy
         # T5YNTH_MACOS_STANDALONE_ONLY=ON flag dates back to when the
         # installer only shipped the Standalone; v1.7.1-beta.2 onward
-        # bundles VST3 + AU as well.
+        # bundles VST3 + AU as well, and the CLAP joins them here. The CLAP
+        # target fetches clap-juce-extensions at configure time, like the two
+        # header-only FetchContent dependencies already do.
         env:
           T5YNTH_VERSION: ${{ github.ref_name }}
         run: cmake -B build -DCMAKE_BUILD_TYPE=Release
@@ -92,7 +94,7 @@ jobs:
       # them. See third_party/csound/README.md.
       - name: Verify Csound travels with the bundles
         run: |
-          for B in Standalone/akroasys.app VST3/akroasys.vst3 AU/akroasys.component; do
+          for B in Standalone/akroasys.app VST3/akroasys.vst3 AU/akroasys.component CLAP/akroasys.clap; do
             python3 tools/verify_csound_bundle.py "build/T5ynth_artefacts/Release/$B"
           done
 
@@ -193,7 +195,7 @@ jobs:
           chmod 600 "$KEY_PATH"
           echo "MACOS_NOTARY_API_KEY_PATH=$KEY_PATH" >> "$GITHUB_ENV"
 
-      # The .pkg now bundles Standalone + VST3 + AU, all signed with the
+      # The .pkg now bundles Standalone + VST3 + AU + CLAP, all signed with the
       # same Developer ID Application identity. Plugins piggy-back on the
       # Standalone for the Python inference backend.
       - name: Prepare macOS release staging
@@ -217,6 +219,7 @@ jobs:
             --app   build/T5ynth_artefacts/Release/Standalone/akroasys.app \
             --vst3  build/T5ynth_artefacts/Release/VST3/akroasys.vst3 \
             --au    build/T5ynth_artefacts/Release/AU/akroasys.component \
+            --clap  build/T5ynth_artefacts/Release/CLAP/akroasys.clap \
             --version "${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || '0.0.0-alpha.0' }}" \
             --output archives/akroasys-macOS-Installer.pkg
 

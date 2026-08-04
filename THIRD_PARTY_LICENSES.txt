@@ -246,6 +246,26 @@ Fetched at build time via CMake FetchContent.
 
 ---
 
+## clap-juce-extensions (and CLAP)
+
+**Commit:** 54b3c3268ab6721a7afeef813c9e1ce43a3d0fcd
+**Authors:** Paul Walker and contributors (clap-juce-extensions);
+Alexandre BIQUE (CLAP and clap-helpers)
+**License:** MIT (all three)
+**URL:** https://github.com/free-audio/clap-juce-extensions
+**URL:** https://github.com/free-audio/clap (CLAP 1.2.7)
+
+The CLAP plug-in format. clap-juce-extensions builds a CLAP module out of the
+same JUCE AudioProcessor the VST3 and AU are built from; CLAP itself is the
+header-only ABI, and clap-helpers its C++ helper headers. All three are fetched
+at build time via CMake FetchContent (clap and clap-helpers as submodules of
+clap-juce-extensions) and compiled into the macOS `akroasys.clap` bundle.
+
+The format is unofficial as far as JUCE is concerned — the JUCE team has never
+committed to a CLAP client — which is why it lives outside the JUCE tree.
+
+---
+
 ## SentencePiece
 
 **License:** Apache 2.0

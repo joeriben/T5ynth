@@ -100,7 +100,7 @@ the `macos` and `windows` jobs run, and the `release` job waits for both
 
 | Job       | Runner           | Targets                                             |
 |-----------|------------------|-------------------------------------------------------|
-| `macos`   | `macos-14`       | macOS app + `.pkg` installer                        |
+| `macos`   | `macos-14`       | macOS app + VST3 + AU + CLAP, all inside the `.pkg` installer |
 | `linux`   | `ubuntu-latest`  | Linux base standalone + VST3 archives + Ubuntu `.deb` artifact |
 | `windows` | `windows-latest` | Standalone app, VST3, Inno Setup installer          |
 
@@ -164,17 +164,26 @@ Every job:
 - End-user macOS releases should be both `Developer ID` signed and notarized.
   The release pipeline now supports that directly in
   `installer/macos/build_pkg.sh`.
-- `CMakeLists.txt` contains `POST_BUILD` re-signing commands for the VST3
-  and AU bundles (`codesign --force --sign - --deep`). This works around
-  two JUCE 8.0.6 issues:
+- `CMakeLists.txt` contains `POST_BUILD` re-signing commands for the VST3,
+  AU and CLAP bundles (`codesign --force --sign - --deep`). This works
+  around two JUCE 8.0.6 issues:
   1. JUCE signs the VST3 bundle before `juce_vst3_helper` writes
      `Contents/Resources/moduleinfo.json`, invalidating the sealed
      signature and causing DAWs to refuse to register the plugin.
   2. JUCE 8.0.6 does not call `_juce_adhoc_sign` for the AU target,
      leaving a minimal Mach-O signature that expects a sealed
-     `_CodeSignature` folder that never gets created.
-  The re-signing commands run as `POST_BUILD` on `T5ynth_VST3` and
-  `T5ynth_AU` after all JUCE manifest / sign steps. Do not remove them.
+     `_CodeSignature` folder that never gets created. The CLAP has the same
+     symptom for a different reason: clap-juce-extensions signs nothing at
+     all, by design.
+  The re-signing commands run as `POST_BUILD` on `T5ynth_VST3`,
+  `T5ynth_AU` and `T5ynth_CLAP` after all JUCE manifest / sign steps. Do
+  not remove them.
+- The CLAP is macOS-only. On macOS a `.clap` is a bundle, so it takes the
+  same `Contents/libs` Csound payload, the same signing and the same
+  `tools/verify_csound_bundle.py` run as the VST3 and AU. On Windows and
+  Linux a `.clap` is a bare DLL/`.so` with no bundle around it, and the
+  Csound payload would have to land in a directory shared with every other
+  vendor — see `T5YNTH_CLAP_FORMAT` in `CMakeLists.txt`.
 - The macOS job also runs a smoke test that launches the built
   `akroasys.app` for 5 seconds and fails the job if the process exits
   early.
@@ -286,7 +295,9 @@ users must download `akroasys-Windows-Setup.exe` and every
 installer. Windows standalone/VST3 `.tar.xz` artefacts, Linux base artefacts,
 Fedora RPMs, Ubuntu/Debian `.deb`, VST3 and AU remain outside the public stable
 release page until each distribution path has been validated and explicitly
-wired into CI release publication.
+wired into CI release publication. The macOS VST3, AU and CLAP are not separate
+assets — all three travel inside `akroasys-macOS-Installer.pkg` as selectable
+installer components.
 
 If the release page does not contain both `akroasys-macOS-Installer.pkg` and
 `akroasys-Windows-Setup.exe`, or if it is missing any Windows `.bin` slice
@@ -361,10 +372,18 @@ it every time before pushing a release tag — no exceptions.
    python3 tools/verify_csound_bundle.py build_clean/T5ynth_artefacts/Release/Standalone/akroasys.app
    ```
 
-   Run it for the VST3 and AU bundles too (Windows: the Standalone
+   Run it for the VST3, AU and CLAP bundles too (Windows: the Standalone
    directory and the VST3's `Contents/x86_64-win`). CI runs the same
    command on every build; this is the local half. `docs/CSOUND_INTEGRATION.md`
    says what it proves.
+
+3c. **The CLAP loads in a CLAP host** (macOS only). Copy
+   `build_clean/T5ynth_artefacts/Release/CLAP/akroasys.clap` to
+   `~/Library/Audio/Plug-Ins/CLAP/`, rescan in a CLAP host (Bitwig Studio,
+   REAPER, Studio One) and confirm the instrument appears, opens its editor
+   and plays a note. A `.clap` that builds, signs and passes the Csound
+   verifier can still be refused by a host — nothing upstream of this step
+   instantiates it through the CLAP ABI.
 
 3a. **Per-model smoke-test (MANDATORY when a model was added or its
    loading path changed since the previous tag).** Build the PyInstaller

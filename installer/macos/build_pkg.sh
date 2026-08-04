@@ -5,22 +5,23 @@ set -euo pipefail
 # Usage: build_pkg.sh --app <path>
 #                     --version <ver> --output <pkg>
 #                     [--vst3 <akroasys.vst3>] [--au <akroasys.component>]
+#                     [--clap <akroasys.clap>]
 #                     [--sign-app-identity <identity>]
 #                     [--sign-pkg-identity <identity>]
 #                     [--notary-keychain-profile <profile>]
 #                     [--notary-apple-id <apple-id> --notary-password <password> --notary-team-id <team-id>]
 #                     [--notary-api-key-path <p8> --notary-api-key-id <id> --notary-api-issuer <issuer>]
 #
-# VST3 and AU components are optional — when omitted, the installer is
+# VST3, AU and CLAP components are optional — when omitted, the installer is
 # Standalone-only (legacy behaviour). When provided, they install to
-# /Library/Audio/Plug-Ins/{VST3,Components} and piggy-back on the
+# /Library/Audio/Plug-Ins/{VST3,Components,CLAP} and piggy-back on the
 # Standalone's bundled Python backend (see MainPanel::startBackend).
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 # ── Parse arguments ──────────────────────────────────────────────────
 APP="" VERSION="0.3.0" OUTPUT="akroasys-macOS-Installer.pkg"
-VST3="" AU=""
+VST3="" AU="" CLAP=""
 APP_SIGN_IDENTITY="${MACOS_APP_SIGN_IDENTITY:-}"
 PKG_SIGN_IDENTITY="${MACOS_PKG_SIGN_IDENTITY:-${MACOS_INSTALLER_SIGN_IDENTITY:-}}"
 NOTARY_KEYCHAIN_PROFILE="${MACOS_NOTARY_KEYCHAIN_PROFILE:-}"
@@ -36,6 +37,7 @@ while [[ $# -gt 0 ]]; do
         --app)     APP="$2";     shift 2 ;;
         --vst3)    VST3="$2";    shift 2 ;;
         --au)      AU="$2";      shift 2 ;;
+        --clap)    CLAP="$2";    shift 2 ;;
         --version) VERSION="$2"; shift 2 ;;
         --output)  OUTPUT="$2";  shift 2 ;;
         --sign-app-identity) APP_SIGN_IDENTITY="$2"; shift 2 ;;
@@ -130,6 +132,12 @@ fi
 if [[ -n "$AU" ]]; then
     [[ -d "$AU" ]] || die "AU plugin not found: $AU"
     [[ "$(basename "$AU")" == *.component ]] || die "AU path must be a .component bundle: $AU"
+fi
+if [[ -n "$CLAP" ]]; then
+    # -d, not -f: on macOS a .clap is a bundle directory, which is the whole
+    # reason this format is macOS-only here (CMakeLists, T5YNTH_CLAP_FORMAT).
+    [[ -d "$CLAP" ]] || die "CLAP plugin not found: $CLAP"
+    [[ "$(basename "$CLAP")" == *.clap ]] || die "CLAP path must be a .clap bundle: $CLAP"
 fi
 
 # ── Signing the libraries Csound arrived with ────────────────────────
@@ -323,6 +331,35 @@ if [[ -n "$AU" ]]; then
         "$WORK/au.pkg"
 fi
 
+# ── Stage: CLAP plugin (optional) ────────────────────────────────────
+if [[ -n "$CLAP" ]]; then
+    echo "  Staging CLAP plugin..."
+    STAGE_CLAP="$WORK/stage-clap"
+    mkdir -p "$STAGE_CLAP"
+    cp -R "$CLAP" "$STAGE_CLAP/"
+    STAGED_CLAP="$STAGE_CLAP/$(basename "$CLAP")"
+
+    if [[ -n "$APP_SIGN_IDENTITY" ]]; then
+        echo "  Signing CLAP plugin with Developer ID..."
+        sign_bundled_libs "$STAGED_CLAP" "$APP_SIGN_IDENTITY"
+        codesign \
+            --force \
+            --deep \
+            --timestamp \
+            --options runtime \
+            --sign "$APP_SIGN_IDENTITY" \
+            "$STAGED_CLAP"
+        codesign --verify --deep --strict "$STAGED_CLAP"
+    fi
+
+    pkgbuild \
+        --root "$STAGE_CLAP" \
+        --identifier org.ai4artsed.akroasys.clap \
+        --version "$PACKAGE_VERSION" \
+        --install-location "/Library/Audio/Plug-Ins/CLAP" \
+        "$WORK/clap.pkg"
+fi
+
 # ── Copy resources for the product installer ─────────────────────────
 RESOURCES="$WORK/resources"
 mkdir -p "$RESOURCES"
@@ -335,7 +372,7 @@ echo "  Building product installer..."
 
 # Generate distribution.xml dynamically so the choices-outline + pkg-ref
 # lists reflect exactly which components were staged. Standalone and
-# support-data are always present; VST3 and AU are appended only when
+# support-data are always present; VST3, AU and CLAP are appended only when
 # the corresponding bundles were passed in.
 DIST_XML="$WORK/distribution.xml"
 EXTRA_OUTLINE=""
@@ -364,6 +401,18 @@ if [[ -n "$AU" ]]; then
 
 "
     EXTRA_PKG_REFS+="    <pkg-ref id=\"org.ai4artsed.akroasys.au\" version=\"$PACKAGE_VERSION\" onConclusion=\"none\">au.pkg</pkg-ref>"$'\n'
+fi
+
+if [[ -n "$CLAP" ]]; then
+    EXTRA_OUTLINE+="        <line choice=\"clap\"/>"$'\n'
+    EXTRA_CHOICES+="    <choice id=\"clap\" title=\"CLAP Plugin\"
+            description=\"akroasys CLAP plugin (loads in Bitwig Studio, REAPER, Studio One and other CLAP hosts). Requires the Standalone for the bundled inference backend.\"
+            start_selected=\"true\">
+        <pkg-ref id=\"org.ai4artsed.akroasys.clap\"/>
+    </choice>
+
+"
+    EXTRA_PKG_REFS+="    <pkg-ref id=\"org.ai4artsed.akroasys.clap\" version=\"$PACKAGE_VERSION\" onConclusion=\"none\">clap.pkg</pkg-ref>"$'\n'
 fi
 
 cat > "$DIST_XML" <<EOF

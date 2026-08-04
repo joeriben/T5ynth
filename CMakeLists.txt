@@ -170,16 +170,54 @@ else()
 endif()
 
 set(T5YNTH_PLUGIN_FORMATS Standalone VST3)
+
+# CLAP is NOT a juce_add_plugin FORMAT — JUCE ships no CLAP client, and the JUCE
+# team has never committed to one. The format comes from clap-juce-extensions
+# (MIT), which builds a second module out of the SAME shared-code target, so
+# there is no second copy of the plugin to keep in step: one processor, one
+# editor, one APVTS, one preset format.
+#
+# It therefore cannot live in T5YNTH_PLUGIN_FORMATS (juce_add_plugin would reject
+# the name) and is carried in its own variable instead, appended wherever a
+# per-format loop runs — signing, Csound bundling, the charset gate. Empty when
+# CLAP is not built, which makes every one of those loops a no-op without an
+# `if` of its own.
+#
+# macOS only, deliberately. On macOS a .clap is a real bundle, so everything the
+# VST3 and the AU already do — Contents/libs, @loader_path, the ad-hoc signature,
+# the verifier — applies to it unchanged. On Windows and Linux a .clap is a bare
+# DLL/.so with no bundle around it, and the Csound payload beside it would have to
+# land in a directory shared with every other vendor's plugins; that needs a
+# loader change in src/dsp/CsoundEngine.cpp and is a separate piece of work.
+set(T5YNTH_CLAP_FORMAT "")
 if(APPLE)
     option(T5YNTH_MACOS_STANDALONE_ONLY
         "Build only the macOS standalone app"
         OFF)
+    option(T5YNTH_BUILD_CLAP
+        "Build the CLAP plug-in (fetches clap-juce-extensions at configure time)"
+        ON)
 
     if(T5YNTH_MACOS_STANDALONE_ONLY)
         set(T5YNTH_PLUGIN_FORMATS Standalone)
     else()
         list(APPEND T5YNTH_PLUGIN_FORMATS AU)
+        if(T5YNTH_BUILD_CLAP)
+            set(T5YNTH_CLAP_FORMAT CLAP)
+        endif()
     endif()
+endif()
+
+if(T5YNTH_CLAP_FORMAT)
+    # Pinned to a commit, not to a tag: this project's tags are CLAP *protocol*
+    # versions from the pre-1.0 era (0.26.0 is from 2022, 111 commits behind), so
+    # a tag here would be a downgrade, not a stable point.
+    FetchContent_Declare(
+        clap_juce_extensions
+        GIT_REPOSITORY https://github.com/free-audio/clap-juce-extensions.git
+        GIT_TAG        54b3c3268ab6721a7afeef813c9e1ce43a3d0fcd
+    )
+    FetchContent_MakeAvailable(clap_juce_extensions)
 endif()
 
 # The instrument is called akróasys (ASCII: akroasys). T5ynth was its name up to
@@ -231,6 +269,29 @@ juce_add_plugin(T5ynth
     VST3_AUTO_MANIFEST FALSE
 )
 
+# ── the CLAP module, built from the same shared code ──────────────────────────
+# Must come after juce_add_plugin: the helper reads PRODUCT_NAME, VERSION and
+# COPY_PLUGIN_AFTER_BUILD off the target it is given. It creates T5ynth_CLAP,
+# a MODULE bundle at T5ynth_artefacts/<config>/CLAP/akroasys.clap — the same
+# layout every other format lands in.
+#
+# CLAP_ID is the identity a saved project matches on, the same job PLUGIN_CODE
+# does for VST3/AU, and it is the bundle identifier as well. It matches BUNDLE_ID
+# above, which all three existing formats already share.
+#
+# CLAP_USE_JUCE_PARAMETER_RANGES ALL: without it the wrapper hands the host
+# normalised 0..1 values while JUCE's own formats expose the parameter's real
+# range, so the same automation lane would read differently in a CLAP host than
+# in the VST3. ALL keeps one meaning per parameter across all four formats.
+if(T5YNTH_CLAP_FORMAT)
+    clap_juce_extensions_plugin(TARGET T5ynth
+        CLAP_ID "org.ai4artsed.akroasys"
+        CLAP_FEATURES instrument synthesizer stereo
+        CLAP_USE_JUCE_PARAMETER_RANGES ALL
+        CLAP_MANUAL_URL "https://github.com/joeriben/akroasys"
+        CLAP_SUPPORT_URL "https://github.com/joeriben/akroasys/issues")
+endif()
+
 # ── macOS: ad-hoc sign VST3 / AU bundles after JUCE's build steps ──
 # Two separate JUCE 8.0.6 issues manifest as "plugin does not show up as
 # instrument in Bitwig/Ableton":
@@ -256,6 +317,20 @@ if(APPLE AND TARGET T5ynth_AU)
         COMMAND ${CMAKE_COMMAND} -E echo "ad-hoc signing AU component bundle"
         COMMAND codesign --force --sign - --deep
             "$<TARGET_BUNDLE_DIR:T5ynth_AU>"
+        VERBATIM)
+endif()
+
+# The CLAP has issue 2 for a simpler reason: clap-juce-extensions signs nothing at
+# all, by design — it only builds the module. So the same linker-embedded ad-hoc
+# signature is left expecting a sealed _CodeSignature that no one created, and the
+# same "code has no resources but signature indicates they must be present"
+# follows. This POST_BUILD runs after the helper's own steps (PkgInfo and the
+# bundle icon), so there is nothing left to seal over.
+if(APPLE AND TARGET T5ynth_CLAP)
+    add_custom_command(TARGET T5ynth_CLAP POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E echo "ad-hoc signing CLAP bundle"
+        COMMAND codesign --force --sign - --deep
+            "$<TARGET_BUNDLE_DIR:T5ynth_CLAP>"
         VERBATIM)
 endif()
 
@@ -299,7 +374,7 @@ if(APPLE AND T5YNTH_CSOUND_VENDORED AND T5YNTH_BUNDLE_CSOUND)
     # copy plus signatures. Not optional here and deliberately so — the binary
     # names @loader_path/../libs/CsoundLib64, and a bundle without it would not
     # launch at all. No dylibbundler, no Homebrew, nothing to install.
-    foreach(_fmt Standalone VST3 AU)
+    foreach(_fmt Standalone VST3 AU ${T5YNTH_CLAP_FORMAT})
         if(TARGET T5ynth_${_fmt})
             add_custom_command(TARGET T5ynth_${_fmt} POST_BUILD
                 COMMAND ${CMAKE_COMMAND} -E env
@@ -319,7 +394,7 @@ elseif(APPLE AND T5YNTH_CSOUND_FOUND AND T5YNTH_BUNDLE_CSOUND)
             "keep linking ${T5YNTH_CSOUND_FRAMEWORK} and will only run on a "
             "machine that has it. `brew install dylibbundler` to bundle Csound.")
     else()
-        foreach(_fmt Standalone VST3 AU)
+        foreach(_fmt Standalone VST3 AU ${T5YNTH_CLAP_FORMAT})
             if(TARGET T5ynth_${_fmt})
                 add_custom_command(TARGET T5ynth_${_fmt} POST_BUILD
                     COMMAND ${CMAKE_COMMAND} -E env
@@ -445,7 +520,7 @@ add_custom_target(t5ynth_charset_gate ALL
 # hard configure error here rather than a dropped dependency: a gate that is
 # still in the file but no longer attached is worse than no gate, because it
 # reads as protection.
-foreach(_t T5ynth ${T5YNTH_PLUGIN_FORMATS})
+foreach(_t T5ynth ${T5YNTH_PLUGIN_FORMATS} ${T5YNTH_CLAP_FORMAT})
     if(NOT TARGET ${_t})
         set(_t T5ynth_${_t})
     endif()

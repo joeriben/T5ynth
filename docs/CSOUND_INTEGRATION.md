@@ -10,7 +10,7 @@ The LRO **is** Csound, so Csound ships inside the app. Nobody installs anything.
    branch. CI runners and dev machines without Csound are unaffected.
 2. **Dynamic, never static.** LGPL 2.1: the shipped library is replaceable, and
    `resources/licenses/csound/NOTICE.txt` travels with it and says how.
-3. **Re-signed after copying**, for Standalone, VST3 and AU.
+3. **Re-signed after copying**, for Standalone, VST3, AU and CLAP.
 4. **The acceptance test is the one that can fail:** make the machine's own Csound
    unreachable, then produce an LRO sound in the *built* Standalone.
 
