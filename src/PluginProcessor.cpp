@@ -7564,6 +7564,22 @@ juce::String T5ynthProcessor::exportJsonPreset() const
         jassert(val != nullptr); // fires in debug if PID is missing
         return val ? val->load() : 0.0f;
     };
+    // Every integer-valued parameter (a step count, a choice index) arrives
+    // here as a float, and a float carrying an integer is not always exactly
+    // that integer: an AudioParameterInt/Choice that nothing has written yet
+    // holds whatever its NORMALISED default converts back to, and inf_steps
+    // sits at 7.9999995 in a freshly opened session. static_cast<int> truncated
+    // that to 7, so a save recorded a value the parameter did not hold, and
+    // reloading it moved the parameter. Round instead.
+    //
+    // Measured 2026-08-05 over all 120 int and choice parameters: inf_steps is
+    // the only one that currently lands off-integer, and nothing downstream
+    // reads it — the request forces the selected model's own step count at the
+    // generation choke point (PromptPanel::…, "the request never trusts it").
+    // So this is the export telling the truth about the parameter, not an
+    // audible fix. It is done for all 67 casts because the conversion is wrong
+    // for every one of them, not because inf_steps is special.
+    auto getInt = [&](const juce::String& id) { return juce::roundToInt(get(id)); };
 
     juce::DynamicObject::Ptr root = new juce::DynamicObject();
     root->setProperty("version", 1);
@@ -7584,16 +7600,16 @@ juce::String T5ynthProcessor::exportJsonPreset() const
     // enum order can change without breaking presets. A preset saved before
     // Re-Prompt existed lacks both -> choiceFromKey("") -> 0 -> stance Off on load.
     synth->setProperty("repromptStance",
-                       choiceToKey(static_cast<int>(get(PID::repromptStance)), RepromptStance::kEntries));
+                       choiceToKey(getInt(PID::repromptStance), RepromptStance::kEntries));
     synth->setProperty("repromptCoupling",
-                       choiceToKey(static_cast<int>(get(PID::repromptCoupling)), RepromptCoupling::kEntries));
+                       choiceToKey(getInt(PID::repromptCoupling), RepromptCoupling::kEntries));
     synth->setProperty("resynthSource",
-                       choiceToKey(static_cast<int>(get(PID::resynthSource)), ResynthSource::kEntries));
+                       choiceToKey(getInt(PID::resynthSource), ResynthSource::kEntries));
     synth->setProperty("duration", get(PID::genDuration));
     synth->setProperty("startPosition", get(PID::genStart));
-    synth->setProperty("steps", static_cast<int>(get(PID::infSteps)));
+    synth->setProperty("steps", getInt(PID::infSteps));
     synth->setProperty("cfg", get(PID::genCfg));
-    synth->setProperty("seed", static_cast<int>(get(PID::genSeed)));
+    synth->setProperty("seed", getInt(PID::genSeed));
     synth->setProperty("model", lastModel);
     synth->setProperty("hfBoost", get(PID::genHfBoost) > 0.5f);
     // Modality epoch + authoring app version (v2.5.0+). A LEGACY preset (loaded
@@ -7613,14 +7629,14 @@ juce::String T5ynthProcessor::exportJsonPreset() const
 
     // Engine
     juce::DynamicObject::Ptr engine = new juce::DynamicObject();
-    engine->setProperty("mode", choiceToKey(static_cast<int>(get(PID::engineMode)), EngineMode::kEntries));
+    engine->setProperty("mode", choiceToKey(getInt(PID::engineMode), EngineMode::kEntries));
     // voiceCount and tuning are part of the engine config (polyphony + the
     // tuning table the VoiceManager applies). Both are in
     // MainPanel::kMainSnapshotParamIds so per-snapshot save round-trips
     // them, but they used to be omitted from the main preset JSON --
     // saving a preset with "12 voices / Maqam" would silently reset to
     // the APVTS defaults (8 voices / 12-TET) on reload.
-    engine->setProperty("voiceCount", choiceToKey(static_cast<int>(get(PID::voiceCount)), VoiceCount::kEntries));
+    engine->setProperty("voiceCount", choiceToKey(getInt(PID::voiceCount), VoiceCount::kEntries));
     // NOT lcoSetsParams (BJ, 2026-07-30). It looked like part of the patch's
     // character and is not: the sound this file describes is fully in the values
     // it already carries — the cutoff and the envelope routings an authoring set
@@ -7630,8 +7646,8 @@ juce::String T5ynthProcessor::exportJsonPreset() const
     // done, and a file — least of all one from someone else — does not get to
     // grant it. It also made the switch unusable as the A/B it is, since every
     // preset load stamped it back down.
-    engine->setProperty("tuning",     choiceToKey(static_cast<int>(get(PID::tuning)),     TuningType::kEntries));
-    engine->setProperty("loopMode", choiceToKey(static_cast<int>(get(PID::loopMode)), LoopMode::kEntries));
+    engine->setProperty("tuning",     choiceToKey(getInt(PID::tuning),     TuningType::kEntries));
+    engine->setProperty("loopMode", choiceToKey(getInt(PID::loopMode), LoopMode::kEntries));
     engine->setProperty("loopStartFrac", static_cast<double>(masterSampler.getLoopStart()));
     engine->setProperty("loopEndFrac", static_cast<double>(masterSampler.getLoopEnd()));
     engine->setProperty("startPosFrac", static_cast<double>(masterSampler.getStartPos()));
@@ -7640,7 +7656,7 @@ juce::String T5ynthProcessor::exportJsonPreset() const
     engine->setProperty("pointsLocked", masterSampler.getPointsLocked());
     engine->setProperty("crossfadeMs", get(PID::crossfadeMs));
     engine->setProperty(PID::normalize, get(PID::normalize) > 0.5f);
-    engine->setProperty("loopOptimize", choiceToKey(static_cast<int>(get(PID::loopOptimize)), LoopOptimize::kEntries));
+    engine->setProperty("loopOptimize", choiceToKey(getInt(PID::loopOptimize), LoopOptimize::kEntries));
     // Csound orchestra (Phase 5, SPEC_phase4_5_csound_llm_preset.md): only
     // written when the engine is actually in Csound mode, mirroring the
     // modality-epoch "absence is the switch" convention above — a preset
@@ -7662,7 +7678,7 @@ juce::String T5ynthProcessor::exportJsonPreset() const
     // state. Locked because csoundPendingOrchestraText_ is written under
     // csoundLifecycleMutex_ from requestCsoundOrchestra(), which may run on
     // a different thread than this (const, but the mutex is `mutable`) call.
-    if (static_cast<int>(get(PID::engineMode)) == static_cast<int>(EngineMode::Csound))
+    if (getInt(PID::engineMode) == static_cast<int>(EngineMode::Csound))
     {
         juce::String pendingOrchestraText;
         {
@@ -7712,11 +7728,11 @@ juce::String T5ynthProcessor::exportJsonPreset() const
         env->setProperty("sustain", get(ep.sustain));
         env->setProperty("releaseMs", get(ep.release));
         env->setProperty("amount", get(ep.amount));
-        env->setProperty("target", envTargetToString(static_cast<int>(get(ep.target))));
+        env->setProperty("target", envTargetToString(getInt(ep.target)));
         env->setProperty("loop", get(ep.loop) > 0.5f);
-        env->setProperty("attackCurve", curveShapeToString(static_cast<int>(get(ep.attackCurve))));
-        env->setProperty("decayCurve", curveShapeToString(static_cast<int>(get(ep.decayCurve))));
-        env->setProperty("releaseCurve", curveShapeToString(static_cast<int>(get(ep.releaseCurve))));
+        env->setProperty("attackCurve", curveShapeToString(getInt(ep.attackCurve)));
+        env->setProperty("decayCurve", curveShapeToString(getInt(ep.decayCurve)));
+        env->setProperty("releaseCurve", curveShapeToString(getInt(ep.releaseCurve)));
         env->setProperty("attackVelSens", get(ep.attackVelSens));
         env->setProperty("decayVelSens", get(ep.decayVelSens));
         env->setProperty("releaseVelSens", get(ep.releaseVelSens));
@@ -7732,11 +7748,11 @@ juce::String T5ynthProcessor::exportJsonPreset() const
         juce::DynamicObject::Ptr lfo = new juce::DynamicObject();
         lfo->setProperty("rate", get(lp.rate));
         lfo->setProperty("depth", get(lp.depth));
-        lfo->setProperty("waveform", lfoWaveToString(static_cast<int>(get(lp.wave))));
-        lfo->setProperty("target", lfoTargetToString(static_cast<int>(get(lp.target))));
-        lfo->setProperty("mode", lfoModeToString(static_cast<int>(get(lp.mode))));
-        lfo->setProperty("clockMode", clockModeToString(static_cast<int>(get(lp.clockMode))));
-        lfo->setProperty("clockDivision", clockDivisionToString(static_cast<int>(get(lp.clockDivision))));
+        lfo->setProperty("waveform", lfoWaveToString(getInt(lp.wave)));
+        lfo->setProperty("target", lfoTargetToString(getInt(lp.target)));
+        lfo->setProperty("mode", lfoModeToString(getInt(lp.mode)));
+        lfo->setProperty("clockMode", clockModeToString(getInt(lp.clockMode)));
+        lfo->setProperty("clockDivision", clockDivisionToString(getInt(lp.clockDivision)));
         lfoArr.add(lfo.get());
     }
     modObj->setProperty("lfos", lfoArr);
@@ -7760,24 +7776,24 @@ juce::String T5ynthProcessor::exportJsonPreset() const
         juce::DynamicObject::Ptr d = new juce::DynamicObject();
         d->setProperty("rate", get(dp.rate));
         d->setProperty("depth", get(dp.depth));
-        d->setProperty("waveform", driftWaveToString(static_cast<int>(get(dp.wave))));
-        d->setProperty("target", driftTargetToString(static_cast<int>(get(dp.target))));
-        d->setProperty("clockMode", clockModeToString(static_cast<int>(get(dp.clockMode))));
-        d->setProperty("clockDivision", driftDivisionToString(static_cast<int>(get(dp.clockDivision))));
+        d->setProperty("waveform", driftWaveToString(getInt(dp.wave)));
+        d->setProperty("target", driftTargetToString(getInt(dp.target)));
+        d->setProperty("clockMode", clockModeToString(getInt(dp.clockMode)));
+        d->setProperty("clockDivision", driftDivisionToString(getInt(dp.clockDivision)));
         driftArr.add(d.get());
     }
     root->setProperty("driftLfos", driftArr);
     root->setProperty("driftEnabled", get(PID::driftEnabled) > 0.5f);
     root->setProperty("driftCrossfade", get(PID::driftCrossfade));
-    root->setProperty("regenMode", choiceToKey(static_cast<int>(get(PID::driftRegen)), DriftRegen::kEntries));
+    root->setProperty("regenMode", choiceToKey(getInt(PID::driftRegen), DriftRegen::kEntries));
 
     // Wavetable + Noise
     juce::DynamicObject::Ptr wt = new juce::DynamicObject();
     wt->setProperty("scan", get(PID::oscScan));
-    wt->setProperty("octaveShift", choiceToKey(static_cast<int>(get(PID::oscOctave)), OscOctave::kEntries));
+    wt->setProperty("octaveShift", choiceToKey(getInt(PID::oscOctave), OscOctave::kEntries));
     wt->setProperty("noiseLevel", get(PID::noiseLevel));
-    wt->setProperty("noiseType", choiceToKey(static_cast<int>(get(PID::noiseType)), NoiseKind::kEntries));
-    wt->setProperty("frames", choiceToKey(static_cast<int>(get(PID::wtFrames)), WtFrames::kEntries));
+    wt->setProperty("noiseType", choiceToKey(getInt(PID::noiseType), NoiseKind::kEntries));
+    wt->setProperty("frames", choiceToKey(getInt(PID::wtFrames), WtFrames::kEntries));
     wt->setProperty("smooth", get(PID::wtSmooth) > 0.5f);
     wt->setProperty("autoScan", get(PID::wtAutoScan) > 0.5f);
     root->setProperty("wavetable", wt.get());
@@ -7801,28 +7817,28 @@ juce::String T5ynthProcessor::exportJsonPreset() const
         lco->setProperty("oscBHasContent", lcoOscBHasContent_);
         lco->setProperty("gainB", static_cast<double>(lcoGainB_));
         lco->setProperty("repromptStance",
-                         choiceToKey(static_cast<int>(get(PID::dcoRepromptStance)), RepromptStance::kEntries));
+                         choiceToKey(getInt(PID::dcoRepromptStance), RepromptStance::kEntries));
         root->setProperty("lco", lco.get());
     }
 
     // Granular
     juce::DynamicObject::Ptr freeze = new juce::DynamicObject();
-    freeze->setProperty("texture", choiceToKey(static_cast<int>(get(PID::freezeTexture)),
+    freeze->setProperty("texture", choiceToKey(getInt(PID::freezeTexture),
                                                FreezeTexture::kEntries));
     freeze->setProperty("stereo", get(PID::freezeStereo));
     root->setProperty("freeze", freeze.get());
 
     // Effects
     juce::DynamicObject::Ptr fx = new juce::DynamicObject();
-    fx->setProperty("delayType", choiceToKey(static_cast<int>(get(PID::delayType)), DelayType::kEntries));
+    fx->setProperty("delayType", choiceToKey(getInt(PID::delayType), DelayType::kEntries));
     fx->setProperty("delayTimeMs", get(PID::delayTime));
     fx->setProperty("delayFeedback", get(PID::delayFeedback));
     fx->setProperty("delayMix", get(PID::delayMix));
     fx->setProperty("delayDamp", get(PID::delayDamp));
     fx->setProperty("delayClockMode",
-                    clockModeToString(static_cast<int>(get(PID::delayClockMode))));
+                    clockModeToString(getInt(PID::delayClockMode)));
     fx->setProperty("delayClockDivision",
-                    clockDivisionToString(static_cast<int>(get(PID::delayClockDivision))));
+                    clockDivisionToString(getInt(PID::delayClockDivision)));
     fx->setProperty("distOn", get(PID::fxDistOn) > 0.5f);
     fx->setProperty("chorusOn", get(PID::fxChorusOn) > 0.5f);
     fx->setProperty("phaserOn", get(PID::fxPhaserOn) > 0.5f);
@@ -7833,7 +7849,7 @@ juce::String T5ynthProcessor::exportJsonPreset() const
     fx->setProperty("tremAmt", get(PID::fxTremDepth));
     fx->setProperty("tremStereo", get(PID::fxTremStereo));
     fx->setProperty("tremWave",
-                    choiceToKey(static_cast<int>(get(PID::fxTremWave)), TremWave::kEntries));
+                    choiceToKey(getInt(PID::fxTremWave), TremWave::kEntries));
     fx->setProperty("chorusRate", get(PID::fxChorusRate));
     fx->setProperty("chorusAmt", get(PID::fxChorusDepth));
     fx->setProperty("chorusMix", get(PID::fxChorusMix));
@@ -7841,7 +7857,7 @@ juce::String T5ynthProcessor::exportJsonPreset() const
     fx->setProperty("phaserAmt", get(PID::fxPhaserDepth));
     fx->setProperty("phaserFeedback", get(PID::fxPhaserFeedback));
     fx->setProperty("phaserMix", get(PID::fxPhaserMix));
-    fx->setProperty("reverbType", choiceToKey(static_cast<int>(get(PID::reverbType)), ReverbType::kEntries));
+    fx->setProperty("reverbType", choiceToKey(getInt(PID::reverbType), ReverbType::kEntries));
     fx->setProperty("reverbMix", get(PID::reverbMix));
     fx->setProperty("algoRoom", get(PID::algoRoom));
     fx->setProperty("algoDamping", get(PID::algoDamping));
@@ -7853,25 +7869,25 @@ juce::String T5ynthProcessor::exportJsonPreset() const
 
     // Filter — store NORMALIZED cutoff (0-1), not Hz
     juce::DynamicObject::Ptr filt = new juce::DynamicObject();
-    int ftRaw = static_cast<int>(get(PID::filterType));
+    int ftRaw = getInt(PID::filterType);
     filt->setProperty("enabled", ftRaw > 0);
     filt->setProperty("type", filterTypeToString(ftRaw));
-    filt->setProperty("slope", filterSlopeToString(static_cast<int>(get(PID::filterSlope))));
+    filt->setProperty("slope", filterSlopeToString(getInt(PID::filterSlope)));
     filt->setProperty("cutoff", cutoffHzToNorm(get(PID::filterCutoff)));
     filt->setProperty("resonance", get(PID::filterResonance));
     filt->setProperty("mix", get(PID::filterMix));
     filt->setProperty("kbdTrack", get(PID::filterKbdTrack));
     filt->setProperty("drive", get(PID::filterDrive));
-    filt->setProperty("driveOs", filterDriveOsToString(static_cast<int>(get(PID::filterDriveOs))));
-    filt->setProperty("algorithm", filterAlgorithmToString(static_cast<int>(get(PID::filterAlgorithm))));
-    filt->setProperty("warpStyle", filterWarpStyleToString(static_cast<int>(get(PID::filterWarpStyle))));
+    filt->setProperty("driveOs", filterDriveOsToString(getInt(PID::filterDriveOs)));
+    filt->setProperty("algorithm", filterAlgorithmToString(getInt(PID::filterAlgorithm)));
+    filt->setProperty("warpStyle", filterWarpStyleToString(getInt(PID::filterWarpStyle)));
     root->setProperty("filter", filt.get());
 
     // Sequencer
     juce::DynamicObject::Ptr seq = new juce::DynamicObject();
     seq->setProperty("enabled", get(PID::seqRunning) > 0.5f);
     seq->setProperty("bpm", get(PID::seqBpm));
-    int stepCount = static_cast<int>(get(PID::seqSteps));
+    int stepCount = getInt(PID::seqSteps);
     seq->setProperty("stepCount", stepCount);
     juce::Array<juce::var> stepArr;
     for (int i = 0; i < stepCount; ++i)
@@ -7898,31 +7914,31 @@ juce::String T5ynthProcessor::exportJsonPreset() const
         stepArr.add(s.get());
     }
     seq->setProperty("steps", stepArr);
-    seq->setProperty("octaveShift", choiceToKey(static_cast<int>(get(PID::seqOctave)), SeqOctave::kEntries));
-    seq->setProperty("division", choiceToKey(static_cast<int>(get(PID::seqDivision)), SeqDivision::kEntries));
+    seq->setProperty("octaveShift", choiceToKey(getInt(PID::seqOctave), SeqOctave::kEntries));
+    seq->setProperty("division", choiceToKey(getInt(PID::seqDivision), SeqDivision::kEntries));
     seq->setProperty("glideTime", get(PID::seqGlideTime));
     seq->setProperty("gate", get(PID::seqGate));
     seq->setProperty("shuffle", get(PID::seqShuffle));
-    seq->setProperty("scaleRoot", choiceToKey(static_cast<int>(get(PID::scaleRoot)), ScaleRoot::kEntries));
-    seq->setProperty("scaleType", choiceToKey(static_cast<int>(get(PID::scaleType)), ScaleType::kEntries));
+    seq->setProperty("scaleRoot", choiceToKey(getInt(PID::scaleRoot), ScaleRoot::kEntries));
+    seq->setProperty("scaleType", choiceToKey(getInt(PID::scaleType), ScaleType::kEntries));
     root->setProperty("sequencer", seq.get());
 
     // Arpeggiator — new v3 format stores pattern as a single key
     // (ArpMode::Off is "off", replacing the old `enabled` bool + pattern).
     juce::DynamicObject::Ptr arp = new juce::DynamicObject();
-    arp->setProperty("pattern", choiceToKey(static_cast<int>(get(PID::arpMode)), ArpMode::kEntries));
-    arp->setProperty("rate", choiceToKey(static_cast<int>(get(PID::arpRate)), ArpRate::kEntries));
-    arp->setProperty("octaveRange", static_cast<int>(get(PID::arpOctaves)));
+    arp->setProperty("pattern", choiceToKey(getInt(PID::arpMode), ArpMode::kEntries));
+    arp->setProperty("rate", choiceToKey(getInt(PID::arpRate), ArpRate::kEntries));
+    arp->setProperty("octaveRange", getInt(PID::arpOctaves));
     root->setProperty("arpeggiator", arp.get());
 
     // Generative sequencer
     juce::DynamicObject::Ptr genSeq = new juce::DynamicObject();
     genSeq->setProperty("enabled", get(PID::genSeqRunning) > 0.5f);
-    genSeq->setProperty("steps", static_cast<int>(get(PID::genSteps)));
-    genSeq->setProperty("pulses", static_cast<int>(get(PID::genPulses)));
-    genSeq->setProperty("rotation", static_cast<int>(get(PID::genRotation)));
+    genSeq->setProperty("steps", getInt(PID::genSteps));
+    genSeq->setProperty("pulses", getInt(PID::genPulses));
+    genSeq->setProperty("rotation", getInt(PID::genRotation));
     genSeq->setProperty("mutation", get(PID::genMutation));
-    genSeq->setProperty("range", choiceToKey(static_cast<int>(get(PID::genRange)), GenRange::kEntries));
+    genSeq->setProperty("range", choiceToKey(getInt(PID::genRange), GenRange::kEntries));
     genSeq->setProperty("fixSteps",    get(PID::genFixSteps) > 0.5f);
     genSeq->setProperty("fixPulses",   get(PID::genFixPulses) > 0.5f);
     genSeq->setProperty("fixRotation", get(PID::genFixRotation) > 0.5f);
@@ -7930,23 +7946,23 @@ juce::String T5ynthProcessor::exportJsonPreset() const
 
     // Inter-strand coordination (added 2026-07-16, was never persisted before)
     genSeq->setProperty("coordination",
-                        choiceToKey(static_cast<int>(get(PID::genCoordinationMode)),
+                        choiceToKey(getInt(PID::genCoordinationMode),
                                     CoordinationMode::kEntries));
-    genSeq->setProperty("coordinationCap", static_cast<int>(get(PID::genCoordinationCap)));
+    genSeq->setProperty("coordinationCap", getInt(PID::genCoordinationCap));
 
     // Shared pitch field
     juce::DynamicObject::Ptr field = new juce::DynamicObject();
-    field->setProperty("mode",     choiceToKey(static_cast<int>(get(PID::genFieldMode)),  FieldMode::kEntries));
-    field->setProperty("rate",     static_cast<int>(get(PID::genFieldRate)));
-    field->setProperty("centerPc", static_cast<int>(get(PID::genFieldCenterPc)));
-    field->setProperty("pivot",    choiceToKey(static_cast<int>(get(PID::genFieldPivot)), FieldPivot::kEntries));
+    field->setProperty("mode",     choiceToKey(getInt(PID::genFieldMode),  FieldMode::kEntries));
+    field->setProperty("rate",     getInt(PID::genFieldRate));
+    field->setProperty("centerPc", getInt(PID::genFieldCenterPc));
+    field->setProperty("pivot",    choiceToKey(getInt(PID::genFieldPivot), FieldPivot::kEntries));
     genSeq->setProperty("pitchField", field.get());
 
     // Strand 0 extras (Euclidean params already serialised above under top-level keys)
     juce::DynamicObject::Ptr strand0 = new juce::DynamicObject();
-    strand0->setProperty("role",      choiceToKey(static_cast<int>(get(PID::genRole)),    StrandRole::kEntries));
-    strand0->setProperty("octave",    static_cast<int>(get(PID::genOctave)));
-    strand0->setProperty("divMult",   choiceToKey(static_cast<int>(get(PID::genDivMult)), StrandDivMult::kEntries));
+    strand0->setProperty("role",      choiceToKey(getInt(PID::genRole),    StrandRole::kEntries));
+    strand0->setProperty("octave",    getInt(PID::genOctave));
+    strand0->setProperty("divMult",   choiceToKey(getInt(PID::genDivMult), StrandDivMult::kEntries));
     strand0->setProperty("dominance", get(PID::genDominance));
     genSeq->setProperty("strand0", strand0.get());
 
@@ -7976,13 +7992,13 @@ juce::String T5ynthProcessor::exportJsonPreset() const
         const auto& ids = kExtras[i];
         juce::DynamicObject::Ptr sn = new juce::DynamicObject();
         sn->setProperty("enabled",     get(ids.enable) > 0.5f);
-        sn->setProperty("role",        choiceToKey(static_cast<int>(get(ids.role)),    StrandRole::kEntries));
-        sn->setProperty("octave",      static_cast<int>(get(ids.octave)));
-        sn->setProperty("divMult",     choiceToKey(static_cast<int>(get(ids.divMult)), StrandDivMult::kEntries));
+        sn->setProperty("role",        choiceToKey(getInt(ids.role),    StrandRole::kEntries));
+        sn->setProperty("octave",      getInt(ids.octave));
+        sn->setProperty("divMult",     choiceToKey(getInt(ids.divMult), StrandDivMult::kEntries));
         sn->setProperty("dominance",   get(ids.dominance));
-        sn->setProperty("steps",       static_cast<int>(get(ids.steps)));
-        sn->setProperty("pulses",      static_cast<int>(get(ids.pulses)));
-        sn->setProperty("rotation",    static_cast<int>(get(ids.rotation)));
+        sn->setProperty("steps",       getInt(ids.steps));
+        sn->setProperty("pulses",      getInt(ids.pulses));
+        sn->setProperty("rotation",    getInt(ids.rotation));
         sn->setProperty("mutation",    get(ids.mutation));
         sn->setProperty("fixSteps",    get(ids.fS) > 0.5f);
         sn->setProperty("fixPulses",   get(ids.fP) > 0.5f);
