@@ -58,6 +58,8 @@ exported_models/
 tools/test_delay_damp
 tools/test_inference
 tools/test_reprompt_stances
+tools/measure_engine_levels
+tools/measure_poly_independence
 
 # Listening-test render output
 tools/init_audio_test_output/
