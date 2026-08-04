@@ -290,10 +290,21 @@ namespace
         float limiterThresh;  // dB
         float masterVol;      // dB, -60..0 -- attenuative only
         float ampAmount = 1.0f;
+        bool  csound = false;   // LRO instead of the wavetable engine
     };
 
     void run (T5ynthProcessor& proc, const Config& c)
     {
+        if (c.csound)
+        {
+            proc.forceCsoundEngineMode();
+            pump (400);
+        }
+        else
+        {
+            setParam (proc, PID::engineMode, 1.0f);   // Wavetable
+            pump (200);
+        }
         setParam (proc, PID::modEnv[0].amount, c.modAmount);
         setParam (proc, PID::modEnv[0].target, (float) c.modTarget);
         setParam (proc, PID::limiterThresh,    c.limiterThresh);
@@ -389,6 +400,16 @@ int main (int argc, char** argv)
           1.0f, EnvTarget::Filter, -3.0f,   0.0f, 0.25f },
         { "8. filter envelope at FULL amount, limiter threshold -24 dB",
           1.0f, EnvTarget::Filter, -24.0f,  0.0f, 1.0f },
+        // The LRO is the engine BJ reports as quiet, so the question the master
+        // stage raises for it is a different one: how much of what it DOES have
+        // is the makeup gain (static, keepable) and how much is compression
+        // (dynamic, and the coupling). 10 against 9 answers it -- 9 lets the
+        // stage act, 10 keeps the same makeup while the level stays far enough
+        // below the fixed -10 dBFS first stage for it to be idle.
+        { "9.  LRO (Csound engine), filter envelope at FULL amount, defaults",
+          1.0f, EnvTarget::Filter, -3.0f,   0.0f, 1.0f,  true },
+        { "10. LRO, same, but 18 dB below the master stage",
+          1.0f, EnvTarget::Filter, -3.0f, -18.0f, 1.0f,  true },
     };
 
     for (const auto& c : configs)
