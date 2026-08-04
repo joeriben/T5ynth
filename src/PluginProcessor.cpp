@@ -3494,7 +3494,7 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
     //            (gain-neutral, reso +12dB)
     // Sum:       N voices * 1/N^0.1 (VoiceManager::updateGainTarget)
     // Post-Sum:  Delay+Reverb up to ~2.7x → Master 0dB max → output gain
-    //            (x1.0 at the default) → ceiling, STANDALONE only
+    //            (x0.891 at the default) → ceiling, STANDALONE only
     //
     // Three numbers here were stale and are corrected rather than carried:
     // the per-voice VCA is `ampEnvVal * prod(1 + Amt_m)` over the mod envelopes

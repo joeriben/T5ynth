@@ -700,6 +700,14 @@ void SynthVoice::updateSamplerPreStretchNorm(const BlockParams& p)
     float analysisPeak = 0.0f;
     sampler.estimatePlaybackRms(dcaCurve, analysisSamples, &analysisPeak);
 
+    // The VCA carries the engine trim (EngineCalib), and this analysis predicts
+    // the POST-VCA peak, so the trim belongs in the prediction. Without it the
+    // guard would enforce 0.95 * kSampler = 0.738 instead of 0.95 and attenuate
+    // material that was never over -- and it does so PRE-STRETCH, upstream of
+    // the drive and the filter, which is exactly the source-side timbre shift
+    // the trim was sited at the VCA to avoid.
+    analysisPeak *= EngineCalib::kSampler;
+
     static constexpr float kCeiling = 0.95f;
     samplerPreStretchNormGain_ = 1.0f;
 
@@ -812,11 +820,15 @@ void SynthVoice::renderBlock(float* output, float* outputRight, const BlockParam
     bool freezeMode = (engineMode == EngineMode::Freeze) && freezeEngine.hasAudio();
     bool oscReady = (engineMode == EngineMode::Wavetable) && osc.hasFrames();
 
-    // Block-constant: the branch below picks ONE engine for the whole block.
-    const float engineTrim = samplerMode ? EngineCalib::kSampler
-                           : freezeMode  ? EngineCalib::kFreeze
-                           : oscReady    ? EngineCalib::kWavetable
-                                         : EngineCalib::kCsound;
+    // Block-constant, and keyed on the engine MODE rather than on the three
+    // readiness flags above. The flags flip the moment an engine receives its
+    // audio -- a generation finishing while a note is held -- and a trim that
+    // followed them would step the voice's level by up to 10.5 dB at that block
+    // boundary, unramped. The mode only changes when the player changes it.
+    const float engineTrim = engineMode == EngineMode::Sampler   ? EngineCalib::kSampler
+                           : engineMode == EngineMode::Freeze    ? EngineCalib::kFreeze
+                           : engineMode == EngineMode::Wavetable ? EngineCalib::kWavetable
+                                                                 : EngineCalib::kCsound;
 
     // Single wavetable oscillator (the dual A+B DCO split is dead — BJ
     // 2026-07-17). Hoist: setInterpolation is a pure setter; tunedHz is
@@ -1197,6 +1209,15 @@ void SynthVoice::renderBlock(float* output, float* outputRight, const BlockParam
             // saturating stages. Both would have moved by the trim, up to
             // 10.5 dB on the wavetable engine, and a level calibration has no
             // business changing anybody's timbre.
+            //
+            // WHAT THIS COSTS, because the two placements cannot both be had:
+            // the noise oscillator and anything else generated inside the voice
+            // (filter self-oscillation) ride the trim too, so their ABSOLUTE
+            // level is now engine-dependent, up to 13.7 dB between the wavetable
+            // and granular engines. That is the same span the tone used to have,
+            // moved onto the noise. It is the lesser cost: the balance a preset
+            // was authored with survives, and switching engines no longer moves
+            // the instrument's principal voice.
             vcaScratch[i - pos] = vca * engineTrim;
 
             // Freeing the voice cuts its output dead AND ends it as a modulation
