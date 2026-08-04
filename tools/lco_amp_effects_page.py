@@ -50,10 +50,11 @@ SETTINGS = [
      "slow, where a phase-shifter pedal sits — juce::dsp::Phaser at a 600 Hz centre"),
     ("bright chorus", "tine",
      ["chorus_mix=0.5", "chorus_rate=0.8", "chorus_amt=0.4"],
-     "juce::dsp::Chorus, 7 ms centre delay, no feedback. It THICKENS but does not WIDEN: "
-     "the widget holds one LFO and one delay line for all channels (juce_Chorus.h:157–158), "
-     "so a signal that arrives identical in both channels leaves identical — measured L−R "
-     "of exactly 0. The same is true of the phaser"),
+     "a three-phase ensemble: one LFO, three taps 120° apart at 6.0 ± 3.4 ms, left summing "
+     "−120° and 0°, right 0° and +120°. It THICKENS and WIDENS — measured L−R against the "
+     "middle, −8.4 dB here where the juce::dsp::Chorus this replaced measured exactly 0, "
+     "because that one computed its delay once per block and used it for every channel. "
+     "The phaser is still that kind of widget and is still mono in this sense"),
     ("overdrive", "tine",
      ["dist_mix=0.7", "dist_drive=9"],
      "an overdriven AMPLIFIER: the rail droops with the current drawn, carries the "

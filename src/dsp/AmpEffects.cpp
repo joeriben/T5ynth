@@ -9,10 +9,16 @@ namespace
     constexpr double kSmoothSeconds = 0.02;
 
     // juce::dsp::DryWetMixer resets its gain smoothers to 0.05 s
-    // (juce_DryWetMixer.cpp), and Chorus and Phaser both own one. After their
-    // mix is turned to zero they therefore need that long to actually ARRIVE at
-    // dry; stopping sooner is the click this margin exists to avoid.
+    // (juce_DryWetMixer.cpp), and Phaser owns one. After its mix is turned to
+    // zero it therefore needs that long to actually ARRIVE at dry; stopping
+    // sooner is the click this margin exists to avoid. The chorus owns its mix
+    // smoother outright and asks it directly instead of counting.
     constexpr double kWidgetFlushSeconds = 0.06;
+
+    // sin(120°) = sin(240°) negated. The three ensemble taps come out of one
+    // sine and one cosine by angle addition rather than three calls to std::sin,
+    // which also puts the 120° into the arithmetic where it can be read.
+    constexpr double kSin120 = 0.86602540378443865;
 
     // ── the overdriven amplifier, and where each number comes from ──────────
     // Method and sources named before the first line, per the authoring rule.
@@ -402,53 +408,162 @@ void T5ynthTremolo::processBlock(juce::AudioBuffer<float>& buffer)
 
 void T5ynthChorus::prepare(double sampleRate, int samplesPerBlock)
 {
-    maxBlock_ = juce::jmax(1, samplesPerBlock);
+    sr_ = sampleRate;
+
+    // Sized from the geometry rather than from a round number, so the allocation
+    // and the clamp in processBlock cannot drift apart: the deepest tap, plus the
+    // four samples the cubic interpolator reads past it.
+    const int maxDelay =
+        static_cast<int>(std::ceil((kCentreMs + kSweepMs) * 0.001 * sampleRate)) + 4;
+    delay_.setMaximumDelayInSamples(maxDelay);
     juce::dsp::ProcessSpec spec { sampleRate,
-                                  static_cast<juce::uint32>(maxBlock_), 2 };
-    chorus_.prepare(spec);
-    chorus_.setCentreDelay(7.0f);   // ms; the middle of juce::dsp::Chorus's range
-    chorus_.setFeedback(0.0f);      // a chorus, not a flanger
-    chorus_.setMix(mix_);
-    flushLen_ = static_cast<int>(kWidgetFlushSeconds * sampleRate);
-    flush_ = 0;
+                                  static_cast<juce::uint32>(juce::jmax(1, samplesPerBlock)), 2 };
+    delay_.prepare(spec);
+
+    centreS_ = static_cast<float>(kCentreMs * 0.001 * sampleRate);
+    sweepS_  = static_cast<float>(kSweepMs  * 0.001 * sampleRate);
+    maxS_    = static_cast<float>(delay_.getMaximumDelayInSamples());
+    fillLen_ = maxDelay;
+
+    depthS_.reset(sampleRate, kSmoothSeconds);
+    mixS_.reset(sampleRate, kSmoothSeconds);
+    depthS_.setCurrentAndTargetValue(depth_);
+
+    phase_ = 0.0;
+    setRate(rateHz_);
     prepared_ = true;
+    lastNumCh_ = 2;          // what the spec above prepared for
+    armFill();
 }
 
-void T5ynthChorus::reset() { if (prepared_) chorus_.reset(); flush_ = 0; }
+void T5ynthChorus::reset()
+{
+    if (!prepared_) return;
+    delay_.reset();
+    phase_ = 0.0;
+    depthS_.setCurrentAndTargetValue(depth_);
+    armFill();
+}
 
-void T5ynthChorus::setRate(float hz)      { chorus_.setRate(juce::jlimit(0.05f, 10.0f, hz)); }
-void T5ynthChorus::setDepth(float depth)  { chorus_.setDepth(juce::jlimit(0.0f, 1.0f, depth)); }
+void T5ynthChorus::armFill()
+{
+    // The line is empty, so the only truthful state is DRY, whatever the mix
+    // reads. Parking the smoother AT `mix_` instead would put a step exactly
+    // where the fill ends: `getNextValue()` on an arrived smoother returns the
+    // target at once, so the coefficient would jump 0 → mix in one sample —
+    // measured 0.14615 at +456 samples against the signal's own 0.01443, on
+    // every re-`prepareToPlay` (sample-rate or buffer change) with the chorus
+    // engaged. The processor re-sends the SAME mix on the next block and
+    // `setTargetValue` early-returns on an unchanged target, so nothing else
+    // would re-arm the ramp either.
+    idle_ = true;
+    fill_ = fillLen_;
+    mixS_.setCurrentAndTargetValue(0.0f);
+    mixS_.setTargetValue(mix_);
+}
+
+void T5ynthChorus::setRate(float hz)
+{
+    rateHz_ = juce::jlimit(0.05f, 10.0f, hz);
+    inc_ = static_cast<double>(rateHz_) / sr_;   // phase is in turns, not radians
+}
+
+void T5ynthChorus::setDepth(float depth)
+{
+    // Smoothed, not stepped: this scales the delay itself, so a per-block step
+    // would move every tap by up to the full sweep between two samples.
+    depth_ = juce::jlimit(0.0f, 1.0f, depth);
+    depthS_.setTargetValue(depth_);
+}
 
 void T5ynthChorus::setMix(float mix)
 {
-    const float m = juce::jlimit(0.0f, 1.0f, mix);
-    // Turning it off arms the flush: the wrapped DryWetMixer still has to ramp
-    // its way down to dry, and stopping before it arrives is a step.
-    if (m <= 0.0001f && mix_ > 0.0001f) flush_ = flushLen_;
-    mix_ = m;
-    chorus_.setMix(mix_);
+    mix_ = juce::jlimit(0.0f, 1.0f, mix);
+    mixS_.setTargetValue(mix_);
 }
 
 void T5ynthChorus::processBlock(juce::AudioBuffer<float>& buffer)
 {
     if (!prepared_) return;
-    if (!wants() && flush_ <= 0) return;
 
-    const int numCh = buffer.getNumChannels();
-    const int total = buffer.getNumSamples();
-    if (numCh <= 0 || total <= 0) return;
-
-    if (!wants()) flush_ = juce::jmax(0, flush_ - total);
-
-    for (int start = 0; start < total; start += maxBlock_)
+    // The gate is on the SMOOTHED value, per this file's contract: the stage
+    // keeps running until its own mix ramp has arrived at dry, never stopping on
+    // the raw target.
+    if (!wants() && !mixS_.isSmoothing())
     {
-        const int n = juce::jmin(maxBlock_, total - start);
-        juce::dsp::AudioBlock<float> block(buffer.getArrayOfWritePointers(),
-                                           static_cast<size_t>(numCh),
-                                           static_cast<size_t>(start),
-                                           static_cast<size_t>(n));
-        juce::dsp::ProcessContextReplacing<float> ctx(block);
-        chorus_.process(ctx);
+        // Arrived. Clear the line ONCE — it still holds whatever was in it when
+        // the mix reached zero, and re-engaging a minute later would otherwise
+        // fade in a fragment of a note that is long gone. A memset of a few kB
+        // on the transition only, so the shut gate still costs nothing per block.
+        if (!idle_) { delay_.reset(); armFill(); }
+        return;
+    }
+
+    const int numCh = juce::jmin(2, buffer.getNumChannels());   // prepared for two;
+                                                                //   channels past the
+                                                                //   second pass through
+    const int n = buffer.getNumSamples();
+    if (numCh <= 0 || n <= 0) return;   // before idle_ moves: an empty block feeds nothing
+
+    // A channel count that changed under us leaves the other line unfed and its
+    // contents stale, so it is refilled rather than mixed in. Not reachable
+    // through a JUCE host, which re-prepares on a bus change; reachable from a
+    // tool that hands this stage mono and then stereo buffers.
+    if (numCh != lastNumCh_) { delay_.reset(); armFill(); lastNumCh_ = numCh; }
+    idle_ = false;
+
+    float* ch[2] { buffer.getWritePointer(0),
+                   numCh > 1 ? buffer.getWritePointer(1) : nullptr };
+
+    for (int i = 0; i < n; ++i)
+    {
+        const float d = depthS_.getNextValue();
+        // A CLEARED line reads zeros until it has been fed for as long as its
+        // deepest tap, and the sample where a tap crosses that boundary is a
+        // step — measured, an isolated 0.02357 exactly 4.96 ms after engaging,
+        // against a neighbourhood of 0.0005. So the mix ramp does not start
+        // until the line is full: the taps are read and thrown away for those
+        // 9.4 ms, and the output is the dry it already was. The gate opens
+        // ~10 ms later than it used to and does not step at all.
+        const bool filling = fill_ > 0;
+        const float m = filling ? 0.0f : mixS_.getNextValue();
+        if (filling) --fill_;
+
+        // One LFO, three phases 120° apart — the brigade. Both channels read the
+        // same three taps; what differs is WHICH two of them each one sums.
+        const double a  = juce::MathConstants<double>::twoPi * phase_;
+        const double sa = std::sin(a), ca = std::cos(a);
+        const double lfo[kTaps] { -0.5 * sa - kSin120 * ca,   // a − 120°
+                                   sa,                        // a
+                                  -0.5 * sa + kSin120 * ca }; // a + 120°
+
+        float tau[kTaps];
+        for (int t = 0; t < kTaps; ++t)
+            tau[t] = juce::jlimit(1.0f, maxS_,
+                                  centreS_ + sweepS_ * d * static_cast<float>(lfo[t]));
+
+        float wet[2] { 0.0f, 0.0f };
+        for (int c = 0; c < numCh; ++c)
+        {
+            delay_.pushSample(c, ch[c][i]);
+            float tap[kTaps];
+            for (int t = 0; t < kTaps; ++t)   // the read pointer advances on the last one only
+                tap[t] = delay_.popSample(c, tau[t], t == kTaps - 1);
+
+            // Left takes −120° and 0°, right 0° and +120°: the middle phase is
+            // common so the image keeps a centre, the outer two are split so the
+            // sides decorrelate. In mono there is no side to split, so all three
+            // are summed and what is left is the thickening alone.
+            wet[c] = numCh > 1 ? (c == 0 ? 0.5f * (tap[0] + tap[1])
+                                         : 0.5f * (tap[1] + tap[2]))
+                               : (tap[0] + tap[1] + tap[2]) * (1.0f / kTaps);
+        }
+
+        for (int c = 0; c < numCh; ++c)
+            ch[c][i] += m * (wet[c] - ch[c][i]);   // linear, so mix 0.5 is the deepest comb
+
+        phase_ += inc_;
+        if (phase_ >= 1.0) phase_ -= 1.0;
     }
 }
 

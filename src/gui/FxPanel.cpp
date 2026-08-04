@@ -17,6 +17,16 @@ static juce::String fmtF3(double v)  { return juce::String(v, 3); }
 static juce::String fmtDb1(double v) { return juce::String(v, 1) + "dB"; }
 static juce::String fmtHz2(double v) { return juce::String(v, 2) + "Hz"; }
 
+// The chorus's Amt is a fraction of the ensemble's own sweep, so it can say what
+// it actually does: how far each of the three taps travels either side of the
+// centre delay. The sweep comes from T5ynthChorus rather than a second copy of
+// the number here, which could drift away from the one the DSP uses.
+static juce::String fmtChorusSweep(double v)
+{
+    return juce::String::charToString(0x00b1)   // PLUS-MINUS SIGN, never a literal
+         + juce::String(v * T5ynthChorus::kSweepMs, 2) + "ms";
+}
+
 static juce::String fmtDampPct(double v)
 {
     // Damp is a normalized 0..1 trim, NOT a single cutoff: the DSP adds a
@@ -331,7 +341,7 @@ FxPanel::FxPanel(juce::AudioProcessorValueTreeState& apvts, T5ynthProcessor& pro
     distDriveRow   = std::make_unique<SliderRow>("Drive",  fmtDb1,  kFxCol);
     distMixRow     = std::make_unique<SliderRow>("Mix",    fmtF2,   kFxCol);
     chorRateRow    = std::make_unique<SliderRow>("Rate",   fmtHz2,  kFxCol);
-    chorAmtRow     = std::make_unique<SliderRow>("Amt",    fmtF2,   kFxCol);
+    chorAmtRow     = std::make_unique<SliderRow>("Amt",    fmtChorusSweep, kFxCol);
     chorMixRow     = std::make_unique<SliderRow>("Mix",    fmtF2,   kFxCol);
     phasRateRow    = std::make_unique<SliderRow>("Rate",   fmtHz2,  kFxCol);
     phasAmtRow     = std::make_unique<SliderRow>("Amt",    fmtF2,   kFxCol);

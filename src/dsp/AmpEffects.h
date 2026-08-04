@@ -28,22 +28,28 @@
  * −1.29 on the phaser and −0.31 on the distortion against a signal whose own
  * largest step at 220 Hz is 0.0144. So each gate here is a gate on the SMOOTHED
  * value: the effect keeps running until its own ramp has arrived, and only then
- * stops. The tremolo did this from the start; the other three now do it too, the
- * two JUCE widgets by counting out the 50 ms their internal `DryWetMixer` ramps
- * for (juce_DryWetMixer.cpp: `smoothedGains.reset(sampleRate, 0.05)`).
+ * stops. The tremolo did this from the start; the other three now do it too. The
+ * chorus asks its own mix smoother whether it has arrived, because it owns one;
+ * the phaser cannot, so it counts out the 50 ms the `DryWetMixer` inside
+ * `juce::dsp::Phaser` ramps for (juce_DryWetMixer.cpp:
+ * `smoothedGains.reset(sampleRate, 0.05)`).
  *
- * The two modulation effects wrap `juce::dsp::Chorus` and `juce::dsp::Phaser`
- * rather than reimplementing them. The distortion is an OVERDRIVEN AMPLIFIER
- * rather than a curve — see its own comment.
+ * Of the two modulation effects only the PHASER wraps a JUCE widget. The chorus
+ * has its own three-tap ensemble, for the reason its comment gives. The
+ * distortion is an OVERDRIVEN AMPLIFIER rather than a curve — see its own
+ * comment.
  *
  * RT contract, the same one every other module in this directory keeps:
  * `prepare()` allocates and `processBlock()` never does. Every gain that a
  * parameter can step is ramped or smoothed, because a per-block step audibly
  * zippers once an LFO rides it — the delay/reverb crossfade in PluginProcessor
- * carries the same note for the same reason. A block LARGER than the one
- * `prepare()` was given is processed in prepared-size chunks rather than
- * trusted: ASan caught `juce::dsp::Chorus` and `Phaser` writing past their
- * `bufferDelayTimes` / `bufferFrequency` scratch on the first oversized block.
+ * carries the same note for the same reason. Where a stage holds per-block
+ * scratch, a block LARGER than the one `prepare()` was given is processed in
+ * prepared-size chunks rather than trusted: ASan caught `juce::dsp::Chorus` and
+ * `Phaser` writing past their `bufferDelayTimes` / `bufferFrequency` scratch on
+ * the first oversized block. The chorus no longer needs that chunking — it holds
+ * no per-block buffer at all now, only per-sample state — but the phaser still
+ * does, and the distortion chunks for its oversampler.
  */
 
 /**
@@ -212,25 +218,87 @@ private:
     juce::SmoothedValue<float> waveMixS_;
 };
 
-/** juce::dsp::Chorus. Bypassed at mix == 0, which is the default. */
+/**
+ * A three-phase ensemble chorus: one LFO, three modulated delay taps 120° apart,
+ * split across the two channels. Bypassed at mix == 0, which is the default.
+ *
+ * REPLACES `juce::dsp::Chorus`, on BJ's ruling of 2026-08-04 after hearing the
+ * shipped one: *„Was Du da gebaut hast ist kein Chorus sondern eine Kombi
+ * Pitch/Filter-Wobbel."* He is right, and structurally so, which is why this is a
+ * replacement and not a retuning. That widget holds ONE delay tap driven by ONE
+ * LFO, and a single swept tap summed with the dry can only be two things at the
+ * same time: a Doppler pitch shift, because the instantaneous frequency ratio of
+ * a moving tap is 1 − τ′(t), and one comb filter whose notches slide with it. At
+ * its geometry — 7 ms of centre delay, ±10 ms of sweep (juce_Chorus.h:124, 169)
+ * — τ′ alone puts the defaults at ±30 cents of vibrato and drags the whole comb
+ * (first notch 71 Hz, spacing 143 Hz) across a factor of three. And it cannot
+ * widen at all: the delay times are computed once per block and used for every
+ * channel (juce_Chorus.h:117–130), so a signal arriving identical in both
+ * channels leaves identical — measured L−R of exactly 0, already recorded in
+ * tools/lco_amp_effects_page.py before this rebuild.
+ *
+ * METHOD AND SOURCES, before the first line, per the authoring rule.
+ *   • The modulated-delay chorus, and the requirement that the interpolator be
+ *     of higher than linear order — a linearly interpolated moving tap is itself
+ *     a time-varying lowpass whose gain travels with the fractional delay: Jon
+ *     Dattorro, „Effect Design, Part 2: Delay-Line Modulation and Chorus", J.
+ *     Audio Eng. Soc. 45(10), 1997, 764–788. Hence Lagrange3rd below, which is
+ *     also the order Csound's `vdelay3` interpolates at.
+ *   • THREE taps at 120°: the bucket-brigade ensemble of the ARP/Solina string
+ *     machine family. This project already carries that construction and BJ has
+ *     already signed it off — `divider_organ`'s `ensemble` in
+ *     backend/lco_library.json is three `vdelay3` taps at 6.0 ± 3.4 ms, phases
+ *     0 / 1⁄3 / 2⁄3. Its geometry is the anchor for the two numbers below, so
+ *     they are a measured, heard precedent rather than a fresh invention.
+ *
+ * WHY THREE AND NOT ONE, in one sentence: with one tap there is a single comb and
+ * a single pitch line and both are audible AS THEMSELVES, and with three at 120°
+ * no notch of one sits where another's does at any instant, so no single sweep
+ * survives the sum and what is left is the thickness the notches leave behind.
+ *
+ * DECLARED, NOT ATTRIBUTED — which tap feeds which channel. Left sums the tap at
+ * −120° and the one at 0°, right sums 0° and +120°: the middle phase is common,
+ * so the image keeps a centre, and the outer two are split, so the sides
+ * decorrelate. Nothing in either source above fixes that pairing. It is a choice,
+ * and it is the one thing here that BJ's ear decides rather than a citation.
+ *
+ * Stereo in and out. It is prepared for two channels and touches no more than
+ * two: a third and beyond pass through unchanged, where the widget this replaced
+ * would have been handed them and asserted.
+ */
 class T5ynthChorus
 {
 public:
+    /** The ensemble's geometry in ms — `divider_organ`'s own two numbers. Public
+        because the panel shows the sweep that `Amt` is a fraction of, and a
+        second copy of 3.4 living in the GUI would be a number that can drift. */
+    static constexpr float kCentreMs = 6.0f;
+    static constexpr float kSweepMs  = 3.4f;
+
     void prepare(double sampleRate, int samplesPerBlock);
     void reset();
 
     void setRate(float hz);        ///< 0.05…10 Hz
-    void setDepth(float depth);    ///< 0…1
+    void setDepth(float depth);    ///< 0…1, as a fraction of ±kSweepMs
     void setMix(float mix);        ///< 0…1, 0 is bypass and the default
 
     bool wants() const noexcept { return mix_ > 0.0001f; }
     void processBlock(juce::AudioBuffer<float>& buffer);
 
 private:
-    juce::dsp::Chorus<float> chorus_;
-    float mix_ = 0.0f;
-    int flush_ = 0, flushLen_ = 0, maxBlock_ = 0;
-    bool prepared_ = false;
+    static constexpr int kTaps = 3;
+
+    /** Go dry and refill: the line is empty, so hold the mix at zero until it
+        has been fed for as long as the deepest tap, then ramp. */
+    void armFill();
+
+    juce::dsp::DelayLine<float, juce::dsp::DelayLineInterpolationTypes::Lagrange3rd> delay_ { 4 };
+    juce::SmoothedValue<float> depthS_, mixS_;
+    double phase_ = 0.0, inc_ = 0.0, sr_ = 44100.0;
+    float centreS_ = 0.0f, sweepS_ = 0.0f, maxS_ = 0.0f;
+    float rateHz_ = 0.8f, depth_ = 0.35f, mix_ = 0.0f;
+    int fill_ = 0, fillLen_ = 0, lastNumCh_ = 2;
+    bool prepared_ = false, idle_ = true;
 };
 
 /** juce::dsp::Phaser. Bypassed at mix == 0, which is the default. */
