@@ -4760,10 +4760,11 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
                     else if (msg.isChannelPressure())
                     {
                         const float pressure = static_cast<float>(msg.getChannelPressureValue()) / 127.0f;
-                        // MPE Loudness (Z). Master channel (1/16) = zone-wide pressure
-                        // (all voices). Member channel = per-note pressure on the voice
-                        // tagged with that channel only.
-                        if (channel == 1 || channel == 16)
+                        // MPE Loudness (Z). A zone MASTER channel = zone-wide pressure
+                        // (all voices). A member channel = per-note pressure on the voice
+                        // tagged with that channel only. Which channel 16 is depends on
+                        // whether an upper zone was declared — see isMpeMasterChannel.
+                        if (isMpeMasterChannel (channel))
                             voiceManager.setChannelPressure(pressure);
                         else
                             voiceManager.setChannelPressureForChannel(channel, pressure);
@@ -4776,6 +4777,13 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
                         // Ch2-16 = MPE per-note bend; VoiceManager only forwards to voices
                         // that were tagged with that channel on noteOn (external notes only —
                         // internal sequencer notes are tagged channel 0 and never match).
+                        //
+                        // Deliberately NOT isMpeMasterChannel(): this is the one expression
+                        // that already treated channel 16 as a member, so it needs no repair,
+                        // and routing it through the predicate would turn a declared upper
+                        // zone's master bend global. Correct per MPE, and untestable here —
+                        // a change to what the pitch wheel does, arriving inside a change
+                        // about which channel is a master.
                         if (pbChannel == 1)
                         {
                             voiceManager.setPitchBendSemitones(
@@ -4844,7 +4852,7 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
                             // per-note MPE range. Value 0 is treated as 1 (1 semitone min).
                             const float rangeS = static_cast<float>(std::max(1, value7));
                             const int rpnCh = msg.getChannel();
-                            if (rpnCh == 1 || rpnCh == 16)
+                            if (isMpeMasterChannel (rpnCh))
                             {
                                 // Zone master channel: set the master bend AND mirror it to
                                 // the per-note range. MPE controllers that configure the whole
@@ -4860,11 +4868,69 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
                                 notePitchBendRangeSemitones_ = rangeS;
                             }
                         }
-                        else if (cc == 74 && channel != 1 && channel != 16)
+                        else if (cc == 6 && midiRpnMsb_ == 0 && midiRpnLsb_ == 6
+                                 && ! (dawModeActive_.load(std::memory_order_relaxed)
+                                       && msg.getChannel() == 16))
+                        {
+                            // RPN 0x0006 Data Entry MSB = the MPE Configuration Message:
+                            // how many MEMBER channels the zone this channel masters has.
+                            // Sent on ch1 for the Lower Zone, ch16 for the Upper Zone; 0
+                            // switches that zone off. Ignored on any other channel — only a
+                            // master declares a zone.
+                            //
+                            // This is the ONLY message that can make channel 16 a master
+                            // rather than a member, which is the whole reason the layout is
+                            // tracked at all. Same ch16 DAW-mode exemption as the RPN 0
+                            // branch above, for the same reason: that channel is the XL's.
+                            const int mcmCh   = msg.getChannel();
+                            const int members = value7;
+                            // Discarded, not clamped, above fifteen — the reference refuses
+                            // to enter that state (MPEZoneLayout::processZoneLayoutRpnMessage
+                            // guards with `rpn.value < 16`), and clamping would let a foreign
+                            // or malformed RPN 6 install a full zone and switch the other one
+                            // off.
+                            if (members < 16 && (mcmCh == 1 || mcmCh == 16))
+                            {
+                                if (mcmCh == 1) mpeLowerZoneMembers_ = members;
+                                else            mpeUpperZoneMembers_ = members;
+
+                                // The two zones share fifteen member channels, so declaring
+                                // one shrinks the other where they would overlap
+                                // (juce::MPEZoneLayout::setZone). A lower zone of 15 members
+                                // — the common default — therefore switches any upper zone
+                                // off, which is exactly the case that decides channel 16.
+                                // Clamped at 0; JUCE's raw 14-N can go negative.
+                                if (members > 0
+                                    && mpeLowerZoneMembers_ + mpeUpperZoneMembers_ >= 15)
+                                {
+                                    if (mcmCh == 1)
+                                        mpeUpperZoneMembers_ = std::max(0, 14 - members);
+                                    else
+                                        mpeLowerZoneMembers_ = std::max(0, 14 - members);
+                                }
+                            }
+                            // Deselect, because the configuration message is a one-shot
+                            // declaration: midiRpnLsb_ would otherwise stay at 6 until the
+                            // controller sends some other RPN, and every later CC6 — a
+                            // bound fader included — would be swallowed into this branch
+                            // and rewrite the zone from its value. This pair is ONE global
+                            // state where the MIDI spec has sixteen, one per channel
+                            // (juce::MidiRPNDetector), so a stale selection reaches CC6 on
+                            // every channel, not just the one that set it.
+                            //
+                            // The LSB only. Clearing the MSB as a real RPN Null does would
+                            // break a controller that re-sends just the byte that changed:
+                            // CC100=0 then CC6 is a legal way to follow this message with a
+                            // bend range, and it still finds midiRpnMsb_ == 0 waiting.
+                            // RPN 0 is not deselected at all — it is a value controllers
+                            // legitimately re-send.
+                            midiRpnLsb_ = 0x7F;
+                        }
+                        else if (cc == 74 && ! isMpeMasterChannel (channel))
                         {
                             // MPE Timbre (Y / the slide axis) → per-note brightness on the
-                            // voice(s) tagged with this MEMBER channel. Gated off the master
-                            // channels (1/16) on purpose: CC74 on ch1 is the generic
+                            // voice(s) tagged with this MEMBER channel. Gated off the zone
+                            // MASTER channels on purpose: CC74 on ch1 is the generic
                             // control-surface knob default (kExtMap → osc_scan), and MPE
                             // timbre is always transmitted per-note on member channels, so
                             // the channel cleanly separates the two meanings — a ch1 knob
@@ -5031,6 +5097,13 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
                                 else if (cc == 121)
                                 {
                                     voiceManager.resetPerformanceControllers();
+                                    // Reset All Controllers returns the RPN selection to
+                                    // Null. Inert while RPN 0 was the only one we read;
+                                    // now a stale selection can swallow a CC6 that was
+                                    // meant for a binding. NOT the zone layout — that is
+                                    // a property of the device, not a controller value.
+                                    midiRpnMsb_ = 0x7F;
+                                    midiRpnLsb_ = 0x7F;
                                 }
                             }
                         }

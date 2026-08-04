@@ -944,6 +944,58 @@ private:
     // clamp in SynthVoice stays ±48 so a larger transmitted range is still honored.
     float notePitchBendRangeSemitones_   = 24.0f;
 
+    // ── MPE zone layout ──────────────────────────────────────────────────────
+    // Only one question is asked of it here — is this channel a zone MASTER, whose
+    // expression is zone-wide, or a MEMBER, whose expression belongs to one note?
+    //
+    // MMA MPE, mirrored from juce::MPEZoneLayout (JUCE/modules/juce_audio_basics/
+    // mpe/juce_MPEZoneLayout.h:71-80): the LOWER zone's master is channel 1 and its
+    // members are 2..1+N; the UPPER zone's master is channel 16 and its members are
+    // 16-N..15. So channel 16 is a master ONLY where an upper zone exists. In the
+    // lower zone with 15 member channels — 2..16, which is what Logic, Bitwig and
+    // Live default to — channel 16 is an ordinary member, and treating it as a
+    // master sends one note in fifteen's pressure and slide to every voice.
+    //
+    // Declared by the MPE Configuration Message: RPN 6
+    // (juce::MPEMessages::zoneLayoutMessagesRpnNumber), data entry = member count,
+    // 0 = zone off. Until one arrives there is no upper zone, which is both the
+    // spec's initial state and the layout every host defaults to.
+    //
+    // The lower count is read by nothing but the shrink rule that keeps the two
+    // zones inside fifteen channels — and that is not bookkeeping: a lower zone of
+    // fifteen is exactly what forces an upper zone off, and switching the upper
+    // zone off is what makes channel 16 a member again.
+    //
+    // Once declared, a layout stays until another configuration message replaces it:
+    // not cleared by prepareToPlay, by a preset load, by panic or by Reset All
+    // Controllers. It describes the DEVICE, not the patch or the transport, and
+    // juce::MPEZoneLayout keeps it the same way. The cost is that an upper zone
+    // outlives the controller that declared it, until something declares another.
+    int mpeLowerZoneMembers_ = 0;
+    int mpeUpperZoneMembers_ = 0;
+
+    // The two channels are NOT symmetric here, and the asymmetry is the point:
+    // channel 1 is the lower zone's master AND plain MIDI's global channel, so it
+    // carries zone-wide expression whether or not MPE is in play. Channel 16 has no
+    // second role — outside a declared upper zone it is nothing but a member of a
+    // fifteen-channel lower zone, which is the layout every host defaults to.
+    //
+    // Channel 1 is therefore unconditional, and that is a deliberate stop rather than
+    // an oversight: an upper zone of fifteen members reaches down to channel 1
+    // (members 16-N..15) and would make it a member too. Nothing in this file handles
+    // that layout — the pitch-bend site reads channel 1 as global outright — so
+    // answering it here alone would only split channel 1's meaning between the
+    // expressions. It is a question about channel 1, and this is a change about
+    // channel 16.
+    bool isMpeMasterChannel (int channel) const noexcept
+    {
+        if (channel == 1)
+            return true;
+        if (channel == 16)
+            return mpeUpperZoneMembers_ > 0;
+        return false;
+    }
+
     // Edge-detection for arp-toggle note-off cleanup. When arp transitions
     // false→true while a sequencer is running, the seq's currently-sounding
     // note must be flushed before arp's filter starts swallowing noteOffs.
