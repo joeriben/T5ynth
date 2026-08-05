@@ -550,7 +550,30 @@ namespace EngineCalib {
     static constexpr float kSampler   = 0.7765f;  // 0.278 / 0.358
     static constexpr float kWavetable = 0.2986f;  // 0.278 / 0.931
     static constexpr float kFreeze    = 1.4404f;  // 0.278 / 0.193  (Granular)
-    static constexpr float kCsound    = 1.0f;     // the anchor
+    // THE SAMPLER'S OWN TRIM, deliberately the identical number and not a second
+    // one tuned to match it. CsoundEngine::prepare() now normalises each compiled
+    // orchestra to the same BUFFER level SamplePlayer normalises a sample to
+    // (CsoundEngine::kLevelPeakCeilingDb == SamplePlayer's kNormalizeCeilingDb),
+    // so by the time the two engines reach this line they are handing the VCA the
+    // same kind of source and must take the same trim. Sharing the constant is
+    // what makes them track each other when either side is retuned; two separately
+    // fitted numbers would drift apart silently.
+    //
+    // It was 1.0f before, commented "the anchor", and that was the defect. Nothing
+    // had ever measured an AUTHORED body — the number came from the built-in
+    // placeholder orchestra, which is not an instrument anyone plays, and the
+    // sampler it was matched against was a synthetic saw (tools/
+    // measure_engine_levels.cpp) quiet enough to take SamplePlayer's SUSTAINED
+    // normalise branch where every real T5-oscillator render, peaking at ~1.0,
+    // takes the PEAK-CAP one. Both halves of that comparison were unrepresentative
+    // in the same direction, so a table that reads as level-matched shipped the LRO
+    // 12.4 dB rms / 14.3 dB peak under the engine a player A/Bs it against
+    // (BJ, measured off his own recording 2026-08-05).
+    //
+    // Guarded by tools/audition_lro_level_match.cpp, which asserts the DELIVERED
+    // level — this trim included — against the sampler's, because a check written
+    // against the LRO's own target constant would certify any value of it.
+    static constexpr float kCsound    = kSampler;
 }
 
 namespace EnvTarget {

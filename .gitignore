@@ -60,6 +60,7 @@ tools/test_inference
 tools/test_reprompt_stances
 tools/measure_engine_levels
 tools/measure_poly_independence
+tools/audition_lro_level_match
 
 # Listening-test render output
 tools/init_audio_test_output/

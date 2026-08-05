@@ -99,6 +99,54 @@ public:
 
     bool isReady() const;
 
+    /** The static gain `prepare()` measured for the orchestra it compiled, and that
+     *  `renderUpTo` applies to every voice — 1.0 when nothing is compiled, or when
+     *  the reference render came back silent.
+     *
+     *  WHY THIS EXISTS. Every other engine hands the VCA a NORMALISED source: the
+     *  sampler normalises its buffer (SamplePlayer::normalizeBuffer, −1 dBFS peak
+     *  ceiling), the wavetable normalises every frame. The LRO had nothing of the
+     *  kind — it delivered whatever the authored body happened to peak at, times
+     *  the fixed `HEADROOM = 0.32` in backend/lco_write.py's tail. Since the author
+     *  is also told to keep `asig` near ±0.5, that stacks two independent headroom
+     *  factors and lands a typical body at ~0.13 peak / −26.5 dBFS rms where a
+     *  T5-oscillator sample lands at 0.69 / −14.1 dBFS. MEASURED on BJ's own A/B
+     *  (2026-08-05, `a fog horn 16" + a violin 8"` against A:foghorn B:violin):
+     *  12.4 dB rms / 14.3 dB peak quieter, at identical synth settings. The
+     *  built-in placeholder orchestra sat 7.9 dB down by the same measurement.
+     *
+     *  A CONSTANT CANNOT FIX IT, which is why this is a measurement. The 30 library
+     *  bodies span 0.32…1.65 in `asig` peak (14 dB) and 0.155…0.516 in rms (10 dB),
+     *  so any single factor large enough to lift the quiet ones drives the loud ones
+     *  into the tail's `clip` and turns a safety net into a permanent shaper.
+     *
+     *  Message/compile-thread only, like orchestraText(). */
+    float outputTrim() const;
+
+    /** Where `prepare()`'s reference render puts the orchestra, and the ceiling it
+     *  may not exceed doing it — the two numbers SamplePlayer's own normaliser
+     *  lands a real T5-oscillator render on, so the two engines match by sharing
+     *  one law instead of by two separately-fitted trims.
+     *
+     *  BOTH ARE BUFFER-LEVEL, i.e. they describe the source BEFORE EngineCalib.
+     *  That is the whole point: after this normalisation the LRO hands the VCA the
+     *  same kind of source the sampler does, so it takes the sampler's own trim
+     *  (EngineCalib::kCsound == kSampler) and the delivered levels follow. Reading
+     *  either of these as a delivered level puts the LRO 2.2 dB over the sampler.
+     *
+     *  The ceiling is SamplePlayer::kNormalizeCeilingDb verbatim. The rms target is
+     *  where SamplePlayer's PeakCap branch actually leaves SA3 material: an SA3
+     *  render peaks at ~1.0 (measured 0.9451 over the playback region of the very
+     *  session that produced this finding), i.e. inside kHotHeadroomDb, so it is
+     *  peak-capped rather than driven to kSustainedTargetDb, and its buffer rms
+     *  comes out at −11.9 dBFS. Matching the sampler's NOMINAL sustained target
+     *  instead would leave the LRO 6 dB under the engine a player A/Bs it against —
+     *  which is the same error that made the old calibration wrong, since
+     *  tools/measure_engine_levels.cpp levels the sampler against a synthetic saw
+     *  quiet enough to take that sustained branch. */
+    static constexpr float kLevelTargetRmsDb   = -12.0f;
+    static constexpr float kLevelPeakCeilingDb =  -1.0f;
+
     // ---- audio thread (RT-safe: raw pointer writes + performKsmps, zero lookups/locks) ----
     struct VoiceControls { float gate, freqHz, velocity, pressure, timbre, trigEpoch; };
     void setVoiceControls (int voiceIndex, const VoiceControls&);   // writes via cached MYFLT*
@@ -237,6 +285,7 @@ inline const std::string& CsoundEngine::orchestraText() const
     return kEmpty;
 }
 inline bool CsoundEngine::isReady() const { return false; }
+inline float CsoundEngine::outputTrim() const { return 1.0f; }
 inline void CsoundEngine::setVoiceControls (int, const VoiceControls&) {}
 inline void CsoundEngine::renderUpTo (int) {}
 inline void CsoundEngine::startBlock (int) {}

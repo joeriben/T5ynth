@@ -507,6 +507,87 @@ namespace
             return acc;
         }
     };
+
+    // ---- prepare()'s level-reference render (see CsoundEngine::outputTrim) ----
+
+    // 220 Hz, the reference pitch every offline measurement in this project uses
+    // (tools/lco_measure.render's default), so a trim measured here and a number
+    // read there describe the same note.
+    constexpr double kLevelMeasureFreqHz = 220.0;
+    // Settle covers the body's SPECTRAL attack — which the library's own guidance
+    // makes a real thing (an upper band fading in over 40 ms, a filter opening, an
+    // FM index reaching its value late) — plus the 63-tap decimators' priming. The
+    // level belongs to the settled tone; the synth's envelope owns the onset.
+    constexpr double kLevelSettleSeconds  = 0.30;
+    // 0.60 s at 220 Hz is 132 cycles: enough that the rms is stable and that a
+    // multi-partial body's peaks have had many chances to align. It is NOT enough
+    // to average over a slow motion LFO (`tanpura`'s is 3.7 s), so such a body is
+    // levelled at one phase of its own movement. Accepted deliberately: the error
+    // is the depth of that body's own level motion, ~1 dB in the library, against
+    // the 12.4 dB this whole pass exists to remove — and lengthening the window is
+    // paid for in compile latency on every single authoring.
+    constexpr double kLevelMeasureSeconds = 0.60;
+    // Below this the reference render is numerical dust, not a signal.
+    constexpr float kLevelSilenceFloor = 1.0e-6f;
+    // AND below THIS rms the body did not really speak at the reference note, even
+    // though it was not silent — so its level cannot be read off that note, and a
+    // trim derived from it would be a guess of +40 dB or more.
+    //
+    // This is not caution in the abstract; the project documents the class it is
+    // for. `wgbrass` puts 2 % of its energy on multiples of the played pitch and is
+    // SILENT below about 440 Hz (docs/LCO_CONCEPT.md §6, measured); `wgbowedbar`
+    // locks onto a fixed mode away from a narrow bow-position window. A body built
+    // on one of those measures near-nothing at 220 Hz and roars an octave up, and
+    // the peak ceiling cannot catch it — the ceiling is measured on the same silent
+    // render. Leaving such a body untrimmed keeps it as loud as it was, which is
+    // the known quantity; scaling it by what a near-silent window suggests is how a
+    // 40 dB surprise reaches a player's ears one note higher.
+    //
+    // -40 dBFS is 30 dB under the quietest thing the library authors (`driven_metal`,
+    // rms 0.0496 delivered) so nothing that works is caught by it.
+    constexpr float kLevelReferenceFloorRms = 0.01f;   // -40 dBFS
+    // Trim bounds. Note what the maximum does NOT do: it does not bound the
+    // pitch-dependence risk above, which is proportional (a body needing 4x that
+    // is 12 dB louder elsewhere overshoots by the same 12 dB as one needing 32x).
+    // kLevelReferenceFloorRms is what addresses that. The maximum only has to reach
+    // far enough to rescue the quiet tail of what authors actually write: the
+    // library's quietest body needs ~5x, and 32 (+30 dB) covers everything down to
+    // the reference floor with room to spare.
+    constexpr float kLevelTrimMin = 0.05f;
+    constexpr float kLevelTrimMax = 32.0f;
+
+    // ---- The bound the trim would otherwise have removed ----
+    //
+    // The authored tail ends on `aout clip aout, 0, 0.95, 0.85` (backend/
+    // lco_write.py), whose own comment promises it "bounds ANY op stack / crest /
+    // host gain" — and until the trim existed it did: nothing could leave this
+    // engine above 0.95, in any register, from any body. The trim multiplies AFTER
+    // that clip, so on its own it turns a body needing 5x into a possible 4.8 peak
+    // wherever the body happens to be louder than at the reference note. The
+    // reference floor cannot catch that case (the body is not silent at 220 Hz,
+    // merely quieter), and no trim cap can either — the overshoot is proportional
+    // to the trim, so a smaller cap moves the number without removing the class.
+    //
+    // So the bound is re-applied here, after the trim, with the same SHAPE the
+    // Csound clip has: transparent up to a knee, asymptotic to a ceiling. Sited so
+    // that normal operation never reaches it — the trim targets a 0.891 peak and
+    // the knee is above that — which keeps this a safety net and not a colour.
+    // A body that IS far louder in another register gets soft-limited there, which
+    // is exactly what the tail's clip did to it before.
+    constexpr float kOutputKnee    = 0.95f;
+    constexpr float kOutputCeiling = 1.50f;
+
+    // One compare on the common path; the tanh only runs on a sample that is
+    // already past the knee, which for a correctly trimmed body never happens.
+    inline float boundOutput (float y) noexcept
+    {
+        const float a = std::fabs(y);
+        if (a <= kOutputKnee)
+            return y;
+        constexpr float span = kOutputCeiling - kOutputKnee;
+        const float shaped = kOutputKnee + span * std::tanh((a - kOutputKnee) / span);
+        return y < 0.0f ? -shaped : shaped;
+    }
 }
 
 struct CsoundEngine::Impl
@@ -528,6 +609,15 @@ struct CsoundEngine::Impl
     int capacity  = 0;   // allocated voice-buffer length (>= every startBlock's numSamples)
     int blockSize = 0;   // current host block length
     int writePos  = 0;   // samples already rendered into the current block
+
+    // The static level trim measured for the compiled orchestra (see
+    // CsoundEngine::outputTrim's header comment for why it is a measurement and
+    // not a constant). Written by prepare() on the compile thread BEFORE `ready`
+    // is stored with release semantics, read by renderUpTo() on the audio thread
+    // only after it has loaded `ready` with acquire — the identical publish order
+    // that makes channelPtr/globalPtr safe to read unsynchronised, and the reason
+    // this needs no atomic of its own.
+    float outputTrim = 1.0f;
 
     static constexpr int kChannelsPerVoice = 6; // gate, freq, vel, pres, timb, trig
     MYFLT* channelPtr[CsoundEngine::kMaxVoices][kChannelsPerVoice] = {};
@@ -806,6 +896,152 @@ bool CsoundEngine::prepare (double sampleRate, int maxBlockSize, const char* orc
     for (long i = 0; i < warmupOnBlocks; ++i)
         csoundPerformKsmps(cs);
 
+    // ---- Level normalisation: what does THIS orchestra actually deliver? ----
+    // One voice, one reference note, measured through the same halfband stages
+    // renderUpTo runs on the live signal — so the number is the level a player
+    // hears, not the level at Csound's internal rate. See outputTrim()'s header
+    // comment for the measurement that made this necessary and why no constant
+    // can replace it.
+    //
+    // Placed AFTER the gated warmup and BEFORE the gate-off settle below, and both
+    // halves of that matter:
+    //
+    // - after the warmup, because `balance`'s rms follower starts at zero and hands
+    //   a body building from silence an enormous first-milliseconds gain
+    //   (tools/lco_measure.scaffold documents the same trap offline, where two
+    //   library entries were reported as clipping on that artefact alone). By here
+    //   the follower has seen a second of signal, as it has in a plugin that has
+    //   been open for a while.
+    // - before the settle, because this pass OPENS voice 1's gate, and the settle
+    //   is what closes every gate down again. Sited after it instead, voice 1 would
+    //   publish with `kgate portk kgateraw, 0.001` only one k-cycle into its decay
+    //   — 0.40 at 48 kHz/1x, 0.79 at 4x — i.e. the engine would go ready with one
+    //   voice audibly a third to four-fifths open on a 220 Hz body it is about to
+    //   be handed a different note for. On the swap path primeForTakeover's own
+    //   0.25 s hides that; on the two paths that do not prime (the bootstrap
+    //   compile and an instant adopt) it would not be hidden.
+    //
+    // The knob channels still hold what the orchestra's own head `chnset`s — the
+    // AUTHOR's values, since the plugin does not write its parameters until the
+    // first audio block. That is the right reference: it is the instrument as
+    // authored, it is reproducible, and it is measured once per orchestra exactly
+    // as SamplePlayer normalises once per buffer. A knob that moves the level
+    // afterwards moves it, which is the body's business (§4 forbids an axis whose
+    // only effect IS the level).
+    {
+        for (int v = 1; v <= kMaxVoices; ++v)
+        {
+            impl->setNamedChannel("gate", v, 0.0);
+            impl->setNamedChannel("trig", v, 0.0);
+        }
+        // trig 0 -> 1 below is a real edge, so `changed2(ktrig)` fires and `knote`
+        // starts at 0: the body sees a note-on, not an instance that has been up
+        // for a second. Voice 1 only — this is one instrument's level, not a chord's.
+        impl->setNamedChannel("gate", 1, 1.0);
+        impl->setNamedChannel("freq", 1, kLevelMeasureFreqHz);
+        impl->setNamedChannel("vel",  1, 1.0);
+        impl->setNamedChannel("pres", 1, 0.0);
+        // 64/127, SynthVoice::kTimbreNeutral — what a note with no MPE timbre
+        // actually sends, so the measured level is the level of an ordinary note.
+        impl->setNamedChannel("timb", 1, 64.0 / 127.0);
+        impl->setNamedChannel("trig", 1, 1.0);
+
+        const int  osF        = oversampleFactor;
+        const int  perPerform = kKsmps / osF;
+        const long settleBlk  = (long) std::llround(kLevelSettleSeconds  * engineRate / (double) kKsmps);
+        const long measureBlk = (long) std::llround(kLevelMeasureSeconds * engineRate / (double) kKsmps);
+
+        double sumSq   = 0.0;
+        long   nSamples = 0;
+        float  peak     = 0.0f;
+        bool   finite   = true;
+
+        for (long i = 0; i < settleBlk + measureBlk && finite; ++i)
+        {
+            if (csoundPerformKsmps(cs) != 0)
+                break;                      // score ended: keep whatever was measured
+            const MYFLT* spout = csoundGetSpout(cs);
+
+            // Voice 1 == spout channel 0. Mirrors renderUpTo's de-interleave and
+            // decimation exactly; decim1[0]/decim2[0] are reset again below so no
+            // state from this pass reaches the first audible block.
+            for (int s = 0; s < perPerform; ++s)
+            {
+                float y;
+                if (osF == 1)
+                {
+                    y = (float) spout[(size_t) s * (size_t) kMaxVoices];
+                }
+                else if (osF == 2)
+                {
+                    y = impl->decim1[0].process(
+                            (float) spout[(size_t) (2 * s)     * (size_t) kMaxVoices],
+                            (float) spout[(size_t) (2 * s + 1) * (size_t) kMaxVoices]);
+                }
+                else
+                {
+                    const float a = impl->decim1[0].process(
+                            (float) spout[(size_t) (4 * s)     * (size_t) kMaxVoices],
+                            (float) spout[(size_t) (4 * s + 1) * (size_t) kMaxVoices]);
+                    const float b = impl->decim1[0].process(
+                            (float) spout[(size_t) (4 * s + 2) * (size_t) kMaxVoices],
+                            (float) spout[(size_t) (4 * s + 3) * (size_t) kMaxVoices]);
+                    y = impl->decim2[0].process(a, b);
+                }
+
+                if (i < settleBlk)
+                    continue;               // decimators still primed, body still arriving
+
+                // NOT redundant with the silence guard below: std::max(a, NaN)
+                // returns a, so a NaN would slip past `peak` untouched and then be
+                // divided into the trim. The orchestra text is LLM-authored and an
+                // unstable filter in it lands exactly here.
+                if (! std::isfinite(y)) { finite = false; break; }
+                peak = std::max(peak, std::fabs(y));
+                sumSq += (double) y * (double) y;
+                ++nSamples;
+            }
+        }
+
+        impl->decim1[0].reset();
+        impl->decim2[0].reset();
+
+        const double rms = nSamples > 0 ? std::sqrt(sumSq / (double) nSamples) : 0.0;
+        float trim = 1.0f;
+        if (! finite)
+        {
+            std::fprintf(stderr, "CsoundEngine: non-finite sample in the level reference "
+                                 "render - leaving the orchestra untrimmed\n");
+        }
+        else if (peak > kLevelSilenceFloor && rms >= (double) kLevelReferenceFloorRms)
+        {
+            // The sampler's own law, same two numbers: drive the rms onto the
+            // target unless that would push the peak past the ceiling. A body
+            // whose crest is higher than target/ceiling allows is peak-capped and
+            // lands a little quieter — which is what SamplePlayer does to a spiky
+            // sample too, so the two engines stay consistent with each other
+            // rather than each being right on its own.
+            const double byRms  = std::pow(10.0, (double) kLevelTargetRmsDb   / 20.0) / rms;
+            const double byPeak = std::pow(10.0, (double) kLevelPeakCeilingDb / 20.0) / (double) peak;
+            trim = (float) std::min(byRms, byPeak);
+            trim = std::min(std::max(trim, kLevelTrimMin), kLevelTrimMax);
+        }
+        else
+        {
+            // Nothing usable at the reference pitch — silence, a body that speaks
+            // only in another register, or one that has already decayed. Trim stays
+            // 1.0: the body keeps the level it was written at, which is a known
+            // quantity, instead of one extrapolated from a window that did not hear
+            // it. renderBareOscillator refuses on the same ground.
+            std::fprintf(stderr, "CsoundEngine: level reference render at %.0f Hz came back at "
+                                 "%.1f dBFS rms (floor %.1f) - leaving the orchestra untrimmed\n",
+                         kLevelMeasureFreqHz,
+                         20.0 * std::log10(std::max(rms, 1.0e-12)),
+                         20.0 * std::log10((double) kLevelReferenceFloorRms));
+        }
+        impl->outputTrim = trim;
+    }
+
     for (int v = 1; v <= kMaxVoices; ++v)
         impl->setNamedChannel("gate", v, 0.0);
     const long warmupOffBlocks = (long) std::llround(0.2 * engineRate / (double) kKsmps);
@@ -887,6 +1123,11 @@ bool CsoundEngine::prepare (double sampleRate, int maxBlockSize, const char* orc
 const std::string& CsoundEngine::orchestraText() const
 {
     return impl->compiledOrchestraText;
+}
+
+float CsoundEngine::outputTrim() const
+{
+    return impl->outputTrim;
 }
 
 void CsoundEngine::primeForTakeover (const float* epochs, const float* freqs)
@@ -982,6 +1223,11 @@ void CsoundEngine::renderUpTo (int upToSample)
     const int target = upToSample + 1;
     CSOUND* cs = impl->csound;
     const int osF = impl->osFactor;
+    // The orchestra's measured level trim (prepare(); see outputTrim()). Applied
+    // here rather than further downstream because decimScratch feeds BOTH the
+    // block copy and the carry store, so one multiply per sample covers both and
+    // a block boundary can never fall between a trimmed and an untrimmed sample.
+    const float trim = impl->outputTrim;
     // Host-rate samples one csoundPerformKsmps yields: kKsmps at 1x, half that
     // at 2x, a quarter at 4x. prepare() guarantees kKsmps divides by osFactor,
     // so this is exact and the carry store (sized kKsmps) always has room.
@@ -1003,14 +1249,14 @@ void CsoundEngine::renderUpTo (int upToSample)
             if (osF == 1)
             {
                 for (int s = 0; s < kKsmps; ++s)
-                    out[s] = (float) spout[(size_t) s * (size_t) kMaxVoices + (size_t) v];
+                    out[s] = boundOutput(trim * (float) spout[(size_t) s * (size_t) kMaxVoices + (size_t) v]);
             }
             else if (osF == 2)
             {
                 for (int s = 0; s < perPerform; ++s)
-                    out[s] = impl->decim1[v].process(
+                    out[s] = boundOutput(trim * impl->decim1[v].process(
                         (float) spout[(size_t) (2 * s)     * (size_t) kMaxVoices + (size_t) v],
-                        (float) spout[(size_t) (2 * s + 1) * (size_t) kMaxVoices + (size_t) v]);
+                        (float) spout[(size_t) (2 * s + 1) * (size_t) kMaxVoices + (size_t) v]));
             }
             else // osF == 4: two cascaded halfband stages, 192k -> 96k -> 48k
             {
@@ -1022,7 +1268,7 @@ void CsoundEngine::renderUpTo (int upToSample)
                     const float b = impl->decim1[v].process(
                         (float) spout[(size_t) (4 * s + 2) * (size_t) kMaxVoices + (size_t) v],
                         (float) spout[(size_t) (4 * s + 3) * (size_t) kMaxVoices + (size_t) v]);
-                    out[s] = impl->decim2[v].process(a, b);
+                    out[s] = boundOutput(trim * impl->decim2[v].process(a, b));
                 }
             }
         }
