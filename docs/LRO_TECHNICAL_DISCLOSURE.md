@@ -204,7 +204,7 @@ the generated source itself**, not declared by the model and not fixed in advanc
 The last point is the reason this is done by derivation rather than by asking the
 model for a declaration: a model that writes a correct declaration and then
 leaves its own fixed numbers in the code produces a control that moves nothing.
-That failure was observed during development.
+That failure was observed.
 
 ---
 
@@ -228,15 +228,18 @@ note-on is a trigger edge and a gate change on that voice's channels.
   matcher's holes. The model names what it wants; the code recognises names.
 - **No enumerated timbre selector.** No waveform switch, no instrument menu, no
   fixed set of permitted results ahead of the prompt.
-- **No substitute for a failed authoring.** An authoring that never compiles
-  yields no instrument.
+- **No non-model route to an instrument.** Every instrument the oscillator plays
+  is authored by the language model. The path holds no deterministic mapping
+  from a description to a program, and an authoring that never compiles yields
+  no instrument.
 - **No runtime machinery outside the emitted program.** No frame store, no
   wavetable bake, no capture buffer, no transport wrapped around the generated
   code. Anything the sound does, including any morphing or motion, is expressed
   in the emitted source.
 - **No selector over the library.** Any number of synthesis methods can be wired
-  together in one emitted program, which is the combinatorics a fixed control
-  surface cannot enumerate.
+  together in one emitted program. No practical control surface offers that: one
+  built for free combination is either absent or a modular patch wall costing
+  hours per sound idea, which is the opposite of typing a sentence.
 
 ---
 

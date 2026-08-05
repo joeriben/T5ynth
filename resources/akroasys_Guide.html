@@ -1510,9 +1510,10 @@ audible.
 </p>
 <ul>
   <li>
-    <strong>Sixteen voices, whatever the Voices selector says.</strong> In LRO
-    mode the polyphony limit is whatever you chose <em>or</em> 16, whichever is
-    lower. Setting 64 or 128 changes nothing here.
+    <strong>Sixteen voices, whatever the Voices selector says.</strong> A written
+    instrument is built for sixteen voices and no more, so in LRO mode the
+    polyphony limit is whatever you chose <em>or</em> 16, whichever is lower.
+    Setting 64 or 128 changes nothing here.
   </li>
   <li>
     <strong>The sound holds; the envelope shapes it.</strong> Most written
@@ -1520,8 +1521,8 @@ audible.
     written at for as long as the voice is alive. Attack, decay and release all
     come from <strong>ENV&nbsp;1 → DCA</strong> downstream, which is why an LRO
     patch with a slow attack fades in and one with a long release keeps ringing
-    after you let go: the note is held for the whole release, so the tail is
-    never cut off mid-fall.
+    after you let go: the voice stays alive for the whole release, not only
+    while you hold the key, so the tail is never cut off mid-fall.
   </li>
   <li>
     <strong>Some fall away by themselves.</strong> A struck instrument — an
@@ -2460,10 +2461,11 @@ Set Drift LFO rates very low (0.01–0.05 Hz) and depths moderate (0.2–0.5). T
 <p>
 The library the model consults is organised by <em>how a sound is made</em> and
 <em>how it moves</em>. "Struck metal bar, bowed, slowly detuning" reaches
-something; "cinematic" reaches nothing. If the trace's
-<strong>OPENED</strong> station reads "the author named no entry", the model is
-writing from its own knowledge alone &mdash; sometimes exactly what you want,
-but it is worth knowing which of the two you got.
+something; "cinematic" reaches nothing. When the trace's
+<strong>OPENED</strong> station names entries, the model decided your words point
+at particular mechanisms; when it reads "the author named no entry", it asked for
+nothing in particular and was handed the whole library instead. Either can be
+what you want, but it is worth knowing which one you got.
 </p>
 
 <h4>10. Read the trace before rewriting the prompt</h4>
