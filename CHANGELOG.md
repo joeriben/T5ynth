@@ -16,7 +16,7 @@ itself is generated at run time by a language model from a description in
 ordinary language, then compiled and executed as the instrument's voice
 source.** First landed 2026-07-22 (`3728a42f`).
 
-The architecture, stated plainly because it is the thing that is new:
+The architecture:
 
 1. The player types a description of an instrument ("a bowed cello", "bright
    shimmer degrading to a dark rumble"). No code, no parameters, no keyword
@@ -49,8 +49,7 @@ The architecture, stated plainly because it is the thing that is new:
 7. The compiled orchestra is **hot-swapped into the running audio engine**
    without an audible break, and travels inside the preset as source text.
 
-**There is no deterministic fallback and none is wanted.** Without a language
-model there is no oscillator. The library orients the model rather than
+The library orients the model rather than
 constraining it: it may combine any number of methods in one program, layer up
 to three bodies, morph one into another across a note, drive one with another,
 or write something the library does not contain at all.

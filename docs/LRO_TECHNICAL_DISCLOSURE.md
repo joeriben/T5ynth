@@ -79,9 +79,8 @@ polyphonic instrument.
                  receiving per-voice gate, pitch, velocity and expression
 
 Steps (2)–(3) are a single authoring of a single sound, not a search followed by
-a generation. There is **no deterministic fallback** anywhere in the path: if the
-model does not produce a program that compiles, the oscillator stays silent. It
-never substitutes a keyword-matched or default program.
+a generation. If the model does not produce a program that compiles, the
+authoring fails and no keyword-matched or default program is substituted for it.
 
 The target synthesis language in the implementation is **Csound**, chosen because
 its opcode set already provides the domain's established methods — pulse-width
@@ -154,7 +153,7 @@ instrument's plumbing right:
 - A fixed output tail: gate multiplication, expression gain, a headroom factor
   and a soft clip.
 
-The consequence, and it is deliberate: the body is a **spectrum source**. The
+The consequence is that the body is a **spectrum source**. The
 instrument's own amplitude envelope, filter, glide and expression belong to the
 synthesizer, and a body that brought its own redundant amplitude envelope would
 take the player's away. Every struck idiom in the library is therefore
@@ -195,8 +194,8 @@ the generated source itself**, not declared by the model and not fixed in advanc
   model's only say is the *number*, i.e. where the control starts.
 - A line the body never reads does not become a control.
 - The derivation is a function of the **body alone**. What the consultation
-  happened to open is deliberately not consulted, so that recompiling an
-  unedited body yields the same controls.
+  happened to open is not consulted, so that recompiling an unedited body
+  yields the same controls.
 - The model never wires anything. A separate step rewrites each such line's
   literal number into an expression over the corresponding host control channel,
   changing only the number and leaving the line's comment and line count intact,
@@ -205,7 +204,7 @@ the generated source itself**, not declared by the model and not fixed in advanc
 The last point is the reason this is done by derivation rather than by asking the
 model for a declaration: a model that writes a correct declaration and then
 leaves its own fixed numbers in the code produces a control that moves nothing.
-That failure was observed, and is what this construction removes.
+That failure was observed during development.
 
 ---
 
@@ -220,10 +219,7 @@ note-on is a trigger edge and a gate change on that voice's channels.
 
 ---
 
-## 8. What is deliberately absent
-
-These are distinguishing features, and each was arrived at by rejecting the
-alternative:
+## 8. What the authoring path does not contain
 
 - **No deterministic selection layer between the user's words and the library.**
   An earlier implementation compared the user's words against the library's
@@ -232,15 +228,15 @@ alternative:
   matcher's holes. The model names what it wants; the code recognises names.
 - **No enumerated timbre selector.** No waveform switch, no instrument menu, no
   fixed set of permitted results ahead of the prompt.
-- **No fallback oscillator.** Without the language model there is no oscillator.
-- **No runtime machinery outside the emitted program.** There is no frame store,
-  no wavetable bake, no capture buffer, no transport wrapped around the generated
+- **No substitute for a failed authoring.** An authoring that never compiles
+  yields no instrument.
+- **No runtime machinery outside the emitted program.** No frame store, no
+  wavetable bake, no capture buffer, no transport wrapped around the generated
   code. Anything the sound does, including any morphing or motion, is expressed
   in the emitted source.
-- **Free combination is the point.** The library is not a palette of engines with
-  a selector over it. Any number of synthesis methods can be wired together in
-  one emitted program, which is precisely what no practical control surface could
-  offer.
+- **No selector over the library.** Any number of synthesis methods can be wired
+  together in one emitted program, which is the combinatorics a fixed control
+  surface cannot enumerate.
 
 ---
 

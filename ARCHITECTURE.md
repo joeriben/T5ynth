@@ -461,10 +461,10 @@ selected before anything has been authored in the session — the bootstrap
 compile at `PluginProcessor.cpp:7798`, and the restore path at `:1989` when
 the active engine carries no orchestra text.
 
-**This is a live conflict with a documented platform rule, not a design
-choice to build on.** The rule is that there is no oscillator without the
-language model and no deterministic fallback tone; this orchestra is exactly
-such a tone, and `CsoundEngine.cpp`'s own comments call it "the fallback
+**This conflicts with a documented platform rule.** The rule is that the
+oscillator is authored by the language model and that no deterministic
+fallback tone stands in for it; this orchestra is exactly such a tone, and
+`CsoundEngine.cpp`'s own comments call it "the fallback
 tone". Whether it should sound at all, or whether selecting Csound mode with
 nothing authored should be silent, is open and belongs to the maintainer.
 Do not extend or rely on it in the meantime.
