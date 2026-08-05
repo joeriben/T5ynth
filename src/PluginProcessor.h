@@ -850,11 +850,19 @@ private:
     // The static output gain, one block behind, so a moved control RAMPS across
     // the block instead of stepping. It replaces the makeup gain that
     // juce::dsp::Limiter used to apply (and smoothed over 1 ms for the same
-    // reason), so the level every preset was authored at is preserved exactly;
-    // what went away with that widget is only its compression. Seeded in
-    // prepareToPlay from the parameter, so the first block after a device
-    // change does not ramp up from silence.
+    // reason); what went away with that widget is its compression AND its level,
+    // which the instrument was borrowing. The gain is now a function of the
+    // voice-count switch, so the control that steps it is a front-panel button
+    // and the ramp matters more, not less -- moving Mono to 16 is 15.7 dB.
+    // Seeded in prepareToPlay and refreshed on the deep-idle path, so the first
+    // block after a device change or after ten silent seconds does not ramp from
+    // a value that no longer applies.
     float outputGainPrev_ = 1.0f;
+
+    // The same, for the sequencer's one-shot samples. They are not voices, so
+    // they are referred to a FIXED switch position and pre-divided by whatever
+    // the master stage is about to multiply by (PluginProcessor.cpp, addOneShots).
+    float oneShotPreGainPrev_ = 1.0f;
 
     // Sequencer
     T5ynthStepSequencer stepSequencer;

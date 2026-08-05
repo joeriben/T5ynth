@@ -65,6 +65,17 @@ namespace
     const int kChordNotes[] = { 48, 51, 55, 58, 62, 65, 69, 72,
                                 76, 79, 83, 86, 90, 93, 97, 100 };
 
+    // The 64-voice switch position cannot be reached by that array, and cannot
+    // be reached by a hand either -- 64 notes at once is a sequencer or MPE
+    // texture. A chromatic block from C2 up is the honest stand-in: at that
+    // density the pitches necessarily share partials, which is what such a
+    // texture actually does.
+    int chordNoteAt (int n)
+    {
+        if (n < 16) return kChordNotes[n];
+        return 36 + n;                       // 52 .. 99 for n = 16 .. 63
+    }
+
     void pump (int ms)
     {
         CFRunLoopRunInMode (kCFRunLoopDefaultMode, (double) ms * 0.001, false);
@@ -120,7 +131,7 @@ namespace
             midi.clear();
             if (pos == 0)
                 for (int n = 0; n < numNotes; ++n)
-                    midi.addEvent (juce::MidiMessage::noteOn (1, kChordNotes[n],
+                    midi.addEvent (juce::MidiMessage::noteOn (1, chordNoteAt (n),
                                                               (juce::uint8) 100), 0);
             proc.processBlock (buf, midi);
 
@@ -142,11 +153,13 @@ namespace
             midi.clear();
             if (b == 0)
                 for (int n = 0; n < numNotes; ++n)
-                    midi.addEvent (juce::MidiMessage::noteOff (1, kChordNotes[n]), 0);
+                    midi.addEvent (juce::MidiMessage::noteOff (1, chordNoteAt (n)), 0);
             proc.processBlock (buf, midi);
         }
         return out;
     }
+
+    struct Engine { const char* label; int mode; bool csound; };
 
     // Median of kRuns, with the spread, for the reason in the header.
     Level medianLevel (T5ynthProcessor& proc, int numNotes, float* spreadDbOut)
@@ -171,6 +184,28 @@ namespace
         out.rms  = rmss[rmss.size() / 2];
         return out;
     }
+
+    void selectEngine (T5ynthProcessor& proc, const Engine& e)
+    {
+        if (! e.csound)
+        {
+            setParam (proc, PID::engineMode, (float) e.mode);
+            pump (250);
+            return;
+        }
+
+        proc.forceCsoundEngineMode();
+        // Wait for the compile by its RESULT, as measure_note_latency does: a
+        // fixed sleep that is too short reports "the LRO is silent", which reads
+        // as a finding rather than as a tool that measured too early.
+        for (int attempt = 0; attempt < 20; ++attempt)
+        {
+            pump (300);
+            float ignored = 0.0f;
+            if (medianLevel (proc, 1, &ignored).peak > 0.005f)
+                break;
+        }
+    }
 }
 
 int main (int argc, char** argv)
@@ -188,7 +223,8 @@ int main (int argc, char** argv)
     proc.loadGeneratedAudio (source (gSampleRate), gSampleRate);
     pump (600);
 
-    setParam (proc, PID::voiceCount, 5.0f);          // 16 voices
+    setParam (proc, PID::voiceCount, 6.0f);          // 64 -- the widest switch position,
+                                                     // so every chord below fits under it
 
     setParam (proc, PID::ampAttack,  5.0f);
     setParam (proc, PID::ampDecay,   100.0f);
@@ -213,55 +249,41 @@ int main (int argc, char** argv)
     setParam (proc, PID::limiterThresh, -3.0f);      // the shipped default
     pump (150);
 
-    // What the master stage multiplies by at that setting, so the table can be
-    // read back to the voice chain. Same arithmetic as the processor's own
-    // outputGainForThreshold, restated here because the tool must not depend on
-    // a private helper -- and it must NOT be kept in step silently either: if
-    // this number and PluginProcessor's disagree, the table is wrong and the
-    // reader has to be able to see which one moved.
-    const double outGain = juce::Decibels::decibelsToGain (-4.0 - (-3.0));
+    // What the master stage multiplies by AT THE PARKED SWITCH POSITION (64),
+    // so table A below can be read back to the voice chain. Restated here rather
+    // than taken from the processor, because the tool must not depend on a
+    // private helper -- and must NOT be kept in step silently either: if this
+    // number and PluginProcessor's table disagree, table A is wrong and the
+    // reader has to be able to see which one moved. Table B needs no such
+    // number; it reads the buffer as the host receives it.
+    const double outGain = 0.533;   // kOutputGainForVoiceSwitch[VoiceCount::V64]
 
     std::printf ("engine levels, neutral patch (filter OFF, one amp envelope at"
                  " sustain, nothing else)\n");
     std::printf ("sample rate %.0f Hz, block %d, velocity 100, %d runs per cell"
                  " (median)\n", gSampleRate, gBlockSize, kRuns);
-    std::printf ("output gain at the DEFAULT threshold x%.4f; the table is the"
-                 " VOICE CHAIN, i.e. divided back out\n\n", outGain);
+    std::printf ("output gain at the parked switch position x%.4f\n\n", outGain);
 
-    struct Engine { const char* label; int mode; bool csound; };
     const Engine engines[] = {
         { "Sampler",        EngineMode::Sampler,   false },
         { "Wavetable",      EngineMode::Wavetable, false },
         { "Granular",       EngineMode::Freeze,    false },
         { "LRO (built-in)", EngineMode::Csound,    true  },
     };
-    const int chords[] = { 1, 2, 4, 8, 16 };
+    // The SWITCH positions the UI offers (SynthPanel.h: 7 buttons, Mono..64).
+    const int chords[] = { 1, 4, 6, 8, 12, 16, 64 };
 
+    // ── Table 1: the voice chain, i.e. what the calibration acts ON ────────
+    std::printf ("A. VOICE CHAIN -- peak before the output gain, voice switch"
+                 " parked at 64 so that\n   every chord fits under it. This is"
+                 " what the gain table is derived FROM.\n\n");
     std::printf ("%-16s", "");
-    for (int c : chords) std::printf ("  %6d note%s", c, c == 1 ? " " : "s");
-    std::printf ("     16/1\n");
+    for (int c : chords) std::printf ("  %5d", c);
+    std::printf ("   notes held\n");
 
     for (const auto& e : engines)
     {
-        if (e.csound)
-        {
-            proc.forceCsoundEngineMode();
-            // Wait for the compile by its RESULT, as measure_note_latency does:
-            // a fixed sleep that is too short reports "the LRO is silent", which
-            // reads as a finding rather than as a tool that measured too early.
-            for (int attempt = 0; attempt < 20; ++attempt)
-            {
-                pump (300);
-                float ignored = 0.0f;
-                if (medianLevel (proc, 1, &ignored).peak > 0.005f) break;
-            }
-        }
-        else
-        {
-            setParam (proc, PID::engineMode, (float) e.mode);
-            pump (250);
-        }
-
+        selectEngine (proc, e);
         std::printf ("%-16s", e.label);
         double first = 0.0, last = 0.0;
         float worstSpread = 0.0f;
@@ -270,25 +292,49 @@ int main (int argc, char** argv)
             float spread = 0.0f;
             const Level l = medianLevel (proc, c, &spread);
             const double v = l.peak / outGain;
-            if (c == 1)  first = v;
-            if (c == 16) last  = v;
+            if (c == 1) first = v;
+            last = v;
             worstSpread = juce::jmax (worstSpread, spread);
-            std::printf ("  %8.3f  ", v);
+            std::printf ("  %5.3f", v);
         }
         if (first > 1.0e-6 && last > 1.0e-6)
-            std::printf ("  %+5.1f dB", 20.0 * std::log10 (last / first));
+            std::printf ("   %+5.1f dB over one note", 20.0 * std::log10 (last / first));
         if (worstSpread > 0.5f)
-            std::printf ("   (run-to-run spread up to %.1f dB)", worstSpread);
+            std::printf ("   (spread up to %.1f dB)", worstSpread);
         std::printf ("\n");
     }
 
-    std::printf ("\nRead it as: peak the VOICE CHAIN produces, before the output"
-                 " gain above.\n");
-    std::printf ("The criterion is the DEFAULT polyphony (8 voices) on the"
-                 " WORST engine, because the\nengines do not grow with polyphony"
-                 " at the same rate -- so the gain that fits is\n1.0 / max(8-note"
-                 " peak), and a 16-voice chord on the steepest engine is over"
-                 " by\ndesign. kOutputTrimDb in PluginProcessor.cpp is where"
-                 " that trade is written down.\n");
+    // ── Table 2: the OUTPUT, with the switch set where the chord says ──────
+    //
+    // This is the one that decides whether the design holds: each cell sets the
+    // voice-count switch to that position AND plays a chord that fills it, then
+    // reads the buffer the host receives. Two things have to be true of it --
+    // no cell above the ceiling's 0.9 knee up to 16, and the single-note column
+    // getting LOUDER as the switch narrows.
+    std::printf ("\nB. OUTPUT -- voice switch AT that position, chord filling it."
+                 " The knee is 0.90.\n\n");
+    std::printf ("%-16s", "");
+    for (int c : chords) std::printf ("  %5d", c);
+    std::printf ("   switch / notes\n");
+
+    for (const auto& e : engines)
+    {
+        selectEngine (proc, e);
+        std::printf ("%-16s", e.label);
+        for (int k = 0; k < (int) (sizeof (chords) / sizeof (chords[0])); ++k)
+        {
+            setParam (proc, PID::voiceCount, (float) k);
+            pump (60);
+            float spread = 0.0f;
+            std::printf ("  %5.3f", medianLevel (proc, chords[k], &spread).peak);
+        }
+        std::printf ("\n");
+    }
+    setParam (proc, PID::voiceCount, 6.0f);
+
+    std::printf ("\nA is the measurement the gain table in PluginProcessor.cpp is"
+                 " built from; B is that\ntable in force. The LRO caps at 16 voices"
+                 " (CsoundEngine::kMaxVoices), so its 64 column\nis 16 voices"
+                 " playing a denser cluster, not 64.\n");
     return 0;
 }
