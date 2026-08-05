@@ -568,10 +568,11 @@ SynthPanel::SynthPanel(T5ynthProcessor& processor)
         // As a PAIR — the display hands over both brackets, and setting them one
         // at a time clamps the first against the OTHER one's old value. Same
         // outcome for a single dragged handle, except when it is dragged to
-        // within 1% of its partner: mouseDrag enforces the swap rule but not the
-        // minimum width, so the pair arrives sub-minimum and the partner moves
-        // instead of the dragged handle being pinned. Both readings then differ
-        // from the brackets drawn, by 1% in opposite directions.
+        // within 1% of its partner: mouseDrag enforces the swap rule but not
+        // the minimum width, so the pair arrives sub-minimum. setLoopRegion
+        // then keeps the start and opens the END out to start + 1%, whichever
+        // of the two the user was holding — so P3 sits up to 1% past where the
+        // bracket is drawn until the next mirror. Measured, not reasoned.
         processorRef.getSampler().setLoopRegion(start, end);
         processorRef.getSampler().setPointsLocked(true);
         waveformDisplay.getLockButton().setLocked(true);
@@ -1395,10 +1396,11 @@ void SynthPanel::timerCallback()
 
         // Sync shared P1/P2/P3 playback markers from the processor.
         //
-        // The four reads are taken TOGETHER under the callback lock: a
-        // reprepare publish (applyPreparedBufferLoad) or a preset import
-        // landing between them hands over an old start with a new end, and a
-        // torn pair is exactly what the pair setter below cannot detect — it
+        // The four reads are taken TOGETHER under the callback lock: the
+        // reprepare thread publishes all three markers at once
+        // (applyPreparedBufferLoad), so landing between two of these reads
+        // hands over an old start with a new end, and a torn pair is exactly
+        // what the pair setter below cannot detect — it
         // resolves it into brackets that look deliberate, which the next drag
         // then sends back to the sampler as if the user had put them there.
         float s = 0.0f, e = 1.0f, p1 = 0.0f;

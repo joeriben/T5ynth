@@ -102,8 +102,8 @@ static const Prior kPrior[] = {
 
 // The rule, written out rather than borrowed: clamp the start into
 // [0, 1 - min], then the end into [start + min, 1]. An absent pair is
-// SamplePlayer's own declared 0.0 / 1.0 (SamplePlayer.h:335-337), which is what
-// importJsonPreset's jsonFloatOr fallbacks name. Nothing here consults the held
+// SamplePlayer's own declared 0.0 / 1.0, which is what importJsonPreset's
+// jsonFloatOr fallbacks name. Nothing here consults the held
 // window — that IS the property under test.
 static void expectedFor (double fileStart, double fileEnd, bool present, float& s, float& e)
 {
