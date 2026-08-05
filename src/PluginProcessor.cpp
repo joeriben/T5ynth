@@ -8134,8 +8134,13 @@ bool T5ynthProcessor::importJsonPreset(const juce::String& json)
         // needed. Older v3 presets without the flag default to unlocked.
         {
             const juce::ScopedLock sl (getCallbackLock());
-            masterSampler.setLoopStart(static_cast<float>(engine->getProperty("loopStartFrac")));
-            masterSampler.setLoopEnd(static_cast<float>(engine->getProperty("loopEndFrac")));
+            // As a PAIR: setLoopStart clamps against whatever loop END is live,
+            // so a preset whose region sits entirely to the right of the one
+            // currently loaded had its start silently pulled back to the old
+            // end — the region a preset played then depended on the preset
+            // before it.
+            masterSampler.setLoopRegion(static_cast<float>(engine->getProperty("loopStartFrac")),
+                                        static_cast<float>(engine->getProperty("loopEndFrac")));
             masterSampler.setStartPos(static_cast<float>(engine->getProperty("startPosFrac")));
             // WT extraction region (fallback to P2/P3 for presets without it)
             if (engine->hasProperty("wtExtractStart"))

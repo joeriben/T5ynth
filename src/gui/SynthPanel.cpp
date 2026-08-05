@@ -565,8 +565,11 @@ SynthPanel::SynthPanel(T5ynthProcessor& processor)
     // Wire bracket handles: both engines use the same P2/P3 loop semantics.
     waveformDisplay.onLoopRegionChanged = [this](float start, float end) {
         const juce::ScopedLock sl (processorRef.getCallbackLock());
-        processorRef.getSampler().setLoopStart(start);
-        processorRef.getSampler().setLoopEnd(end);
+        // As a PAIR — the display hands over both brackets, and setting them one
+        // at a time clamps the first against the OTHER one's old value. Same
+        // outcome for a single dragged handle; the difference only shows when
+        // both brackets move at once.
+        processorRef.getSampler().setLoopRegion(start, end);
         processorRef.getSampler().setPointsLocked(true);
         waveformDisplay.getLockButton().setLocked(true);
         if (processorRef.isWavetableMode())
