@@ -1489,9 +1489,8 @@ was written.
 <p>
 Click and hold anywhere on the trace to turn the card over. The back is
 headed <strong>"CSOUND · HOLD TO TURN BACK"</strong> and shows only the
-lines the model actually wrote — not the host scaffolding common to every
-LRO instrument (the sixteen voice channels, the note-age counter, the output
-stage), which nobody wrote and which stays the same from sound to sound.
+lines the model actually wrote — not the plumbing every LRO instrument shares,
+which nobody wrote and which stays the same from sound to sound.
 Click and hold again to turn the card back to the trace.
 </p>
 <div class="note">
@@ -1511,27 +1510,26 @@ audible.
 </p>
 <ul>
   <li>
-    <strong>Sixteen voices, whatever the Voices selector says.</strong> The
-    orchestra is a fixed sixteen-channel affair, so in LRO mode the polyphony
-    limit is whatever you chose <em>or</em> 16, whichever is lower. Setting 64
-    or 128 changes nothing here.
+    <strong>Sixteen voices, whatever the Voices selector says.</strong> In LRO
+    mode the polyphony limit is whatever you chose <em>or</em> 16, whichever is
+    lower. Setting 64 or 128 changes nothing here.
   </li>
   <li>
-    <strong>The body holds; the envelope shapes it.</strong> Most written
-    bodies are standing tones — they come up and stay at the level they were
+    <strong>The sound holds; the envelope shapes it.</strong> Most written
+    instruments are standing tones — they come up and stay at the level they were
     written at for as long as the voice is alive. Attack, decay and release all
     come from <strong>ENV&nbsp;1 → DCA</strong> downstream, which is why an LRO
     patch with a slow attack fades in and one with a long release keeps ringing
-    after you let go: the voice's gate stays open for the whole release, so the
-    tail is never cut off mid-fall.
+    after you let go: the note is held for the whole release, so the tail is
+    never cut off mid-fall.
   </li>
   <li>
-    <strong>Some bodies fall away by themselves.</strong> A struck body — an
+    <strong>Some fall away by themselves.</strong> A struck instrument — an
     electric piano, a bar, a plucked string — carries its own decay, and the
     envelope <em>cannot</em> hold it up. Holding the key on one of those gives
     you the note dying at its own rate, not a sustained tone. If a patch will
-    not sustain no matter what you do to ENV&nbsp;1, that is the body, not a
-    fault.
+    not sustain no matter what you do to ENV&nbsp;1, that is what was written,
+    not a fault.
   </li>
 </ul>
 
@@ -1542,10 +1540,8 @@ seven-position stance bar as the T5 Oscillator's <a href="#drift">Re-Prompt
 loop</a>, and it listens the same way. Each step renders a short probe of the
 compiled orchestra, hands it to the machine-listening model, and rewrites the
 prompt from what that model heard, under the chosen stance — the status line
-reads <strong>"Listening, then rewriting"</strong>. The probe is rendered at
-the rate the body was written for and decimated to the rate you actually hear,
-so the description is of the sound leaving the speakers and not of the
-oversampled signal inside the engine. The stances are the same seven:
+reads <strong>"Listening, then rewriting"</strong>. What it listens to is the
+sound as it leaves the speakers.
 </p>
 <p>
 The seven stances are the same, and are described in
@@ -1578,9 +1574,8 @@ to, since the LRO has no A/B pair to couple.
 A written instrument brings its own knobs, and they appear in the
 <strong>Synth</strong> panel where the engine-mode controls sit for the other
 oscillator. Which knobs appear depends on the instrument: each one is a
-parameter the library declared and the model kept when it wrote this particular
-body. A body that keeps none gets none. The wiring to the Csound channel is made
-by the host from the line that survived into the body, so every knob on screen
+parameter the library offers and the model kept when it wrote this particular
+one. An instrument that keeps none gets none, and every knob that does appear
 moves something in the running orchestra.
 </p>
 <table>
@@ -1592,15 +1587,15 @@ moves something in the running orchestra.
   </tr>
   <tr>
     <td><strong>Level</strong>, or <strong>Level 1 / 2 / 3</strong></td>
-    <td>One fader per layer the body actually mixes. A single-layer instrument
-      gets one unnumbered Level; an instrument that layers two or three bodies
+    <td>One fader per layer the instrument actually mixes. A single-layer
+      instrument gets one unnumbered Level; one that layers two or three sounds
       gets one per layer, so you can balance them by ear.</td>
   </tr>
   <tr>
     <td>Column headings</td>
-    <td>The library entries this body draws on, under the library's own names
-      &mdash; up to three, side by side, with a rule between them because they
-      are different instruments and not one list of knobs.</td>
+    <td>The library entries this instrument draws on, under the library's own
+      names &mdash; up to three, side by side, with a rule between them because
+      they are different instruments and not one list of knobs.</td>
   </tr>
   <tr>
     <td>Up to four knobs per column</td>
@@ -1666,6 +1661,8 @@ The author reads three relations between sounds:
 <p>
 Name the methods and say how they relate. Any combination of unrelated synthesis
 methods can sit inside one voice, because the voice is written rather than wired.
+No panel can offer that combination: a control surface for it would be a modular
+wall costing hours per sound idea, which is the opposite of a sentence you type.
 </p>
 <div class="note">
   <p style="margin:0 0 0.5rem;"><code>plucked string + 3-op FM bell &gt; singing bowl</code></p>
@@ -1682,10 +1679,10 @@ methods can sit inside one voice, because the voice is written rather than wired
 
 <h3>b) Playing with the translation itself</h3>
 <p>
-Here you hand the model meaning and it decides what that means in
-<em>synthesis</em>: which method it reaches for, what it decides a word implies
-about a spectrum, where it hears a movement you had not spelled out. What comes
-back need not match what you asked for.
+This is what the oscillator is for. You hand the model meaning and it decides
+what that means in <em>synthesis</em>: which method it reaches for, what it
+decides a word implies about a spectrum, where it hears a movement you had not
+spelled out. What comes back need not match what you asked for.
 </p>
 <div class="note">
   <p style="margin:0 0 0.5rem;"><code>a small metal object dropped into a glass jar, ringing on</code></p>
@@ -3088,16 +3085,16 @@ cannot be named and sourced does not go in.
 <p>
 The author names what it wants opened; nothing is matched for it by keyword, and
 nothing restricts it to what it opened. It can combine any number of methods in
-one orchestra, layer bodies, or write something the library does not contain at
+one orchestra, layer them, or write something the library does not contain at
 all. The <strong>OPENED</strong> station in the authoring trace
 (<a href="#lro">chapter 2</a>) tells you what it asked for on this run — and
 "the author named no entry" is a normal, legitimate reading.
 </p>
 <p>
-The library is also where your knobs come from. A parameter line in an opened
-entry carries a name, a one-line gloss and a range; if that line survives into
-the body the author actually writes, it becomes a control on the panel with the
-library's name and range and the author's chosen value
+The library is also where your knobs come from. A parameter in an opened entry
+carries a name, a one-line gloss and a range; if the author keeps it in what it
+writes, it becomes a control on the panel with the library's name and range and
+the author's chosen value
 (<a href="#lrocontrols">chapter 2.1</a>).
 </p>
 
