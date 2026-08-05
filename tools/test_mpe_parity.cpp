@@ -641,6 +641,63 @@ namespace
                    "and neither was the master range");
     }
 
+    void caseNrpnDoesNotWriteTheBendRange()
+    {
+        std::printf ("[21] selecting an NRPN deselects the RPN, so its data byte is not a range\n");
+        // NOT parity: the hand-written parser tracked CC100/CC101 only and
+        // fails this. juce::MidiRPNDetector already knew CC98/CC99, so wiring
+        // them in cost one predicate. Kept here because it is the same
+        // misfire class as [7] -- a latched selection eating a later CC6.
+        Rig r;
+        r.rpn (5, 0, 0, 12);          // per-note range 12
+        r.flush();
+
+        r.cc (5, 99, 0);              // NRPN MSB — a DIFFERENT parameter is now selected
+        r.cc (5, 98, 5);              // NRPN LSB
+        r.cc (5, 6, 40);              // its data byte. Not a bend range.
+        r.flush();
+
+        r.noteOn (5, 64);
+        r.flush();
+        r.wheel (5, 16383);
+        r.flush();
+
+        const auto* v = r.voiceForNote (64);
+        check (v != nullptr, "the voice is alive");
+        if (v == nullptr) return;
+
+        checkNear (v->getPerVoicePitchBend(), fullUpBend (12.0f), 0.01f,
+                   "the NRPN data byte left the bend range where RPN 0 put it");
+    }
+
+    void caseBendRangeAboveTheSpecMaximum()
+    {
+        std::printf ("[22] a bend range above 96 is honoured and does not disturb the next one\n");
+        Rig r;
+        r.rpn (5, 0, 0, 100);         // out of MPE's 0..96, and a controller may send it
+        r.flush();
+
+        r.noteOn (5, 64);
+        r.flush();
+        r.wheel (5, 16383);
+        r.flush();
+
+        const auto* v = r.voiceForNote (64);
+        check (v != nullptr, "the voice is alive");
+        if (v == nullptr) return;
+
+        // SynthVoice's own ±48 is the ceiling, not the zone layout's 96.
+        checkNear (v->getPerVoicePitchBend(), 48.0f, 0.01f,
+                   "100 semitones arrives clamped at the voice's own limit");
+
+        r.rpn (5, 0, 0, 12);
+        r.flush();
+        r.wheel (5, 16383);
+        r.flush();
+        checkNear (v->getPerVoicePitchBend(), fullUpBend (12.0f), 0.01f,
+                   "and the next range lands unaffected by it");
+    }
+
     void caseArpOffHandsTheKeyBackWithItsChannel()
     {
         std::printf ("[19] switching the arp off hands the held key back WITH its channel\n");
@@ -697,6 +754,8 @@ int main()
     caseArpNotesAreInternal();
     caseArpOffHandsTheKeyBackWithItsChannel();
     caseBendRangeSurvivesAZoneDeclaration();
+    caseNrpnDoesNotWriteTheBendRange();
+    caseBendRangeAboveTheSpecMaximum();
 
     std::printf ("\n%d checks, %d failures -- %s\n\n",
                  gChecks, gFailures, gFailures == 0 ? "ALL PASS" : "FAILED");

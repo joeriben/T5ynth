@@ -962,6 +962,9 @@ private:
     static constexpr int kMpePerNoteBendRange = 24;   // not the spec's 48: over-bends a LinnStrument
     static constexpr int kMpeMasterBendRange  = 2;
 
+    // Only the channel count is read back out of this: the two ranges are
+    // seeded so the zone is not silently inconsistent with the pair below, but
+    // the pair below is the authority and nothing ever reads the zone's own.
     juce::MPEZoneLayout mpeZones_ { juce::MPEZone { juce::MPEZone::Type::lower,
                                                     kMpeDefaultMemberChannels,
                                                     kMpePerNoteBendRange,
@@ -986,9 +989,18 @@ private:
     int mpePerNoteBendRangeInForce_ = kMpePerNoteBendRange;
     int mpeMasterBendRangeInForce_  = kMpeMasterBendRange;
 
+    // The parameter-SELECT bytes, RPN and NRPN alike. CC98/CC99 are here so
+    // that picking an NRPN deselects the RPN: MidiRPNDetector keeps the last
+    // selection latched, so without them a controller that selects an NRPN and
+    // sends its data on CC6 would have that CC6 read as a bend range. They are
+    // fed and then handed on -- unlike CC100/CC101 they stay bindable.
+    //
     // CC6 is deliberately absent: one that completes no RPN we act on must
     // still reach a user binding, so its fate is handleMpeRpnByte's return.
-    static bool isMpeRpnController (int cc) noexcept { return cc == 100 || cc == 101; }
+    static bool isMpeRpnSelectController (int cc) noexcept
+    {
+        return cc == 98 || cc == 99 || cc == 100 || cc == 101;
+    }
 
     /** Feeds one RPN byte to the zone layout; true if MPE consumed it. */
     bool handleMpeRpnByte (int channel, int cc, int value7) noexcept;

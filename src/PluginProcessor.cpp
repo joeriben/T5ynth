@@ -4926,14 +4926,20 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
                         // mode channel 16 carries the Resynth fader on CC6 and the
                         // Drift3 Amt encoder on CC100, and reading either as RPN killed
                         // that control.
+                        //
+                        // Read ONCE and reused below: the message thread can flip
+                        // this between two loads, and one CC6 would then both set
+                        // the bend range and be captured as a learn target.
+                        const bool learning = midiLearnActive.load(std::memory_order_relaxed);
+
                         const bool consumedAsMpeRpn =
-                            ! midiLearnActive.load(std::memory_order_relaxed)
-                            && (isMpeRpnController (cc) || cc == 6)
+                            ! learning
+                            && (isMpeRpnSelectController (cc) || cc == 6)
                             && ! (dawModeActive_.load(std::memory_order_relaxed)
                                   && msg.getChannel() == 16)
                             && handleMpeRpnByte (msg.getChannel(), cc, value7);
 
-                        if (midiLearnActive.load(std::memory_order_relaxed))
+                        if (learning)
                         {
                             // CC Learn intercept: signal the message thread with the CC number.
                             midiLearnTargetCc.store(cc, std::memory_order_release);
@@ -5119,7 +5125,13 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
                                     // now a stale selection can swallow a CC6 that was
                                     // meant for a binding. NOT the zone layout — that is
                                     // a property of the device, not a controller value.
-                                    deselectMpeRpn(msg.getChannel(), /*lsbOnly=*/false);
+                                    //
+                                    // Same XL guard as the RPN feed: in DAW mode channel
+                                    // 16 is not a MIDI control channel for us, and this
+                                    // is the one place that could still reach into it.
+                                    if (! (dawModeActive_.load(std::memory_order_relaxed)
+                                           && msg.getChannel() == 16))
+                                        deselectMpeRpn(msg.getChannel(), /*lsbOnly=*/false);
                                 }
                             }
                         }
@@ -5782,7 +5794,17 @@ bool T5ynthProcessor::handleMpeRpnByte(int channel, int cc, int value7) noexcept
     // parameter a completed RPN carried, and with what value.
     const auto parsed = mpeRpnWatcher_.tryParse(channel, cc, value7);
 
-    mpeZones_.processNextMidiEvent(juce::MidiMessage::controllerEvent(channel, cc, value7));
+    // The layout sees the same bytes, minus the data byte that COMPLETES RPN 0.
+    // It would store a bend range nothing here reads -- the pair below is this
+    // synth's -- and it range-checks the value already in the zone while
+    // assigning the new one unchecked, so a controller transmitting a range
+    // above 96 fires JUCE's own assertion from the audio thread on the next
+    // change (juce_MPEZoneLayout.cpp:151-166).
+    const bool completesBendRangeRpn = parsed.has_value() && ! parsed->isNRPN
+                                       && parsed->parameterNumber == 0;
+
+    if (! completesBendRangeRpn)
+        mpeZones_.processNextMidiEvent(juce::MidiMessage::controllerEvent(channel, cc, value7));
 
     const bool actedOn = parsed.has_value() && ! parsed->isNRPN
                          && (parsed->parameterNumber == 0
@@ -5818,10 +5840,12 @@ bool T5ynthProcessor::handleMpeRpnByte(int channel, int cc, int value7) noexcept
         deselectMpeRpn(channel, /*lsbOnly=*/true);
     }
 
-    // CC100/CC101 are RPN and nothing else, so they are always consumed. A CC6
-    // is only ours when it completed an RPN we act on; otherwise it falls
-    // through to the user bindings below, exactly as it did before.
-    return cc != 6 || actedOn;
+    // CC100/CC101 are RPN selection and nothing else, so they are always
+    // consumed. CC98/CC99 were fed for the deselect they cause and are handed
+    // on -- they are NRPN, not ours, and they stay bindable. A CC6 is only
+    // ours when it completed an RPN we act on; otherwise it falls through to
+    // the user bindings below, exactly as it did before.
+    return cc == 100 || cc == 101 || actedOn;
 }
 
 void T5ynthProcessor::deselectMpeRpn(int channel, bool lsbOnly) noexcept
