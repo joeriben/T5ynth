@@ -704,9 +704,8 @@ can address</strong>. The A/B slider runs to &plusmn;2, so most of its range lie
 impulses; an empty field reflects the other one through the model's neutral point,
 which is an anti-prompt no wording produces; Magnitude reaches 5.0. The model was
 not trained on what it finds there, and that is what this oscillator is for. The
-usual warning &mdash; "the model has not seen this" &mdash; describes the target
-here, not a fault. The one real limit is collapse: pushed far enough the model
-stops producing structure at all, and you hear it immediately.
+one limit is collapse: pushed far enough the model stops producing structure at
+all, and you hear it immediately.
 </p>
 <div class="note">
   All of these &mdash; A/B, the axes, Noise, Magnitude &mdash; can be
@@ -836,7 +835,7 @@ it to zero and the axes are out of the picture without you losing their settings
 </p>
 
 <div class="note">
-  <strong>They are probes as much as controls.</strong> The same push lands differently on different prompts: one follows the label, another barely moves, a third veers somewhere you did not predict. That is not a fault — it is the model showing how it hears the word in the context of <em>your</em> sound. Pushing an axis and listening to where a prompt goes, and where it refuses to go, is a direct way to learn where the model's sense of a word lines up with yours and where it parts from it. Treat a labeled axis as a broad direction to explore by ear, not as a value you dial in.
+  <strong>They are probes as much as controls.</strong> The same push lands differently on different prompts: one follows the label, another barely moves, a third veers somewhere you did not predict — that is the model showing how it hears the word in the context of <em>your</em> sound. Pushing an axis and listening to where a prompt goes, and where it refuses to go, is a direct way to learn where the model's sense of a word lines up with yours and where it parts from it. Treat a labeled axis as a broad direction to explore by ear, not as a value you dial in.
 </div>
 
 <div class="note">
@@ -965,6 +964,43 @@ Holds a small, smooth region of the generated audio and makes it playable as a s
   <li><strong>Texture</strong> — Hold, Silk, Air, or Cloud. These are fixed musical profiles for grain length, overlap, motion, and blur.</li>
   <li><strong>Stereo</strong> — Width control for subtle per-grain left/right offset and balance. At 0% Granular stays centered.</li>
 </ul>
+
+<div class="note">
+  <strong>What these three modes hand to the <a href="#synth">filter</a></strong>
+
+  <p>
+  A subtractive filter was designed for a sawtooth: partials on an exact grid,
+  nothing between them, and each one quieter than the last at a steady
+  6&nbsp;dB per octave &mdash; that last figure describes the sawtooth's own
+  spectrum, not the <em>Slope</em> control. There the cutoff decides
+  <em>how many</em> partials survive, and the filter's slope becomes the
+  spectrum you hear. The T5 Oscillator's material is not built that way, and the
+  two engine paths differ:
+  </p>
+  <ul>
+    <li><strong>Sampler and Granular</strong> pass the generated buffer's own
+    spectrum. Where a generation has energy between the partials &mdash; noise
+    floor, transients, the room the model rendered &mdash; a lowpass removes it
+    together with the partials above the cutoff, so the cutoff tilts the whole
+    spectrum rather than counting partials off, and resonance colours a band
+    rather than lighting single partials. The material also arrives with a
+    spectral envelope of its own, so one cutoff setting does not mean the same
+    brightness from one generation to the next.</li>
+    <li><strong>Wavetable</strong> resamples one detected period into each frame
+    (an overlapping window where no stable pitch is found) and loops it at the
+    played pitch, so the frame is periodic and its partials are harmonic. Their
+    amplitudes come from that period, though &mdash; peaks and gaps rather than
+    an even rolloff &mdash; and they change as <em>Scan</em> moves, so a given
+    cutoff is still not a fixed amount of brightness.</li>
+  </ul>
+  <p>
+  In practice <em>Bandpass</em>, the 6 and 12&nbsp;dB slopes and <em>Mix</em>
+  shape this material more predictably than a 24&nbsp;dB resonant sweep, which is
+  at its strongest on a spectrum the filter itself builds. No filter setting adds
+  structure: a grainy or inharmonic generation stays grainy or inharmonic, only
+  quieter above the cutoff.
+  </p>
+</div>
 
 <h4>Noise Generator</h4>
 <p>
@@ -1107,7 +1143,7 @@ Drift moves the generation through its <em>parameters</em>. <strong>Re-Prompt</s
 Each step runs two models. A machine-listening model (<strong>CLAP</strong>, <code>laion/clap-htsat-unfused</code>) hears the rendered audio and ranks it against a fixed tag vocabulary &mdash; it does not <em>describe</em> the sound, it <em>ranks</em> it &mdash; yielding a handful of timbre tags plus a few signal-level spectral words (dark/bright, thin/full-bodied, tonal/textured). Those words are handed to the same local instruct LLM that powers prompt translation (<code>Qwen2.5-1.5B-Instruct</code>), which rewrites the prompt under the stance you chose. The next render is then triggered the usual way &mdash; by Generate, or automatically when an Auto-Regen mode is active &mdash; so the loop only steps when there is fresh audio to listen to. CLAP is fetched automatically from Hugging Face the first time you engage a stance (about 1&nbsp;GB), so the first Re-Prompt step needs an internet connection; the interpreter is the same local model akróasys installs for prompt translation.
 </p>
 <p>
-The point is not to "improve" the sound, and not to correct the model's listening. It is to make that listening &mdash; and your steering of it &mdash; audible. You set two things: <strong>how</strong> the machine re-reads what it hears (the stance), and <strong>how far</strong> it may displace your own words (the coupling).
+What Re-Prompt makes audible is the machine's listening, and your steering of it &mdash; it is not a step that improves the sound. You set two things: <strong>how</strong> the machine re-reads what it hears (the stance), and <strong>how far</strong> it may displace your own words (the coupling).
 </p>
 <p>
 The <strong>stance bar</strong> selects the interpreter's attitude. Each stance is named for the kind of motion it tends to produce over repeated steps:
@@ -1319,9 +1355,8 @@ itself, written for this one prompt.
 </p>
 
 <div class="tip">
-  <strong>The code is real.</strong> What the LRO writes is genuine, portable
-  Csound — the same language any Csound system compiles, not an internal
-  format of this app. The orchestra is stored with your preset, and the panel
+  <strong>Portable Csound.</strong> What the LRO writes is the same language any
+  Csound system compiles, not an internal format of this app. The orchestra is stored with your preset, and the panel
   shows it (hold the panel to read the code). Every authoring is a fresh piece of
   writing, so the oscillator you keep is likely one of a kind.
 </div>
@@ -1593,14 +1628,12 @@ knowledge.
 <h2 id="lroprompt">2.2 Examples: Prompting an Oscillator</h2>
 
 <p>
-There is no wrong way in. What follows is three different starting points, and
-they mix freely.
+What follows is three starting points, and they mix freely.
 </p>
 
 <h3>Three words that relate one sound to another</h3>
 <p>
-The author reads three relations, and they are the reason this oscillator can do
-something a panel cannot offer:
+The author reads three relations between sounds:
 </p>
 <table>
   <tr><th>Written</th><th>Also</th><th>What it builds</th></tr>
@@ -1623,18 +1656,16 @@ something a panel cannot offer:
     <td><code>a through b</code></td>
     <td>a driven by b · a modulated by b · a ring modulated by b ·
       a shaped by b · b opening a</td>
-    <td>Neither beside nor after: one sound <strong>acts on</strong> the other.
-      <em>b</em> becomes an argument inside <em>a</em> — a ring modulator, a
-      filter cutoff at audio rate, an index.</td>
+    <td>One sound <strong>acts on</strong> the other: <em>b</em> becomes an
+      argument inside <em>a</em> — a ring modulator, a filter cutoff at audio
+      rate, an index.</td>
   </tr>
 </table>
 
 <h3>a) If you already know synthesis</h3>
 <p>
-Name the methods and say how they relate. This is where the instrument does what
-no other software synth makes easy, because no panel could offer it: an
-arbitrary combination of unrelated synthesis methods inside one voice, written
-rather than wired.
+Name the methods and say how they relate. Any combination of unrelated synthesis
+methods can sit inside one voice, because the voice is written rather than wired.
 </p>
 <div class="note">
   <p style="margin:0 0 0.5rem;"><code>plucked string + 3-op FM bell &gt; singing bowl</code></p>
@@ -1651,11 +1682,10 @@ rather than wired.
 
 <h3>b) Playing with the translation itself</h3>
 <p>
-The second way in is the one this oscillator exists for: you hand the model
-meaning, and it decides what that means in <em>synthesis</em>. The interesting
-part is not whether you get what you asked for. It is what the translation does
-on the way — which method the model reaches for, what it decides a word implies
-about a spectrum, where it hears a movement you had not spelled out.
+Here you hand the model meaning and it decides what that means in
+<em>synthesis</em>: which method it reaches for, what it decides a word implies
+about a spectrum, where it hears a movement you had not spelled out. What comes
+back need not match what you asked for.
 </p>
 <div class="note">
   <p style="margin:0 0 0.5rem;"><code>a small metal object dropped into a glass jar, ringing on</code></p>
@@ -1663,21 +1693,18 @@ about a spectrum, where it hears a movement you had not spelled out.
   <p style="margin:0;"><code>something bowed and slightly too tense</code></p>
 </div>
 <p>
-None of this is reproduction. This is not a sampler, and it is not the T5
-Oscillator: nothing is recorded and nothing is retrieved. Your words are
-translated into traditional and digital synthesis methods — waveguides, modal
-banks, FM, filters, waveshaping — and what plays is an instrument built out of
-those. It will not sound like a recording of the thing you named, and it is not
-trying to. What you are listening for is how the meaning came through the
-methods.
+Nothing here is recorded and nothing is retrieved. Your words are translated
+into traditional and digital synthesis methods — waveguides, modal banks, FM,
+filters, waveshaping — and what plays is an instrument built out of those, which
+will not sound like a recording of the thing you named.
 </p>
 
 <h3>c) Driving the translation past sound</h3>
 <p>
-The same game, further. Nothing requires the input to describe a sound at all —
-an image, a movement, a mood or a phrase that has no acoustic reading gives the
-model nothing to imitate and it has to translate anyway. That is where the
-oscillator is least predictable and most itself.
+The same game, further. Nothing requires the input to describe a sound at all: an
+image, a movement, a mood or a phrase with no acoustic reading gives the model
+nothing to imitate, and it translates anyway. Results here are the least
+predictable.
 </p>
 <div class="note">
   <p style="margin:0 0 0.5rem;"><code>roses rising like a sun</code></p>
@@ -1688,7 +1715,7 @@ oscillator is least predictable and most itself.
 <p>
 The author is not confined to the library (<a href="#bg-library">chapter 18</a>),
 and on runs like these the <strong>OPENED</strong> station will often read
-"the author named no entry" — the request taken literally, not a failure.
+"the author named no entry", which is the request taken literally.
 </p>
 
 <h3>Working iteratively</h3>
@@ -1717,6 +1744,11 @@ Mix / Kbd Track controls. Two of them, <strong>SVF</strong> and
 <strong>Ladder</strong>, are buttons in the filter header row; <strong>Warp</strong>
 is the third button in that same row, which doubles as the style control &mdash;
 hold it to pick the saturation curve.
+</p>
+<p>
+Which of these controls does the most work depends on what is feeding them. For
+the T5 Oscillator, see <a href="#engine">what the three engine modes hand to the
+filter</a>.
 </p>
 <table>
   <tr><th>Parameter</th><th>Range</th><th>Notes</th></tr>
@@ -2428,9 +2460,9 @@ Set Drift LFO rates very low (0.01–0.05 Hz) and depths moderate (0.2–0.5). T
 The library the model consults is organised by <em>how a sound is made</em> and
 <em>how it moves</em>. "Struck metal bar, bowed, slowly detuning" reaches
 something; "cinematic" reaches nothing. If the trace's
-<strong>LOOKED&nbsp;UP</strong> station says no word of your prompt is in the
-library, the model is writing from its own knowledge alone &mdash; sometimes
-exactly what you want, but it is worth knowing which of the two you got.
+<strong>OPENED</strong> station reads "the author named no entry", the model is
+writing from its own knowledge alone &mdash; sometimes exactly what you want,
+but it is worth knowing which of the two you got.
 </p>
 
 <h4>10. Read the trace before rewriting the prompt</h4>
@@ -2453,7 +2485,7 @@ want a different <em>instrument</em>, not a different <em>setting</em>.
 <h4>12. If it does not move, ask for movement</h4>
 <p>
 Every LRO instrument is meant to move on its own. If one stands still, the
-trace's count line will usually have said so ("no movement named") &mdash; name
+trace's count line will usually have said so ("no movement asked for") &mdash; name
 the motion you want and write it again.
 </p>
 
