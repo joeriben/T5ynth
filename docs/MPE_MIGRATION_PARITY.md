@@ -62,12 +62,12 @@ the new code keeps the old behaviour deliberately, and the reason is given.
 | 16 | CC74 on a master channel is **not** timbre: it stays the control-surface default that drives Scan (`kExtMap`, `midi/LaunchControlXLLeds.h:235`) | Unchanged — and it is why `MPEInstrument` could not simply be handed the stream: it reads CC74 on the master channel as zone-wide timbre |
 | 17 | CC70 is `seq_steps`; CC102/CC106 are not MPE LSBs, so timbre stays 7-bit | Unchanged — `MPEInstrument` maps all three |
 | 18 | Sustain (CC64) and sostenuto (CC66) are the synth's, held in `VoiceManager` | Unchanged — `MPEInstrument` would hold notes too, and two owners of note lifetime is a stuck-note bug |
-| 19 | In XL DAW mode, channel 16 is the encoder/fader channel and is not musical: no notes, no CC6, no CC100 | **Preserve** — the guard moved to the feed site, where it now also covers CC101 and CC98/CC99, and the CC121 deselect carries it too, so no path reaches channel 16's RPN state in DAW mode. CC98/CC99 matter here: they are the XL's Lfo3 Amt and Drift3 Rate relative encoders (`midi/LaunchControlXLLeds.h:198-201`), sent constantly, and they must neither be consumed nor set the NRPN bit. CC101 the XL does not send; that half is so the invariant holds without exception. Costs one thing, stated rather than hidden: a selection latched on ch16 before DAW mode was entered now survives Reset All Controllers |
+| 19 | In XL DAW mode, channel 16 is the encoder/fader channel and is not musical: no notes, no CC6, no CC100 | **Preserve** — the guard moved to the feed site, where it now also covers CC101 and CC98/CC99, and the CC121 deselect carries it too, so no path reaches channel 16's RPN state in DAW mode. CC98/CC99 matter here: they are the XL's Lfo3 Amt and Drift3 Rate relative encoders (`midi/LaunchControlXLLeds.h:198-201`), sent constantly, and they must neither be consumed nor set the NRPN bit. CC101 the XL does not send; that half is so the invariant holds without exception. Costs one thing, stated rather than hidden: an RPN selection latched on ch16 before DAW mode was entered now survives Reset All Controllers, and so does its NRPN bit, until DAW mode ends |
 | 20 | After an MCM, the next CC6 must not be swallowed as another one (a bound fader would rewrite the zone from its position) | **Preserve** — JUCE's detector latches the selected RPN per channel exactly as the old global pair did. Done through the library: `deselectMpeRpn` hands it the CC100=127 a controller would send, which is the old "LSB only" deselect expressed as MIDI |
 | 21 | The RPN selection was ONE global pair where the MIDI spec has sixteen (the old code's own comment named this as a defect) | **Improves** — `MidiRPNDetector` holds sixteen states |
 | 21a | Selecting an **NRPN** (CC98/CC99) must suppress the next CC6, so the NRPN's own data byte is not read as a bend range | **Improves** — the old parser tracked CC100/CC101 only, so an NRPN data byte landed on the bend range (corpus [21] measures it: 40 semitones where 12 was set). One bit per channel (`mpeNrpnSelected_`), set on CC98/CC99, cleared on CC100/CC101 and on the CC121 deselect. CC98/CC99 are consumed by nobody and reach the bindings as before — in XL DAW mode they *are* bindings, the Lfo3 Amt and Drift3 Rate encoders (`midi/LaunchControlXLLeds.h:198-201`) |
-| 21b | The NRPN bytes must **not** be handed to `juce::MidiRPNDetector` or to `MPEZoneLayout`, even though the detector understands them | **Preserve** — this is the one place the obvious use of the library is wrong, and it was measured, not guessed. `MidiRPNDetector::ChannelState` keeps ONE parameter register per channel that CC98/CC99 and CC100/CC101 both write, distinguished only by an `isNRPN` flag on the way out (`juce_MidiRPN.cpp:80-84`); and `MPEZoneLayout::processRpnMessage` never reads that flag (`juce_MPEZoneLayout.cpp:131-137`). Feed it the NRPN bytes and two things follow: an ordinary NRPN 6 write installs an MPE zone, and a CC99 followed by a CC100 assembles a parameter number neither of them selected. Corpus [21] and [23] are those two sequences |
-| 21c | A bend range above the spec's 96 does not disturb the next one | **Preserve** — the floor of 1 is the old parser's (a transmitted 0 meant one semitone, not none); there is no ceiling here, and capability 6's decision not to feed the layout is what keeps it that way. `SynthVoice` clamps at ±48, so corpus [22] can only assert the *next* range: 96, 100 and 127 all read back identically at the voice |
+| 21b | The NRPN bytes must **not** be handed to `juce::MidiRPNDetector` or to `MPEZoneLayout`, even though the detector understands them | **Preserve** — this is the one place the obvious use of the library is wrong, and it was measured, not guessed. `MidiRPNDetector::ChannelState` keeps ONE parameter register per channel that CC98/CC99 and CC100/CC101 both write, distinguished only by an `isNRPN` flag on the way out (`juce_MidiRPN.cpp:81-85`); and `MPEZoneLayout::processRpnMessage` never reads that flag (`juce_MPEZoneLayout.cpp:131-137`). Feed it the NRPN bytes and a well-formed NRPN 6 write installs an MPE zone — or, with value 0, switches a declared one **off** mid-performance (corpus [21] and [24]). What the bit does NOT change, because it is ordinary RPN behaviour the hand-written code had too: a latched parameter MSB still combines with a later CC100. So [23] asserts the precise claim — inserting an NRPN select byte into an RPN sequence changes nothing about what that sequence does — rather than an absolute outcome, which depends on what was latched before it |
+| 21c | A bend range above the spec's 96 is honoured, and does not disturb the next one | **Preserve** — the floor of 1 is the old parser's (a transmitted 0 meant one semitone, not none); there is no ceiling here, and capability 6's decision not to feed the layout is what keeps it that way, since JUCE clamps this parameter to 0..96 wherever it owns it (`juce_MPEZoneLayout.cpp:74-76`). Corpus [22] reads it at a QUARTER wheel: `SynthVoice` clamps at ±48, so at full deflection 96, 100 and 127 are indistinguishable and only a quarter of the range clears the clamp |
 | 22 | A CC6 that completes no RPN still reaches a user binding | **Preserve** — an else-if cannot both consume a message and decline it, so `handleMpeRpnByte` returns whether it took the byte and the branch is chosen from that |
 | 23 | An **arpeggiated** note is an internal note: channel 0, never MPE-tracked, whatever channel the key arrived on (`dsp/VoiceEvent.h:32-38`) | Unchanged |
 | 23a | Switching the arpeggiator **off** hands the still-held keys back **with their MPE channel intact** (`PluginProcessor.cpp:3851-3862`) | Unchanged — and the reason note IDs would have been expensive: while the arp is on it *consumes* the note-ons, so a note tracker would have had to be fed from a second place |
@@ -149,7 +149,7 @@ one. That is the whole of the difference.
 
 ## 5. The gate
 
-`tools/test_mpe_parity.cpp` is the frozen corpus: 62 assertions driven as raw
+`tools/test_mpe_parity.cpp` is the frozen corpus: 65 assertions driven as raw
 MIDI through the real `T5ynthProcessor::processBlock`, reading the result off
 the voices. It was written against the hand-written code and was green on it
 before the library was introduced — that is what makes it a record of the old
@@ -169,21 +169,36 @@ declaring its zone had that range reset by the declaration. It was added after
 the fact, so it was checked against the hand-written code as well before being
 trusted — a case only the new implementation has ever passed is not evidence.
 
-Cases 21, 22 and 23 came from the adversarial reviews and were run against the
-hand-written code for the same reason. 22 and 23 pass there, so they are parity.
-21's first half **fails** there — 40 semitones where 12 was set — so it is not
-parity and is labelled in the corpus as the improvement it is.
+Cases 21 to 24 came from the adversarial reviews and were run against the
+hand-written code for the same reason. 22, 23 and 24 pass there, so they are
+parity. 21's first half **fails** there — 40 semitones where 12 was set — so it
+is not parity and is labelled in the corpus as the improvement it is.
 
-Case 21 also records a mistake worth keeping visible, because the corpus caught
-it only after it had been written the easy way. Its first version picked NRPN
-parameter **5**, and 5 is the one low parameter number `MPEZoneLayout` ignores.
-It passed while the same change was letting an NRPN **6** install a zone — a
-regression strictly worse than the misfire it fixed, because a zone decides
-master-vs-member for pressure and CC74 routing, not just one number. The case
-now picks 6, on the channel where accepting it does the most damage, and case
-23 adds the two mixed selections the shared parameter register makes possible.
-Against the broken revision all three fail. A test that picks the convenient
-value tests the implementation's optimism, not the capability.
+Those four cases record three separate ways a test can look like evidence and
+not be one. Each was caught by a review, not by the suite:
+
+* **The convenient value.** Case 21's first version picked NRPN parameter
+  **5** — the one low number `MPEZoneLayout` ignores. It passed while the same
+  change was letting an NRPN **6** install a zone, which is strictly worse than
+  the misfire it fixed, because a zone decides master-vs-member for pressure and
+  CC74 as well. It picks 6 now, on the channel where accepting it does the most
+  damage.
+* **The convenient starting state.** Case 23's first version ran from a fresh
+  channel, where the parameter register is still `0xff` — and *that*, not the
+  code under test, is what made the sequences inert. It runs each sequence twice
+  now, once from fresh and once behind the RPN a real device sends first, and
+  compares the variant carrying the NRPN byte against the one without it. That
+  is the actual claim; an absolute outcome would have been the wrong assertion,
+  because a latched MSB legitimately changes what a later CC100 selects.
+* **The saturated observable.** Case 22's first version asserted an out-of-spec
+  bend range at a full wheel, where `SynthVoice`'s ±48 clamp makes 96, 100 and
+  127 identical. It was then deleted as unfixable, which was also wrong: a
+  quarter wheel clears the clamp and reads the range back directly.
+
+A fourth case exists because every zone assertion in this suite starts from "no
+zone", so the observable saturates at "no zone" and a defect that only
+**destroys** zones passes all of them. Case 24 declares one first. Against the
+revision that had the defect, cases 21, 23 and 24 all fail.
 
 Not reachable from an offline harness, and stated in the tool rather than
 skipped quietly: the Launch Control XL DAW-mode exemptions, because

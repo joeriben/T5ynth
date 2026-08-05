@@ -695,18 +695,102 @@ namespace
                    "an NRPN 6 did not declare a zone -- ch16 is still a member");
     }
 
+    // Does inserting an NRPN select byte into an otherwise ordinary RPN
+    // sequence change what that sequence does? It must not: the answer with
+    // the byte and the answer without it have to be the same one.
+    //
+    // Asserting an ABSOLUTE outcome here would be the wrong test and was, on
+    // the first attempt. juce::MidiRPNDetector latches the parameter register,
+    // so a CC100 alone re-selects against the MSB the last RPN left -- which
+    // means the same byte stream declares a zone or not depending purely on
+    // what preceded it. From a fresh channel both variants are inert and the
+    // case passes without touching the mechanism at all. So the fixture runs
+    // each pair twice, once from fresh and once behind the RPN a real device
+    // sends first, and compares the two variants against EACH OTHER.
+    float bendAfterMixedSelection (bool withNrpnByte, bool withPriorRpn)
+    {
+        Rig r;
+        if (withPriorRpn)
+        {
+            r.rpn (5, 0, 0, 12);      // latches MSB 0, LSB 0
+            r.flush();
+        }
+        if (withNrpnByte)
+            r.cc (5, 98, 0);          // NRPN LSB — must not touch the register
+        r.cc (5, 101, 0);             // RPN MSB 0
+        r.cc (5, 6, 40);
+        r.flush();
+
+        r.noteOn (5, 64);
+        r.flush();
+        r.wheel (5, 16383);
+        r.flush();
+
+        const auto* v = r.voiceForNote (64);
+        return v != nullptr ? v->getPerVoicePitchBend() : -999.0f;
+    }
+
+    bool ch16IsMasterAfterMixedSelection (bool withNrpnByte, bool withPriorRpn)
+    {
+        Rig r;
+        if (withPriorRpn)
+        {
+            r.rpn (16, 0, 0, 2);      // latches MSB 0, LSB 0
+            r.flush();
+        }
+        if (withNrpnByte)
+            r.cc (16, 99, 0);         // NRPN MSB — must not touch the register
+        r.cc (16, 100, 6);            // RPN LSB 6
+        r.cc (16, 6, 1);
+        r.flush();
+
+        r.noteOn (1, 60);
+        r.noteOn (5, 64);
+        r.flush();
+        r.pressure (16, 127);         // zone-wide only if ch16 became a master
+        r.flush();
+
+        const auto* v = r.voiceForNote (64);
+        return v != nullptr && v->getAftertouch() > 0.5f;
+    }
+
     void caseRpnRegisterIsNotSharedWithNrpn()
     {
-        std::printf ("[23] a half-NRPN, half-RPN selection completes nothing\n");
-        // juce::MidiRPNDetector keeps ONE parameter register per channel and
-        // lets CC98/CC99 and CC100/CC101 both write it, distinguishing them
-        // only by an isNRPN flag on the way out. Hand it the NRPN bytes and a
-        // CC99 plus a CC100 assemble a parameter number that neither selected.
-        // Both sequences below are inert on the hand-written parser too.
+        std::printf ("[23] an NRPN select byte does not write the RPN parameter register\n");
+        // juce::MidiRPNDetector keeps ONE register per channel and lets
+        // CC98/CC99 and CC100/CC101 both write it, telling them apart only by
+        // a flag on the way out -- so a detector fed the NRPN bytes assembles
+        // parameter numbers out of halves that were never selected together.
+
+        for (int prior = 0; prior < 2; ++prior)
+        {
+            const bool withPrior = prior != 0;
+            const char* where = withPrior ? " (behind a latched RPN)" : " (from fresh)";
+
+            checkNear (bendAfterMixedSelection (true,  withPrior),
+                       bendAfterMixedSelection (false, withPrior), 1e-4f,
+                       std::string ("a CC98 before an RPN 0 changes nothing about it") + where);
+
+            check (ch16IsMasterAfterMixedSelection (true,  withPrior)
+                       == ch16IsMasterAfterMixedSelection (false, withPrior),
+                   std::string ("a CC99 before an RPN 6 changes nothing about it") + where);
+        }
+    }
+
+    void caseNrpnCannotDestroyADeclaredZone()
+    {
+        std::printf ("[24] a well-formed NRPN 6 write does not switch a declared zone off\n");
+        // The other direction, and the worse one: every zone assertion above
+        // starts from "no zone", so a defect that only DESTROYS zones passes
+        // all of them. Here the rig is a working MPE setup and the NRPN write
+        // carries value 0, which as an MCM means "no member channels".
         Rig r;
-        r.cc (16, 99, 0);             // NRPN MSB 0 ...
-        r.cc (16, 100, 6);            // ... then the RPN LSB 6. Not an MCM.
-        r.cc (16, 6, 1);
+        r.rpn (16, 0, 6, 1);          // a real MCM: upper zone, one member
+        r.flush();
+
+        r.cc (16, 99, 0);
+        r.cc (16, 98, 6);             // an NRPN 6 ...
+        r.cc (16, 6, 0);              // ... whose value would switch the zone off
         r.flush();
 
         r.noteOn (1, 60);
@@ -718,35 +802,19 @@ namespace
         const auto* v = r.voiceForNote (64);
         check (v != nullptr, "the member voice is alive");
         if (v == nullptr) return;
-        checkNear (v->getAftertouch(), 0.0f, 0.01f,
-                   "no zone was declared from a mixed selection");
-
-        Rig b;
-        b.cc (5, 98, 0);              // NRPN LSB 0 ...
-        b.cc (5, 101, 0);             // ... then the RPN MSB 0. Not RPN 0.
-        b.cc (5, 6, 40);
-        b.flush();
-
-        b.noteOn (5, 64);
-        b.flush();
-        b.wheel (5, 16383);
-        b.flush();
-
-        const auto* w = b.voiceForNote (64);
-        check (w != nullptr, "the voice is alive");
-        if (w == nullptr) return;
-        checkNear (w->getPerVoicePitchBend(), fullUpBend (kDefaultNoteBendRange), 0.01f,
-                   "and no bend range was set from one either");
+        checkNear (v->getAftertouch(), 1.0f, 0.01f,
+                   "the zone is still there -- ch16 is still its master");
     }
 
     void caseBendRangeAboveTheSpecMaximum()
     {
-        std::printf ("[22] a bend range above 96 does not disturb the next one\n");
-        // Only the SECOND range is asserted, and deliberately: SynthVoice
-        // clamps at ±48 (dsp/SynthVoice.h:49), so 96, 100 and 127 all read back
-        // as 48.000 and the first value cannot be told apart from a clamp to
-        // the spec's 96. What is observable is whether the out-of-spec value
-        // POISONS what follows -- which is the failure mode worth pinning.
+        std::printf ("[22] a bend range above 96 is honoured and does not disturb the next one\n");
+        // Read at a QUARTER wheel, not full: SynthVoice clamps at ±48
+        // (dsp/SynthVoice.h:49), so at full deflection 96, 100 and 127 all read
+        // back as 48.000 and an honoured 100 cannot be told from a clamp to the
+        // spec's 96. A quarter of the range clears the clamp and 100 is 100.
+        // JUCE clamps this parameter to 0..96 wherever it owns it
+        // (juce_MPEZoneLayout.cpp:74-76), which is what makes it worth pinning.
         Rig r;
         r.rpn (5, 0, 0, 100);         // out of MPE's 0..96, and a controller may send it
         r.flush();
@@ -758,12 +826,17 @@ namespace
         check (v != nullptr, "the voice is alive");
         if (v == nullptr) return;
 
+        r.wheel (5, 8192 + 2048);     // a quarter up
+        r.flush();
+        checkNear (v->getPerVoicePitchBend(), 25.0f, 0.05f,
+                   "100 semitones was stored as 100, not clamped to the spec's 96");
+
         r.rpn (5, 0, 0, 12);
         r.flush();
         r.wheel (5, 16383);
         r.flush();
         checkNear (v->getPerVoicePitchBend(), fullUpBend (12.0f), 0.01f,
-                   "the next range lands unaffected by it");
+                   "and the next range lands unaffected by it");
     }
 
     void caseArpOffHandsTheKeyBackWithItsChannel()
@@ -825,6 +898,7 @@ int main()
     caseNrpnDoesNotWriteTheBendRange();
     caseBendRangeAboveTheSpecMaximum();
     caseRpnRegisterIsNotSharedWithNrpn();
+    caseNrpnCannotDestroyADeclaredZone();
 
     std::printf ("\n%d checks, %d failures -- %s\n\n",
                  gChecks, gFailures, gFailures == 0 ? "ALL PASS" : "FAILED");

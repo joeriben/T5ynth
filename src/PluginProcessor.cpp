@@ -5818,14 +5818,20 @@ bool T5ynthProcessor::handleMpeRpnByte(int channel, int cc, int value7) noexcept
     // synth's -- and it range-checks the value already in the zone while
     // assigning the new one unchecked, so a controller transmitting a range
     // above 96 fires JUCE's own assertion from the audio thread on the next
-    // change (juce_MPEZoneLayout.cpp:151-166).
-    const bool completesBendRangeRpn = parsed.has_value() && ! parsed->isNRPN
+    // change (juce_MPEZoneLayout.cpp:150-168).
+    //
+    // parsed->isNRPN is deliberately NOT tested here or below: ChannelState
+    // sets it only from CC98/CC99, which the early return above keeps out of
+    // this detector entirely, so it is permanently false. Testing it would
+    // read as the protection -- and the protection is that the bytes never
+    // arrive.
+    const bool completesBendRangeRpn = parsed.has_value()
                                        && parsed->parameterNumber == 0;
 
     if (! completesBendRangeRpn)
         mpeZones_.processNextMidiEvent(juce::MidiMessage::controllerEvent(channel, cc, value7));
 
-    const bool actedOn = parsed.has_value() && ! parsed->isNRPN
+    const bool actedOn = parsed.has_value()
                          && (parsed->parameterNumber == 0
                              || parsed->parameterNumber == juce::MPEMessages::zoneLayoutMessagesRpnNumber);
 
