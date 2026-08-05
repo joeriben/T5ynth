@@ -1,5 +1,40 @@
 # T5ynth Development Log
 
+## 2026-08-05 — Shift is fine adjustment, on every control that is dragged
+
+BJ, after playing the new envelope curves: *"die Maus-Skalierung ist etwas zu grob
+… man wischt praktisch von einer Ecke des Synths in die andere — Vorteil natürlich
+gute Feineinstellung. aber da hatte ich auch für A/B immer schon gedacht: ein
+globaler switch dass mit gehaltenem Shift alle Regler nur noch 10% fahren?"*
+
+They do now. `FineDrag` (`GuiHelpers.h`) accumulates the pointer's movement
+scaled by `kFineDragScale = 0.1` while Shift is down — incrementally, not as a
+re-mapped distance from the grab point, so pressing or releasing Shift in the
+middle of a gesture changes the rate from there on and never jumps the value.
+`MidiLearnSlider` feeds every drag through it, which covers every `SliderRow` in
+the instrument and the A↔B blend that derives from it; `masterVolKnob`, the
+sound-character axis sliders and the replay speed slider stopped being bare
+`juce::Slider`s to join them; `AdsrGraph` uses the same accumulator on all six of
+its handles.
+
+Two places keep Shift for what it already meant. The aftertouch and velocity bars
+are absolute — the bar position *is* the value — so a fine mode there would have
+to make them relative. And on a two-value slider JUCE itself spends Shift on
+dragging both thumbs while holding the gap, which is what the A↔B fader becomes
+in Layer Split; `MidiLearnSlider` therefore scales nothing on `TwoValue*` /
+`ThreeValue*` styles. Taking a gesture that already exists would have been the
+worse trade.
+
+One behaviour changed without being asked for: right-clicking the master fader
+used to jump it to the click point, because a bare `juce::Slider` treats the
+right button as a drag. `MidiLearnSlider` swallows it, which is why it exists.
+
+Because a precise gesture now exists, the ordinary one got shorter: a segment's
+whole bend range is dragged over `kBendTravel = 0.75` of the plot height instead
+of one and a half of them — half the travel it had this morning. Plain drag moves
+about 0.03 of bend per pixel, Shift about 0.003, i.e. finer than the parameter's
+own 0.01 step.
+
 ## 2026-08-05 — The envelope curve became a travel, and the release started meaning its own number
 
 BJ: *"könnten die splines der envs auch kontinuierlich sein? oft treffen sie nicht

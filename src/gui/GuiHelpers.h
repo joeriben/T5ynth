@@ -844,24 +844,80 @@ inline ResponsiveStripResult layoutResponsiveStrip(juce::Rectangle<int> area,
     return result;
 }
 
+// ── Shift = fine, everywhere a control is dragged ─────────────────────────────
+// BJ, 2026-08-05: a full-resolution drag needs the travel of a whole trackpad
+// swipe, which buys precision at a price you pay on every ordinary edit. With
+// Shift held the pointer moves the value a tenth as far, so the plain gesture
+// can stay quick and the precise one is still there when it is wanted.
+inline constexpr float kFineDragScale = 0.1f;
+
+/** The scaled pointer position for a drag, accumulated INCREMENTALLY.
+ *
+ *  Incrementally, because Shift is a key and keys get pressed and released in
+ *  the middle of a gesture: scaling the distance from the grab point instead
+ *  would re-map the whole travel at that moment and jump the value. Feed every
+ *  drag through `positionFor` and use what it returns in place of e.position. */
+class FineDrag
+{
+public:
+    void begin(juce::Point<float> p) noexcept { real_ = virt_ = p; }
+
+    juce::Point<float> positionFor(const juce::MouseEvent& e) noexcept
+    {
+        virt_ += (e.position - real_) * (e.mods.isShiftDown() ? kFineDragScale : 1.0f);
+        real_  = e.position;
+        return virt_;
+    }
+
+    /** The same event with the scaled position substituted, for handing straight
+     *  to a base class that reads e.position (juce::Slider does, in every drag
+     *  style it has). */
+    juce::MouseEvent eventFor(const juce::MouseEvent& e) noexcept
+    {
+        return e.withNewPosition(positionFor(e));
+    }
+
+private:
+    juce::Point<float> real_, virt_;
+};
+
 /**
  * juce::Slider that swallows right-button presses without moving the slider
  * value, so enclosing components can show a MIDI Learn context menu on
  * right-click without inadvertently changing the parameter.
+ *
+ * Also the house's Shift-is-fine drag: nearly every knob and fader in the synth
+ * is a SliderRow, and a SliderRow's slider is one of these.
  */
 class MidiLearnSlider : public juce::Slider
 {
 public:
     void mouseDown(const juce::MouseEvent& e) override
     {
-        if (!e.mods.isRightButtonDown())
-            juce::Slider::mouseDown(e);
+        if (e.mods.isRightButtonDown()) return;
+        fine.begin(e.position);
+        juce::Slider::mouseDown(e);
     }
     void mouseDrag(const juce::MouseEvent& e) override
     {
-        if (!e.mods.isRightButtonDown())
+        if (e.mods.isRightButtonDown()) return;
+        // Shift is NOT ours on a two- or three-value slider: JUCE already spends
+        // it there to drag both thumbs at once and keep the gap (juce_Slider.cpp,
+        // sliderBeingDragged 1 and 2). The A↔B blend becomes one of those in
+        // Layer Split, and taking a gesture that already exists would be a worse
+        // trade than leaving one control without a fine mode.
+        const auto style = getSliderStyle();
+        if (style == TwoValueHorizontal || style == TwoValueVertical
+            || style == ThreeValueHorizontal || style == ThreeValueVertical)
+        {
             juce::Slider::mouseDrag(e);
+            return;
+        }
+        juce::Slider::mouseDrag(fine.eventFor(e));
     }
+
+private:
+    FineDrag fine;
 };
 
 /**
@@ -1783,6 +1839,7 @@ public:
         // off its exact value position (the min-width-clamped sustain node at
         // decay≈0) then doesn't jump its decay on the first drag.
         dragStart    = p;
+        fine.begin(p);
         startAprop   = propOf(pA);
         startDprop   = propOf(pD);
         startSprop   = propOf(pS);
@@ -1799,8 +1856,14 @@ public:
     {
         if (draggingHandle == Handle::None || ! isBound()) return;
         const auto geo = computeGeometry();
-        const float dx = e.position.x - dragStart.x;
-        const float dy = e.position.y - dragStart.y;
+        // Shift = a tenth of the travel, on every handle this graph owns.
+        const auto pos = fine.positionFor(e);
+        const float dx = pos.x - dragStart.x;
+        const float dy = pos.y - dragStart.y;
+        // The plot is the component inset by 8 px a side, so at 16 px of height
+        // it is zero high and every Y divisor below would hand the parameter a
+        // NaN — which jlimit passes straight through.
+        const float plotH = juce::jmax(1.0f, geo.plot.getHeight());
 
         switch (draggingHandle)
         {
@@ -1808,7 +1871,7 @@ public:
                 // X = attack time; Y = ENV Amount (drag the ceiling down to scale
                 // the whole envelope proportionally). Both track the cursor 1:1.
                 setPropG(attA,   pA,   startAprop   + dx / geo.segWA);
-                setPropG(attAmt, pAmt, startAmtProp - dy / geo.plot.getHeight());
+                setPropG(attAmt, pAmt, startAmtProp - dy / plotH);
                 peakShowAmt = std::abs(dy) > std::abs(dx);
                 break;
             case Handle::Sustain:
@@ -1816,25 +1879,26 @@ public:
                 // Sustain Y is scaled by the ceiling (susY = bottom − amtP·sP·H),
                 // so divide by amtP·H to keep the node tracking the cursor.
                 setPropG(attS, pS, startSprop
-                        - dy / (juce::jmax(startAmtProp, 0.05f) * geo.plot.getHeight()));
+                        - dy / (juce::jmax(startAmtProp, 0.05f) * plotH));
                 break;
             case Handle::Release:
                 setPropG(attR, pR, startRprop + dx / geo.segWR);
                 break;
 
-            // Segment bend. Half the plot height is one unit of bend — Lin to a
-            // named pole, so a stage's full travel is 1.5 plot heights on the side
-            // it sags and 0.5 on the other. The sign is per stage so the curve bulges
-            // TOWARDS the cursor: on the attack a positive bend rises early (the
-            // segment lifts), on the falling decay and release it drops early.
+            // Segment bend. A stage's WHOLE travel is kBendTravel of the plot
+            // height — the three units from -2 to +1, or from -1 to +2 — so the
+            // plain gesture is short and Shift reaches the 0.01 step. The sign
+            // is per stage so the curve bulges TOWARDS the cursor: on the attack
+            // a positive bend rises early (the segment lifts), on the falling
+            // decay and release it drops early.
             case Handle::AttackBend:
-                setBendG(attAcv, pAcv, startBend - dy / (0.5f * geo.plot.getHeight()));
+                setBendG(attAcv, pAcv, startBend - dy / bendPixels(geo, pAcv));
                 break;
             case Handle::DecayBend:
-                setBendG(attDcv, pDcv, startBend + dy / (0.5f * geo.plot.getHeight()));
+                setBendG(attDcv, pDcv, startBend + dy / bendPixels(geo, pDcv));
                 break;
             case Handle::ReleaseBend:
-                setBendG(attRcv, pRcv, startBend + dy / (0.5f * geo.plot.getHeight()));
+                setBendG(attRcv, pRcv, startBend + dy / bendPixels(geo, pRcv));
                 break;
             default: break;
         }
@@ -1884,6 +1948,18 @@ private:
         if (p == nullptr) return 0.0f;   // Lin
         const auto& r = p->getNormalisableRange();
         return juce::jlimit(r.start, r.end, r.convertFrom0to1(p->getValue()));
+    }
+
+    /** Pixels per unit of bend: the stage's whole range laid over kBendTravel of
+     *  the plot height, read off the parameter so the attack's asymmetric range
+     *  and the falling stages' mirror of it both cover the same distance. */
+    static float bendPixels(const Geometry& geo, juce::RangedAudioParameter* p)
+    {
+        const float span = (p != nullptr)
+                         ? juce::jmax(1.0e-3f, p->getNormalisableRange().end
+                                             - p->getNormalisableRange().start)
+                         : 3.0f;
+        return juce::jmax(1.0f, kBendTravel * geo.plot.getHeight() / span);
     }
 
     static void setBendG(std::unique_ptr<juce::ParameterAttachment>& att,
@@ -2067,12 +2143,18 @@ private:
     // hit (mouseDown) and dragging is relative (mouseDrag), so this only governs
     // visual spacing — it need not exceed kHandleHit.
     static constexpr float kMinDecayDraw = 12.0f;
+    // Share of the plot height a segment's WHOLE bend range is dragged over.
+    // Under one, so the ordinary gesture is a short flick rather than a swipe
+    // across the window; the 0.01 step it cannot resolve is reached with Shift
+    // (kFineDragScale), which is what that key is for everywhere else too.
+    static constexpr float kBendTravel = 0.75f;
 
     juce::Colour accentCol;
     Handle draggingHandle = Handle::None;
 
     // Relative-drag anchor: cursor position + slider proportions at mouseDown.
     juce::Point<float> dragStart;
+    FineDrag fine;               // Shift = a tenth of the travel
     float startAprop = 0.0f, startDprop = 0.0f, startSprop = 0.0f, startRprop = 0.0f;
     float startAmtProp = 0.0f;
     float startBend = 0.0f;      // bend of the grabbed segment at mouseDown

@@ -136,7 +136,7 @@ void AxesPanel::initSlot(AxisSlot& slot, int axisIndex)
     juce::Colour sliderColor = (axisIndex >= 0 && axisIndex < 3)
         ? kAxisColors[axisIndex] : kAccent;
 
-    slot.slider = std::make_unique<juce::Slider>();
+    slot.slider = std::make_unique<MidiLearnSlider>();   // Shift = fine, like every other fader
     slot.slider->setSliderStyle(juce::Slider::LinearHorizontal);
     slot.slider->setTextBoxStyle(juce::Slider::NoTextBox, true, 0, 0);
     slot.slider->setRange(-1.0, 1.0, 0.002);

@@ -3,6 +3,7 @@
 #include <deque>
 #include "../eventlog/EventLog.h"
 #include "../eventlog/EventLogReader.h"
+#include "GuiHelpers.h"   // MidiLearnSlider: Shift = fine, same as every other fader
 
 class T5ynthProcessor;
 
@@ -51,7 +52,7 @@ private:
     T5ynthProcessor& processorRef;
 
     juce::TextButton stopBtn { "Stop Replay" };
-    juce::Slider     speedSlider;
+    MidiLearnSlider  speedSlider;
 
     juce::String tapeName_;
 

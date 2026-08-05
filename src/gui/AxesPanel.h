@@ -74,7 +74,7 @@ private:
     struct AxisSlot
     {
         std::unique_ptr<juce::ComboBox> dropdown;
-        std::unique_ptr<juce::Slider> slider;
+        std::unique_ptr<MidiLearnSlider> slider;
         std::unique_ptr<juce::Label> valueLabel;
         std::unique_ptr<juce::Label> poleLabelA; // left pole
         std::unique_ptr<juce::Label> poleLabelB; // right pole

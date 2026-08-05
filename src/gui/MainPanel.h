@@ -279,8 +279,9 @@ private:
     SequencerPanel sequencerPanel;
     StatusBar statusBar;
 
-    // Master volume
-    juce::Slider masterVolKnob;
+    // Master volume. MidiLearnSlider, not a bare juce::Slider, so the one fader
+    // that sits outside every SliderRow still obeys Shift-is-fine.
+    MidiLearnSlider masterVolKnob;
     juce::Label masterVolLabel;
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> masterVolA;
 
