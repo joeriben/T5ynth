@@ -4884,12 +4884,13 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
                         if (pbChannel == 1)
                         {
                             voiceManager.setPitchBendSemitones(
-                                juce::jlimit(-1.0f, 1.0f, centered) * masterPitchBendRangeSemitones_);
+                                juce::jlimit(-1.0f, 1.0f, centered)
+                                * static_cast<float>(mpeMasterBendRangeInForce_));
                         }
                         else
                         {
                             voiceManager.setPerVoicePitchBend(pbChannel,
-                                centered * notePitchBendRangeSemitones_);
+                                centered * static_cast<float>(mpePerNoteBendRangeInForce_));
                         }
                     }
                     else if (msg.isAllNotesOff() || msg.isAllSoundOff())
@@ -4916,112 +4917,31 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
                         //     GM performance CCs below — e.g. an XL fader on CC7/CC11 drives its
                         //     mapped param instead of channel-volume / expression.
                         //  4. Built-in GM / system CCs: fallback for unbound CCs.
+                        //
+                        // The RPN bytes go to juce::MPEZoneLayout, and the answer is
+                        // needed BEFORE the chain rather than as a branch of it: an
+                        // else-if cannot both consume a CC6 and decline it, and a CC6
+                        // that completes no RPN we act on has to reach a user binding.
+                        // The XL guard is the hand-written parser's, unchanged: in DAW
+                        // mode channel 16 carries the Resynth fader on CC6 and the
+                        // Drift3 Amt encoder on CC100, and reading either as RPN killed
+                        // that control.
+                        const bool consumedAsMpeRpn =
+                            ! midiLearnActive.load(std::memory_order_relaxed)
+                            && (isMpeRpnController (cc) || cc == 6)
+                            && ! (dawModeActive_.load(std::memory_order_relaxed)
+                                  && msg.getChannel() == 16)
+                            && handleMpeRpnByte (msg.getChannel(), cc, value7);
+
                         if (midiLearnActive.load(std::memory_order_relaxed))
                         {
                             // CC Learn intercept: signal the message thread with the CC number.
                             midiLearnTargetCc.store(cc, std::memory_order_release);
                             triggerAsyncUpdate();
                         }
-                        else if (cc == 101)
+                        else if (consumedAsMpeRpn)
                         {
-                            midiRpnMsb_ = value7;
-                        }
-                        else if (cc == 100
-                                 && ! (dawModeActive_.load(std::memory_order_relaxed)
-                                       && msg.getChannel() == 16))
-                        {
-                            // CC100 = RPN LSB for normal controllers. BUT in DAW mode the XL's
-                            // Row-3 rightmost encoder (Drift3 Amt) transmits RELATIVE CC100 on
-                            // ch16 (abs CC36 + 64). Without this guard it was swallowed here as
-                            // RPN and never reached the relative-encoder handler → Drift3 Amt
-                            // dead. Other channels keep working as RPN (keyboard pitch-bend range
-                            // / MPE), so this only excludes the XL's own encoder channel.
-                            midiRpnLsb_ = value7;
-                        }
-                        else if (cc == 6 && midiRpnMsb_ == 0 && midiRpnLsb_ == 0
-                                 && ! (dawModeActive_.load(std::memory_order_relaxed)
-                                       && msg.getChannel() == 16))
-                        {
-                            // RPN 0x0000 Data Entry MSB = semitones for pitch-bend range.
-                            // Guarded off for the XL's ch16 CC6 fader (Resynth): when no RPN is in
-                            // flight this branch would otherwise swallow the fader → Resynth dead.
-                            // Ch1 sets the master (global) range; all other channels set the
-                            // per-note MPE range. Value 0 is treated as 1 (1 semitone min).
-                            const float rangeS = static_cast<float>(std::max(1, value7));
-                            const int rpnCh = msg.getChannel();
-                            if (isMpeMasterChannel (rpnCh))
-                            {
-                                // Zone master channel: set the master bend AND mirror it to
-                                // the per-note range. MPE controllers that configure the whole
-                                // zone from the master channel (e.g. LinnStrument, which only
-                                // transmits its Bend Range there) then drive member notes with
-                                // the range the user actually set, instead of the 48-st default.
-                                masterPitchBendRangeSemitones_ = rangeS;
-                                notePitchBendRangeSemitones_   = rangeS;
-                            }
-                            else
-                            {
-                                // Member channel (MMA MPE: applies to all member channels).
-                                notePitchBendRangeSemitones_ = rangeS;
-                            }
-                        }
-                        else if (cc == 6 && midiRpnMsb_ == 0 && midiRpnLsb_ == 6
-                                 && ! (dawModeActive_.load(std::memory_order_relaxed)
-                                       && msg.getChannel() == 16))
-                        {
-                            // RPN 0x0006 Data Entry MSB = the MPE Configuration Message:
-                            // how many MEMBER channels the zone this channel masters has.
-                            // Sent on ch1 for the Lower Zone, ch16 for the Upper Zone; 0
-                            // switches that zone off. Ignored on any other channel — only a
-                            // master declares a zone.
-                            //
-                            // This is the ONLY message that can make channel 16 a master
-                            // rather than a member, which is the whole reason the layout is
-                            // tracked at all. Same ch16 DAW-mode exemption as the RPN 0
-                            // branch above, for the same reason: that channel is the XL's.
-                            const int mcmCh   = msg.getChannel();
-                            const int members = value7;
-                            // Discarded, not clamped, above fifteen — the reference refuses
-                            // to enter that state (MPEZoneLayout::processZoneLayoutRpnMessage
-                            // guards with `rpn.value < 16`), and clamping would let a foreign
-                            // or malformed RPN 6 install a full zone and switch the other one
-                            // off.
-                            if (members < 16 && (mcmCh == 1 || mcmCh == 16))
-                            {
-                                if (mcmCh == 1) mpeLowerZoneMembers_ = members;
-                                else            mpeUpperZoneMembers_ = members;
-
-                                // The two zones share fifteen member channels, so declaring
-                                // one shrinks the other where they would overlap
-                                // (juce::MPEZoneLayout::setZone). A lower zone of 15 members
-                                // — the common default — therefore switches any upper zone
-                                // off, which is exactly the case that decides channel 16.
-                                // Clamped at 0; JUCE's raw 14-N can go negative.
-                                if (members > 0
-                                    && mpeLowerZoneMembers_ + mpeUpperZoneMembers_ >= 15)
-                                {
-                                    if (mcmCh == 1)
-                                        mpeUpperZoneMembers_ = std::max(0, 14 - members);
-                                    else
-                                        mpeLowerZoneMembers_ = std::max(0, 14 - members);
-                                }
-                            }
-                            // Deselect, because the configuration message is a one-shot
-                            // declaration: midiRpnLsb_ would otherwise stay at 6 until the
-                            // controller sends some other RPN, and every later CC6 — a
-                            // bound fader included — would be swallowed into this branch
-                            // and rewrite the zone from its value. This pair is ONE global
-                            // state where the MIDI spec has sixteen, one per channel
-                            // (juce::MidiRPNDetector), so a stale selection reaches CC6 on
-                            // every channel, not just the one that set it.
-                            //
-                            // The LSB only. Clearing the MSB as a real RPN Null does would
-                            // break a controller that re-sends just the byte that changed:
-                            // CC100=0 then CC6 is a legal way to follow this message with a
-                            // bend range, and it still finds midiRpnMsb_ == 0 waiting.
-                            // RPN 0 is not deselected at all — it is a value controllers
-                            // legitimately re-send.
-                            midiRpnLsb_ = 0x7F;
+                            // Already handled above by juce::MPEZoneLayout.
                         }
                         else if (cc == 74 && ! isMpeMasterChannel (channel))
                         {
@@ -5199,8 +5119,7 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
                                     // now a stale selection can swallow a CC6 that was
                                     // meant for a binding. NOT the zone layout — that is
                                     // a property of the device, not a controller value.
-                                    midiRpnMsb_ = 0x7F;
-                                    midiRpnLsb_ = 0x7F;
+                                    deselectMpeRpn(msg.getChannel(), /*lsbOnly=*/false);
                                 }
                             }
                         }
@@ -5848,6 +5767,80 @@ void T5ynthProcessor::syncWavetableTraversal(double bufferSampleRate, int totalS
     {
         masterOsc.setAutoScan(false);
     }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// MPE zone layout — juce::MPEZoneLayout, plus this synth's three deviations
+// from it. Everything here runs on the audio thread and allocates nothing;
+// tools/measure_mpe_instrument_rt.cpp is the measurement.
+// ═══════════════════════════════════════════════════════════════════════════
+
+bool T5ynthProcessor::handleMpeRpnByte(int channel, int cc, int value7) noexcept
+{
+    // Both detectors see the same bytes in the same order, so they stay in step.
+    // This one exists only to answer what the layout cannot be asked: WHICH
+    // parameter a completed RPN carried, and with what value.
+    const auto parsed = mpeRpnWatcher_.tryParse(channel, cc, value7);
+
+    mpeZones_.processNextMidiEvent(juce::MidiMessage::controllerEvent(channel, cc, value7));
+
+    const bool actedOn = parsed.has_value() && ! parsed->isNRPN
+                         && (parsed->parameterNumber == 0
+                             || parsed->parameterNumber == juce::MPEMessages::zoneLayoutMessagesRpnNumber);
+
+    if (actedOn && parsed->parameterNumber == 0)
+    {
+        // Pitch Bend Sensitivity. MPE puts one range on the master channel and
+        // another on the members, and MPEZoneLayout stores them that way; this
+        // synth keeps ONE pair for the whole instrument, which is what every
+        // call site assumes and what survives a later zone declaration.
+        //
+        // A master-channel RPN therefore reaches the MEMBERS too. That is not
+        // an oversight: a LinnStrument transmits its Bend Range on the master
+        // channel only, and taking MPE at its word there leaves its member
+        // notes bending at the default instead of the range the player set.
+        //
+        // The floor of 1 is the hand-written parser's -- a transmitted 0 meant
+        // one semitone, not none. Value 0 is what a controller sends to mean
+        // "no bend", and honouring that would silently disable pitch bend.
+        const int range = std::max(1, value7);
+        mpePerNoteBendRangeInForce_ = range;
+        if (isMpeMasterChannel(channel))
+            mpeMasterBendRangeInForce_ = range;
+    }
+    else if (actedOn)
+    {
+        // The MPE Configuration Message is a one-shot declaration, but
+        // MidiRPNDetector keeps the selected parameter latched per channel --
+        // so the NEXT CC6 on this channel, a bound fader included, would be
+        // read as another zone message and rewrite the layout from its
+        // position. The layout itself is now juce::MPEZoneLayout's to keep.
+        deselectMpeRpn(channel, /*lsbOnly=*/true);
+    }
+
+    // CC100/CC101 are RPN and nothing else, so they are always consumed. A CC6
+    // is only ours when it completed an RPN we act on; otherwise it falls
+    // through to the user bindings below, exactly as it did before.
+    return cc != 6 || actedOn;
+}
+
+void T5ynthProcessor::deselectMpeRpn(int channel, bool lsbOnly) noexcept
+{
+    // Expressed as the MIDI a controller would send, so the library's own
+    // detectors do the deselecting and no parser state is kept here.
+    const auto feed = [this, channel](int cc, int value)
+    {
+        mpeRpnWatcher_.tryParse(channel, cc, value);
+        mpeZones_.processNextMidiEvent(juce::MidiMessage::controllerEvent(channel, cc, value));
+    };
+
+    if (! lsbOnly)
+        feed(101, 0x7F);
+
+    // The LSB alone after a zone message: CC100=0 followed by CC6 is a legal way
+    // for a controller to send a bend range next, and it must still find RPN 0's
+    // MSB waiting.
+    feed(100, 0x7F);
 }
 
 void T5ynthProcessor::updateDriftState(int numSamples, float syncBpm)

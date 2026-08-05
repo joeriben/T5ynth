@@ -946,70 +946,66 @@ private:
     bool retireOneShotSampleToBin(SequencerOneShotSamplePtr& ptr) noexcept;  // audio thread
     void drainSequencerOneShotRetireBin() noexcept;                          // worker thread
 
-    // MPE / pitch-bend-range state (audio thread only, no atomics needed)
-    // RPN 0x0000 (Pitch Bend Sensitivity): CC101=0, CC100=0, then CC6=semitones.
-    // RPN 0x7F7F (RPN Null): deselects the active RPN — subsequent CC6 is ignored.
-    int   midiRpnMsb_ = 0x7F;
-    int   midiRpnLsb_ = 0x7F;
-    float masterPitchBendRangeSemitones_ = 2.0f;   // ch1 global bend range (standard ±2)
-    // Per-note (member-channel) range, used until a controller transmits its RPN.
-    // Defaulted to ±24 to match the reference controller: a LinnStrument maxes at
-    // ±24 semitones (configurable, even on the newest firmware), so the MPE-spec
-    // ±48 over-bends it. A controller that DOES send RPN 0 (LinnStrument on a
-    // settings change / forced MPE; ROLI, etc.) overrides this — and the engine
-    // clamp in SynthVoice stays ±48 so a larger transmitted range is still honored.
-    float notePitchBendRangeSemitones_   = 24.0f;
+    // ── MPE zone layout and pitch-bend ranges ───────────────────────────────
+    // juce::MPEZoneLayout owns the MPE Configuration Message, the bend-range
+    // RPN, the sixteen per-channel RPN detectors and the master/member
+    // classification. Rationale, and every place this synth deviates from it:
+    // docs/MPE_MIGRATION_PARITY.md. Audio thread only, and allocation-free
+    // there -- tools/measure_mpe_instrument_rt.cpp is the measurement, and is
+    // also why juce::MPEInstrument is NOT here.
+    //
+    // The lower zone is declared rather than left empty because MPEInstrument's
+    // rule holds for the layout too: a channel no zone covers is not MPE. 15
+    // members is what every host defaults to, it makes channel 16 a MEMBER
+    // structurally, and it keeps a plain keyboard on channel 1 playing.
+    static constexpr int kMpeDefaultMemberChannels = 15;
+    static constexpr int kMpePerNoteBendRange = 24;   // not the spec's 48: over-bends a LinnStrument
+    static constexpr int kMpeMasterBendRange  = 2;
 
-    // ── MPE zone layout ──────────────────────────────────────────────────────
-    // Only one question is asked of it here — is this channel a zone MASTER, whose
-    // expression is zone-wide, or a MEMBER, whose expression belongs to one note?
-    //
-    // MMA MPE, mirrored from juce::MPEZoneLayout (JUCE/modules/juce_audio_basics/
-    // mpe/juce_MPEZoneLayout.h:71-80): the LOWER zone's master is channel 1 and its
-    // members are 2..1+N; the UPPER zone's master is channel 16 and its members are
-    // 16-N..15. So channel 16 is a master ONLY where an upper zone exists. In the
-    // lower zone with 15 member channels — 2..16, which is what Logic, Bitwig and
-    // Live default to — channel 16 is an ordinary member, and treating it as a
-    // master sends one note in fifteen's pressure and slide to every voice.
-    //
-    // Declared by the MPE Configuration Message: RPN 6
-    // (juce::MPEMessages::zoneLayoutMessagesRpnNumber), data entry = member count,
-    // 0 = zone off. Until one arrives there is no upper zone, which is both the
-    // spec's initial state and the layout every host defaults to.
-    //
-    // The lower count is read by nothing but the shrink rule that keeps the two
-    // zones inside fifteen channels — and that is not bookkeeping: a lower zone of
-    // fifteen is exactly what forces an upper zone off, and switching the upper
-    // zone off is what makes channel 16 a member again.
-    //
-    // Once declared, a layout stays until another configuration message replaces it:
-    // not cleared by prepareToPlay, by a preset load, by panic or by Reset All
-    // Controllers. It describes the DEVICE, not the patch or the transport, and
-    // juce::MPEZoneLayout keeps it the same way. The cost is that an upper zone
-    // outlives the controller that declared it, until something declares another.
-    int mpeLowerZoneMembers_ = 0;
-    int mpeUpperZoneMembers_ = 0;
+    juce::MPEZoneLayout mpeZones_ { juce::MPEZone { juce::MPEZone::Type::lower,
+                                                    kMpeDefaultMemberChannels,
+                                                    kMpePerNoteBendRange,
+                                                    kMpeMasterBendRange } };
 
-    // The two channels are NOT symmetric here, and the asymmetry is the point:
-    // channel 1 is the lower zone's master AND plain MIDI's global channel, so it
-    // carries zone-wide expression whether or not MPE is in play. Channel 16 has no
-    // second role — outside a declared upper zone it is nothing but a member of a
-    // fifteen-channel lower zone, which is the layout every host defaults to.
-    //
-    // Channel 1 is therefore unconditional, and that is a deliberate stop rather than
-    // an oversight: an upper zone of fifteen members reaches down to channel 1
-    // (members 16-N..15) and would make it a member too. Nothing in this file handles
-    // that layout — the pitch-bend site reads channel 1 as global outright — so
-    // answering it here alone would only split channel 1's meaning between the
-    // expressions. It is a question about channel 1, and this is a change about
-    // channel 16.
+    // A second detector over the same bytes, in step with the one inside
+    // mpeZones_ because it sees the same stream. It answers what the layout
+    // cannot be asked: which parameter a completed RPN carried.
+    juce::MidiRPNDetector mpeRpnWatcher_;
+
+    // The bend ranges in force. Deliberately NOT read back out of mpeZones_,
+    // and the split is the point: the library owns the LAYOUT and the parsing,
+    // this instrument owns the range POLICY, exactly as it did before.
+    //   - One pair for the whole synth, not one per zone. Every call site
+    //     assumes that, and a zone declaration would otherwise reset the range
+    //     a player had already dialled in: an MCM carries no range of its own,
+    //     but MPEZoneLayout writes the spec's defaults whenever one arrives.
+    //   - The per-note default is 24, not the spec's 48, because 48 over-bends
+    //     the reference controller -- a LinnStrument maxes at 24 even on
+    //     current firmware. SynthVoice still clamps to ±48, so a controller
+    //     that transmits more is honoured.
+    int mpePerNoteBendRangeInForce_ = kMpePerNoteBendRange;
+    int mpeMasterBendRangeInForce_  = kMpeMasterBendRange;
+
+    // CC6 is deliberately absent: one that completes no RPN we act on must
+    // still reach a user binding, so its fate is handleMpeRpnByte's return.
+    static bool isMpeRpnController (int cc) noexcept { return cc == 100 || cc == 101; }
+
+    /** Feeds one RPN byte to the zone layout; true if MPE consumed it. */
+    bool handleMpeRpnByte (int channel, int cc, int value7) noexcept;
+    void deselectMpeRpn (int channel, bool lsbOnly) noexcept;
+
+    // Zone-wide expression, or one note's? Channel 1 is unconditional and that
+    // is a deliberate stop: it is the lower zone's master AND plain MIDI's
+    // global channel, so it carries zone-wide expression whether or not MPE is
+    // in play. An upper zone of fifteen members would reach down and make it a
+    // member; nothing here handles that layout, and the pitch-bend site reads
+    // channel 1 as global outright.
     bool isMpeMasterChannel (int channel) const noexcept
     {
         if (channel == 1)
             return true;
-        if (channel == 16)
-            return mpeUpperZoneMembers_ > 0;
-        return false;
+        const auto upper = mpeZones_.getUpperZone();
+        return upper.isActive() && channel == upper.getMasterChannel();
     }
 
     // Edge-detection for arp-toggle note-off cleanup. When arp transitions

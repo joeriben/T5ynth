@@ -606,6 +606,41 @@ namespace
                    "an arpeggiated voice is channel 0 and ignores channel 5's wheel");
     }
 
+    // ── 20. A bend range survives a later zone declaration ──────────────────
+    //      The MPE Configuration Message carries no range of its own, so a
+    //      range the player already set must still be in force after it. The
+    //      order is unusual -- controllers normally declare the zone first --
+    //      but it is the order that catches a range being reset to a default,
+    //      and the hand-written code held the range through it.
+    void caseBendRangeSurvivesAZoneDeclaration()
+    {
+        std::printf ("[20] a transmitted bend range survives a later zone declaration\n");
+        Rig r;
+        r.rpn (5, 0, 0, 12);          // per-note range 12, on a member channel
+        r.rpn (1, 0, 0, 7);           // master range 7, on the master channel
+        r.flush();
+        r.rpn (1, 0, 6, 15);          // ... and only THEN the zone declaration
+        r.flush();
+
+        r.noteOn (1, 60);
+        r.noteOn (5, 64);
+        r.flush();
+        r.wheel (1, 16383);
+        r.wheel (5, 16383);
+        r.flush();
+
+        const auto* member = r.voiceForNote (64);
+        check (member != nullptr, "the member voice is alive");
+        if (member == nullptr) return;
+
+        // The master RPN arrives second and reaches the members too (a
+        // LinnStrument transmits Bend Range there only), so 7 is what stands.
+        checkNear (member->getPerVoicePitchBend(), fullUpBend (7.0f), 0.01f,
+                   "the per-note range was not reset by the zone message");
+        checkNear (r.globalBendSemitones(), fullUpBend (7.0f), 0.01f,
+                   "and neither was the master range");
+    }
+
     void caseArpOffHandsTheKeyBackWithItsChannel()
     {
         std::printf ("[19] switching the arp off hands the held key back WITH its channel\n");
@@ -661,6 +696,7 @@ int main()
     caseSampleAccurateWithinBlock();
     caseArpNotesAreInternal();
     caseArpOffHandsTheKeyBackWithItsChannel();
+    caseBendRangeSurvivesAZoneDeclaration();
 
     std::printf ("\n%d checks, %d failures -- %s\n\n",
                  gChecks, gFailures, gFailures == 0 ? "ALL PASS" : "FAILED");
