@@ -3163,9 +3163,13 @@ void MainPanel::restoreMainSnapshot(const MainSnapshot& snapshot)
 
         auto& sampler = processorRef.getSampler();
         sampler.setPointsLocked(true);
-        sampler.setLoopEnd(1.0f);
-        sampler.setLoopStart(loopStart);
-        sampler.setLoopEnd(loopEnd);
+        // One call, not the open-it-first dance: this lambda runs a SECOND time
+        // after loadGeneratedAudio has published the slot's sample, and the old
+        // sequence's intermediate setLoopEnd(1.0f) marked the master for a
+        // re-prepare even though the pair ends where it already was. The
+        // re-prepare republished the same audio ~10 ms later, and a held note
+        // had to follow a publication that carried no change at all.
+        sampler.setLoopRegion(loopStart, loopEnd);
         sampler.setStartPos(juce::jlimit(0.0f, 1.0f, snapshot.startPos));
         sampler.setWtExtractStart(juce::jlimit(0.0f, 1.0f, snapshot.wtExtractStart));
         sampler.setWtExtractEnd(juce::jlimit(0.0f, 1.0f, snapshot.wtExtractEnd));

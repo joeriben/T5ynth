@@ -456,6 +456,21 @@ void SamplePlayer::setLoopEnd(float frac)
     }
 }
 
+void SamplePlayer::setLoopRegion(float startFrac, float endFrac)
+{
+    // Same clamps as the two single setters, applied to the pair in one step so
+    // the region never passes through a wider intermediate one (see the header).
+    const float s = juce::jlimit(0.0f, 0.99f, startFrac);
+    const float e = juce::jlimit(s + 0.01f, 1.0f, endFrac);
+
+    if (s != loopStartFrac || e != loopEndFrac)
+    {
+        loopStartFrac = s;
+        loopEndFrac = e;
+        needsReprepareFlag = true;
+    }
+}
+
 void SamplePlayer::setStartPos(float frac)
 {
     startPosFrac = juce::jlimit(0.0f, 1.0f, frac);

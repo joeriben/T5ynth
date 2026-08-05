@@ -150,6 +150,19 @@ public:
     /** Set playback start position as fraction of buffer (0.0–1.0). P1. */
     void setStartPos(float frac);
 
+    /** Move BOTH brackets at once (P2 and P3).
+     *
+     *  setLoopStart/setLoopEnd each clamp against the OTHER bracket's CURRENT
+     *  value, so moving a region to the left means opening it first —
+     *  setLoopEnd(1) → setLoopStart(new) → setLoopEnd(new) — and that
+     *  intermediate 1.0 marks the buffer for a re-prepare even when the pair
+     *  lands exactly where it started. A re-prepare republishes the snapshot,
+     *  and every publication is something a held voice has to follow, so a
+     *  no-op region move used to cost a full rebuild and a second crossfade
+     *  (that is what made a SNAP recall audible). This clamps the PAIR once and
+     *  marks a re-prepare only when a value actually moved. */
+    void setLoopRegion(float startFrac, float endFrac);
+
     float getLoopStart() const { return loopStartFrac; }
     float getLoopEnd()   const { return loopEndFrac; }
     float getStartPos()  const { return startPosFrac; }
