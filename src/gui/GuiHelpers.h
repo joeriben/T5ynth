@@ -1774,19 +1774,19 @@ public:
             case Handle::Attack:
                 // X = attack time; Y = ENV Amount (drag the ceiling down to scale
                 // the whole envelope proportionally). Both track the cursor 1:1.
-                setPropG(attA,   pA,   startAprop   + dx / geo.segW);
+                setPropG(attA,   pA,   startAprop   + dx / geo.segWA);
                 setPropG(attAmt, pAmt, startAmtProp - dy / geo.plot.getHeight());
                 peakShowAmt = std::abs(dy) > std::abs(dx);
                 break;
             case Handle::Sustain:
-                setPropG(attD, pD, startDprop + dx / geo.segW);
+                setPropG(attD, pD, startDprop + dx / geo.segWD);
                 // Sustain Y is scaled by the ceiling (susY = bottom − amtP·sP·H),
                 // so divide by amtP·H to keep the node tracking the cursor.
                 setPropG(attS, pS, startSprop
                         - dy / (juce::jmax(startAmtProp, 0.05f) * geo.plot.getHeight()));
                 break;
             case Handle::Release:
-                setPropG(attR, pR, startRprop + dx / geo.segW);
+                setPropG(attR, pR, startRprop + dx / geo.segWR);
                 break;
             default: break;
         }
@@ -1813,7 +1813,7 @@ private:
     {
         juce::Rectangle<float> plot;
         juce::Point<float> p0, p1, p2, p3, p4;
-        float segW = 1.0f;
+        float segWA = 1.0f, segWD = 1.0f, segWR = 1.0f;
     };
 
     bool isBound() const { return pA && pD && pS && pR && pAmt && pAcv && pDcv && pRcv; }
@@ -1871,7 +1871,19 @@ private:
         const float H       = geo.plot.getHeight();
         const float usableW = geo.plot.getWidth() - 2.0f * hpad;
         const float holdW   = usableW * 0.16f;
-        geo.segW = (usableW - holdW) / 3.0f;
+
+        // The three timed stages do NOT share one width: attack and decay span
+        // 0–5 s, release 0–10 s, so equal thirds drew the same millisecond at two
+        // different x. Every one of them maps its value as v = end·prop^(1/skew)
+        // (all start at 0), so a stage's width has to go as end^skew for a given
+        // time to land on the same x everywhere — release 10 s against decay 5 s
+        // is 2^0.3 = 1.23× the width, not 2×. Read off the parameters rather than
+        // hardcoded, so a range change cannot leave the drawing behind.
+        const float wA = stageWeight(pA), wD = stageWeight(pD), wR = stageWeight(pR);
+        const float wSum = juce::jmax(1.0e-6f, wA + wD + wR);
+        geo.segWA = (usableW - holdW) * wA / wSum;
+        geo.segWD = (usableW - holdW) * wD / wSum;
+        geo.segWR = (usableW - holdW) * wR / wSum;
 
         const float aP = propOf(pA), dP = propOf(pD), rP = propOf(pR), sP = propOf(pS);
         // ENV Amount (ampAmount, 0..1) is the envelope CEILING: the whole shape
@@ -1888,13 +1900,29 @@ private:
         // with A>0,D=0,S=1). Enforce a small minimum drawn decay width: at
         // sustain=1 it's an invisible flat extension, otherwise a short slope,
         // so the sustain node always reads as a distinct, grabbable node.
-        const float decayW = juce::jmax(dP * geo.segW, kMinDecayDraw);
+        const float decayW = juce::jmax(dP * geo.segWD, kMinDecayDraw);
         geo.p0 = { left, bottom };
-        geo.p1 = { left + aP * geo.segW, peakY };
+        geo.p1 = { left + aP * geo.segWA, peakY };
         geo.p2 = { geo.p1.x + decayW, susY };
         geo.p3 = { geo.p2.x + holdW, susY };
-        geo.p4 = { geo.p3.x + rP * geo.segW, bottom };
+        geo.p4 = { geo.p3.x + rP * geo.segWR, bottom };
         return geo;
+    }
+
+    /** Drawn width of one timed stage, up to a common factor: end^skew of its
+     *  parameter range, which is what makes equal times land at equal x across
+     *  stages (see computeGeometry).
+     *
+     *  Exact only while the stages SHARE a skew — as all five envelopes' A/D/R
+     *  do (0.3). With two different skews there is no single width that makes
+     *  every time land alike, and this becomes the closest common compromise. */
+    static float stageWeight(juce::RangedAudioParameter* p)
+    {
+        if (p == nullptr) return 1.0f;
+        const auto& r = p->getNormalisableRange();
+        const float span = juce::jmax(1.0e-6f, r.end - r.start);
+        const float skew = (r.skew > 0.0f) ? r.skew : 1.0f;
+        return std::pow(span, skew);
     }
 
     static void appendStage(juce::Path& path, juce::Point<float> a, juce::Point<float> b,
