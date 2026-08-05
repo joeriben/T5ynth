@@ -2147,7 +2147,15 @@ def _bundled_csound_libs():
     "CsoundLib64.dll" under a different name, and every other candidate in this
     file is a POSIX path. Without this walk the whole module reports NO_COMPILER
     on Windows, which does not merely silence the gates — build_csound_response
-    refuses to author at all before it spends an inference."""
+    refuses to author at all before it spends an inference.
+
+    THE SOURCE CHECKOUT IS THE THIRD CASE and it was missing, which made every
+    gate and every measurement in `tools/` render against whatever `csound` sat
+    on PATH, with no opcode directory set at all — a different vocabulary from
+    the one that plays (BJ 2026-08-05: "wir arbeiten nicht mit der
+    homebrew-installation"). `third_party/csound/<platform>/` holds the exact
+    bytes the app ships, so a checkout can point at those and measure what it
+    delivers. It comes LAST: an installed host's own copy always wins."""
     here = Path(getattr(sys, "_MEIPASS", "") or os.path.abspath(sys.argv[0]))
     ancestors = [here] + list(here.parents)
     for parent in ancestors:
@@ -2159,6 +2167,11 @@ def _bundled_csound_libs():
         if dll.is_file():
             yield str(dll)
             break
+    vendor = Path(__file__).resolve().parent.parent / "third_party" / "csound"
+    for rel in ("macos-arm64/lib/CsoundLib64", "windows-x64/bin/csound64.dll"):
+        cand = vendor / rel
+        if cand.is_file():
+            yield str(cand)
 
 
 def _opcodedir_beside(lib_path):

@@ -254,9 +254,17 @@ def _render_into(d, body, dur, freq, glide, preroll):
     csd = scaffold(body, dur, freq, glide, preroll)
     d.mkdir(parents=True, exist_ok=True)
     (d / "x.csd").write_text(csd)
+    # THE OPCODE DIRECTORY THE APP SHIPS, not whatever the machine's own Csound
+    # reaches for. Without it this renders against the build machine's install —
+    # a different vocabulary from the one that plays, and on a machine with no
+    # system Csound at all it does not render. `_csound_child_env` sets
+    # OPCODE6DIR64 for the CHILD only, from the same vendored payload
+    # CsoundEngine.cpp points the engine at. BJ 2026-08-05: "wir arbeiten nicht
+    # mit der homebrew-installation".
     r = subprocess.run(["csound", "-W", "--format=float", "-o", str(d / "o.wav"),
                         "-m0", "-d", str(d / "x.csd")],
-                       capture_output=True, text=True, timeout=120)
+                       capture_output=True, text=True, timeout=120,
+                       env=W._csound_child_env())
     err = re.sub(r"\x1b\[[0-9;]*m", "", r.stderr)
     if r.returncode != 0:
         bad = " | ".join(l for l in err.splitlines() if "error" in l.lower())
@@ -419,7 +427,8 @@ def _clip_transfer():
     try:
         (d / "c.csd").write_text(csd)
         r = subprocess.run(["csound", "-n", "-d", str(d / "c.csd")],
-                           capture_output=True, text=True, timeout=60)
+                           capture_output=True, text=True, timeout=60,
+                           env=W._csound_child_env())
     finally:
         shutil.rmtree(d, ignore_errors=True)
     rows = []
