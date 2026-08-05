@@ -460,6 +460,13 @@ public:
             && captureSampleRate > 0.0;
     }
 
+    // Voice pool. Read-only, and offered for one reason: the MPE parity guard
+    // (tools/test_mpe_parity.cpp) has to see what a MIDI message did to a
+    // voice, and the only honest place to look is the voice itself. Nothing in
+    // the plugin calls this -- a caller that wants to CHANGE a voice belongs on
+    // the audio thread, where the members are reachable directly.
+    const VoiceManager& getVoiceManager() const { return voiceManager; }
+
     // Sequencer
     T5ynthStepSequencer& getStepSequencer() { return stepSequencer; }
     T5ynthGenerativeSequencer& getGenerativeSequencer() { return generativeSequencer; }
