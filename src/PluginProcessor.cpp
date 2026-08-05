@@ -8250,6 +8250,12 @@ bool T5ynthProcessor::importJsonPreset(const juce::String& json)
         // which the pair clamp opens to loopStart + 0.01, a sliver one
         // hundredth of the buffer wide.
         //
+        // Measured 2026-08-05, before the pair went in as a pair: 10 of the 46
+        // presets in the shipped bank and 31 of the 148 on this machine loaded
+        // a different window depending on what came before them, most with
+        // pointsLocked set, so loadGeneratedAudio never re-bracketed and
+        // corrected it. Guard: tools/test_preset_loop_window_order.cpp.
+        //
         // Every value is read BEFORE the lock is taken. Each hasProperty() and
         // getProperty() builds a juce::Identifier from a char literal, which
         // takes the global StringPool's CriticalSection and may allocate, and

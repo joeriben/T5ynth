@@ -567,8 +567,11 @@ SynthPanel::SynthPanel(T5ynthProcessor& processor)
         const juce::ScopedLock sl (processorRef.getCallbackLock());
         // As a PAIR — the display hands over both brackets, and setting them one
         // at a time clamps the first against the OTHER one's old value. Same
-        // outcome for a single dragged handle; the difference only shows when
-        // both brackets move at once.
+        // outcome for a single dragged handle, except when it is dragged to
+        // within 1% of its partner: mouseDrag enforces the swap rule but not the
+        // minimum width, so the pair arrives sub-minimum and the partner moves
+        // instead of the dragged handle being pinned. Both readings then differ
+        // from the brackets drawn, by 1% in opposite directions.
         processorRef.getSampler().setLoopRegion(start, end);
         processorRef.getSampler().setPointsLocked(true);
         waveformDisplay.getLockButton().setLocked(true);
@@ -1390,17 +1393,29 @@ void SynthPanel::timerCallback()
         if (sr > 0)
             waveformDisplay.setBufferDuration(static_cast<float>(numSamples / sr));
 
-        // Sync shared P1/P2/P3 playback markers from the processor
+        // Sync shared P1/P2/P3 playback markers from the processor.
+        //
+        // The four reads are taken TOGETHER under the callback lock: a
+        // reprepare publish (applyPreparedBufferLoad) or a preset import
+        // landing between them hands over an old start with a new end, and a
+        // torn pair is exactly what the pair setter below cannot detect — it
+        // resolves it into brackets that look deliberate, which the next drag
+        // then sends back to the sampler as if the user had put them there.
+        float s = 0.0f, e = 1.0f, p1 = 0.0f;
+        bool locked = false;
         {
-            float s  = processorRef.getSampler().getLoopStart();
-            float e  = processorRef.getSampler().getLoopEnd();
-            float p1 = processorRef.getSampler().getStartPos();
-            waveformDisplay.setLoopStart(s);
-            waveformDisplay.setLoopEnd(e);
-            waveformDisplay.setStartPos(p1);
-            waveformDisplay.getLockButton().setLocked(
-                processorRef.getSampler().getPointsLocked());
+            const juce::ScopedLock sl (processorRef.getCallbackLock());
+            s      = processorRef.getSampler().getLoopStart();
+            e      = processorRef.getSampler().getLoopEnd();
+            p1     = processorRef.getSampler().getStartPos();
+            locked = processorRef.getSampler().getPointsLocked();
         }
+        // And applied as a pair: mirroring one marker at a time clamps the
+        // incoming window against the one still drawn, so the brackets would
+        // depend on the window they are replacing.
+        waveformDisplay.setLoopRegion(s, e);
+        waveformDisplay.setStartPos(p1);
+        waveformDisplay.getLockButton().setLocked(locked);
 
         processorRef.clearNewWaveformFlag();
 

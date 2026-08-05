@@ -78,6 +78,13 @@ void WaveformDisplay::setLoopEnd(float frac)
     repaint();
 }
 
+void WaveformDisplay::setLoopRegion(float start, float end)
+{
+    loopStart = juce::jlimit(0.0f, 1.0f - 0.01f, start);
+    loopEnd   = juce::jlimit(juce::jmin(loopStart + 0.01f, 1.0f), 1.0f, end);
+    repaint();
+}
+
 void WaveformDisplay::setStartPos(float frac)
 {
     startPos = juce::jlimit(0.0f, 1.0f, frac);

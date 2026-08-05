@@ -143,14 +143,19 @@ public:
     bool isPlaying() const { return playing; }
 
     // ─── Loop region ("brackets") ───
-    /** Set loop start as fraction of buffer (0.0–1.0). P2. */
+    /** Set loop start as fraction of buffer (0.0–1.0). P2. Clamped against the
+     *  CURRENT loop end, so the marker that moves cannot pass the one that
+     *  stays. Right for a single edit, wrong for a stored pair — see
+     *  setLoopRegion. */
     void setLoopStart(float frac);
-    /** Set loop end as fraction of buffer (0.0–1.0). P3. */
+    /** Set loop end as fraction of buffer (0.0–1.0). P3. Clamped against the
+     *  current loop start, same as above. */
     void setLoopEnd(float frac);
     /** Set playback start position as fraction of buffer (0.0–1.0). P1. */
     void setStartPos(float frac);
 
-    /** Move BOTH brackets at once (P2 and P3).
+    /** Move BOTH brackets at once (P2 and P3) — a preset's loop window, a
+     *  history snapshot's, anything that arrives as a pair.
      *
      *  setLoopStart/setLoopEnd each clamp against the OTHER bracket's CURRENT
      *  value, so moving a region to the left means opening it first —
@@ -160,7 +165,12 @@ public:
      *  and every publication is something a held voice has to follow, so a
      *  no-op region move used to cost a full rebuild and a second crossfade
      *  (that is what made a SNAP recall audible). This clamps the PAIR once and
-     *  marks a re-prepare only when a value actually moved. */
+     *  marks a re-prepare only when a value actually moved.
+     *
+     *  And it is the only correct way to apply a STORED pair: clamping against
+     *  the bracket currently held makes the result depend on what was loaded
+     *  before, so the same file landed on a different window depending on which
+     *  preset preceded it. Guard: tools/test_preset_loop_window_order.cpp. */
     void setLoopRegion(float startFrac, float endFrac);
 
     float getLoopStart() const { return loopStartFrac; }

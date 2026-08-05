@@ -121,6 +121,15 @@ leaving the machine. The separately-installed 1.5B translator is gone.
   instrument writes itself carry every entry and load exactly as before; the
   rule third-party writers can rely on is now written down in
   `docs/PRESET_FORMAT.md`.
+- **A preset's loop window no longer depends on which preset you loaded
+  before it.** The two loop markers were applied one at a time, and each was
+  held back by the other one's leftover position from the previous patch — so a
+  preset whose loop begins later than the last one ended started somewhere it
+  had never been saved, and stayed there, because the lock that preserves a
+  preset's markers also stops the automatic re-bracketing that would have
+  corrected it. Ten of the 46 presets in the UCDCAE AI Lab bank were affected.
+  They now load the loop they were saved with, every time. Nothing about the
+  files changes — they always held the right window.
 - **Session log** (`.t5evt`) — opt-in recording and replay of a playing session.
 - **The in-app manual rewritten** against the code, with the two oscillators as
   peers and background chapters on Csound's MUSIC-N lineage and on the code

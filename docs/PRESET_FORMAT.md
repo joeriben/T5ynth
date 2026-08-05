@@ -243,8 +243,9 @@ the previously loaded preset put it**:
 - `sequencer.steps[].gate` and the bind fields (`bindMode`, else `bind`,
   else the ancient `glide`), per step.
 - `engine.wtExtractStart` / `wtExtractEnd` fall back to the loop markers
-  P2/P3 as they ended up after clamping, not to their own declared
-  0.0/1.0. Presence of `wtExtractStart` alone decides for the pair.
+  P2/P3 as they ended up after §3.1.3's resolution, not to their own
+  declared 0.0/1.0. Presence of `wtExtractStart` alone decides for the
+  pair.
 
 Two keys are written but never restored, so their value in a file has no
 effect at all:
@@ -288,6 +289,35 @@ resolved together:
 
 T5ynth always writes both, and derives `enabled` from the type, so only
 a foreign or hand-edited file reaches the last three rows.
+
+### 3.1.3 `engine.loopStartFrac` / `loopEndFrac` (P2/P3)
+
+The two loop markers are read as a **pair** and resolved against each
+other, never against the window the sampler still holds from whatever was
+loaded before. A file therefore always loads its own loop window,
+independently of load order:
+
+```
+P2 = clamp(loopStartFrac, 0.0, 0.99)
+P3 = clamp(loopEndFrac,   P2 + 0.01, 1.0)
+```
+
+The minimum width is 1% of the buffer (`SamplePlayer::setLoopRegion`). A
+file naming an end at or below its start (`0.5`/`0.5`, or `0.5`/`0.2`)
+gets `P2 + 0.01`, which is the same answer whenever the file is loaded —
+it is a property of the file, not of the session.
+
+Until 2026-08-05 the markers went in one at a time through setters that
+each clamp against the other's *current* value, so a file whose loop
+began after the previous patch's loop ended was dragged back to
+(previous end − 1%). 10 of the 46 presets in the shipped bank loaded a
+different window depending on which preset preceded them, most of them
+with `pointsLocked: true`, so the auto-bracketing in `loadGeneratedAudio`
+never corrected it. Nothing about that was visible afterwards: the file
+was intact and the sampler had simply not used it.
+
+`engine.startPosFrac` (P1) is independent of both and is only clamped to
+0.0–1.0.
 
 ### 3.2 The `synth` object
 
