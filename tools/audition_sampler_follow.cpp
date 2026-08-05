@@ -56,8 +56,21 @@ static juce::AudioBuffer<float> makeTone(int sr, double seconds, double freq, fl
     return b;
 }
 
+// secondPublishMs >= 0: the master publishes a SECOND snapshot that many ms
+// after the first, while the crossfade from the first is still running. That is
+// not a hypothetical — MainPanel::restoreMainSnapshot re-asserts the slot's loop
+// points AFTER loadGeneratedAudio has already published, which marks the master
+// for a re-prepare and lands a second publication a few ms later. The voice must
+// still arrive at the newest buffer without a step.
+// thirdBuffer: the second publication carries DIFFERENT audio (a real second
+// regenerate landing mid-crossfade) rather than a rebuild of the same.
+// stepBound >= 0: this case is NOT expected to be click-free — only two buffers
+// can sound at once, so a third one arriving forces one of the two sounding
+// sides out, and the rule is only that it is the QUIETER side. The bound is the
+// step that rule predicts; the case asserts the prediction.
 static bool runCase(const std::string& label, double ratio, float morphMs,
-                    const std::string& wavOut, int sr)
+                    const std::string& wavOut, int sr, double secondPublishMs = -1.0,
+                    bool thirdBuffer = false, float stepBound = -1.0f)
 {
     const int block = 512;
     const int preBlocks = 40;    // ~0.43 s held on buffer A
@@ -96,7 +109,17 @@ static bool runCase(const std::string& label, double ratio, float morphMs,
     master.loadBuffer(bufB, sr);
     voice.morphToBufferFrom(master, morphMs);
 
+    const int secondPublishBlock = secondPublishMs >= 0.0
+        ? (int) std::lround(secondPublishMs * 0.001 * sr / block) : -1;
+
     for (int b = 0; b < postBlocks; ++b) {
+        if (b == secondPublishBlock) {
+            // A re-prepare of the SAME source: identical audio, new snapshot.
+            // Nothing about the sound changed, so nothing about the sound may.
+            voice.drainRetiredSnapshot();   // as the off-thread drain does, before publishing
+            master.loadBuffer(thirdBuffer ? makeTone(sr, 2.0, 330.0, 0.70f, M_PI) : bufB, sr);
+            voice.morphToBufferFrom(master, morphMs);
+        }
         voice.renderPitchedBlock(blockBuf.data(), block);
         out.insert(out.end(), blockBuf.begin(), blockBuf.end());
     }
@@ -128,14 +151,132 @@ static bool runCase(const std::string& label, double ratio, float morphMs,
     const double rmsA = rms(seamIndex - 4000, seamIndex);
     const double rmsB = rms(winEnd, winEnd + 4000);
 
+    // The per-sample step above catches a seam; it does NOT catch a hard swap
+    // between two buffers that happen to meet at a similar instantaneous value.
+    // What a hard swap always does is move the LEVEL in one block, so measure
+    // that too: the steepest 5 ms change of a 10 ms sliding RMS through the
+    // window. An equal-power crossfade over 200 ms cannot exceed ~1 dB there.
+    const int envWin = (int) (0.010 * sr), envHop = (int) (0.001 * sr);
+    float envJumpDb = 0.0f; int envJumpAt = seamIndex;
+    for (int i = seamIndex - envWin; i + 5 * envHop + envWin < winEnd; i += envHop) {
+        const double a = rms(i, i + envWin), b = rms(i + 5 * envHop, i + 5 * envHop + envWin);
+        if (a > 1.0e-5 && b > 1.0e-5) {
+            const float db = (float) (20.0 * std::log10(b / a));
+            if (std::abs(db) > std::abs(envJumpDb)) { envJumpDb = db; envJumpAt = i + 5 * envHop; }
+        }
+    }
+
     writeWav(wavOut, out, sr);
 
-    const bool clickFree = windowMax <= naturalMax * 1.5f + 1.0e-4f;
+    const bool clickFree = stepBound >= 0.0f
+        ? windowMax <= stepBound
+        : (windowMax <= naturalMax * 1.5f + 1.0e-4f && std::abs(envJumpDb) <= 3.0f);
     const bool transitioned = rmsB > rmsA * 1.2;   // 0.85 vs 0.50 → clearly higher
     const bool pass = clickFree && transitioned;
-    printf("  [%-22s] seamDelta=%.5f  windowMax=%.5f  naturalMax=%.5f  rmsA=%.3f rmsB=%.3f  morph=%.0fms -> %s\n",
-           label.c_str(), seamDelta, windowMax, naturalMax, rmsA, rmsB, morphMs,
-           pass ? "CLICK-FREE XFADE" : (clickFree ? "*** NO XFADE ***" : "*** STEP ***"));
+    printf("  [%-30s] seamDelta=%.5f  windowMax=%.5f  naturalMax=%.5f  envJump=%+5.1f dB @%+6.1f ms"
+           "  rmsA=%.3f rmsB=%.3f -> %s\n",
+           label.c_str(), seamDelta, windowMax, naturalMax, envJumpDb,
+           1000.0 * (double) (envJumpAt - seamIndex) / sr, rmsA, rmsB,
+           pass ? (stepBound >= 0.0f ? "WITHIN THE TWO-SLOT BOUND" : "CLICK-FREE XFADE")
+                : (clickFree ? "*** NO XFADE ***" : "*** STEP ***"));
+    return pass;
+}
+
+// Amplitude of one frequency over a window — tells which BUFFER is sounding
+// when several tones are in play (the sliding RMS above cannot).
+static double goertzelAmp(const std::vector<float>& x, int from, int n, double freq, int sr)
+{
+    const double w = 2.0 * M_PI * freq / sr;
+    const double c = 2.0 * std::cos(w);
+    double s1 = 0.0, s2 = 0.0;
+    for (int i = from; i < from + n && i < (int) x.size(); ++i) {
+        const double s = (double) x[i] + c * s1 - s2;
+        s2 = s1; s1 = s;
+    }
+    const double p = s1 * s1 + s2 * s2 - c * s1 * s2;
+    return 2.0 * std::sqrt(std::max(0.0, p)) / n;
+}
+
+// PUBLICATIONS ARRIVING FASTER THAN THE CROSSFADE.
+//
+// Every publication restarts the ramp, and below halfway the rule keeps the
+// current fade-from — so under a stream the fade-from never ages out and the
+// held note does NOT walk forward through the generations while the stream
+// runs. That is a real cost of the rule the three engines share, and this case
+// exists so it is measured rather than assumed: it prints what is sounding mid
+// stream, and it ASSERTS the thing the platform invariant actually requires —
+// once publications stop, the note arrives at the NEWEST buffer within one
+// Regen XFade, with every publication's step inside the two-slot bound.
+static bool runStreamCase(const std::string& label, float morphMs, double intervalFrac,
+                          int publications, int sr, const std::string& wavOut)
+{
+    const int block = 64;                       // 1.33 ms grid — honours short intervals
+    const double intervalMs = intervalFrac * morphMs;
+    const float  streamAmp = 0.60f;
+    const double origFreq  = 220.0;
+
+    auto bufA = makeTone(sr, 2.0, origFreq, 0.50f, 0.0);
+
+    SamplePlayer master, voice;
+    master.prepare(sr, block); master.setLoopMode(SamplePlayer::LoopMode::Loop);
+    master.setNormalize(false); master.loadBuffer(bufA, sr);
+    voice.prepare(sr, block);  voice.setLoopMode(SamplePlayer::LoopMode::Loop);
+    voice.setNormalize(false); voice.shareBufferFrom(master);
+    voice.retrigger();
+
+    std::vector<float> out, blockBuf((size_t) block);
+    auto render = [&](int blocks) {
+        for (int b = 0; b < blocks; ++b) {
+            voice.renderPitchedBlock(blockBuf.data(), block);
+            out.insert(out.end(), blockBuf.begin(), blockBuf.end());
+        }
+    };
+    render((int) std::lround(0.25 * sr / block));      // 0.25 s held on A
+
+    const int intervalBlocks = std::max(1, (int) std::lround(intervalMs * 0.001 * sr / block));
+    double newestFreq = origFreq;
+    float  worstStep = 0.0f;
+
+    for (int p = 0; p < publications; ++p) {
+        render(intervalBlocks);
+        const int at = (int) out.size();
+        newestFreq = 300.0 + 20.0 * p;                 // all distinct, 20 Hz apart
+        voice.drainRetiredSnapshot();
+        master.loadBuffer(makeTone(sr, 2.0, newestFreq, streamAmp, 0.0), sr);
+        voice.morphToBufferFrom(master, morphMs);
+        render(1);
+        for (int i = at - 2; i + 1 < (int) out.size(); ++i)
+            worstStep = std::max(worstStep, std::abs(out[i + 1] - out[i]));
+    }
+
+    const int midStream = (int) out.size();
+    render((int) std::lround((morphMs * 0.001 + 0.20) * sr / block));   // stream stops
+
+    const int probe = (int) (0.100 * sr);
+    const double midNewest = goertzelAmp(out, midStream - probe, probe, newestFreq, sr);
+    const double midOrig   = goertzelAmp(out, midStream - probe, probe, origFreq,   sr);
+    const int endAt = (int) out.size() - probe;
+    const double endNewest = goertzelAmp(out, endAt, probe, newestFreq, sr);
+    const double endOrig    = goertzelAmp(out, endAt, probe, origFreq,   sr);
+
+    // Bound each publication's step from the rule, not from the measurement:
+    // the dropped side vanishes at sin(a*pi/2), the kept side steps up to 1.0
+    // from cos(a*pi/2), plus the material's own per-sample motion.
+    const double a = std::min(0.5, intervalFrac) * M_PI * 0.5;
+    const double natural = 2.0 * M_PI * (300.0 + 20.0 * publications) / sr * streamAmp;
+    const float bound = (float) (std::sin(a) * streamAmp
+                                 + (1.0 - std::cos(a)) * streamAmp + natural);
+
+    writeWav(wavOut, out, sr);
+
+    const bool landed  = endNewest > 0.75 * streamAmp && endOrig < 0.05;
+    const bool bounded = worstStep <= bound;
+    const bool pass = landed && bounded;
+    printf("  [%-30s] %d publications every %.0f%% of the xfade  worstStep=%.3f (bound %.3f)\n"
+           "  %-32s mid-stream: newest=%.3f original=%.3f   after it stops: newest=%.3f original=%.3f -> %s\n",
+           label.c_str(), publications, intervalFrac * 100.0, worstStep, bound, "",
+           midNewest, midOrig, endNewest, endOrig,
+           pass ? "LANDS ON THE NEWEST" : (landed ? "*** STEP ***" : "*** NEVER LANDS ***"));
     return pass;
 }
 
@@ -148,7 +289,40 @@ int main()
     bool ok = true;
     ok &= runCase("unity (bypass path)",  1.0,                       200.0f, "/tmp/sampler_follow_unity.wav",   sr);
     ok &= runCase("pitched +7 (stretch)", std::pow(2.0, 7.0 / 12.0), 200.0f, "/tmp/sampler_follow_pitched.wav", sr);
-    printf("WAVs: /tmp/sampler_follow_unity.wav  /tmp/sampler_follow_pitched.wav\n");
+    // A second publication of the SAME audio, 10 ms into the crossfade — the
+    // SNAP-recall shape. The sound did not change, so the sound must not.
+    ok &= runCase("unity, republished at 10 ms",  1.0,                       200.0f,
+                  "/tmp/sampler_follow_unity_republish.wav",   sr, 10.0);
+    ok &= runCase("pitched, republished at 10 ms", std::pow(2.0, 7.0 / 12.0), 200.0f,
+                  "/tmp/sampler_follow_pitched_republish.wav", sr, 10.0);
+    // A genuinely DIFFERENT third buffer landing mid-crossfade — two regenerates
+    // inside one Regen XFade. Only two buffers can sound at once, so one of the
+    // two currently sounding sides has to go; the rule is that it is the quieter
+    // one. 10 ms in (target at 0.08) and at the halfway point, which is where
+    // that rule is at its weakest and both sides carry 0.707.
+    ok &= runCase("unity, 3rd buffer at 10 ms",  1.0, 200.0f,
+                  "/tmp/sampler_follow_third_early.wav", sr, 10.0,  true, 0.10f);
+    ok &= runCase("unity, 3rd buffer at 80 ms",  1.0, 200.0f,
+                  "/tmp/sampler_follow_third_late.wav",  sr, 80.0,  true, 0.55f);
+    // At the halfway point the rule is at its weakest: both sides carry 0.707,
+    // so the one that goes is 0.707 of a sounding buffer. Output steps from
+    // 0.707*A + 0.707*B to B, i.e. by |0.707*A - 0.293*B| <= 0.707*0.50 +
+    // 0.293*0.85 = 0.60 for this material. That is what is asserted here --
+    // click-freeness is not available to two slots, and claiming it would be
+    // the same overstatement the naive restart made. (Unguarded, the same case
+    // stepped by 0.97: the LOUD side went instead.)
+    ok &= runCase("unity, 3rd buffer at 100 ms", 1.0, 200.0f,
+                  "/tmp/sampler_follow_third_mid.wav",   sr, 100.0, true, 0.60f);
+    // Held note under a publication STREAM (drag a loop bracket, fast auto-
+    // regenerate). Below halfway the fade-from is kept, so the note does not walk
+    // forward WHILE the stream runs — printed, not asserted. What is asserted is
+    // the invariant: once it stops, the newest buffer wins within one Regen XFade.
+    printf("Held note under a publication stream (each restarts the ramp):\n");
+    ok &= runStreamCase("stream every 40% of xfade", 200.0f, 0.40, 25, sr,
+                        "/tmp/sampler_follow_stream_40.wav");
+    ok &= runStreamCase("stream every 8% of xfade",  200.0f, 0.08, 40, sr,
+                        "/tmp/sampler_follow_stream_08.wav");
+    printf("WAVs: /tmp/sampler_follow_*.wav\n");
     printf("%s\n", ok ? "ALL PASS" : "*** FAIL ***");
     return ok ? 0 : 1;
 }

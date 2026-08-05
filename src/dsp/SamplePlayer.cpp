@@ -221,16 +221,101 @@ void SamplePlayer::morphToBufferFrom(const SamplePlayer& master, float morphMs)
         return;                              // reclaim slot still full — defer one
                                              // block (current crossfade stays valid)
 
-    // Set up the crossfade: the buffer we are playing becomes the fade-FROM
-    // (retained in morphFromSnapshot_), the new buffer becomes the fade-TO. The
-    // snapshot displaced from morphFromSnapshot_ (a prior crossfade's fade-from,
-    // or null) is parked for the off-thread drain — its last reference must not
-    // drop on the audio thread. The slot was just observed empty and only the
-    // audio thread parks, so the std::vector free always lands in
+    // A CROSSFADE MAY ALREADY BE RUNNING, and what happens then decides whether
+    // this is a crossfade or a hard swap.
+    //
+    // Restarting the ramp unconditionally — which is what this did — makes the
+    // buffer we are PLAYING the new fade-from and stands it up at full gain. Mid
+    // crossfade that buffer is the fade-TO, i.e. the QUIET side: 10 ms into a
+    // 200 ms fade it carries sin(0.05*pi/2) = 0.08 of the sound. So the restart
+    // dropped the 0.997 side and promoted the 0.08 side — a hard swap, the one
+    // thing this function exists to avoid. Measured, and it is not hypothetical:
+    // a SNAP recall used to re-assert the slot's loop points AFTER
+    // loadGeneratedAudio had published, which marked the master for a re-prepare
+    // and landed a second publication of the SAME audio ~10 ms later. Nothing
+    // about the sound had changed and the held note jumped anyway
+    // (tools/audition_sampler_follow.cpp's republish cases: a sample-to-sample
+    // step 13x the material's own largest, +3.2 dB of level in 5 ms).
+    //
+    // Two slots is all there is — a fade-from and a fade-to — so a third buffer
+    // cannot arrive without one of the two currently sounding sides going away.
+    // The rule is to drop whichever side is QUIETER, and it is the rule the
+    // other two engines already run (WavetableOscillator::beginMorphToMipData,
+    // FreezeTextureEngine::morphToBufferFrom — "promote the dominant side"):
+    //
+    //   alpha >= 0.5  the in-flight target has taken over. It becomes the
+    //                 fade-from; the side dropped is the old fade-from, at
+    //                 cos(alpha*pi/2) <= 0.707.
+    //   alpha <  0.5  the fade-from is still dominant and stays. The side
+    //                 dropped is the target, at sin(alpha*pi/2) <= 0.707.
+    //
+    // The ramp is reset in BOTH cases, so the newcomer enters at gain 0 and
+    // contributes nothing to the step. What the step IS: the dropped side
+    // vanishing at its current gain, PLUS the kept side stepping from its
+    // current gain up to 1.0 — worst case sin(a*pi/2)*|dropped| +
+    // (1-cos(a*pi/2))*|kept| below halfway, mirrored above it. Both terms are
+    // small early and jointly largest right at the 0.5 boundary; the second one
+    // is why this is not a "bounded by the dropped side alone" rule.
+    //
+    // Worst per-sample step, measured on the guard's material (220 Hz at 0.50
+    // fading to 660 Hz at 0.85, third buffer 330 Hz at 0.70, 200 ms ramp, worst
+    // of 8 sub-block offsets), against the two alternatives:
+    //
+    //   alpha   rotate-always (what this replaces)   THIS   re-point, keep ramp
+    //   0.05                              1.176     0.075                 0.107
+    //   0.20                              0.884     0.247                 0.317
+    //   0.40                              0.659     0.530                 0.858
+    //   0.495                             0.562     0.721                 1.088
+    //   0.55 and up                                identical by construction
+    //
+    // Two things that table settles. Re-pointing the target WITHOUT resetting
+    // the ramp — the obvious "gentler" move — substitutes one buffer for another
+    // at the target's live gain, costs |new - old| there, and is worse than
+    // either of the others past about a third of the ramp. And this rule is NOT
+    // uniformly better than the unconditional rotate it replaces: in a narrow
+    // band from about alpha 0.42 to 0.5 it costs up to 0.16 more, because the
+    // kept side's step to unity is largest exactly where the rule still keeps it.
+    // The band is 8% of the ramp; the case that made this audible sits at alpha
+    // 0.05, where the step drops 15-fold and lands below the material's own
+    // largest sample-to-sample motion (0.073). The threshold is where it is
+    // because it is exact for two equally loud sides (the step comparison
+    // reduces to cos > sin); moving it per-amplitude would beat the house rule
+    // in that band and would be a rule the other two engines do not run.
+    //
+    // Either way playbackSnapshot_ ends up as the master's newest, which is a
+    // lifetime invariant and not just tidiness: shareBufferFrom() overwrites
+    // playbackSnapshot_ with a plain assignment on the audio thread when the
+    // voice goes inactive, so a voice left holding a snapshot nobody else holds
+    // would free its buffers there. Deferring adoption while the fade runs opens
+    // exactly that window, for a whole Regen XFade.
+    //
+    // The cost of the shared rule, stated once so no caller is surprised: while
+    // publications keep arriving faster than morphMs, every one of them restarts
+    // the ramp, so the kept fade-from never ages out and the held note does not
+    // walk forward through the generations — it reaches the newest buffer one
+    // full morphMs after the stream stops, not during it. Wavetable and Freeze
+    // behave the same way; the audition guard's "publication stream" case pins
+    // the landing.
+    //
+    // The displaced snapshot — exactly one per call, either branch — is parked
+    // for the off-thread drain rather than released here: its last reference
+    // must not drop on the audio thread. The slot was just observed empty and
+    // only the audio thread parks, so the std::vector free always lands in
     // drainRetiredSnapshot() off the audio thread.
-    auto outgoing      = morphFromSnapshot_;   // prior fade-from (may be null)
-    morphFromSnapshot_ = playbackSnapshot_;     // current playback → fade-from
-    playbackSnapshot_  = masterSnap;            // adopt the new buffer
+    std::shared_ptr<const PlaybackSnapshot> outgoing;
+
+    if (morphActive_ && morphFromSnapshot_ != nullptr && morphAlpha_ < 0.5f)
+    {
+        outgoing = playbackSnapshot_;            // the quiet side is the target: it goes,
+                                                 // the dominant fade-from keeps its place
+    }
+    else
+    {
+        outgoing           = morphFromSnapshot_; // prior fade-from (may be null)
+        morphFromSnapshot_ = playbackSnapshot_;  // current playback → fade-from
+    }
+
+    playbackSnapshot_ = masterSnap;              // adopt the new buffer
     std::atomic_store_explicit(&retiredSnapshot_, outgoing, std::memory_order_release);
 
     // Equal-power ramp over morphMs (the global Drift Crossfade). morphMs<=0 →

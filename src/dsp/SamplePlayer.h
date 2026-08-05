@@ -191,7 +191,24 @@ public:
      *  parked in a reclaim slot instead of being freed here, so the buffer free
      *  never lands on the audio thread — drainRetiredSnapshot() releases it
      *  off-thread. Pointer identity is the generation guard (same snapshot ⇒
-     *  no-op, never restarts an in-flight crossfade). */
+     *  no-op).
+     *
+     *  A newer snapshot arriving MID-crossfade drops whichever of the two
+     *  sounding sides is quieter (below halfway that is the target, above it the
+     *  fade-from) and restarts the ramp. Same rule as WavetableOscillator::
+     *  beginMorphToMipData and FreezeTextureEngine::morphToBufferFrom; the
+     *  definition carries the measured step at each point of the ramp, including
+     *  the narrow band near halfway where it costs a little. This function always
+     *  leaves playbackSnapshot_ holding the master's newest — shareBufferFrom()
+     *  overwrites that pointer on the audio thread, so a voice must never be left
+     *  the sole owner of a snapshot.
+     *
+     *  Consequence of the shared rule, worth knowing before wiring a new caller:
+     *  while publications keep arriving FASTER than morphMs, each one restarts the
+     *  ramp, so the kept fade-from stays dominant and the note does not walk
+     *  forward through the generations — it lands on the newest buffer over one
+     *  full morphMs after the stream stops. Guard case "publication stream" in
+     *  tools/audition_sampler_follow.cpp pins that landing. */
     void morphToBufferFrom(const SamplePlayer& master, float morphMs);
 
     /** Release the reclaim slot populated by morphToBufferFrom(). MUST be called
