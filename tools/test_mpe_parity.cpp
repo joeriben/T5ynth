@@ -643,17 +643,22 @@ namespace
 
     void caseNrpnDoesNotWriteTheBendRange()
     {
-        std::printf ("[21] selecting an NRPN deselects the RPN, so its data byte is not a range\n");
+        std::printf ("[21] an NRPN write is not a bend range and not a zone\n");
         // NOT parity: the hand-written parser tracked CC100/CC101 only and
-        // fails this. juce::MidiRPNDetector already knew CC98/CC99, so wiring
-        // them in cost one predicate. Kept here because it is the same
-        // misfire class as [7] -- a latched selection eating a later CC6.
+        // fails the first half of this. Same misfire class as [7] -- a latched
+        // selection eating a later CC6.
+        //
+        // Parameter 6 on purpose. It is the MPE Configuration Message's number,
+        // so an NRPN 6 is the sequence that reaches FURTHEST if the NRPN bytes
+        // are handled by anything that shares a parameter register with the RPN
+        // path: not just the bend range but the zone layout, and with it
+        // master-vs-member for pressure and CC74.
         Rig r;
         r.rpn (5, 0, 0, 12);          // per-note range 12
         r.flush();
 
-        r.cc (5, 99, 0);              // NRPN MSB — a DIFFERENT parameter is now selected
-        r.cc (5, 98, 5);              // NRPN LSB
+        r.cc (5, 99, 0);              // NRPN MSB
+        r.cc (5, 98, 6);              // NRPN LSB — parameter 6, as an NRPN
         r.cc (5, 6, 40);              // its data byte. Not a bend range.
         r.flush();
 
@@ -668,34 +673,97 @@ namespace
 
         checkNear (v->getPerVoicePitchBend(), fullUpBend (12.0f), 0.01f,
                    "the NRPN data byte left the bend range where RPN 0 put it");
+
+        // And the same write on channel 16, where an accepted parameter 6 would
+        // declare an upper zone and make ch16 a master.
+        Rig z;
+        z.cc (16, 99, 0);
+        z.cc (16, 98, 6);
+        z.cc (16, 6, 1);              // "one member channel", if it were an MCM
+        z.flush();
+
+        z.noteOn (1, 60);
+        z.noteOn (5, 64);
+        z.flush();
+        z.pressure (16, 127);         // master pressure IF ch16 became a master
+        z.flush();
+
+        const auto* other = z.voiceForNote (64);
+        check (other != nullptr, "the member voice is alive");
+        if (other == nullptr) return;
+        checkNear (other->getAftertouch(), 0.0f, 0.01f,
+                   "an NRPN 6 did not declare a zone -- ch16 is still a member");
+    }
+
+    void caseRpnRegisterIsNotSharedWithNrpn()
+    {
+        std::printf ("[23] a half-NRPN, half-RPN selection completes nothing\n");
+        // juce::MidiRPNDetector keeps ONE parameter register per channel and
+        // lets CC98/CC99 and CC100/CC101 both write it, distinguishing them
+        // only by an isNRPN flag on the way out. Hand it the NRPN bytes and a
+        // CC99 plus a CC100 assemble a parameter number that neither selected.
+        // Both sequences below are inert on the hand-written parser too.
+        Rig r;
+        r.cc (16, 99, 0);             // NRPN MSB 0 ...
+        r.cc (16, 100, 6);            // ... then the RPN LSB 6. Not an MCM.
+        r.cc (16, 6, 1);
+        r.flush();
+
+        r.noteOn (1, 60);
+        r.noteOn (5, 64);
+        r.flush();
+        r.pressure (16, 127);
+        r.flush();
+
+        const auto* v = r.voiceForNote (64);
+        check (v != nullptr, "the member voice is alive");
+        if (v == nullptr) return;
+        checkNear (v->getAftertouch(), 0.0f, 0.01f,
+                   "no zone was declared from a mixed selection");
+
+        Rig b;
+        b.cc (5, 98, 0);              // NRPN LSB 0 ...
+        b.cc (5, 101, 0);             // ... then the RPN MSB 0. Not RPN 0.
+        b.cc (5, 6, 40);
+        b.flush();
+
+        b.noteOn (5, 64);
+        b.flush();
+        b.wheel (5, 16383);
+        b.flush();
+
+        const auto* w = b.voiceForNote (64);
+        check (w != nullptr, "the voice is alive");
+        if (w == nullptr) return;
+        checkNear (w->getPerVoicePitchBend(), fullUpBend (kDefaultNoteBendRange), 0.01f,
+                   "and no bend range was set from one either");
     }
 
     void caseBendRangeAboveTheSpecMaximum()
     {
-        std::printf ("[22] a bend range above 96 is honoured and does not disturb the next one\n");
+        std::printf ("[22] a bend range above 96 does not disturb the next one\n");
+        // Only the SECOND range is asserted, and deliberately: SynthVoice
+        // clamps at ±48 (dsp/SynthVoice.h:49), so 96, 100 and 127 all read back
+        // as 48.000 and the first value cannot be told apart from a clamp to
+        // the spec's 96. What is observable is whether the out-of-spec value
+        // POISONS what follows -- which is the failure mode worth pinning.
         Rig r;
         r.rpn (5, 0, 0, 100);         // out of MPE's 0..96, and a controller may send it
         r.flush();
 
         r.noteOn (5, 64);
         r.flush();
-        r.wheel (5, 16383);
-        r.flush();
 
         const auto* v = r.voiceForNote (64);
         check (v != nullptr, "the voice is alive");
         if (v == nullptr) return;
-
-        // SynthVoice's own ±48 is the ceiling, not the zone layout's 96.
-        checkNear (v->getPerVoicePitchBend(), 48.0f, 0.01f,
-                   "100 semitones arrives clamped at the voice's own limit");
 
         r.rpn (5, 0, 0, 12);
         r.flush();
         r.wheel (5, 16383);
         r.flush();
         checkNear (v->getPerVoicePitchBend(), fullUpBend (12.0f), 0.01f,
-                   "and the next range lands unaffected by it");
+                   "the next range lands unaffected by it");
     }
 
     void caseArpOffHandsTheKeyBackWithItsChannel()
@@ -756,6 +824,7 @@ int main()
     caseBendRangeSurvivesAZoneDeclaration();
     caseNrpnDoesNotWriteTheBendRange();
     caseBendRangeAboveTheSpecMaximum();
+    caseRpnRegisterIsNotSharedWithNrpn();
 
     std::printf ("\n%d checks, %d failures -- %s\n\n",
                  gChecks, gFailures, gFailures == 0 ? "ALL PASS" : "FAILED");

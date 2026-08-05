@@ -989,18 +989,26 @@ private:
     int mpePerNoteBendRangeInForce_ = kMpePerNoteBendRange;
     int mpeMasterBendRangeInForce_  = kMpeMasterBendRange;
 
-    // The parameter-SELECT bytes, RPN and NRPN alike. CC98/CC99 are here so
-    // that picking an NRPN deselects the RPN: MidiRPNDetector keeps the last
-    // selection latched, so without them a controller that selects an NRPN and
-    // sends its data on CC6 would have that CC6 read as a bend range. They are
-    // fed and then handed on -- unlike CC100/CC101 they stay bindable.
-    //
-    // CC6 is deliberately absent: one that completes no RPN we act on must
-    // still reach a user binding, so its fate is handleMpeRpnByte's return.
-    static bool isMpeRpnSelectController (int cc) noexcept
-    {
-        return cc == 98 || cc == 99 || cc == 100 || cc == 101;
-    }
+    // The RPN parameter-select bytes, and ONLY those. CC6 is deliberately
+    // absent: one that completes no RPN we act on must still reach a user
+    // binding, so its fate is handleMpeRpnByte's return.
+    static bool isMpeRpnSelectController (int cc) noexcept { return cc == 100 || cc == 101; }
+
+    // The NRPN ones, tracked HERE and never handed to a MidiRPNDetector.
+    // The detector keeps ONE parameter register per channel and lets RPN and
+    // NRPN both write it (juce_MidiRPN.cpp:80-84), so feeding it these bytes
+    // lets a CC99 and a CC100 assemble a parameter number that neither of them
+    // selected -- and MPEZoneLayout::processRpnMessage never looks at isNRPN
+    // (juce_MPEZoneLayout.cpp:131-137), so an ordinary NRPN 6 write would
+    // install an MPE zone. Both were measured before this was written.
+    static bool isNrpnSelectController (int cc) noexcept { return cc == 98 || cc == 99; }
+
+    // One bit per channel: an NRPN is selected there, so the next CC6 is that
+    // NRPN's data byte and not Pitch Bend Sensitivity. Without it a controller
+    // writing NRPNs silently retunes the bend range, because the detector keeps
+    // the last RPN latched -- the hand-written parser had the same hole. This
+    // bit is the whole of the fix, and it stays out of the library's way.
+    juce::uint16 mpeNrpnSelected_ = 0;
 
     /** Feeds one RPN byte to the zone layout; true if MPE consumed it. */
     bool handleMpeRpnByte (int channel, int cc, int value7) noexcept;

@@ -4934,7 +4934,9 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
 
                         const bool consumedAsMpeRpn =
                             ! learning
-                            && (isMpeRpnSelectController (cc) || cc == 6)
+                            && (isMpeRpnSelectController (cc)
+                                || isNrpnSelectController (cc)
+                                || cc == 6)
                             && ! (dawModeActive_.load(std::memory_order_relaxed)
                                   && msg.getChannel() == 16)
                             && handleMpeRpnByte (msg.getChannel(), cc, value7);
@@ -5792,6 +5794,23 @@ bool T5ynthProcessor::handleMpeRpnByte(int channel, int cc, int value7) noexcept
     // Both detectors see the same bytes in the same order, so they stay in step.
     // This one exists only to answer what the layout cannot be asked: WHICH
     // parameter a completed RPN carried, and with what value.
+    const auto channelBit = static_cast<juce::uint16>(1u << (channel - 1));
+
+    if (isNrpnSelectController(cc))
+    {
+        // Remembered, and passed to NOBODY -- not to either detector, and not
+        // consumed. CC98/CC99 stay bindable, which in XL DAW mode they must:
+        // there they are the Lfo3 Amt and Drift3 Rate encoders.
+        mpeNrpnSelected_ = static_cast<juce::uint16>(mpeNrpnSelected_ | channelBit);
+        return false;
+    }
+
+    if (cc == 6 && (mpeNrpnSelected_ & channelBit) != 0)
+        return false;   // an NRPN's data byte. Not a bend range, not a zone.
+
+    // An RPN selection replaces the NRPN one, exactly as the register does.
+    mpeNrpnSelected_ = static_cast<juce::uint16>(mpeNrpnSelected_ & ~channelBit);
+
     const auto parsed = mpeRpnWatcher_.tryParse(channel, cc, value7);
 
     // The layout sees the same bytes, minus the data byte that COMPLETES RPN 0.
@@ -5841,17 +5860,19 @@ bool T5ynthProcessor::handleMpeRpnByte(int channel, int cc, int value7) noexcept
     }
 
     // CC100/CC101 are RPN selection and nothing else, so they are always
-    // consumed. CC98/CC99 were fed for the deselect they cause and are handed
-    // on -- they are NRPN, not ours, and they stay bindable. A CC6 is only
-    // ours when it completed an RPN we act on; otherwise it falls through to
-    // the user bindings below, exactly as it did before.
-    return cc == 100 || cc == 101 || actedOn;
+    // consumed. A CC6 is only ours when it completed an RPN we act on;
+    // otherwise it falls through to the user bindings below, exactly as it did
+    // before.
+    return cc != 6 || actedOn;
 }
 
 void T5ynthProcessor::deselectMpeRpn(int channel, bool lsbOnly) noexcept
 {
     // Expressed as the MIDI a controller would send, so the library's own
-    // detectors do the deselecting and no parser state is kept here.
+    // detectors do the deselecting and no parser state is kept here -- bar the
+    // one bit the library has no place for.
+    mpeNrpnSelected_ = static_cast<juce::uint16>(mpeNrpnSelected_ & ~(1u << (channel - 1)));
+
     const auto feed = [this, channel](int cc, int value)
     {
         mpeRpnWatcher_.tryParse(channel, cc, value);
