@@ -2200,6 +2200,30 @@ def _opcodedir_beside(lib_path):
     return None
 
 
+def _rawwavedir_beside(lib_path):
+    """STK's rawwave data directory shipped NEXT TO a Csound library, or None.
+
+    Same sibling rule as the opcode directory, and for the same reason — but the
+    mechanism is an ENVIRONMENT VARIABLE, because that is the only handle Csound's
+    STK module offers. Measured 2026-08-06 against the vendored payload: with
+    RAWWAVE_PATH unset the module refuses to register and says so ("STK opcodes not
+    available: define environment variable RAWWAVE_PATH"), and 2267 opcode entries
+    exist; with it set, 2294 — the 27 STK opcodes (STKBowed, STKBlowBotl,
+    STKModalBar, STKSaxofony, …) that would otherwise not be there at all.
+
+    The variable is only ever set to a directory that EXISTS and is complete.
+    A rawwave file STK asks for and does not find is not a compile error and not
+    silence: `stk::StkError` propagates out of the module as an uncaught C++
+    exception and `abort()`s the process (measured, with the directory emptied).
+    Inside a plugin that is the host DAW."""
+    if not lib_path or not os.path.isabs(lib_path):
+        return None
+    cand = os.path.join(os.path.dirname(lib_path), "rawwaves")
+    if os.path.isdir(cand):
+        return cand
+    return None
+
+
 def _csound_opcodedir():
     """The bundled opcode dir the CLI must be pointed at, or None. Derived from
     the library the host handed us (T5YNTH_CSOUND_LIB) even when the check itself
@@ -2211,14 +2235,29 @@ def _csound_opcodedir():
     return None
 
 
+def _csound_rawwavedir():
+    """The bundled STK rawwave dir, or None. Same search order as the opcode dir."""
+    for path in [os.environ.get("T5YNTH_CSOUND_LIB")] + list(_bundled_csound_libs()):
+        found = _rawwavedir_beside(path)
+        if found:
+            return found
+    return None
+
+
 def _csound_child_env():
     """Environment for a Csound CLI child. OPCODE6DIR64 is set for the CHILD only
     — never in this process, where it would also redirect any other Csound that
-    happens to be loaded here."""
+    happens to be loaded here. RAWWAVE_PATH rides along for the same reason it is
+    set at all: without it a child renders an orchestra with 27 fewer opcodes than
+    the plugin has, which is the divergence between gate and engine this whole
+    lookup exists to close."""
     env = dict(os.environ)
     opcodedir = _csound_opcodedir()
     if opcodedir:
         env["OPCODE6DIR64"] = opcodedir
+    rawwaves = _csound_rawwavedir()
+    if rawwaves:
+        env["RAWWAVE_PATH"] = rawwaves + os.sep
     return env
 
 
@@ -2280,6 +2319,22 @@ def _csound_library():
         opcodedir = _opcodedir_beside(cand)
         if opcodedir:
             lib.csoundSetOpcodedir(opcodedir.encode("utf-8"))
+        # STK has no API for this — the module reads getenv("RAWWAVE_PATH") when
+        # it loads, which is inside csoundCreate. So unlike the opcode directory
+        # it has to go into THIS process's environment. That is narrower than it
+        # looks: nothing else here reads the variable, and the alternative is a
+        # syntax gate that rejects every STK opcode the engine can play.
+        #
+        # It overwrites an ambient value on purpose, exactly as CsoundEngine.cpp
+        # does: a stale path from an old STK install does not make the module
+        # decline, it makes the module register and then abort() the process on
+        # the first file it cannot open. The shipped directory is the only one
+        # this code can vouch for. Beside the loaded library first; the payload
+        # otherwise, which is the case in a source checkout, where the library
+        # that loads is the machine's and only the payload has the data.
+        rawwaves = _rawwavedir_beside(cand) or _csound_rawwavedir()
+        if rawwaves:
+            os.environ["RAWWAVE_PATH"] = rawwaves + os.sep
         _csound_lib_cache = lib
         break
     return _csound_lib_cache

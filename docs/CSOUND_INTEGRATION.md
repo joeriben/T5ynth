@@ -32,6 +32,7 @@ which is what makes it a different question from `brew install` on a user's Mac.
 |---|---|---|---|
 | library | `Contents/libs/CsoundLib64` | `csound64.dll` beside the module | `libs/libcsound64.so.6.0`, or the distro's for the `.deb` |
 | plugin opcodes | `Contents/libs/Opcodes64/` (24) | `plugins64/` (16) | `libs/Opcodes64/`, or Csound's own for the `.deb` |
+| STK data | `Contents/libs/rawwaves/` (41) | — no `stkops` module in Csound's Windows release | — the distro's, if it has one |
 | how it is found | load command `@loader_path/../libs/…`, recorded at link time | delay-load, then `LoadLibraryW` by absolute path at first use | SONAME + `$ORIGIN/libs` rpath |
 | where it comes from | vendored | vendored | `apt install libcsound64-dev` on the runner |
 | bundling step | `tools/bundle_csound_macos.sh` | CMake `copy_directory` | `tools/bundle_csound_linux.sh` (patchelf) |
@@ -49,6 +50,25 @@ not in `libcsound64-6.0`, and not in the separate `csound-plugins` package eithe
 So `scanu`, `scanu2` and `scans` are reachable on macOS and Windows and not on Linux.
 Nothing in `backend/lco_library.json` uses them, and the verifier probes each module
 exactly where it exists, so a platform that has it can never lose it quietly.
+
+**What the STK opcodes cost: a directory and a platform.** `libstkops` reads STK's
+excitation and wavetable data from files, and finds them only through
+`getenv("RAWWAVE_PATH")`; with the variable unset it declines to register at all —
+measured 2026-08-06, **2267** opcode entries against **2294** with it set, the
+difference being all 27 STK opcodes. So `rawwaves/` ships beside the library and
+both `CsoundEngine.cpp` and `lco_write.py` set the variable to it, by the same
+sibling rule as `Opcodes64` — **overwriting** whatever the environment already
+said, which is the one place this departs from leaving a user's setting alone. A
+stale path from an old STK install does not make the module decline; it makes the
+module register and then abort on the first file it cannot open, and the shipped
+directory is the only one this code can vouch for. Nothing is taken from anyone:
+STK is the sole reader of the variable, and any other STK in the process wants
+these very files. Two properties follow. The directory must be
+**complete**: a file STK asks for and does not find leaves the module as an
+uncaught `stk::StkError` and `abort()`s the process, which inside a plugin is the
+host DAW — so the bundling step and the verifier both count the files. And the
+opcodes are **macOS-only**, because the Csound project's Windows release ships no
+`stkops` module. Nothing in `backend/lco_library.json` uses one.
 
 ## The two things that are not obvious
 
@@ -111,7 +131,8 @@ shipped library and performs the CSD, forwarding argv straight to
 Where the backend looks for the library it was given (`_bundled_csound_libs`):
 
 - **macOS** — an ancestor directory named `Contents`, then `Contents/libs/CsoundLib64`,
-  with `Opcodes64` beside it. This is the layout `tools/bundle_csound_macos.sh` writes.
+  with `Opcodes64` and `rawwaves` beside it. This is the layout
+  `tools/bundle_csound_macos.sh` writes.
 - **Windows** — `csound64.dll` in any ancestor of the backend's own directory, with
   `plugins64` beside it. That is where CMakeLists.txt:440 puts them, next to the
   module that loads them. Nothing else in the module can find it: it is not on
@@ -159,7 +180,10 @@ below then catches, loudly.
   imported. Linux: reads `/proc/self/maps` back for the same statement — which
   matters most there, because the build machine is exactly the machine that has
   Csound in `/usr/lib` — plus `ldd` over every bundled ELF. All three then compile
-  and PLAY a real library orchestra and require non-silent samples.
+  and PLAY a real library orchestra and require non-silent samples. Where the
+  bundle carries STK data it also counts the files and compiles an STK opcode;
+  where it does not, it says so and asks for neither, so a build that never
+  claimed the capability cannot fail over it.
 - The backend's own reach, macOS, measured 2026-08-04 under the same denial: with
   `/opt/homebrew`, `/usr/local` and `/Library/Frameworks/CsoundLib64.framework`
   unreadable and only the bundle's `CsoundLib64` named, a body that plays passes

@@ -9,7 +9,7 @@ What is here is the exact payload that goes into a build, per platform:
 | | |
 |---|---|
 | `include/csound/` | the C API headers the build compiles against, shared by every platform. Measured 2026-07-26: the Windows release's headers are byte-identical to the macOS ones apart from line endings — the only real difference is a typo fix in `plugin.h`, which is for *writing* plugin opcodes and which nothing here includes. |
-| `macos-arm64/lib/` | drop-in copy of an app bundle's `Contents/libs`: `CsoundLib64`, its 9 support libraries, and `Opcodes64/` with the 24 dependency-free plugin opcode modules. Every load command is already `@loader_path/../libs/…`, so bundling is a copy and needs no `dylibbundler` and no Homebrew. |
+| `macos-arm64/lib/` | drop-in copy of an app bundle's `Contents/libs`: `CsoundLib64`, its 9 support libraries, `Opcodes64/` with the 24 dependency-free plugin opcode modules, and `rawwaves/` with STK's 41 data files. Every load command is already `@loader_path/../libs/…`, so bundling is a copy and needs no `dylibbundler` and no Homebrew. |
 | `windows-x64/lib/csound64.lib` | the import library to link against. |
 | `windows-x64/bin/` | drop-in copy of what sits next to the module at runtime: `csound64.dll` and `plugins64/` with 16 dependency-free plugin opcode modules. |
 
@@ -31,6 +31,7 @@ MSVC build already needs; the macOS libraries name nothing outside `/usr/lib` an
 | macOS payload | Homebrew `csound 6.18.1_14`, bottle for arm64 macOS, taken 2026-07-26 from `/opt/homebrew/Frameworks/CsoundLib64.framework` |
 | Windows payload | `Csound-6.18.1-windows-x64-binaries.zip` from the 6.18.1 GitHub release, taken 2026-07-26 · SHA-256 `bd499ac6f476d98c6ae951a8fbfda365e594ef34bcf480c5a273281df940c220` |
 | headers | the same zip's `include/`, plus the two generated headers (`float-version.h`, `version.h`) from the macOS side, which the zip only ships as CMake templates |
+| STK rawwaves | Synthesis ToolKit in C++ 5.0.1, MIT-style licence, https://github.com/thestk/stk · the 41 `.raw` files from Homebrew `stk 5.0.1`'s `share/stk/rawwaves`, taken 2026-08-06. Data only — none of STK's source, which nothing here builds against. Licence text in `resources/licenses/csound/STK.txt`, ships in the bundle beside the Csound notices. |
 | support libraries | macOS: libsndfile 1.2.2, libFLAC 1.5.0, libogg 1.3.6, libvorbis(+enc) 1.3.7, libopus 1.6.1, libmpg123 1.33.6, libmp3lame 3.100, libintl 1.0 — separate dylibs. Windows: the same family is linked **inside** `csound64.dll` by the Csound project (libsndfile 1.1.0, libFLAC 1.3.4, libvorbis 1.3.7, …). Versions and licences in `THIRD_PARTY_LICENSES.txt` and in the `NOTICE.txt` that ships beside the library. |
 
 ### Which plugin opcode modules, and why not all of them
@@ -42,6 +43,31 @@ builds differ, not because anything was dropped by choice — Windows has no
 `ableton_link_opcodes` module in its release, and `rtauhal` is replaced by
 `rtwinmm`. Checked before vendoring: no orchestra in `backend/lco_library.json`
 uses an opcode from any of them.
+
+### The STK opcodes, and why they need a directory of their own
+
+`libstkops` wraps STK's instrument classes, and those classes read their
+excitation and wavetable data from files at run time. The module looks the
+directory up in the environment — `getenv("RAWWAVE_PATH")` — and when it finds
+nothing it declines to register and says so. Measured 2026-08-06 against this
+payload: **2267** opcode entries with the variable unset, **2294** with it set,
+the difference being all 27 STK opcodes (`STKBowed`, `STKBlowBotl`, `STKModalBar`,
+`STKSaxofony`, `STKBlowHole` …). So the data ships beside the library as
+`rawwaves/`, and `src/dsp/CsoundEngine.cpp` and `backend/lco_write.py` point the
+variable at it — the same sibling rule as `Opcodes64`, through the only handle
+this module offers.
+
+Two consequences worth knowing before reaching for these opcodes:
+
+* **The directory must be complete.** A rawwave file STK asks for and does not
+  find is not a compile error and not silence: `stk::StkError` leaves the module
+  as an uncaught C++ exception and `abort()`s the process — measured with the
+  directory emptied, and inside a plugin that process is the host DAW.
+  `tools/bundle_csound_macos.sh` and `tools/verify_csound_bundle.py` both count
+  the files rather than checking that the directory exists.
+* **macOS only.** The Csound project's Windows release ships no `stkops` module
+  at all (see the paragraph above), so an orchestra written around an STK opcode
+  plays here and not there. Nothing in `backend/lco_library.json` uses one.
 
 ## Replacing it (LGPL 2.1 §6)
 
@@ -61,7 +87,10 @@ app's hardened runtime while buying the replacer nothing.
 
 **macOS.** Install the Csound version you want, build a bundle with it the old way
 (`CSOUND_FRAMEWORK_BINARY=… tools/bundle_csound_macos.sh <bundle>`), then copy that
-bundle's `Contents/libs` over `macos-arm64/lib`.
+bundle's `Contents/libs` over `macos-arm64/lib`. That carries `rawwaves/` along;
+to refresh the data itself, take `share/stk/rawwaves/*.raw` from an STK install
+(`CSOUND_RAWWAVES=` overrides where the script looks) and update `SEEN_RAWWAVES`
+in `tools/verify_csound_bundle.py` if the count has grown.
 
 **Windows.** Take `Csound-<version>-windows-x64-binaries.zip` from the Csound GitHub
 release: `build/Release/csound64.lib` → `windows-x64/lib/`, `build/Release/csound64.dll`

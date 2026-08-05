@@ -36,6 +36,7 @@
 #include <cassert>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <mutex>
 #include <string>
@@ -232,13 +233,43 @@ namespace
             if (dladdr (reinterpret_cast<const void*> (&csoundCreate), &info) != 0
                 && info.dli_fname != nullptr)
             {
-                std::string dir { info.dli_fname };
-                const auto slash = dir.rfind ('/');
+                const std::string self { info.dli_fname };
+                const auto slash = self.rfind ('/');
                 if (slash != std::string::npos)
                 {
-                    dir = dir.substr (0, slash) + "/Opcodes64";
-                    if (isDirectory (dir))
-                        csoundSetOpcodedir (dir.c_str());
+                    const auto beside = self.substr (0, slash);
+
+                    const auto opcodes = beside + "/Opcodes64";
+                    if (isDirectory (opcodes))
+                        csoundSetOpcodedir (opcodes.c_str());
+
+                    // STK's data files, the same sibling rule — but through the
+                    // ENVIRONMENT, because that is the only handle Csound's STK
+                    // module offers: it reads getenv("RAWWAVE_PATH") as it loads
+                    // and, finding nothing, refuses to register at all. Measured
+                    // 2026-08-06: 2267 opcode entries without it, 2294 with —
+                    // the difference is every STK opcode (STKBowed, STKBlowBotl,
+                    // STKModalBar, STKSaxofony …), which the author WRITES and
+                    // therefore may reach for.
+                    //
+                    // Only when the directory is there — but then it OVERWRITES
+                    // whatever the environment already said, which is the one
+                    // place this differs from ordinary politeness towards a
+                    // user's setting. The reason is the failure mode: a value
+                    // left over from an old STK install, pointing at a directory
+                    // that has since moved or was never complete, does not make
+                    // the module decline. It registers, and the first orchestra
+                    // that reaches an STK opcode dies on a file it cannot open —
+                    // an uncaught stk::StkError, i.e. abort(), i.e. the host DAW.
+                    // We can vouch for the directory we shipped and for no other,
+                    // which is the same reasoning that points csoundSetOpcodedir
+                    // at our own modules rather than at whatever is installed.
+                    // Nothing is taken from anyone: the variable is read by STK
+                    // alone, and any other STK in the process wants these very
+                    // files — the data set has not changed in twenty years.
+                    const auto rawwaves = beside + "/rawwaves";
+                    if (isDirectory (rawwaves))
+                        ::setenv ("RAWWAVE_PATH", (rawwaves + "/").c_str(), 1);
                 }
             }
            #endif

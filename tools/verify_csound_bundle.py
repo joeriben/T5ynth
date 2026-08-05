@@ -151,6 +151,83 @@ def rpaths_of(path):
     return found
 
 
+# What third_party/csound/macos-arm64/lib/rawwaves holds, which is STK 5.0.1's
+# own set. A floor, like MIN_OPCODE_ENTRIES: a later STK may add files, and that
+# must not turn a good build red.
+SEEN_RAWWAVES = 41
+VENDORED_RAWWAVES = REPO / "third_party" / "csound" / "macos-arm64" / "lib" / "rawwaves"
+
+
+def check_rawwaves(rawwaves, has_stkops):
+    """STK's data directory and the module that reads it travel together.
+
+    Three states, and only the middle one is a build failure:
+
+      module absent, data absent   a build made without the payload and without an
+                                   STK install. No STK opcodes, said so, fine.
+      one without the other        the failure this exists to catch. A bundle that
+                                   carries libstkops and no data has lost 27
+                                   opcodes with nothing else going red — the same
+                                   shape as the measured case in MIN_OPCODE_ENTRIES
+                                   where 22 deleted modules still passed at 1929
+                                   entries. tools/bundle_csound_macos.sh keeps the
+                                   pair together, so a split here is a real defect.
+      both present                 the data must also be COMPLETE. With
+                                   RAWWAVE_PATH unset the module declines and says
+                                   why, which is a capability loss and nothing
+                                   worse; with it set at a directory missing one
+                                   file the module wants, stk::StkError leaves the
+                                   module as an uncaught C++ exception and
+                                   abort()s the process — measured 2026-08-06 with
+                                   the directory emptied, and inside a plugin that
+                                   process is the host DAW.
+
+    Complete means BY NAME and by size against the payload in the checkout, not by
+    count: which file an instrument reaches for is STK's business, so 41 files
+    under the wrong names would pass a count and abort at the user's first note.
+    Where the checkout has no payload to compare against — a build from a system
+    framework on a tree with third_party/csound deleted — the count is the only
+    statement left, and it is still enough to catch a half-copied directory."""
+    if not rawwaves.is_dir():
+        if has_stkops:
+            fail("libstkops.dylib is bundled but Contents/libs/rawwaves is not — "
+                 "the module reads RAWWAVE_PATH as it loads and will decline to "
+                 "register, silently costing all 27 STK opcodes")
+        ok("no STK opcodes in this bundle, and no data for them either — "
+           "consistent (the LRO's other 2267 opcode entries are unaffected)")
+        return False
+    if not has_stkops:
+        fail(f"{rawwaves} is bundled but libstkops.dylib is not — nothing in the "
+             "bundle can read it")
+    files = {p.name: p.stat().st_size for p in rawwaves.glob("*.raw")}
+    # The absolute count FIRST and unconditionally. Putting it in the fallback
+    # branch alone made it dead code wherever the payload exists — and the payload
+    # is not itself checked for completeness, so emptying BOTH directories (the
+    # obvious way to reproduce the abort this docstring cites) matched perfectly at
+    # zero files and printed PASS on the one bundle state that kills the host.
+    if len(files) < SEEN_RAWWAVES:
+        fail(f"{len(files)} of {SEEN_RAWWAVES} STK rawwave files in {rawwaves} — "
+             "an STK opcode that asks for a missing one does not fail to compile, "
+             "it abort()s the process")
+    if VENDORED_RAWWAVES.is_dir():
+        wanted = {p.name: p.stat().st_size for p in VENDORED_RAWWAVES.glob("*.raw")}
+        missing = sorted(set(wanted) - set(files))
+        wrong = sorted(n for n in set(wanted) & set(files)
+                       if wanted[n] != files[n])
+        if missing or wrong:
+            fail(f"{rawwaves} does not match {VENDORED_RAWWAVES}: "
+                 + (f"missing {', '.join(missing)}. " if missing else "")
+                 + (f"wrong size: {', '.join(wrong)}. " if wrong else "")
+                 + "An STK opcode that asks for a file that is not there does not "
+                   "fail to compile, it abort()s the process")
+        ok(f"{len(files)} STK rawwave data files, each matching the payload in "
+           f"the checkout by name and size")
+    else:
+        ok(f"{len(files)} STK rawwave data files (counted only — this checkout has "
+           f"no {VENDORED_RAWWAVES.name} payload to compare names against)")
+    return True
+
+
 def check_bundle_contents(bundle):
     lib = bundle / "Contents" / "libs" / "CsoundLib64"
     opcodes = bundle / "Contents" / "libs" / "Opcodes64"
@@ -175,9 +252,13 @@ def check_bundle_contents(bundle):
              + ", ".join(str(p.relative_to(bundle)) for p in links))
     if not (opcodes / "libscansyn.dylib").is_file():
         fail("libscansyn.dylib missing — scanu/scanu2/scans would be gone")
-    for name in ("NOTICE.txt", "LGPL-2.1.txt"):
+    required = ["NOTICE.txt", "LGPL-2.1.txt"]
+    if check_rawwaves(bundle / "Contents" / "libs" / "rawwaves",
+                      (opcodes / "libstkops.dylib").is_file()):
+        required.append("STK.txt")
+    for name in required:
         if not (licences / name).is_file():
-            fail(f"LGPL 2.1 requires {name} in the bundle ({licences})")
+            fail(f"{name} must ship in the bundle ({licences})")
     ok(f"{lib.name} + {len(list(opcodes.glob('*.dylib')))} plugin opcode modules "
        f"+ licence texts present")
 
@@ -533,7 +614,20 @@ def load_bundled(lib_path, opcodes):
     if LINUX:
         prove_this_is_the_bundled_so(lib_path)
     lib.csoundSetOpcodedir(str(opcodes).encode())
-    ok(f"loaded {lib_path.name} with its own {opcodes.name}")
+
+    # STK's data, the same sibling rule as the opcode directory but through the
+    # environment, because that is the only handle Csound's STK module offers.
+    # POPPED when the bundle has none: an ambient RAWWAVE_PATH on the build
+    # machine would otherwise let the STK probe below pass against data this
+    # bundle does not carry — the same fall-through this whole file exists to
+    # rule out, wearing a different hat.
+    rawwaves = lib_path.parent / "rawwaves"
+    if rawwaves.is_dir():
+        os.environ["RAWWAVE_PATH"] = str(rawwaves) + os.sep
+    else:
+        os.environ.pop("RAWWAVE_PATH", None)
+    ok(f"loaded {lib_path.name} with its own {opcodes.name}"
+       + (" and rawwaves" if rawwaves.is_dir() else ""))
     return lib
 
 
@@ -575,7 +669,8 @@ PLATFORM_ONLY = {
 }
 
 # 1917 entries register with no plugin modules at all, 2267 with the 24 the macOS
-# payload carries. A floor rather than the exact figure, so a Csound update does
+# payload carries, and 2294 once RAWWAVE_PATH lets libstkops register its 27 STK
+# opcodes as well. A floor rather than the exact figure, so a Csound update does
 # not fail a build over a few new entries — but far enough above 1917 that a
 # bundle which lost its modules cannot pass. Measured: with 22 of the 24 modules
 # deleted, the old check still said PASS at 1929 entries.
@@ -610,6 +705,21 @@ def check_plugin_opcodes(lib):
     extra = tuple(PLATFORM_PROBES[n]
                   for n in PLATFORM_ONLY.get(
                       "linux" if LINUX else sys.platform, ()))
+    # stkops is asked for only where its DATA shipped, which is not a platform
+    # question: the module is in the macOS payload and not in the Windows one, and
+    # a macOS build made without third_party/csound may have neither. Without the
+    # data the module refuses to register — correctly — so probing for it would
+    # fail a build over a capability it never claimed. load_bundled has already
+    # decided this, and popped the variable if the bundle carries nothing.
+    #
+    # Compile only, like every probe here, and here it is also the SAFE choice: STK
+    # opens its data file at instrument INIT, and a file it cannot find raises
+    # through the module and abort()s this process — which would take the checks
+    # after this one with it instead of failing one of them. What the files are is
+    # answered by name and size in check_rawwaves, before anything is loaded.
+    if os.environ.get("RAWWAVE_PATH"):
+        extra += (("stkops", "asig STKBowed 0.4, 220, 1, 60, 2, 30, 4, 20, 11, 0\n"
+                             "out asig"),)
     probes = MODULE_PROBES + extra
     missing = []
     for module, body in probes:

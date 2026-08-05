@@ -10,6 +10,8 @@ it sits depends on the platform:
     Contents/libs/CsoundLib64            the Csound library itself
     Contents/libs/Opcodes64/*.dylib      Csound's plugin opcodes
     Contents/libs/lib*.dylib             the audio-file libraries Csound needs
+    Contents/libs/rawwaves/*.raw         STK's wavetable data, read by the STK
+                                         opcodes in Opcodes64/libstkops.dylib
 
   Windows
     csound64.dll                         the Csound library itself
@@ -29,6 +31,21 @@ What is bundled, and under which licence
 
   Csound 6.18.1               LGPL-2.1-or-later   https://csound.com
                                                   https://github.com/csound/csound
+
+On macOS one further set of files travels with Csound and is not Csound: the
+wavetables of the Synthesis ToolKit in C++ (STK) by Perry R. Cook and Gary P.
+Scavone. Csound's STK opcodes are a wrapper around STK's own instrument classes,
+and those classes read their excitation and waveform data from files at run time.
+The opcode module refuses to register at all unless it is told where they are, so
+the data ships with it, unmodified.
+
+  STK 5.0.1 (rawwaves only)   MIT-style, see     https://ccrma.stanford.edu/software/stk/
+                              STK.txt beside      https://github.com/thestk/stk
+                              this file
+
+  (Only the 41 .raw data files are bundled — none of STK's own source, which
+  akróasys does not build against. Csound's libstkops module, which does, is
+  part of the Csound payload above.)
 
 The audio-file libraries Csound uses come with it differently on the two
 platforms, and at different versions. On macOS they are separate shared
@@ -80,7 +97,10 @@ macOS:
 
   2. Put it in place of Contents/libs/CsoundLib64. If your build needs plugin
      opcodes of its own, replace Contents/libs/Opcodes64/ with yours as well —
-     akróasys points Csound at whatever that directory contains.
+     akróasys points Csound at whatever that directory contains, and at
+     Contents/libs/rawwaves/ for the STK data, which you can replace the same
+     way. That directory must stay complete: an STK opcode that asks for a file
+     that is not there aborts the process rather than falling silent.
 
   3. Re-sign the application. Replacing any file inside the bundle invalidates
      its signature, and macOS refuses to load a library the signature does not
