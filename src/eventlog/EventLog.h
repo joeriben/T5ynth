@@ -100,10 +100,16 @@ struct PresetLoadedLogEntry
 /** Header line — leads every .t5evt file, before any event line. */
 struct EventLogHeader
 {
-    int          formatVersion = 2;   // v2 adds startStateBase64 for replay
+    int          formatVersion = 3;   // v2 adds startStateBase64; v3 adds calibEpoch
     juce::String t5ynthVersion;
     double       sampleRate = 44100.0;
     juce::String startStateBase64;   // base64-encoded APVTS state at recording start (R0)
+    // Which calibrations the LOGGED VALUES predate. A param event stores the
+    // denormalised value, so a number written under an older law means something
+    // else today — and one of them changed kind outright when the envelope curve
+    // stopped being a 0..4 choice (Calibration epoch 9). Absent on a v1/v2 tape,
+    // which reads as epoch 0, the same convention every other stored surface uses.
+    int          calibEpoch = 0;
 };
 
 juce::DynamicObject::Ptr eventLogHeaderToDynamicObject(const EventLogHeader& h);

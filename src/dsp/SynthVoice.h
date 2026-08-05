@@ -289,9 +289,11 @@ private:
         float ampAmount = -1.0f;
         int ampTarget = EnvTarget::DCA;
         bool ampLoop = false;
-        int ampAttackCurve = -1;
-        int ampDecayCurve = -1;
-        int ampReleaseCurve = -1;
+        // Bends are floats now, and -1 is a LEGAL bend (Log) — the sentinel has
+        // to sit outside the parameter range, like the -2 velocity sentinels.
+        float ampAttackBend = -9.0f;
+        float ampDecayBend = -9.0f;
+        float ampReleaseBend = -9.0f;
         float ampAttackVelSens = -2.0f;
         float ampDecayVelSens = -2.0f;
         float ampReleaseVelSens = -2.0f;
@@ -307,9 +309,9 @@ private:
             float release = -1.0f;
             float amount = -1.0f;
             bool  loop = false;
-            int   attackCurve = -1;
-            int   decayCurve = -1;
-            int   releaseCurve = -1;
+            float attackBend = -9.0f;
+            float decayBend = -9.0f;
+            float releaseBend = -9.0f;
             float attackVelSens = -2.0f;
             float decayVelSens = -2.0f;
             float releaseVelSens = -2.0f;

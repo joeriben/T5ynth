@@ -6,7 +6,8 @@
 #include <functional>
 #include <limits>
 #include <vector>
-#include "../dsp/ADSREnvelope.h"   // CurveShape + applyCurve: single source of truth for env curve math
+#include "../dsp/ADSREnvelope.h"   // applyCurve / applyReleaseCurve: single source of truth for env curve math
+#include "../dsp/BlockParams.h"    // EnvCurve: the bend range the ADSR graph edits
 
 // ── Color constants (shared across all GUI files) ──────────────────────────
 static const auto kAccent  = juce::Colour(0xffe91e63);  // C — Pink (engine accent)
@@ -1608,8 +1609,9 @@ private:
  *   • sustain corner → Decay time    (drag X) + Sustain level (drag Y)
  *   • end handle     → Release time  (drag X)
  *
- * Clicking a segment body (away from a handle) cycles that stage's curve shape
- * (Log→…→Exp), mirroring the advanced-view CurveButton.
+ * Dragging a segment body (away from a handle) bends that stage: the curve
+ * follows the cursor between Log and Exp, stepless, and the five named shapes
+ * are five points on that travel.
  *
  * The component owns NO parameter state: it drives the existing per-stage
  * SliderRows / curve ComboBoxes, so APVTS stays the single source of truth, and
@@ -1673,10 +1675,10 @@ public:
         // Envelope outline (with per-stage curve shaping).
         juce::Path curve;
         curve.startNewSubPath(geo.p0);
-        appendStage(curve, geo.p0, geo.p1, curveIndex(pAcv));   // attack 0→1
-        appendStage(curve, geo.p1, geo.p2, curveIndex(pDcv));   // decay 1→sustain
-        curve.lineTo(geo.p3);                                  // sustain hold (flat)
-        appendStage(curve, geo.p3, geo.p4, curveIndex(pRcv), true);   // release sustain→0 (RC-discharge)
+        appendStage(curve, geo.p0, geo.p1, bendOf(pAcv));   // attack 0→1
+        appendStage(curve, geo.p1, geo.p2, bendOf(pDcv));   // decay 1→sustain
+        curve.lineTo(geo.p3);                              // sustain hold (flat)
+        appendStage(curve, geo.p3, geo.p4, bendOf(pRcv), true);   // release sustain→0
 
         // Faint fill under the curve.
         juce::Path fill = curve;
@@ -1701,7 +1703,13 @@ public:
             if (txt.isNotEmpty())
             {
                 auto anchor = (draggingHandle == Handle::Attack) ? geo.p1
-                            : (draggingHandle == Handle::Sustain) ? geo.p2 : geo.p4;
+                            : (draggingHandle == Handle::Sustain) ? geo.p2
+                            : (draggingHandle == Handle::Release) ? geo.p4
+                            : (draggingHandle == Handle::AttackBend)
+                                  ? geo.p0.withX((geo.p0.x + geo.p1.x) * 0.5f)
+                            : (draggingHandle == Handle::DecayBend)
+                                  ? geo.p1.withX((geo.p1.x + geo.p2.x) * 0.5f)
+                                  : geo.p3.withX((geo.p3.x + geo.p4.x) * 0.5f);
                 juce::Rectangle<float> box(anchor.x - 32.0f, geo.plot.getY() + 1.0f, 64.0f, 14.0f);
                 box = box.constrainedWithin(bounds);
                 g.setColour(kBg.withAlpha(0.75f));
@@ -1731,20 +1739,42 @@ public:
                            : (dMin == dS) ? Handle::Sustain : Handle::Release;
         else
         {
-            // Click on a segment body → cycle that stage's curve shape.
-            draggingHandle = Handle::None;
-            if      (p.x < geo.p1.x)  cycleCurve(attAcv, pAcv);
-            else if (p.x < geo.p2.x)  cycleCurve(attDcv, pDcv);
-            else if (p.x >= geo.p3.x) cycleCurve(attRcv, pRcv);   // sustain hold (p2..p3) has no curve
-            return;
+            // Grab a segment body → bend that stage. The sustain hold (p2..p3)
+            // is flat and has no curve, so a grab there edits nothing.
+            if      (p.x < geo.p1.x)  draggingHandle = Handle::AttackBend;
+            else if (p.x < geo.p2.x)  draggingHandle = Handle::DecayBend;
+            else if (p.x >= geo.p3.x) draggingHandle = Handle::ReleaseBend;
+            else                    { draggingHandle = Handle::None; return; }
+        }
+
+        // Double-click a segment body → that stage's curve goes back to its
+        // default. A drag can reach every shape but promises none of them from
+        // where it happens to start, so the named default needs a gesture of its
+        // own; the nodes keep their normal double-click (nothing) because a
+        // double-click while aiming at a time must not rewrite a curve.
+        if (draggingHandle == Handle::AttackBend || draggingHandle == Handle::DecayBend
+            || draggingHandle == Handle::ReleaseBend)
+        {
+            if (e.getNumberOfClicks() >= 2)
+            {
+                if      (draggingHandle == Handle::AttackBend)  resetBendG(attAcv, pAcv);
+                else if (draggingHandle == Handle::DecayBend)   resetBendG(attDcv, pDcv);
+                else                                           resetBendG(attRcv, pRcv);
+                draggingHandle = Handle::None;
+                repaint();
+                return;
+            }
         }
 
         // Begin host-automation gesture(s) for the parameter(s) this handle edits.
         switch (draggingHandle)
         {
-            case Handle::Attack:  beginG(attA); beginG(attAmt); break;
-            case Handle::Sustain: beginG(attD); beginG(attS);   break;
-            case Handle::Release: beginG(attR);                 break;
+            case Handle::Attack:      beginG(attA); beginG(attAmt); break;
+            case Handle::Sustain:     beginG(attD); beginG(attS);   break;
+            case Handle::Release:     beginG(attR);                 break;
+            case Handle::AttackBend:  beginG(attAcv);               break;
+            case Handle::DecayBend:   beginG(attDcv);               break;
+            case Handle::ReleaseBend: beginG(attRcv);               break;
             default: break;
         }
 
@@ -1758,6 +1788,9 @@ public:
         startSprop   = propOf(pS);
         startRprop   = propOf(pR);
         startAmtProp = propOf(pAmt);
+        startBend    = (draggingHandle == Handle::AttackBend)  ? bendOf(pAcv)
+                     : (draggingHandle == Handle::DecayBend)   ? bendOf(pDcv)
+                     : (draggingHandle == Handle::ReleaseBend) ? bendOf(pRcv) : 0.0f;
         peakShowAmt  = false;       // until the drag reveals a dominant axis
         repaint();
     }
@@ -1788,6 +1821,21 @@ public:
             case Handle::Release:
                 setPropG(attR, pR, startRprop + dx / geo.segWR);
                 break;
+
+            // Segment bend. Half the plot height is one unit of bend — Lin to a
+            // named pole, so a stage's full travel is 1.5 plot heights on the side
+            // it sags and 0.5 on the other. The sign is per stage so the curve bulges
+            // TOWARDS the cursor: on the attack a positive bend rises early (the
+            // segment lifts), on the falling decay and release it drops early.
+            case Handle::AttackBend:
+                setBendG(attAcv, pAcv, startBend - dy / (0.5f * geo.plot.getHeight()));
+                break;
+            case Handle::DecayBend:
+                setBendG(attDcv, pDcv, startBend + dy / (0.5f * geo.plot.getHeight()));
+                break;
+            case Handle::ReleaseBend:
+                setBendG(attRcv, pRcv, startBend + dy / (0.5f * geo.plot.getHeight()));
+                break;
             default: break;
         }
         // setProp → slider notifies → sliderValueChanged → repaint().
@@ -1797,47 +1845,72 @@ public:
     {
         switch (draggingHandle)
         {
-            case Handle::Attack:  endG(attA); endG(attAmt); break;
-            case Handle::Sustain: endG(attD); endG(attS);   break;
-            case Handle::Release: endG(attR);               break;
-            default: return;   // segment-click (curve cycle) began no gesture
+            case Handle::Attack:      endG(attA); endG(attAmt); break;
+            case Handle::Sustain:     endG(attD); endG(attS);   break;
+            case Handle::Release:     endG(attR);               break;
+            case Handle::AttackBend:  endG(attAcv);             break;
+            case Handle::DecayBend:   endG(attDcv);             break;
+            case Handle::ReleaseBend: endG(attRcv);             break;
+            default: return;   // a grab on the flat sustain hold began no gesture
         }
         draggingHandle = Handle::None;
         repaint();
     }
 
 private:
-    enum class Handle { None, Attack, Sustain, Release };
+    enum class Handle { None, Attack, Sustain, Release,
+                        AttackBend, DecayBend, ReleaseBend };
 
     struct Geometry
     {
         juce::Rectangle<float> plot;
         juce::Point<float> p0, p1, p2, p3, p4;
+        // One width per timed stage — they differ because the ranges do (attack
+        // and decay span 5 s, release 10 s). See computeGeometry.
         float segWA = 1.0f, segWD = 1.0f, segWR = 1.0f;
     };
 
     bool isBound() const { return pA && pD && pS && pR && pAmt && pAcv && pDcv && pRcv; }
 
-    // Number of envelope curve shapes (Log / SoftLog / Lin / SoftExp / Exp).
-    static constexpr int kNumCurves = 5;
-
     static void beginG(std::unique_ptr<juce::ParameterAttachment>& a) { if (a) a->beginGesture(); }
     static void endG  (std::unique_ptr<juce::ParameterAttachment>& a) { if (a) a->endGesture(); }
 
-    // Current choice index of a curve parameter (denormalized value rounded).
-    static int curveIndex(juce::RangedAudioParameter* p)
+    /** Current bend of a curve parameter, -1 (Log) … 0 (Lin) … +1 (Exp), and one
+     *  unit further on whichever side that stage is allowed to sag. Both limits
+     *  come from the parameter itself, so the attack's asymmetric range and the
+     *  falling stages' mirror of it need no second table here. */
+    static float bendOf(juce::RangedAudioParameter* p)
     {
-        return p ? juce::jlimit(0, kNumCurves - 1,
-                                (int) std::lround(
-                                    p->getNormalisableRange().convertFrom0to1(p->getValue())))
-                 : 2;  // default Lin
+        if (p == nullptr) return 0.0f;   // Lin
+        const auto& r = p->getNormalisableRange();
+        return juce::jlimit(r.start, r.end, r.convertFrom0to1(p->getValue()));
     }
 
-    static void cycleCurve(std::unique_ptr<juce::ParameterAttachment>& att,
+    static void setBendG(std::unique_ptr<juce::ParameterAttachment>& att,
+                         juce::RangedAudioParameter* p, float bend)
+    {
+        if (! att || ! p) return;
+        // Snap to the range's own step, because JUCE does not: neither
+        // NormalisableRange::convertFrom0to1 nor AudioParameterFloat::setValue
+        // calls snapToLegalValue, so a float parameter's `interval` only governs
+        // typed text. Without this the drag lands on arbitrary floats and the
+        // five NAMED shapes stop being reachable with the mouse — one bend unit
+        // is half the plot height, so Lin would be a tenth-of-a-pixel target.
+        // The 0.01 grid contains every anchor exactly, which is what keeps
+        // "put it back on Lin" a thing the hand can do.
+        att->setValueAsPartOfGesture(p->getNormalisableRange().snapToLegalValue(bend));
+    }
+
+    /** That stage's curve back to what it ships as: Lin on attack and decay, Exp
+     *  on release. The click-cycle this drag replaced could always land on a
+     *  named shape; a travel cannot promise that from wherever it starts, so the
+     *  way back is its own gesture (double-click) rather than a lucky pixel. */
+    static void resetBendG(std::unique_ptr<juce::ParameterAttachment>& att,
                            juce::RangedAudioParameter* p)
     {
         if (! att || ! p) return;
-        att->setValueAsCompleteGesture((float) ((curveIndex(p) + 1) % kNumCurves));
+        att->setValueAsCompleteGesture(
+            p->getNormalisableRange().convertFrom0to1(p->getDefaultValue()));
     }
 
     // Write a 0..1 proportion straight to the parameter. prop maps 1:1 onto the
@@ -1926,27 +1999,17 @@ private:
     }
 
     static void appendStage(juce::Path& path, juce::Point<float> a, juce::Point<float> b,
-                            int curveIdx, bool isRelease = false)
+                            float bend, bool isRelease = false)
     {
-        const auto shape = static_cast<CurveShape>(curveIdx);
         constexpr int N = 24;
         for (int i = 1; i <= N; ++i)
         {
             const float t = (float) i / (float) N;
-            float shaped;
-            if (isRelease && (shape == CurveShape::Exp || shape == CurveShape::SoftExp))
-            {
-                // Audio renders Exp/SoftExp release as RC-discharge e^(-t/τ),
-                // τ = relMs/5 (Exp) or relMs/3 (SoftExp); relMs cancels over the
-                // normalized segment, leaving a fixed decay shape per curve. This
-                // keeps the drawn release matching what's heard (ADSREnvelope.cpp).
-                const float k = (shape == CurveShape::Exp) ? 5.0f : 3.0f;
-                shaped = (1.0f - std::exp(-k * t)) / (1.0f - std::exp(-k));
-            }
-            else
-            {
-                shaped = ADSREnvelope::applyCurve(t, shape);
-            }
+            // The audio path's own law, so the drawn envelope IS the heard one —
+            // including the release, whose concave half is an RC discharge that
+            // reaches zero at the set time (ADSREnvelope::applyReleaseCurve).
+            const float shaped = isRelease ? ADSREnvelope::applyReleaseCurve(t, bend)
+                                           : ADSREnvelope::applyCurve(t, bend);
             const float x = a.x + (b.x - a.x) * t;          // x is linear in time
             const float y = a.y + (b.y - a.y) * shaped;     // y follows the shaped curve
             path.lineTo(x, y);
@@ -1964,8 +2027,29 @@ private:
         g.fillEllipse(c.x - rad * 0.45f, c.y - rad * 0.45f, rad * 0.9f, rad * 0.9f);
     }
 
+    /** Bend read-out: the pole it leans towards plus how far, so the five old
+     *  names still read off it (Log 1.00 / Log 0.50 = SLog / Lin / …).
+     *
+     *  "Lin" is decided by the digits that get PRINTED, not by a threshold of its
+     *  own — otherwise a value just outside the threshold still prints 0.00 and
+     *  the read-out contradicts itself. Same law as the parameter's own
+     *  stringFromValue (PluginProcessor::curveBendAttrs), so both agree. */
+    static juce::String bendText(float b)
+    {
+        const auto mag = juce::String(std::abs(b), 2);
+        if (mag == "0.00") return "Lin";
+        return juce::String(b > 0.0f ? "Exp " : "Log ") + mag;
+    }
+
     juce::String dragReadout() const
     {
+        switch (draggingHandle)
+        {
+            case Handle::AttackBend:  return bendText(bendOf(pAcv));
+            case Handle::DecayBend:   return bendText(bendOf(pDcv));
+            case Handle::ReleaseBend: return bendText(bendOf(pRcv));
+            default: break;
+        }
         if (! fmtTimeFn || ! fmtLevelFn) return {};
         switch (draggingHandle)
         {
@@ -1991,6 +2075,7 @@ private:
     juce::Point<float> dragStart;
     float startAprop = 0.0f, startDprop = 0.0f, startSprop = 0.0f, startRprop = 0.0f;
     float startAmtProp = 0.0f;
+    float startBend = 0.0f;      // bend of the grabbed segment at mouseDown
     bool  peakShowAmt = false;   // peak-handle readout: true → show Amt, false → Attack
 
     // Envelope parameters (owned by the processor; outlive this component) plus a

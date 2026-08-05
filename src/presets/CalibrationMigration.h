@@ -130,7 +130,29 @@ namespace Calibration
 //            LFO driving an LFO's Amt) is not migrated. The depth it lands on
 //            is curved live, so the destination is right; the swing an old
 //            stored modulation depth produces around it is not preserved.
-inline constexpr int kEpoch = 8;
+//   Epoch 9: env curve choice → continuous bend (2026-08-05). The 15 per-stage
+//            curve parameters (5 envelopes × A/D/R) were a 5-entry choice, 0=Log
+//            … 4=Exp; they are now a float bend whose five named anchors ARE
+//            those shapes (bend = (index−2)/2), on a range that reaches one unit
+//            past the anchor each stage sags towards: attack [-2,+1], decay and
+//            release [-1,+2]. A stored INDEX has to travel, and unmigrated it
+//            lands somewhere legal rather than somewhere obviously broken —
+//            Lin (2) would read as Exp 2.00 on a release, Log (0) as Lin
+//            everywhere: the worst kind of near-miss. Affine, exact on all five:
+//            ChoiceToValue. Only the surfaces that store the DENORMALISED value
+//            need it — the DAW-session XML and the .t5p snapshot trees below.
+//            NOT the .t5p JSON (it stores the shape by key and maps straight
+//            onto the anchor, so migrateScalar deliberately carries no entry: an
+//            epoch-8 file would otherwise be migrated twice).
+//            NOT host automation lanes or MIDI-learn mappings either — but for
+//            the opposite reason, and this one is a real cost, not a nicety.
+//            They ride the NORMALISED value, which lives in the host, not in our
+//            state, so there is nothing here to migrate; and because the range
+//            widened by a different amount on each side, index/4 no longer
+//            equals the anchor's normalised position. A lane written against the
+//            old 5-way choice therefore lands one shape off. Documented in
+//            docs/devlog.md 2026-08-05 rather than papered over.
+inline constexpr int kEpoch = 9;
 
 struct Rescale
 {
@@ -170,6 +192,16 @@ struct IndexRemap
     const char* id;         // choice parameter ID whose stored index is remapped
     int         minStored;  // stored indices >= this...
     int         toIndex;    // ...become this
+    int         sinceEpoch; // applied when the file's epoch < this
+};
+
+// A parameter that WAS a choice and is now a continuous value over the same span.
+// The stored index travels affinely: value = index·scale + offset.
+struct ChoiceToValue
+{
+    const char* id;         // parameter ID that changed from choice to float
+    float       scale;      // stored index × this...
+    float       offset;     // ...plus this
     int         sinceEpoch; // applied when the file's epoch < this
 };
 
@@ -253,6 +285,27 @@ inline const std::array<IndexRemap, 7>& indexRemaps()
         { PID::lfo2Target, 15, LfoTarget::None, 4 },
         { PID::lfo3Target, 15, LfoTarget::None, 4 },
     } };
+    return table;
+}
+
+// One entry per parameter that stopped being a choice.
+//   Epoch 9: the 15 envelope curve params. Built FROM PID::allEnvs rather than
+//            written out, so a sixth envelope cannot arrive with an unmigrated
+//            curve. bend = index·0.5 − 1.0 → Log(0)=-1 … Lin(2)=0 … Exp(4)=+1.
+inline const std::array<ChoiceToValue, 3 * PID::kNumEnvs>& choiceToValues()
+{
+    static const auto table = []
+    {
+        std::array<ChoiceToValue, 3 * PID::kNumEnvs> t{};
+        for (int i = 0; i < PID::kNumEnvs; ++i)
+        {
+            const auto& e = PID::allEnvs[i];
+            t[static_cast<std::size_t>(3 * i + 0)] = { e.attackCurve,  0.5f, -1.0f, 9 };
+            t[static_cast<std::size_t>(3 * i + 1)] = { e.decayCurve,   0.5f, -1.0f, 9 };
+            t[static_cast<std::size_t>(3 * i + 2)] = { e.releaseCurve, 0.5f, -1.0f, 9 };
+        }
+        return t;
+    }();
     return table;
 }
 
@@ -406,6 +459,30 @@ inline float migrateScalar(const char* id, float value, int fromEpoch)
     return v;
 }
 
+// A raw parameter value stored BY ID, for the surface that keeps no keys and no
+// tree: the .t5evt event log, which records the DENORMALISED value straight off
+// the APVTS listener and plays it back into the parameter it came from. Every
+// unconditional entry migrateScalar applies, PLUS the choice→value remaps that
+// migrateScalar must not carry (the .t5p JSON stores those shapes by key and
+// would migrate twice). Without this, a tape recorded before epoch 9 replays a
+// curve INDEX into the bend axis: a logged 2 (Lin) would arrive as +1 (Exp).
+//
+// DELIBERATE BOUNDARY, and it is older than this function: the target-CONDITIONAL
+// entries are not applied. They need the sibling target's value at that point on
+// the tape, which is its own event, not context available here — so an old tape
+// still replays a filter-targeted env amount at its pre-epoch-2 meaning. That
+// slips a depth; the curve remap above would have swapped a shape family.
+inline float migrateLoggedValue(const juce::String& id, float value, int fromEpoch)
+{
+    if (fromEpoch >= kEpoch)
+        return value;
+    float v = migrateScalar(id.toRawUTF8(), value, fromEpoch);
+    for (const auto& c : choiceToValues())
+        if (fromEpoch < c.sinceEpoch && id == c.id)
+            v = v * c.scale + c.offset;
+    return v;
+}
+
 // Target-conditional variant: rescale only when the file's sibling target value
 // (`targetValue`, already resolved by the caller from the same .t5p record) equals
 // the entry's condValue. Presence-aware like migrateScalar.
@@ -477,6 +554,22 @@ inline void migrateValueTree(juce::ValueTree& tree, int fromEpoch)
             if (child.getProperty("id").toString() == m.id && child.hasProperty("value")
                 && juce::roundToInt(static_cast<double>(child.getProperty("value"))) >= m.minStored)
                 child.setProperty("value", static_cast<float>(m.toIndex), nullptr);
+        }
+    }
+
+    // Choice → continuous: a stored INDEX becomes the value it now names. No
+    // other epoch touches these ids, so this runs order-independently.
+    for (const auto& c : choiceToValues())
+    {
+        if (fromEpoch >= c.sinceEpoch)
+            continue;
+        for (int i = 0; i < tree.getNumChildren(); ++i)
+        {
+            auto child = tree.getChild(i);
+            if (child.getProperty("id").toString() == c.id && child.hasProperty("value"))
+                child.setProperty("value",
+                                  static_cast<float>(child.getProperty("value")) * c.scale + c.offset,
+                                  nullptr);
         }
     }
 

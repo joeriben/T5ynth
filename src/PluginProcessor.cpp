@@ -396,6 +396,7 @@ T5ynthProcessor::T5ynthProcessor()
        #endif
         EventLogHeader header;
         header.t5ynthVersion = eventLogVersion;
+        header.calibEpoch    = Calibration::kEpoch;   // what this tape's values mean
         const auto eventLogDir = juce::File::getSpecialLocation(juce::File::userHomeDirectory)
                                       .getChildFile("Library/T5ynth/eventlogs");
         eventLogWriter_ = std::make_unique<EventLogWriterThread>(eventLogDir, header, std::move(paramIdByIndex));
@@ -1129,6 +1130,20 @@ bool T5ynthProcessor::startReplay(const EventLogReader& reader)
     for (auto& n : state.noteEvents)       n.timestamp = rebase(n.timestamp);
     for (auto& p : state.paramEvents)      p.timestamp = rebase(p.timestamp);
     for (auto& g : state.generationEvents) g.timestamp = rebase(g.timestamp);
+
+    // The tape's param values are DENORMALISED, so a number written under an
+    // older calibration means something else today. Migrated ONCE here rather
+    // than at each apply, so the tape feed on screen shows the same number the
+    // parameter will take. The start-state went through migrateValueTree in
+    // setStateInformation below; without this the tape would start correct and
+    // jump wrong at the first curve event (a logged Lin index of 2 would land on
+    // Exp). A tape with no epoch in its header is epoch 0 — see migrateLoggedValue
+    // for what that does and does not cover.
+    {
+        const int tapeEpoch = reader.getHeader().calibEpoch;
+        for (auto& p : state.paramEvents)
+            p.value = Calibration::migrateLoggedValue(p.paramId, p.value, tapeEpoch);
+    }
     state.totalDurationSamples = rebase(reader.getTotalDurationSamples());
     state.sampleRate = deviceSR;   // the tail check below now lives in the device domain
 
@@ -1799,24 +1814,80 @@ juce::AudioProcessorValueTreeState::ParameterLayout T5ynthProcessor::createParam
             juce::ParameterID{PID::modEnv[i].loop, 1},
             "Mod" + juce::String(i + 1) + " Loop", false));
 
-    // ENV Curve shapes (0=Log, 1=SLog, 2=Lin, 3=SExp, 4=Exp)  —  A/D default Lin(2), R default Exp(4)
-    const juce::StringArray curveChoices = toChoices(EnvCurve::kEntries);
-    params.push_back(std::make_unique<juce::AudioParameterChoice>(
-        juce::ParameterID{PID::ampAttackCurve, 2},  "Amp Attack Curve",  curveChoices, 2));
-    params.push_back(std::make_unique<juce::AudioParameterChoice>(
-        juce::ParameterID{PID::ampDecayCurve, 2},   "Amp Decay Curve",   curveChoices, 2));
-    params.push_back(std::make_unique<juce::AudioParameterChoice>(
-        juce::ParameterID{PID::ampReleaseCurve, 2}, "Amp Release Curve", curveChoices, 4));
+    // ENV Curve — a CONTINUOUS per-stage bend since 2026-08-05, not the five-step
+    // choice it was: -1 Log … -0.5 SLog … 0 Lin … +0.5 SExp … +1 Exp. The five old
+    // shapes are those five VALUES exactly (ADSREnvelope.h), so no stored patch
+    // changes its curve: the .t5p JSON stores the shape by key and maps straight
+    // onto the anchor, and the APVTS XML in a DAW session or a .t5p snapshot
+    // stores the raw index and travels through Calibration epoch 9.
+    //
+    // The range is ASYMMETRIC and differs by stage, because the extra travel BJ
+    // asked for is one-sided (EnvCurve::kBendSag): an attack may go past Log, a
+    // decay and a release past Exp. Consequence, stated because it is the one
+    // thing this cannot carry over: a stored NORMALISED value no longer means
+    // what it did. Nothing of ours reads one — but a DAW automation lane does,
+    // and a lane written against the old 5-way choice now lands one shape off
+    // (0.5 was Lin and is SLog on an attack). Lanes are the host's, not in our
+    // state, so there is nothing to migrate; it is worth one look at any session
+    // that automated an envelope curve.
+    static_assert(EnvCurve::kBendSag == kMaxEnvBend,
+                  "The parameter range and the DSP's bend clamp must agree.");
+    const auto attackBendRange = juce::NormalisableRange<float>(
+        -EnvCurve::kBendSag, EnvCurve::kBendPole, EnvCurve::kBendStep);
+    const auto fallBendRange = juce::NormalisableRange<float>(
+        -EnvCurve::kBendPole, EnvCurve::kBendSag, EnvCurve::kBendStep);
+    // A DAW's automation list showed the shape's NAME while this was a choice.
+    // It still does: the bend reads as the pole it leans to and how far, and the
+    // five old words are accepted back (a typed "SExp" is +0.5, "Exp" is +1).
+    // Without the pair, a host that lets you type would take its own read-out
+    // ("Exp 0.50") apart as the number 0.
+    const auto curveBendAttrs = juce::AudioParameterFloatAttributes()
+        .withStringFromValueFunction([] (float v, int) -> juce::String
+        {
+            // "Lin" is decided by the digits that get PRINTED. A separate
+            // threshold would let a value just outside it still print "0.00",
+            // and a host that types its own read-out back reads that magnitude
+            // as 0, i.e. as the pole — Lin would jump to Exp on a round-trip.
+            const auto mag = juce::String(std::abs(v), 2);
+            if (mag == "0.00") return "Lin";
+            return juce::String(v > 0.0f ? "Exp " : "Log ") + mag;
+        })
+        .withValueFromStringFunction([] (const juce::String& text) -> float
+        {
+            const auto s = text.trim();
+            const float mag = std::abs(s.retainCharacters("0123456789.+-").getFloatValue());
+            const bool hasMag = mag > 0.0f;
+            if (s.startsWithIgnoreCase("slog") || s.startsWithIgnoreCase("softlog"))
+                return hasMag ? -mag : -0.5f;
+            if (s.startsWithIgnoreCase("sexp") || s.startsWithIgnoreCase("softexp"))
+                return hasMag ? mag : 0.5f;
+            if (s.startsWithIgnoreCase("log")) return hasMag ? -mag : -1.0f;
+            if (s.startsWithIgnoreCase("exp")) return hasMag ? mag : 1.0f;
+            if (s.startsWithIgnoreCase("lin")) return 0.0f;
+            return s.getFloatValue();
+        });
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{PID::ampAttackCurve, 2},  "Amp Attack Curve",  attackBendRange,
+        EnvCurve::bendFromIndex(EnvCurve::Lin), curveBendAttrs));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{PID::ampDecayCurve, 2},   "Amp Decay Curve",   fallBendRange,
+        EnvCurve::bendFromIndex(EnvCurve::Lin), curveBendAttrs));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{PID::ampReleaseCurve, 2}, "Amp Release Curve", fallBendRange,
+        EnvCurve::bendFromIndex(EnvCurve::Exp), curveBendAttrs));
     for (int i = 0; i < kNumModEnvs; ++i)
     {
         const auto& id = PID::modEnv[i];
         const juce::String n = "Mod" + juce::String(i + 1) + " ";
-        params.push_back(std::make_unique<juce::AudioParameterChoice>(
-            juce::ParameterID{id.attackCurve, 2},  n + "Attack Curve",  curveChoices, 2));
-        params.push_back(std::make_unique<juce::AudioParameterChoice>(
-            juce::ParameterID{id.decayCurve, 2},   n + "Decay Curve",   curveChoices, 2));
-        params.push_back(std::make_unique<juce::AudioParameterChoice>(
-            juce::ParameterID{id.releaseCurve, 2}, n + "Release Curve", curveChoices, 4));
+        params.push_back(std::make_unique<juce::AudioParameterFloat>(
+            juce::ParameterID{id.attackCurve, 2},  n + "Attack Curve",  attackBendRange,
+            EnvCurve::bendFromIndex(EnvCurve::Lin), curveBendAttrs));
+        params.push_back(std::make_unique<juce::AudioParameterFloat>(
+            juce::ParameterID{id.decayCurve, 2},   n + "Decay Curve",   fallBendRange,
+            EnvCurve::bendFromIndex(EnvCurve::Lin), curveBendAttrs));
+        params.push_back(std::make_unique<juce::AudioParameterFloat>(
+            juce::ParameterID{id.releaseCurve, 2}, n + "Release Curve", fallBendRange,
+            EnvCurve::bendFromIndex(EnvCurve::Exp), curveBendAttrs));
     }
 
     // ENV / LFO target choice lists — the single source of truth lives in
@@ -3617,9 +3688,9 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
     bp.velAmt     = paramCache.velAmt->load();
     bp.ampTarget  = static_cast<int>(paramCache.ampTarget->load());
     bp.ampLoop    = paramCache.ampLoop->load() > 0.5f;
-    bp.ampAttackCurve  = static_cast<int>(paramCache.ampAttackCurve->load());
-    bp.ampDecayCurve   = static_cast<int>(paramCache.ampDecayCurve->load());
-    bp.ampReleaseCurve = static_cast<int>(paramCache.ampReleaseCurve->load());
+    bp.ampAttackBend  = paramCache.ampAttackCurve->load();
+    bp.ampDecayBend   = paramCache.ampDecayCurve->load();
+    bp.ampReleaseBend = paramCache.ampReleaseCurve->load();
     bp.ampAttackVelSens  = paramCache.ampAttackVelSens->load();
     bp.ampDecayVelSens   = paramCache.ampDecayVelSens->load();
     bp.ampReleaseVelSens = paramCache.ampReleaseVelSens->load();
@@ -3635,9 +3706,9 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
         dst.amount  = src.amount->load();
         dst.target  = static_cast<int>(src.target->load());
         dst.loop    = src.loop->load() > 0.5f;
-        dst.attackCurve  = static_cast<int>(src.attackCurve->load());
-        dst.decayCurve   = static_cast<int>(src.decayCurve->load());
-        dst.releaseCurve = static_cast<int>(src.releaseCurve->load());
+        dst.attackBend  = src.attackCurve->load();
+        dst.decayBend   = src.decayCurve->load();
+        dst.releaseBend = src.releaseCurve->load();
         dst.attackVelSens  = src.attackVelSens->load();
         dst.decayVelSens   = src.decayVelSens->load();
         dst.releaseVelSens = src.releaseVelSens->load();
@@ -7144,8 +7215,19 @@ static int driftDivisionFromString(const juce::String& s) {
 }
 static juce::String driftDivisionToString(int i)          { return choiceToKey(i, DriftDivision::kEntries); }
 
-static int curveShapeFromString(const juce::String& s)  { return choiceFromKey(s, EnvCurve::kEntries); }
-static juce::String curveShapeToString(int i)           { return choiceToKey(i, EnvCurve::kEntries); }
+// The env curve is a continuous bend now, but a preset still writes the nearest
+// NAMED anchor as "<stage>Curve" alongside the exact "<stage>Bend": a build older
+// than 2026-08-05 reads only the key and lands on the closest curve it owns
+// instead of choiceFromKey's index-0 fallback (Log). New readers take the bend
+// when it is there — see the reader in importJsonPreset.
+static float curveBendFromString(const juce::String& s)
+{
+    return EnvCurve::bendFromIndex(choiceFromKey(s, EnvCurve::kEntries));
+}
+static juce::String curveBendToString(float bend)
+{
+    return choiceToKey(EnvCurve::nearestIndex(bend), EnvCurve::kEntries);
+}
 static int envVelTimeModeFromString(const juce::String& s) { return choiceFromKey(s, EnvVelTimeMode::kEntries); }
 static juce::String envVelTimeModeToString(int i)          { return choiceToKey(i, EnvVelTimeMode::kEntries); }
 
@@ -7292,6 +7374,20 @@ static juce::String authorShelfName(const char* id, const juce::AudioProcessorPa
     return plain;
 }
 
+// The three per-stage curve parameters of any envelope, asked by id.
+static bool isEnvCurveId(const char* id)
+{
+    for (int e = 0; e < PID::kNumEnvs; ++e)
+    {
+        const auto& ids = PID::allEnvs[e];
+        if (std::strcmp(id, ids.attackCurve) == 0
+            || std::strcmp(id, ids.decayCurve) == 0
+            || std::strcmp(id, ids.releaseCurve) == 0)
+            return true;
+    }
+    return false;
+}
+
 juce::var T5ynthProcessor::buildAuthorParamIndex() const
 {
     juce::Array<juce::var> out;
@@ -7327,6 +7423,34 @@ juce::var T5ynthProcessor::buildAuthorParamIndex() const
             entry->setProperty("min",   r.start);
             entry->setProperty("max",   r.end);
             entry->setProperty("value", prm->convertFrom0to1(prm->getValue()));
+            // A bare number range hides what its sign means, and the env curve
+            // used to hand the author the five words themselves. It is a
+            // continuous bend now, so the words come along as the axis they still
+            // label — as prose for the shelf line AND as a word→value table, so
+            // an author that writes `SET amp_release_curve exp`, which is exactly
+            // what it was shown until today, still lands on the shape it means
+            // instead of being refused as "not a number".
+            if (isEnvCurveId(id))
+            {
+                // The far end differs per stage, so it is read off THIS
+                // parameter rather than written out once: an attack sags towards
+                // Log and travels on that side, a decay and a release towards Exp.
+                const bool sagsToLog = r.start < -EnvCurve::kBendPole;
+                entry->setProperty("scale",
+                    juce::String("-1 Log, -0.5 SLog, 0 Lin, +0.5 SExp, +1 Exp; and on to ")
+                        + (sagsToLog ? "-2, a rise that stays down longer"
+                                     : "+2, a faster fall with a longer quiet tail"));
+                // BOTH spellings of each shape: the prose above names the labels
+                // (SExp), the preset files name the keys (softexp), and an author
+                // that has read either one must land on the same value.
+                auto words = juce::DynamicObject::Ptr(new juce::DynamicObject());
+                for (int c = 0; c < EnvCurve::kCount; ++c)
+                {
+                    words->setProperty(EnvCurve::kEntries[c].key,   EnvCurve::bendFromIndex(c));
+                    words->setProperty(EnvCurve::kEntries[c].label, EnvCurve::bendFromIndex(c));
+                }
+                entry->setProperty("scale_words", juce::var(words.get()));
+            }
         }
         out.add(juce::var(entry.get()));
     }
@@ -7799,9 +7923,12 @@ juce::String T5ynthProcessor::exportJsonPreset() const
         env->setProperty("amount", get(ep.amount));
         env->setProperty("target", envTargetToString(static_cast<int>(get(ep.target))));
         env->setProperty("loop", get(ep.loop) > 0.5f);
-        env->setProperty("attackCurve", curveShapeToString(static_cast<int>(get(ep.attackCurve))));
-        env->setProperty("decayCurve", curveShapeToString(static_cast<int>(get(ep.decayCurve))));
-        env->setProperty("releaseCurve", curveShapeToString(static_cast<int>(get(ep.releaseCurve))));
+        env->setProperty("attackCurve", curveBendToString(get(ep.attackCurve)));
+        env->setProperty("decayCurve", curveBendToString(get(ep.decayCurve)));
+        env->setProperty("releaseCurve", curveBendToString(get(ep.releaseCurve)));
+        env->setProperty("attackBend", get(ep.attackCurve));
+        env->setProperty("decayBend", get(ep.decayCurve));
+        env->setProperty("releaseBend", get(ep.releaseCurve));
         env->setProperty("attackVelSens", get(ep.attackVelSens));
         env->setProperty("decayVelSens", get(ep.decayVelSens));
         env->setProperty("releaseVelSens", get(ep.releaseVelSens));
@@ -8389,15 +8516,21 @@ bool T5ynthProcessor::importJsonPreset(const juce::String& json)
                     setParam(parameters, ep.decayVelSens,   signFromMode(dMode) * legacyVs);
                     setParam(parameters, ep.releaseVelSens, signFromMode(rMode) * legacyVs);
                 }
-                if (env->hasProperty("attackCurve"))
-                    setParam(parameters, ep.attackCurve,
-                             static_cast<float>(curveShapeFromString(env->getProperty("attackCurve").toString())));
-                if (env->hasProperty("decayCurve"))
-                    setParam(parameters, ep.decayCurve,
-                             static_cast<float>(curveShapeFromString(env->getProperty("decayCurve").toString())));
-                if (env->hasProperty("releaseCurve"))
-                    setParam(parameters, ep.releaseCurve,
-                             static_cast<float>(curveShapeFromString(env->getProperty("releaseCurve").toString())));
+                // Exact bend if the file carries one, else the named anchor the
+                // key stands for. A file written before the bend existed only
+                // ever held one of the five anchors, so the key IS the exact
+                // value there — no epoch needed on this surface.
+                auto applyBend = [&](const char* pid, const char* bendKey, const char* curveKey)
+                {
+                    if (env->hasProperty(bendKey))
+                        setParam(parameters, pid, static_cast<float>((double) env->getProperty(bendKey)));
+                    else if (env->hasProperty(curveKey))
+                        setParam(parameters, pid,
+                                 curveBendFromString(env->getProperty(curveKey).toString()));
+                };
+                applyBend(ep.attackCurve,  "attackBend",  "attackCurve");
+                applyBend(ep.decayCurve,   "decayBend",   "decayCurve");
+                applyBend(ep.releaseCurve, "releaseBend", "releaseCurve");
                 setParam(parameters, ep.target, static_cast<float>(envTarget));
             }
         }

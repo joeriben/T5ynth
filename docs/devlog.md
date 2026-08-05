@@ -1,5 +1,69 @@
 # T5ynth Development Log
 
+## 2026-08-05 — The envelope curve became a travel, and the release started meaning its own number
+
+BJ: *"könnten die splines der envs auch kontinuierlich sein? oft treffen sie nicht
+so gut."* Five fixed shapes per stage, and the one you want is rarely among them.
+
+**The axis.** Each of the 15 per-stage curve parameters (5 envelopes × A/D/R) is a
+bend instead of a 5-entry choice, with the old shapes as five named points on it:
+`-1` Log, `-0.5` SLog, `0` Lin, `+0.5` SExp, `+1` Exp. (How far past the named
+ends a stage travels is the next section but one.) Those five points are not
+approximations of the old shapes,
+they ARE them — `tools/audition_env_bend.cpp` asserts bit-identity against a
+frozen transcription of the pre-change code, and the two named anchors on each
+side are returned by the original expressions rather than by the blend, because
+`1 - inv*inv` contracts into an fma and the blend's two-statement form does not
+(one ulp, inaudible, but the claim is either true or it is a hedge). Between the
+anchors, attack and decay interpolate `t → t² → t³ → t⁴ → t⁵` — multiplies only,
+no `pow` on the audio thread.
+
+**What it cost, and it was the release.** Exp and SExp there were never
+progress-based: they were an RC discharge with τ = release/5 resp. release/3
+against a -80 dB cutoff, so a release ran 1.84× resp. **3.07×** the time on the
+fader and stood at -43 dB resp. -26 dB when that time was up. The fader did not
+mean what it said, and the ADSR graph had always drawn the *normalised* curve,
+i.e. the one that ends where the handle is. The release now follows what was
+drawn: the same discharge (through k=3 at SExp and k=5 at Exp, k=0 at Lin, so the
+two halves meet without a step), offset and rescaled to reach
+zero AT the set time. Mid-release the level differs by 0.7 dB (Exp) / 1.75 dB
+(SExp) from before; what disappears is the tail that used to run after the note's
+own release time. Loop mode with a concave release is now a cycle of A+D+Hold+R
+rather than one stretched by that tail. This is the one deliberate change to an
+existing sound, and it is why the release could join the same axis at all.
+
+**One unit past the named end, on one side only.** BJ, same day: the maximum was
+not steep enough *"zumindest für die langsam ansteigende/schnell fallende"* — the
+direction each stage sags towards on screen — while the other one *("ein ewiges
+quasi-sustain und superschneller Absturz")* was already strong enough. So the
+range is asymmetric and differs by stage: an attack travels to −2 (quintic: 3.1 %
+of the way up at half the attack time, against 12.5 % at Log), a decay and a
+release to +2 (quintic resp. RC k = 8.33, where `k(b) = 5·b^log2(5/3)` — a power
+law through the same two anchors as before, chosen over a quadratic because it
+keeps climbing instead of turning back). That last one is what BJ was after: the
+fall has to be over at the release time either way, so a steeper k does not
+shorten the release, it lengthens the *tail* inside it — the share of the release
+below −20 dB goes from 55 % at Exp to 72 % at the new end.
+
+**What that costs, once.** A stored *normalised* value no longer means what it
+did — the poles moved when the range widened. Nothing of ours reads one (the .t5p
+JSON stores the shape by key, the session XML and the .t5p snapshot trees store
+the denormalised value and travel through Calibration epoch 9, and both map onto
+the anchors exactly), but a DAW automation lane does, and a lane written against
+the old 5-way choice now lands one shape off. Lanes live in the host, not in our
+state, so there is nothing to migrate. A preset still writes the nearest named
+key beside the exact bend, so a build older than today reads a preset from a newer
+one and lands on the closest curve it owns instead of `choiceFromKey`'s index-0
+fallback (Log).
+
+**On screen.** The segment body is dragged now, not clicked: the curve bends
+towards the cursor (up on the attack, down on the decay and release) and the
+read-out names the pole and the distance (`Exp 0.62`). And the three timed stages
+stopped sharing one width — attack and decay span 5 s, release 10 s, so equal
+thirds drew the same millisecond at two different x. A stage's width now goes as
+`end^skew` of its own range (release 2^0.3 = 1.23× the others, not 2×), read off
+the parameters so a range change cannot leave the drawing behind.
+
 ## 2026-08-04 — CLAP plug-in format, macOS only
 
 A fourth artefact, `akroasys.clap`, built from the same shared code as the

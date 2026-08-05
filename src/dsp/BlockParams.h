@@ -1534,9 +1534,11 @@ namespace DriftWave {
     static_assert(SawDown + 1 == kCount, "DriftWave out of sync.");
 }
 
-// ── Envelope curve shape (namespace name avoids clash with the global
-//    `enum class CurveShape` in dsp/ADSREnvelope.h, which is the DSP-side
-//    strongly-typed version of this choice list). ──
+// ── Envelope curve shape. Since 2026-08-05 the PARAMETER is a continuous bend
+//    (dsp/ADSREnvelope.h); this table is no longer a choice list but the five
+//    NAMED anchors on that axis, and it survives because saved presets store the
+//    shape by key. bend = (index − 2)/2, so log→-1 … exp→+1; how far a stage
+//    travels PAST those two is kBendSag below. ──
 namespace EnvCurve {
     enum : int { Log = 0, SLog = 1, Lin = 2, SExp = 3, Exp = 4 };
     static constexpr ChoiceEntry kEntries[] = {
@@ -1548,6 +1550,30 @@ namespace EnvCurve {
     };
     static constexpr int kCount = sizeof(kEntries) / sizeof(kEntries[0]);
     static_assert(Exp + 1 == kCount, "EnvCurve out of sync.");
+
+    // The bend axis. The five NAMED shapes end at -1 and +1, and each stage
+    // travels ONE UNIT FURTHER in the direction it sags on screen: the attack
+    // towards Log (a rise that stays down longer and then comes up), the decay
+    // and release towards Exp (a faster initial fall — and, at the same release
+    // time, a longer quiet tail). BJ 2026-08-05: the old maximum was not steep
+    // enough on exactly that side, while the opposite one ("ein ewiges
+    // quasi-sustain und superschneller Absturz") was already strong enough, so
+    // it stops at the pole. |bend| ≤ kBendSag on both laws; see ADSREnvelope.h.
+    static constexpr float kBendPole = 1.0f;   // where the five named shapes sit
+    static constexpr float kBendSag  = 2.0f;   // how far the sagging side goes
+    static constexpr float kBendStep = 0.01f;
+
+    /** Anchor index → bend. Mirrors ::bendFromCurveIndex in dsp/ADSREnvelope.h,
+     *  repeated here so the preset/parameter layer needs no DSP include. */
+    static constexpr float bendFromIndex(int i) { return (static_cast<float>(i) - 2.0f) * 0.5f; }
+
+    /** Nearest named anchor for a bend — for the key a .t5p still writes so an
+     *  older build reading a newer preset lands on the closest curve it has. */
+    inline int nearestIndex(float bend)
+    {
+        const int i = static_cast<int>(std::lround(bend * 2.0f)) + 2;
+        return i < 0 ? 0 : (i > Exp ? Exp : i);
+    }
 }
 
 // ── Envelope velocity→time mode ──
@@ -1995,7 +2021,9 @@ struct ModEnvParams
     float amount = 0.0f;
     float attackVelSens = 0.0f, decayVelSens = 0.0f, releaseVelSens = 0.0f;
     int   target = 0;                                   // EnvTarget::None
-    int   attackCurve = 2, decayCurve = 2, releaseCurve = 4;  // CurveShape indices
+    // Stage bends on the Log … Lin … Exp axis (EnvCurve above), NOT the old 0..4
+    // choice indices. Attack in [-2,+1], decay and release in [-1,+2].
+    float attackBend = 0.0f, decayBend = 0.0f, releaseBend = 1.0f;
     bool  loop = false;
 };
 
@@ -2018,7 +2046,9 @@ struct BlockParams
     // the held level is expressed via Aftertouch, not velocity.
     float ampAttackVelSens = 0.0f, ampDecayVelSens = 0.0f, ampReleaseVelSens = 0.0f;
     int   ampTarget = EnvTarget::DCA;
-    int   ampAttackCurve = 2, ampDecayCurve = 2, ampReleaseCurve = 4; // CurveShape indices
+    // Stage bends on the Log … Lin … Exp axis (EnvCurve above), NOT the old 0..4
+    // choice indices. Attack in [-2,+1], decay and release in [-1,+2].
+    float ampAttackBend = 0.0f, ampDecayBend = 0.0f, ampReleaseBend = 1.0f;
     bool  ampLoop = false;
 
     // Mod envelopes — ENV 2..5 on the panel, `modEnv[0]` is ENV 2. They were

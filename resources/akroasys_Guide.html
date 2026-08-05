@@ -1812,7 +1812,7 @@ off (<code>---</code>) and route anywhere in the list below.
   <tr><td><strong>Decay</strong></td><td>0 – 5000 ms</td><td></td></tr>
   <tr><td><strong>Sustain</strong></td><td>0.0 – 1.0</td><td></td></tr>
   <tr><td><strong>Release</strong></td><td>0 – 10 000 ms</td><td></td></tr>
-  <tr><td><strong>A / D / R Curve</strong></td><td>Log / SLog / Lin / SExp / Exp</td><td>Per-stage slope shape. There is no selector and the current name is not shown: <strong>click the segment body in the ADSR graph</strong> to cycle that stage's curve. Three stages carry one (Attack, Decay, Release) has its own 5-position selector, so an envelope can e.g. be linear on the way up but exponential on release. Minimum ramp 3&nbsp;ms on every stage. Defaults: A = Lin, D = Lin, R = Exp. See the <em>Curve shapes</em> note below the table.</td></tr>
+  <tr><td><strong>A / D / R Curve</strong></td><td>Log &hellip; Lin &hellip; Exp, stepless<br>(one stage-dependent unit further)</td><td>Per-stage slope shape, and there is no selector: <strong>drag the segment body in the ADSR graph</strong> and the curve bends with the cursor &mdash; up on the attack, down on the decay and release, always towards the pointer. Attack, decay and release each carry their own, so an envelope can be linear on the way up and exponential on the way out. The read-out names the pole it leans to and how far (<code>Log&nbsp;0.50</code>, <code>Lin</code>, <code>Exp&nbsp;1.00</code>). Each stage keeps travelling one unit past the named end in the direction it sags: an attack to <code>Log&nbsp;2.00</code>, a decay and a release to <code>Exp&nbsp;2.00</code>. Minimum ramp 3&nbsp;ms on every stage. Defaults: A = Lin, D = Lin, R = Exp. See the <em>Curve shapes</em> note below the table.</td></tr>
   <tr><td><strong>Amount</strong></td><td>0.0 – 1.0</td><td>Envelope ceiling — the maximum level the envelope can reach. Drag the peak handle on the ADSR graph vertically; the whole shape scales proportionally. At 1.0 the envelope reaches full range; at 0.5 it peaks at half regardless of ADSR times.</td></tr>
   <tr><td><strong>A / D / R Vel Sens</strong></td><td>−1.0 – +1.0</td><td>Per-stage velocity sensitivity for <em>timing</em>. Positive: harder hits shorten the stage (snappier attack or decay). Negative: harder hits lengthen it. 0 = fixed timing. Held-phase (pressure) response is handled by the <strong>AT</strong> panel.</td></tr>
   <tr><td><strong>Loop</strong></td><td>on / off</td><td>Runs the envelope as an A&ndash;D&ndash;Hold&ndash;R cycle. In loop mode <strong>Sustain stops being a level</strong> and sets the hold time of each cycle.</td></tr>
@@ -1830,14 +1830,29 @@ affects stage timing, bipolar (−1.0…+1.0).
 </p>
 
 <div class="note">
-  <strong>Curve shapes</strong> (applied to the normalised stage progress <em>t&nbsp;∈&nbsp;[0,&nbsp;1]</em>):
+  <strong>Curve shapes.</strong> One travel per stage, from <em>Log</em> at one end
+  through <em>Lin</em> in the middle to <em>Exp</em> at the other. Five points on it
+  have names, and those five are the shapes akróasys had before they became a travel:
   <ul>
-    <li><strong>Exp</strong> — fast initial change, decelerates (concave, cubic). Classic "snappy" analogue feel.</li>
-    <li><strong>SExp</strong> — mild fast start (concave, quadratic).</li>
-    <li><strong>Lin</strong> — constant rate. Predictable and steady for filter sweeps.</li>
-    <li><strong>SLog</strong> — mild slow start (convex, quadratic).</li>
-    <li><strong>Log</strong> — slow initial change, accelerates (convex, cubic). Good for swells and pad entries.</li>
+    <li><strong>Exp</strong> — reads <code>Exp&nbsp;1.00</code>. Fast initial change, decelerates. Classic "snappy" analogue feel.</li>
+    <li><strong>SExp</strong> — reads <code>Exp&nbsp;0.50</code>. Mild fast start.</li>
+    <li><strong>Lin</strong> — reads <code>Lin</code>. Constant rate. Predictable and steady for filter sweeps.</li>
+    <li><strong>SLog</strong> — reads <code>Log&nbsp;0.50</code>. Mild slow start.</li>
+    <li><strong>Log</strong> — reads <code>Log&nbsp;1.00</code>. Slow initial change, accelerates. Good for swells and pad entries.</li>
   </ul>
+  Everything between them is reachable too, which is the point: a decay that is
+  <em>nearly</em> exponential is a different instrument from one that is exactly so.
+  <br><br>
+  And every stage travels one unit <em>past</em> its named end &mdash; but only in the
+  direction that stage sags. An attack goes on to <code>Log&nbsp;2.00</code>: it stays
+  down even longer and then comes up. A decay and a release go on to
+  <code>Exp&nbsp;2.00</code>: the drop is faster still, and since the fall has to be
+  over at the release time either way, what grows is the quiet tail &mdash; at
+  <code>Exp&nbsp;1.00</code> the last 55&nbsp;% of a release sits under &minus;20&nbsp;dB,
+  at <code>Exp&nbsp;2.00</code> it is 72&nbsp;%. The opposite direction stops at the
+  named end, where it already was: an eternal quasi-sustain followed by a sudden drop
+  is not a thing one usually needs more of. However far you bend it, a release reaches
+  silence at the release time you set.
 </div>
 
 <h3>LFOs</h3>
@@ -2768,8 +2783,8 @@ Top-down view of every stage from text input to stereo output. Each outer box is
 │ Voice Manager  —  Mono to 64 voices, tiered note stealing       │
 │                    │                                            │
 │                    ▼                                            │
-│ Per voice:  5× ADSR   (5 curves: Log/SLog/Lin/                  │
-│                               SExp/Exp, per stage)              │
+│ Per voice:  5× ADSR   (stepless curve Log…Lin…Exp,              │
+│                               per stage)                        │
 │             Filter  (SVF / Ladder / Warp, LP/HP/BP, 6–24 dB/oct)│
 │                    │                                            │
 │                    ▼                                            │

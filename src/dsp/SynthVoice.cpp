@@ -473,9 +473,9 @@ void SynthVoice::configureForBlock(const BlockParams& p)
         ampEnv.setHoldMs(0.0f);
     }
     ampEnv.setLooping(p.ampLoop);
-    ampEnv.setAttackCurve(static_cast<CurveShape>(p.ampAttackCurve));
-    ampEnv.setDecayCurve(static_cast<CurveShape>(p.ampDecayCurve));
-    ampEnv.setReleaseCurve(static_cast<CurveShape>(p.ampReleaseCurve));
+    ampEnv.setAttackBend(p.ampAttackBend);
+    ampEnv.setDecayBend(p.ampDecayBend);
+    ampEnv.setReleaseBend(p.ampReleaseBend);
 
     for (int m = 0; m < kNumModEnvs; ++m)
     {
@@ -499,9 +499,9 @@ void SynthVoice::configureForBlock(const BlockParams& p)
             env.setHoldMs(0.0f);
         }
         env.setLooping(mp.loop);
-        env.setAttackCurve(static_cast<CurveShape>(mp.attackCurve));
-        env.setDecayCurve(static_cast<CurveShape>(mp.decayCurve));
-        env.setReleaseCurve(static_cast<CurveShape>(mp.releaseCurve));
+        env.setAttackBend(mp.attackBend);
+        env.setDecayBend(mp.decayBend);
+        env.setReleaseBend(mp.releaseBend);
     }
 
     applyVelocityTimedEnvelopeTimes();
@@ -535,9 +535,9 @@ bool SynthVoice::modEnvStateMatches(const PreStretchNormState& st, const BlockPa
         const auto& b = p.modEnv[m];
         if (a.target != b.target
             || a.loop != b.loop
-            || a.attackCurve != b.attackCurve
-            || a.decayCurve != b.decayCurve
-            || a.releaseCurve != b.releaseCurve
+            || !nearlyEqual(a.attackBend, b.attackBend)
+            || !nearlyEqual(a.decayBend, b.decayBend)
+            || !nearlyEqual(a.releaseBend, b.releaseBend)
             || !nearlyEqual(a.attack, b.attack)
             || !nearlyEqual(a.decay, b.decay)
             || !nearlyEqual(a.sustain, b.sustain)
@@ -565,9 +565,9 @@ bool SynthVoice::preStretchNormStateMatches(const BlockParams& p) const
         && nearlyEqual(preStretchNormState_.ampAmount, p.ampAmount)
         && preStretchNormState_.ampTarget == p.ampTarget
         && preStretchNormState_.ampLoop == p.ampLoop
-        && preStretchNormState_.ampAttackCurve == p.ampAttackCurve
-        && preStretchNormState_.ampDecayCurve == p.ampDecayCurve
-        && preStretchNormState_.ampReleaseCurve == p.ampReleaseCurve
+        && nearlyEqual(preStretchNormState_.ampAttackBend, p.ampAttackBend)
+        && nearlyEqual(preStretchNormState_.ampDecayBend, p.ampDecayBend)
+        && nearlyEqual(preStretchNormState_.ampReleaseBend, p.ampReleaseBend)
         && nearlyEqual(preStretchNormState_.ampAttackVelSens, p.ampAttackVelSens)
         && nearlyEqual(preStretchNormState_.ampDecayVelSens, p.ampDecayVelSens)
         && nearlyEqual(preStretchNormState_.ampReleaseVelSens, p.ampReleaseVelSens)
@@ -661,9 +661,9 @@ void SynthVoice::updateSamplerPreStretchNorm(const BlockParams& p)
     ampRef.setSustain(p.ampSustain);
     ampRef.setRelease(ampReleaseMs);
     ampRef.setLooping(p.ampLoop);
-    ampRef.setAttackCurve(static_cast<CurveShape>(p.ampAttackCurve));
-    ampRef.setDecayCurve(static_cast<CurveShape>(p.ampDecayCurve));
-    ampRef.setReleaseCurve(static_cast<CurveShape>(p.ampReleaseCurve));
+    ampRef.setAttackBend(p.ampAttackBend);
+    ampRef.setDecayBend(p.ampDecayBend);
+    ampRef.setReleaseBend(p.ampReleaseBend);
 
     for (int m = 0; m < kNumModEnvs; ++m)
     {
@@ -673,9 +673,9 @@ void SynthVoice::updateSamplerPreStretchNorm(const BlockParams& p)
         modRef[m].setSustain(mp.sustain);
         modRef[m].setRelease(modReleaseMs[m]);
         modRef[m].setLooping(mp.loop);
-        modRef[m].setAttackCurve(static_cast<CurveShape>(mp.attackCurve));
-        modRef[m].setDecayCurve(static_cast<CurveShape>(mp.decayCurve));
-        modRef[m].setReleaseCurve(static_cast<CurveShape>(mp.releaseCurve));
+        modRef[m].setAttackBend(mp.attackBend);
+        modRef[m].setDecayBend(mp.decayBend);
+        modRef[m].setReleaseBend(mp.releaseBend);
     }
 
     // Mirror the live envelopes (peak == velPeakScale) so the sampler pre-stretch
@@ -729,9 +729,9 @@ void SynthVoice::updateSamplerPreStretchNorm(const BlockParams& p)
     preStretchNormState_.ampAmount = p.ampAmount;
     preStretchNormState_.ampTarget = p.ampTarget;
     preStretchNormState_.ampLoop = p.ampLoop;
-    preStretchNormState_.ampAttackCurve = p.ampAttackCurve;
-    preStretchNormState_.ampDecayCurve = p.ampDecayCurve;
-    preStretchNormState_.ampReleaseCurve = p.ampReleaseCurve;
+    preStretchNormState_.ampAttackBend = p.ampAttackBend;
+    preStretchNormState_.ampDecayBend = p.ampDecayBend;
+    preStretchNormState_.ampReleaseBend = p.ampReleaseBend;
     preStretchNormState_.ampAttackVelSens = p.ampAttackVelSens;
     preStretchNormState_.ampDecayVelSens = p.ampDecayVelSens;
     preStretchNormState_.ampReleaseVelSens = p.ampReleaseVelSens;
@@ -746,9 +746,9 @@ void SynthVoice::updateSamplerPreStretchNorm(const BlockParams& p)
         st.release        = mp.release;
         st.amount         = mp.amount;
         st.loop           = mp.loop;
-        st.attackCurve    = mp.attackCurve;
-        st.decayCurve     = mp.decayCurve;
-        st.releaseCurve   = mp.releaseCurve;
+        st.attackBend     = mp.attackBend;
+        st.decayBend      = mp.decayBend;
+        st.releaseBend    = mp.releaseBend;
         st.attackVelSens  = mp.attackVelSens;
         st.decayVelSens   = mp.decayVelSens;
         st.releaseVelSens = mp.releaseVelSens;

@@ -31,9 +31,9 @@ int main()
     ADSREnvelope env; env.prepare(sr);
     env.setAttack(50.f); env.setDecay(100.f); env.setSustain(0.5f); env.setRelease(100.f);
     env.setHoldMs(200.f); env.setLooping(true);
-    env.setAttackCurve(CurveShape::Lin);
-    env.setDecayCurve(CurveShape::Lin);
-    env.setReleaseCurve(CurveShape::Lin);
+    env.setAttackBend(bendFromCurveShape(CurveShape::Lin));
+    env.setDecayBend(bendFromCurveShape(CurveShape::Lin));
+    env.setReleaseBend(bendFromCurveShape(CurveShape::Lin));
     env.noteOn(1.0f);
 
     std::vector<float> curve, audio;
@@ -87,7 +87,7 @@ int main()
         ADSREnvelope t; t.prepare(sr);
         t.setAttack(5.f); t.setDecay(20.f); t.setSustain(0.5f); t.setRelease(100.f);
         t.setHoldMs(150.f); t.setLooping(false);
-        t.setAttackCurve(CurveShape::Lin); t.setDecayCurve(CurveShape::Lin); t.setReleaseCurve(CurveShape::Lin);
+        t.setAttackBend(0.0f); t.setDecayBend(0.0f); t.setReleaseBend(0.0f);   // Lin
         t.noteOn(1.0f);
         for (int i = 0; i < (int)(0.2 * sr); ++i) t.processSample();   // settle in Sustain
         t.setLooping(true);                                            // toggle Loop ON mid-note

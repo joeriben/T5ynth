@@ -126,6 +126,9 @@ bool EventLogReader::parseHeader(const juce::var& obj)
     header_.t5ynthVersion = obj.getProperty("t5ynthVersion", "").toString();
     header_.sampleRate    = static_cast<double>(obj.getProperty("sampleRate", 44100.0));
     header_.startStateBase64 = obj.getProperty("startState", "").toString();
+    // Absent on every tape written before v3 — and absent means epoch 0, the
+    // regime before any calibration, exactly as it does for a .t5p or a session.
+    header_.calibEpoch    = static_cast<int>(obj.getProperty("calibEpoch", 0));
     return true;
 }
 

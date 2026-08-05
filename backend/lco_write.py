@@ -642,7 +642,13 @@ def render_params(params):
         now = e.get("value", "")
         if isinstance(now, (int, float)) and not isinstance(now, bool):
             now = f"{float(now):g}"
-        out.append(f"  {pid:<28} {name:<26} {span}   now {now}")
+        # A continuous control may name points on its range (the envelope curves
+        # do: their five old words are five values on the bend). Shown as the
+        # host wrote it, appended, so a number range that carries meaning does
+        # not arrive here as a bare pair of bounds.
+        scale = str(e.get("scale", "")).strip()
+        line = f"  {pid:<28} {name:<26} {span}   now {now}"
+        out.append(f"{line}   ({scale})" if scale else line)
     return "\n".join(out) + "\n"
 
 
@@ -694,6 +700,18 @@ def read_settings(raw, params):
             out.append({"id": pid, "name": entry.get("name", pid), "value": hit,
                         "ok": True, "note": ""})
             continue
+        # A continuous control may still NAME points on its range — the envelope
+        # curves do, because their five old words became five values on the bend
+        # and an author that writes "exp" means the shape, not a failure. Only
+        # the words the host itself put on the entry are accepted, so this can
+        # never invent a value the shelf did not offer.
+        words = entry.get("scale_words") or {}
+        if words:
+            hit = next((v for k, v in words.items() if str(k).lower() == text.lower()), None)
+            if hit is not None:
+                out.append({"id": pid, "name": entry.get("name", pid),
+                            "value": float(hit), "ok": True, "note": ""})
+                continue
         # A bare number and nothing else. A unit, a range, two numbers, a word —
         # all refused rather than squeezed into a number: a guessed value is
         # worse than none, and an in-range guess is worse still because nothing
