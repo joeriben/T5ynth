@@ -293,6 +293,7 @@ inline bool CsoundEngine::isReady() const { return false; }
 inline bool CsoundEngine::performanceHasEnded() const { return false; }
 inline float CsoundEngine::outputTrim() const { return 1.0f; }
 inline void CsoundEngine::setVoiceControls (int, const VoiceControls&) {}
+inline void CsoundEngine::setGlobalControls (const float*) {}
 inline void CsoundEngine::renderUpTo (int) {}
 inline void CsoundEngine::startBlock (int) {}
 inline void CsoundEngine::primeForTakeover (const float*, const float*) {}
