@@ -263,6 +263,32 @@ jobs:
         env:
           T5YNTH_ALLOW_NO_MODELS: "1"
         run: |
+          # The redirect handles outlive the process that exits. PyInstaller's
+          # onedir bootloader spawns a child that inherits them, so $proc can
+          # report HasExited while the log file is still open -- complete, but
+          # locked. Reading it then throws "used by another process", which this
+          # step used to let stand as a backend failure: it failed the
+          # v3.0.0-beta.2 tag run on a commit whose Windows job had passed on
+          # main four minutes earlier. Retry until the handle is released.
+          #
+          # Bytes, not Get-Content -Raw, for stderr too: -Raw decodes with the
+          # console's ANSI code page, so a non-ASCII backend message arrives
+          # here as mojibake and the Contains() checks below read it wrong.
+          #
+          # The leading comma on every return is load-bearing, not a typo: a
+          # function returning an array unrolls it into the output stream, so
+          # the caller would get an Object[] -- and an EMPTY one would arrive as
+          # $null, on which GetString() throws. ,$x wraps it so only the wrapper
+          # unrolls and the byte[] survives typed.
+          function Read-LogBytes([string]$path) {
+            if (-not (Test-Path $path)) { return ,[byte[]]@() }
+            for ($i = 0; $i -lt 40; $i++) {
+              try { return ,[System.IO.File]::ReadAllBytes($path) }
+              catch { Start-Sleep -Milliseconds 250 }
+            }
+            Write-Host "::warning::$path stayed locked for 10s -- reading it as empty"
+            return ,[byte[]]@()
+          }
           $backendExe = (Resolve-Path ".\dist\pipe_inference\pipe_inference.exe").Path
           $stdoutLog = Join-Path $env:RUNNER_TEMP "akroasys_backend_stdout.log"
           $stderrLog = Join-Path $env:RUNNER_TEMP "akroasys_backend_stderr.log"
@@ -273,9 +299,10 @@ jobs:
             -PassThru
           Start-Sleep -Seconds 5
           if ($proc.HasExited) {
-            $stdoutBytes = if (Test-Path $stdoutLog) { [System.IO.File]::ReadAllBytes($stdoutLog) } else { @() }
-            $stderrText = if (Test-Path $stderrLog) { Get-Content $stderrLog -Raw } else { "" }
-            $stdoutText = if ($stdoutBytes.Length -gt 0) { [System.Text.Encoding]::UTF8.GetString($stdoutBytes) } else { "" }
+            $stdoutBytes = Read-LogBytes $stdoutLog
+            $stderrBytes = Read-LogBytes $stderrLog
+            $stdoutText = [System.Text.Encoding]::UTF8.GetString($stdoutBytes)
+            $stderrText = [System.Text.Encoding]::UTF8.GetString($stderrBytes)
             $sentReadyFrame = $stdoutBytes.Length -gt 0 -and $stdoutBytes[0] -eq 2 -and $stdoutText.Contains('"devices"')
             $smokeTestNotice = $stderrText.Contains("smoke-test mode")
             if ($sentReadyFrame -and $smokeTestNotice) {

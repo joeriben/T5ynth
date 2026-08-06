@@ -189,6 +189,7 @@ public:
     bool isMono() const { return voiceLimit == 1; }
 
     SynthVoice& getVoice(int index) { return voices[static_cast<size_t>(index)]; }
+    const SynthVoice& getVoice(int index) const { return voices[static_cast<size_t>(index)]; }
 
 private:
     std::array<SynthVoice, MAX_VOICES> voices;

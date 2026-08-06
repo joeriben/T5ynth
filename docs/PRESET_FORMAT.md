@@ -212,6 +212,113 @@ then patched at `src/presets/PresetFormat.cpp:18-66`:
 | `inferenceCache`| patch (t5p, optional) | Metadata for an optional inference-cache tail; one FLAC blob per entry appears after the primary audio (see 4.4). |
 | `snapshots`     | patch (t5p, optional) | Array of per-slot snapshot state; each entry corresponds to one FLAC blob in the payload tail (see 7). |
 
+### 3.1.1 What an ABSENT key means
+
+A key a file does not carry restores the parameter's **default**, as
+declared in `createParameterLayout()` — not `0`, and not whatever the
+previously loaded preset left the parameter at. A third-party writer may
+therefore omit any key it has nothing to say about, and the result is the
+same as a T5ynth save of a patch sitting at that default.
+
+This matters because the defaults are frequently not zero and frequently
+not the first entry of a choice list: the limiter threshold is −3 dB, the
+filter cutoff 20 kHz, the amplitude envelope's Amt 1.0, the sequencer 120
+BPM over 16 steps, the loop end fraction 1.0, the oscillator octave shift
+index 2 (= 0 octaves, where index 0 is −2), the wavetable frame count
+index 3 (= 256, where index 0 is 32). Until 2026-08-05 the reader took a
+missing key as a literal 0 for about half the parameter set, so files
+written against an older reading of this document loaded quieter, darker
+and slower than they described. Readers written to this section and files
+written by T5ynth itself — which always emits every key — are unaffected.
+
+The exceptions, where an absent key instead **leaves the parameter where
+the previously loaded preset put it**:
+
+- `engine.voiceCount`, `engine.tuning` — polyphony and the tuning table
+  are engine configuration, not a property of the sound.
+- `synth.axesAmount`, `synth.hfBoost`.
+- `modulation.envs[].attackCurve` / `decayCurve` / `releaseCurve`, and
+  the `attackVelSens` / `decayVelSens` / `releaseVelSens` trio when the
+  legacy `velSens` field is absent too.
+- `sequencer.steps[].gate` and the bind fields (`bindMode`, else `bind`,
+  else the ancient `glide`), per step.
+- `engine.wtExtractStart` / `wtExtractEnd` fall back to the loop markers
+  P2/P3 as they ended up after §3.1.3's resolution, not to their own
+  declared 0.0/1.0. Presence of `wtExtractStart` alone decides for the
+  pair.
+
+Two keys are written but never restored, so their value in a file has no
+effect at all:
+
+- `engine.lcoSetsParams` (no longer written either — see §3.2.1).
+- `sequencer.enabled`: loading a preset deliberately does not start or
+  stop the sequencer, so the transport keeps running or staying stopped
+  across the load.
+
+One key is not a default question at all: `filter.enabled: false` forces
+the filter type to Off whatever `filter.type` says. Absent, it does not —
+see §3.1.2.
+
+A whole top-level block that is absent (`freeze`, `filter`, `effects`, …)
+likewise leaves everything in it untouched. Three deliberate exceptions,
+because a routing left over from the previous patch is audible in a way a
+missing scalar is not:
+
+- an LFO or drift **slot** the file does not carry is reset to its
+  defaults, as is a malformed entry in the middle of an otherwise good
+  array;
+- the same for envelopes **2..5**. Envelope 1 is the amplitude envelope
+  and a file missing it is broken, so it is left alone rather than reset;
+- an absent `modulation.aftertouch` clears every pressure routing.
+
+A `.t5seq` sequence pattern is loaded on top of the live patch, so none
+of these resets apply to it.
+
+### 3.1.2 `filter.enabled` and `filter.type`
+
+Two keys, one parameter (`filter_type`, whose Off is index 0). They are
+resolved together:
+
+| `enabled` | `type`  | result                                      |
+| --------- | ------- | ------------------------------------------- |
+| `false`   | any     | Off — the bool wins, which is its whole job |
+| `true`    | present | the named type                              |
+| absent    | present | the named type — an absent bool does not switch a filter the file named off |
+| `true`    | absent  | the layout default type (Lowpass)           |
+| absent    | absent  | the layout default type (Lowpass)           |
+
+T5ynth always writes both, and derives `enabled` from the type, so only
+a foreign or hand-edited file reaches the last three rows.
+
+### 3.1.3 `engine.loopStartFrac` / `loopEndFrac` (P2/P3)
+
+The two loop markers are read as a **pair** and resolved against each
+other, never against the window the sampler still holds from whatever was
+loaded before. A file therefore always loads its own loop window,
+independently of load order:
+
+```
+P2 = clamp(loopStartFrac, 0.0, 0.99)
+P3 = clamp(loopEndFrac,   P2 + 0.01, 1.0)
+```
+
+The minimum width is 1% of the buffer (`SamplePlayer::setLoopRegion`). A
+file naming an end at or below its start (`0.5`/`0.5`, or `0.5`/`0.2`)
+gets `P2 + 0.01`, which is the same answer whenever the file is loaded —
+it is a property of the file, not of the session.
+
+Until 2026-08-05 the markers went in one at a time through setters that
+each clamp against the other's *current* value, so a file whose loop
+began after the previous patch's loop ended was dragged back to
+(previous end − 1%). 10 of the 46 presets in the shipped bank loaded a
+different window depending on which preset preceded them, most of them
+with `pointsLocked: true`, so the auto-bracketing in `loadGeneratedAudio`
+never corrected it. Nothing about that was visible afterwards: the file
+was intact and the sampler had simply not used it.
+
+`engine.startPosFrac` (P1) is independent of both and is only clamped to
+0.0–1.0.
+
 ### 3.2 The `synth` object
 
 Emitted at `src/PluginProcessor.cpp:1760-1774` with the following

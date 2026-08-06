@@ -82,11 +82,22 @@ public:
     /** Advance scan smoothing one frame. Call from a 30 Hz timer. */
     void tickScan();
 
-    /** Get/set loop region fractions (0–1). P2 = loopStart, P3 = loopEnd. */
+    /** Get/set loop region fractions (0–1). P2 = loopStart, P3 = loopEnd.
+     *  setLoopRegion resolves a pair against itself, for the same reason
+     *  SamplePlayer::setLoopRegion exists — mirroring the sampler's window one
+     *  marker at a time makes the brackets depend on the window that was drawn
+     *  before, and a stale bracket is what the next drag then sends back to the
+     *  sampler. Use it for anything that arrives as a pair.
+     *
+     *  The two single-marker setters clamp against the bracket currently drawn.
+     *  Nothing calls them today (mouseDrag writes the members directly, with a
+     *  swap rule instead of a clamp); they are kept as the single-marker half
+     *  of the API. Do not reach for them to apply a pair. */
     float getLoopStart() const { return loopStart; }
     float getLoopEnd() const { return loopEnd; }
     void setLoopStart(float frac);
     void setLoopEnd(float frac);
+    void setLoopRegion(float start, float end);
 
     /** Get/set playback start position (P1). Fraction 0–1. */
     float getStartPos() const { return startPos; }
