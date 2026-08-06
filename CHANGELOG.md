@@ -8,6 +8,18 @@ unbroken.
 
 ### The instrument
 
+- **Every part of a written instrument is a whole instrument, and has its own
+  fader.** An "a > b" transition and an "a through b" pair used to collapse into
+  one part: the second end was written as whatever fed the crossfade, so its
+  parameter lines went missing and only the first end reached a mix channel.
+  Measured on "a vibraphone > a saw wave", the saw end came back as a single
+  oscillator with one dead control where the library entry has five. The
+  contract now asks for every part to be built in full, with every one of its
+  parameter lines, and scales each by its own level — and a control frozen to a
+  constant that nothing reads is handed back to the author like a compiler
+  error, so the collapse cannot pass silently. Pitch stays shared for those two
+  relations; they are one voice, and only the mixing is per part. Instruments
+  written before this sound exactly as they did.
 - **An LRO orchestra no longer stops after 100 hours.** The always-on voices
   were scored for 360 000 s; past that the performance ended and the render path
   kept reading Csound's frozen output — a held note became a standing 64-sample

@@ -222,6 +222,10 @@ into being.
 
 ## What Is New in 3.1.0
 
+- **Every part of a written instrument gets its own controls and its own
+  fader.** Ask for "a vibraphone > a saw wave" and both ends now arrive as full
+  instruments with all their knobs, each on its own level — where the second end
+  used to shrink to a bare oscillator with one control that did nothing.
 - **An LRO instrument keeps playing.** Its voices were scored for 100 hours;
   past that the sound froze into a buzz or into silence until you regenerated.
   They now run for about 63 years, and presets saved before this fix are
