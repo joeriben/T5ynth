@@ -30,7 +30,7 @@ Links:
 - Preset collection: [`joeriben/T5ynth-Presets`](https://github.com/joeriben/T5ynth-Presets)
 - Technical description of the Language-Resonant Oscillator: [`docs/LRO_TECHNICAL_DISCLOSURE.md`](docs/LRO_TECHNICAL_DISCLOSURE.md)
 - Developer documentation index: [`docs/README.md`](docs/README.md) · release history: [`CHANGELOG.md`](CHANGELOG.md)
-- Latest release: [`v3.0.0-beta.2`](https://github.com/joeriben/akroasys/releases/tag/v3.0.0-beta.2) — adds the CLAP plug-in on macOS and declares MPE to the host. [`v3.0.0-beta.1`](https://github.com/joeriben/akroasys/releases/tag/v3.0.0-beta.1) was the first under the new name and the first with the Language-Resonant Oscillator; [`v2.5.3-beta.1`](https://github.com/joeriben/akroasys/releases/tag/v2.5.3-beta.1) is the last one published as **T5ynth**.
+- Latest release: [`v3.1.0-beta.0`](https://github.com/joeriben/akroasys/releases/tag/v3.1.0-beta.0) — the clarinet is a real bore, envelope curves became a continuous travel, and Shift is fine adjustment on every control. [`v3.0.0-beta.1`](https://github.com/joeriben/akroasys/releases/tag/v3.0.0-beta.1) was the first under the new name and the first with the Language-Resonant Oscillator; [`v2.5.3-beta.1`](https://github.com/joeriben/akroasys/releases/tag/v2.5.3-beta.1) is the last one published as **T5ynth**.
 
 Current tagged GitHub Releases publish:
 
@@ -219,6 +219,29 @@ Women and Youth (BMBFSFJ).
 akróasys is dedicated to my dear colleague at the DFKI, musician and AI
 researcher Dr. Stephan Baumann, without whom AI4ArtsEd would not have come
 into being.
+
+## What Is New in 3.1.0
+
+- **A clarinet that is a bore, not an impression of one.** The library entry the
+  LRO reaches for when you ask for a clarinet is now Csound's `wgclar` — a
+  waveguide with a reed, a bore and a bell — where it used to be FM standing in
+  for one. Its controls are named after what they do to the instrument rather
+  than after the numbers behind them.
+- **Envelope curves became a travel.** Each stage's shape used to be a choice of
+  five fixed curves. It is now one continuous control from strongly logarithmic
+  through linear to strongly exponential, and the ADSR display draws what you
+  set. Presets saved with the old five stops load onto the matching positions.
+- **Shift is fine adjustment, everywhere.** Hold Shift while dragging any knob,
+  slider or bracket and it moves at a fraction of the speed. It was previously
+  on some controls and not others.
+- **The LRO plays at the same level as the other engines.** It was 12.4 dB
+  quieter than what it is A/B'd against, so every comparison was decided by
+  loudness before it was decided by sound.
+- **The output gain follows the voice-count switch**, so moving between Mono and
+  16 voices no longer steps the level mid-note.
+- **MPE**: the zone layout is now JUCE's own, and a controller's NRPN messages
+  can no longer be mistaken for a zone declaration or a bend range.
+- **The in-app manual** describes the instrument as it is, without arguing for it.
 
 ## What Is New in 3.0.0
 
@@ -459,7 +482,7 @@ If you use akróasys in academic work, cite it from
 sidebar and which tools read directly:
 
 ```text
-Jörissen, B. (2026). akróasys (Version 3.0.0) [Computer software].
+Jörissen, B. (2026). akróasys (Version 3.1.0) [Computer software].
 UNESCO Chair in Digital Culture and Arts in Education (UCDCAE),
 Friedrich-Alexander-Universität Erlangen-Nürnberg.
 https://github.com/joeriben/akroasys

@@ -4,7 +4,54 @@ The project was released as **T5ynth** through v2.5.3. From 3.0.0 it is
 **akróasys**; the repository, the preset format and the version line continue
 unbroken.
 
-## Unreleased — 3.0.0
+## Unreleased — 3.1.0
+
+### The instrument
+
+- **The clarinet is a clarinet bore.** The library entry the LRO reaches for on
+  a clarinet prompt is Csound's `wgclar` — reed, bore and bell — where it was FM
+  standing in for one. Its first control is named for the blowing pressure it
+  sets, not for the model's own argument, and the blown bottle's is corrected
+  the same way. `wgclar`'s measured facts were re-read at the rate the plugin
+  actually runs (4× oversampled), because the figures on record had been taken
+  at 44100, which the oscillator never renders at.
+- **Envelope curves became a continuous travel.** Each stage's shape was a
+  five-entry choice (Log … Exp); it is now one bend control that passes through
+  those five as named anchors and reaches beyond them on the release. Presets
+  and event-log tapes written before this migrate to the matching anchor
+  (`CalibrationMigration.h`, epoch 9). The ADSR display's three stages stopped
+  sharing one width, so it draws what is set.
+- **Shift is fine adjustment on every control that is dragged** — knobs,
+  sliders, and the waveform brackets. It used to be on some and not others.
+- **The LRO is at the level of the engines it is A/B'd against.** It was 12.4 dB
+  quieter, so every comparison was decided by loudness before it was decided by
+  sound.
+- **The output gain follows the voice-count switch** instead of stepping
+  mid-note; Mono to 16 voices is 15.7 dB.
+- **MPE:** the zone layout is `juce::MPEZoneLayout`'s now, and an NRPN can no
+  longer declare a zone or have its data byte read as a bend range. A parity
+  suite freezes what the hand-written path could do.
+- **The in-app manual** describes the instrument instead of defending it, says
+  what the player sees rather than what the code does, and the Re-Prompt section
+  says that its ear hears the bare oscillator, not the speakers.
+
+### Under the hood
+
+- **The 27 STK opcodes are available to Csound bodies on macOS.** `libstkops`
+  was in the payload all along and declined to register because STK's data files
+  had no `RAWWAVE_PATH` to be found through; the 41 `.raw` files now ship as
+  `Contents/libs/rawwaves/` and both the plugin and the backend point the
+  variable at them. The bundler and the verifier keep module and data together,
+  because a file STK asks for and cannot find aborts the host process. No
+  library entry uses one yet. What they are:
+  [`docs/STK_OPCODES.html`](docs/STK_OPCODES.html).
+- The LRO measurement tools now measure the Csound the app ships rather than
+  whichever one the machine happens to have installed.
+- The Windows backend smoke-test in CI no longer reads a still-locked log file
+  as a backend that failed to start — the failure that broke the v3.0.0-beta.2
+  tag run on a commit that had passed on `main` four minutes earlier.
+
+## 3.0.0 — shipped as v3.0.0-beta.0 … v3.0.0-beta.2
 
 Two things make this a major version: the instrument is renamed, and it gains a
 second oscillator built on a different principle from the first.

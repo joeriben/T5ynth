@@ -16,6 +16,7 @@ source. Read these in order:
 - [`LCO_CONCEPT.md`](LCO_CONCEPT.md) — **Authoritative** for the goal, the architecture and the platform invariants every instrument must obey. (Files carry the older `LCO` name; the oscillator is the LRO.)
 - [`plans/HANDOVER_LCO.md`](plans/HANDOVER_LCO.md) — The implementation as it actually runs today, the measured facts, and what is open.
 - [`CSOUND_INTEGRATION.md`](CSOUND_INTEGRATION.md) — How Csound ships inside the app on macOS and Windows, and what proves a build carries a working one.
+- [`STK_OPCODES.html`](STK_OPCODES.html) — The 27 Synthesis ToolKit opcodes, macOS only: method, what each does with bare arguments, every control, and the `reinit` their i-rate frequency forces on a host that starts each voice once. Open it in a browser.
 - [`LCO_CODE_PROVENANCE.md`](LCO_CODE_PROVENANCE.md) — **The licence record per Csound source.** Read before taking instrument code from anywhere.
 - [`LCO_CSOUND_SOURCES_AND_LICENCES.md`](LCO_CSOUND_SOURCES_AND_LICENCES.md) — The authoring practice that follows from that record ("take physics, not code").
 - [`LCO_TIMBRE_SEMANTICS.md`](LCO_TIMBRE_SEMANTICS.md) — The source record for the library's other half, the sound-character words.

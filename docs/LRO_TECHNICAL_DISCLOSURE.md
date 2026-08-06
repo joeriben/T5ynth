@@ -278,7 +278,7 @@ These exist so the date does not rest on the repository alone.
 | Archive | Identifier | Status |
 |---|---|---|
 | Software Heritage (source) | `swh:1:snp:79f24a3fbb9ff8f43cefd2942d0d5081a4304cba` | archived 2026-08-01, visit status *full* |
-| Zenodo (DOI, via the GitHub–Zenodo integration on a tagged release) | — | to be issued with v3.0.0 |
+| Zenodo (DOI, via the GitHub–Zenodo integration on a tagged release) | — | to be issued with v3.1.0 |
 
 Software Heritage holds the full history, not only the head, so **every commit in
 the table above is independently addressable and resolvable there** in the form
