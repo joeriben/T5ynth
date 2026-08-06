@@ -483,10 +483,10 @@ HARD RULES
     (1) writing `asig` twice (`asig = <a>` … later `asig = <b>`): the second assignment ERASES the first, so only b is heard and everything above it is dead code. This is the most common mistake — a and b MUST meet in one crossfade line, not overwrite each other.
     (2) a static layer (`asig = <a> * kvol1 + <b> * kvol2`): that is a and b at once, forever — a LAYER, not a transition.
     (3) a bad `linseg` for the position (`linseg 0, 1, knote` passes a k-variable where linseg needs i-time CONSTANTS). Prefer `kmorph = min(knote / T, 1)`; if you must use linseg every argument is a constant — `kmorph linseg 0, 2, 1`.
-  AN END OF A MORPH IS A WHOLE INSTRUMENT, NOT A ONE-LINER. Each end keeps every line it needs — including its own moving controls. NEVER freeze a k-rate control to a constant to make an end fit on one line: that silently deletes the very thing the user named. If the user asks for "sine > pulse width modulation" (or "sine > pwm"), b IS pulse-width MODULATION — its duty must go on sweeping after the morph arrives, so b keeps its LFO (`klfo oscili 0.5, 0.5`, `kpw = 0.5 + 0.6 * klfo`, `apw vco2 0.6, kfreq * koct1, 2, kpw`) and you write `asigb = apw - 0.6 * (2 * kpw - 1)`. Writing `vco2 …, 2, 0.5` there is a STATIC pulse wave — a different instrument from the one that was asked for, and the DC-correction line then reads `- 0.6 * (2 * 0.5 - 1)`, which is zero: dead code that proves the modulation was dropped. The same holds for every moving instrument used as an end — a bowed string still breathes, an organ still drifts, a filter sweep still sweeps.
+  AN END OF A MORPH IS A WHOLE INSTRUMENT, NOT A ONE-LINER. Each end keeps every line it needs — including its own moving controls AND every library parameter line it came with, which is what the player turns while that end is sounding. That an end feeds a crossfade takes nothing away from it: a saxophone used as one end is still blown. NEVER freeze a k-rate control to a constant to make an end fit on one line: that silently deletes the very thing the user named. If the user asks for "sine > pulse width modulation" (or "sine > pwm"), b IS pulse-width MODULATION — its duty must go on sweeping after the morph arrives, so b keeps its LFO (`klfo oscili 0.5, 0.5`, `kpw = 0.5 + 0.6 * klfo`, `apw vco2 0.6, kfreq * koct1, 2, kpw`) and you write `asigb = apw - 0.6 * (2 * kpw - 1)`. Writing `vco2 …, 2, 0.5` there is a STATIC pulse wave — a different instrument from the one that was asked for, and the DC-correction line then reads `- 0.6 * (2 * 0.5 - 1)`, which is zero: dead code that proves the modulation was dropped. The same holds for every moving instrument used as an end — a bowed string still breathes, an organ still drifts, a filter sweep still sweeps.
   A REPEATING morph (a loop of a>b) drives kmorph from a free-running `oscili` instead of `min(knote…)`, so it sweeps back and forth forever.
 - "a + b" means two layers sounding at once — the static mix of (2), correct ONLY when the user asked to layer, never as a substitute for a transition. You may layer up to THREE oscillators this way.
-- "a through b" (equivalently "a driven by b", "a modulated by b", "b opening a", "a ring modulated by b", "a shaped by b") is the THIRD relation and it is neither of the two above: one sound ACTS ON the other instead of sounding beside it. Build both in full with their own variables, exactly as in a transition — but b is not ADDED to a, it goes IN as an ARGUMENT of a. The coupled pair is ONE voice and shares `kfreq * koct1`, and each side is on its own mix knob.
+- "a through b" (equivalently "a driven by b", "a modulated by b", "b opening a", "a ring modulated by b", "a shaped by b") is the THIRD relation and it is neither of the two above: one sound ACTS ON the other instead of sounding beside it. Build both in full with their own variables and their own parameter lines, exactly as in a transition — being the argument of another instrument is not a demotion either — but b is not ADDED to a, it goes IN as an ARGUMENT of a. The coupled pair is ONE voice and shares `kfreq * koct1`, and each side is on its own mix knob.
     <a's OWN lines>                        ; a, built in full
     asiga   = <a's output> * kvol1
     <b's OWN lines>                        ; b, built in full
@@ -551,8 +551,8 @@ EVERY SUCH LINE YOU KEEP IN YOUR BODY BECOMES A SLIDER under the player's hands.
 - THE BRACKET IS NOT YOURS. `[lo..hi]` is the travel the player's slider is wired to, and it is the library's measurement of what that axis can take. Widen it, narrow it, or write a different one and the line is no longer that parameter: it stays in your code and works exactly as you wrote it, but it gives no knob.
 - KEEP IT WHERE THE LIBRARY PUT IT: at the TOP, ABOVE every line that reads the variable. Csound runs your body from the first line to the last, and a variable used before the line that sets it does not compile — `Variable 'kwidth' used before defined`. Collecting these lines at the end of the body, as if they were a declaration block, is the one way to lose a whole orchestra to this.
 - THE NUMBER IS YOURS, and it is the only part that is. It is where the knob STARTS, so write the value this sound wants; the player hears that first and moves away from it. Use the range in the brackets and stay inside it.
-- KEEP WHAT IS WORTH PLAYING for the sound you are writing, and let the rest go: a parameter you have no use for can be folded into your code as a plain number with no comment. Three per body is a good instrument; twelve is a wall.
-- The player sees COLUMNS, one per library entry you took a line from, in the order they appear in your body. At most three columns of four knobs. Anything past that is dropped.
+- KEEP EVERY PARAMETER LINE OF EVERY PART YOU BUILD, and build every part in full so that those lines have something to act on. A part does not become less of an instrument because it is layered under another, crossfaded into, or used as an argument: the player gets its controls whatever the relation joins them, and dropping them is not editing, it is handing over an instrument that cannot be played. If a parameter needs a second generator or its own moving lines to mean anything — `analog_osc`'s `wave` crosses between a ramp and a pulse, its `age` is three drift lines — then you write those too, or you have not built that part. Measured on "a vibraphone > a saw wave": the saw end came out as one `vco2` with `kwave0 = 0.00` standing above it, read by nothing, and the player was handed a saw with one slider where the entry has five.
+- The player sees COLUMNS, one per library entry you took a line from, in the order they appear in your body. At most three columns of four knobs. What is past that limit the host drops in the library's own order — that ceiling is the host's and is not yours to anticipate by leaving lines out.
 - A LINE YOU KEEP MUST CHANGE THE SOUND. Keeping it is a promise to the player that this control does what the library says it does, so the variable has to reach the synthesis and move it. Two ways of breaking that promise have shipped: keeping `kstrings` and then never mentioning it again, and writing `aout = a * kwave + a * (1 - kwave)`, which is `a` at every setting — a crossfade between one signal and itself, written for a second generator that was never built. If you have no use for the parameter, fold it into your code as a plain number with no comment; a knob that cannot be felt is worse than one that is not there.
 - INVENTING ONE GIVES THE PLAYER NOTHING. A line whose name the library does not declare for that body is not a knob — the names, the ranges and the words under them are the library's.
 - Do not go looking for a knob for level, octave, pitch, attack, decay or filter cutoff. The synth already has those.
@@ -832,6 +832,62 @@ def _param_lines(code):
             if not any(a <= m.start() < b for a, b in blocks)]
 
 
+def _code_lines(code):
+    """A body's lines with every comment blanked — what the body actually RUNS.
+
+    In THIS order, because a `;` comment is the outer one: a body that writes
+    `; the split follows Table I /* see the entry` has no block comment in it at
+    all, and blanking `/*…*/` first swallowed the real code that followed. A `;`
+    inside a string is not a comment either. Line COUNT and line NUMBERS are
+    preserved, so an index into this list is an index into the body."""
+    def uncomment(line):
+        q = False
+        for i, ch in enumerate(line):
+            if ch == '"':
+                q = not q
+            elif ch == ";" and not q:
+                return line[:i]
+        return line
+
+    lines = [uncomment(l) for l in (code or "").split("\n")]
+    return re.sub(r"/\*.*?\*/", lambda m: re.sub(r"[^\n]", " ", m.group(0)),
+                  "\n".join(lines), flags=re.S).split("\n")
+
+
+# `kwave0 = 0.00`, standing above a `vco2` that was written for one waveform and
+# read by nothing. That line is not a leftover: it is the FINGERPRINT of a
+# control the author froze to a constant, and it is the exact shape the contract
+# forbids ("NEVER freeze a k-rate control to a constant"). Nothing looked for it,
+# so a part could arrive stripped of the very axis the user named and the panel
+# would report the stripping as "the author took nothing".
+_FROZEN = re.compile(r"^\s*(k\w+)\s*=\s*[-+]?[0-9]*[.,]?[0-9]+\s*$")
+
+
+def frozen_controls(body):
+    """The `k` variables set to a bare number that nothing in the body reads.
+
+    Dead code in every case, and one specific kind of it: a part that was
+    reduced until one of its controls had nothing left to act on. A variable
+    that is genuinely a constant of the synthesis is READ — by the line it
+    feeds — so this cannot fire on one; a name that appears only in a comment
+    does not count as read, which is the whole reason comments come off first.
+
+    Names, in body order, and the caller decides what a name is worth: this is
+    reported to the AUTHOR as something to repair, never used to withhold a
+    sound that plays (see `build_csound_response`)."""
+    bare = _code_lines(body)
+    out = []
+    for n, line in enumerate(bare):
+        m = _FROZEN.match(line)
+        if m is None:
+            continue
+        var = m.group(1)
+        pat = re.compile(rf"\b{re.escape(var)}\b")
+        if not any(pat.search(l) for i, l in enumerate(bare) if i != n):
+            out.append(var)
+    return out
+
+
 def read_controls(body, skip=None):
     """The library parameters that survived into the body — the player's knobs.
 
@@ -888,22 +944,8 @@ def read_controls(body, skip=None):
     # zero times, and the panel showed a Strings slider under the player's hand.
     #
     # A use that stands only in a comment does not count, so comments come off
-    # first — and in THIS order, because a `;` comment is the outer one: a body
-    # that writes `; the split follows Table I /* see the entry` has no block
-    # comment in it at all, and blanking `/*…*/` first swallowed the real code
-    # that followed. A `;` inside a string is not a comment either.
-    def uncomment(line):
-        q = False
-        for i, ch in enumerate(line):
-            if ch == '"':
-                q = not q
-            elif ch == ";" and not q:
-                return line[:i]
-        return line
-
-    bare = [uncomment(l) for l in code.split("\n")]
-    bare = re.sub(r"/\*.*?\*/", lambda m: re.sub(r"[^\n]", " ", m.group(0)),
-                  "\n".join(bare), flags=re.S).split("\n")
+    # first (`_code_lines`).
+    bare = _code_lines(code)
 
     # `split("\n")`, not `splitlines()`, and the same split on both sides of this
     # index: `splitlines()` also breaks on \x0c, \x85, U+2028 and four more, so a
@@ -3386,6 +3428,63 @@ def build_csound_response(text, llm, correction="", previous="",
     prev_raw = ""          # the author's own last reply, quoted back to it
     last_raw = None        # the one before that — a repeat means the loop is stuck
     tried = 0              # what actually ran, which the early stop makes < MAX_TRIES
+    # An orchestra that COMPILES AND PLAYS but hands the player a stripped part
+    # (`frozen_controls`). It goes back for repair like any other error, and this
+    # holds it so the sound cannot be lost to a verdict about the panel — the
+    # same order of precedence `gate_knobs` already keeps.
+    spare = None
+
+    def _respond(orchestra, controls, body, reading, raw, attempt, thinking,
+                 extra_refused=()):
+        """The success payload the C++ side parses. One place, because the spare
+        above returns through here too and the two must not drift apart."""
+        if extra_refused:
+            controls = dict(controls)
+            controls["refused"] = list(controls.get("refused", ())) + list(extra_refused)
+        return {"ok": True, "orchestra": orchestra,
+                "reading": reading or _fallback_reading(body),
+                # What the author asked the SYNTH to set, checked against the
+                # shelf that was sent with the request. Empty list when the
+                # player did not allow it (no shelf was sent, so the author was
+                # never told the controls exist) or when it wanted nothing out
+                # there.
+                "settings": read_settings(raw, synth_params),
+                # The knobs THIS body gives the player: `parts` are the columns
+                # — one per library entry it drew a parameter line from —
+                # `params` the sliders, `refused` every line that was not the
+                # library's to give. The panel shows exactly this and invents
+                # nothing (§1 of docs/plans/PLAN_lro_param_panel.md).
+                "controls": controls,
+                # The panel's transparency surface. Under the write-path the
+                # honest answer to "what did the machine build?" is the code the
+                # model actually wrote -- not a list of keys it picked, because
+                # it picks none. UNWIRED, which is also the shape a person can
+                # edit: each knob stands in it as the library's own line, a
+                # number with its name and range beside it, and `compile_body`
+                # reads the knobs back out of exactly this text. The `kp` wiring
+                # is the host's and belongs to the orchestra, not the authorship.
+                "params_text": body,
+                # The author's own reasoning, verbatim: the plain-language
+                # paragraph HOW TO ANSWER asks for BEFORE the fence -- what it
+                # decided this sound is, what excites and resonates in it, what
+                # moves. It was being discarded here, which made the one place
+                # the machine says WHY this code invisible. Nothing downstream
+                # reads it; it never touches the body, the reading or the
+                # compile. From the SUCCESSFUL attempt, so it explains the
+                # orchestra that is actually running.
+                "thinking": thinking,
+                # The rest of the authoring trace, so the panel can show HOW this
+                # orchestra came about and not only WHAT came out. Every field is
+                # a record of what actually happened; nothing is composed on the
+                # author's behalf (BJ 2026-07-24: "nur was ohnehin passiert ist").
+                "consultation": sel["consultation"],
+                # The compiler errors this body had to be repaired past, in
+                # first-seen order; empty when it compiled on the first try.
+                # Shown, not hidden: an orchestra that took four rounds to stand
+                # up is a different fact about the machine than one that landed
+                # immediately, and only the panel can say so.
+                "repairs": list(seen_errors),
+                "attempts": attempt}
     # The reasoning is written ONCE — in the consultation, which is the turn
     # that is nothing but reasoning — and stays the answer. The writing turn is
     # explicitly asked not to reason again, so without this seed the panel's
@@ -3451,57 +3550,32 @@ def build_csound_response(text, llm, correction="", previous="",
             # failure the repair loop can neither see nor answer.
             ok, err = perform_check(orchestra)
         if ok:
+            # …and is every part still an instrument? A control frozen to a
+            # constant leaves its variable standing with nothing reading it, and
+            # that is a PART stripped of an axis the user named — measured on
+            # "a vibraphone > a saw wave", where the saw end arrived as a single
+            # `vco2` under a dead `kwave0` and the panel showed one slider where
+            # the entry has five. It goes back to the author like a compiler
+            # error, because it is one the compiler cannot see. It never costs
+            # the SOUND: `spare` keeps this orchestra, and if the rounds run out
+            # it is what comes back, with the finding beside its knobs.
+            frozen = frozen_controls(body)
+            if frozen:
+                if spare is None:
+                    spare = (orchestra, controls, body, reading, raw, attempt)
+                ok = False
+                err = ("dead code: " + ", ".join(frozen) + " — set to a constant "
+                       "and read by nothing. A control frozen to a number is a "
+                       "part stripped of an axis; build that part in full and "
+                       "let its own parameter lines drive it")
+        if ok:
             # …and does every knob it hands the player do anything? The last
             # gate, because it is the only one that costs a render per knob, and
             # the only one whose verdict is about the PANEL rather than about
             # whether the orchestra stands up (`gate_knobs`).
             orchestra, controls = gate_knobs(body, orchestra, controls)
-            return {"ok": True, "orchestra": orchestra,
-                    "reading": reading or _fallback_reading(body),
-                    # What the author asked the SYNTH to set, checked against
-                    # the shelf that was sent with the request. Empty list when
-                    # the player did not allow it (no shelf was sent, so the
-                    # author was never told the controls exist) or when the
-                    # author wanted nothing out there.
-                    "settings": read_settings(raw, synth_params),
-                    # The knobs THIS body gives the player: `parts` are the
-                    # columns — one per library entry it drew a parameter line
-                    # from — `params` the sliders, `refused` every line that was
-                    # not the library's to give. The panel shows exactly this and
-                    # invents nothing (§1 of docs/plans/PLAN_lro_param_panel.md).
-                    "controls": controls,
-                    # The panel's transparency surface. Under the write-path the
-                    # honest answer to "what did the machine build?" is the code
-                    # the model actually wrote -- not a list of keys it picked,
-                    # because it picks none. UNWIRED, which is also the shape a
-                    # person can edit: each knob stands in it as the library's
-                    # own line, a number with its name and range beside it, and
-                    # `compile_body` reads the knobs back out of exactly this
-                    # text. The `kp` wiring is the host's and belongs to the
-                    # orchestra, not to the authorship.
-                    "params_text": body,
-                    # The author's own reasoning, verbatim: the plain-language
-                    # paragraph HOW TO ANSWER asks for BEFORE the fence -- what
-                    # it decided this sound is, what excites and resonates in it,
-                    # what moves. It was being discarded here, which made the one
-                    # place the machine says WHY this code invisible. Nothing
-                    # downstream reads it; it never touches the body, the reading
-                    # or the compile. From the SUCCESSFUL attempt, so it explains
-                    # the orchestra that is actually running.
-                    "thinking": first_thinking or thinking,
-                    # The rest of the authoring trace, so the panel can show HOW
-                    # this orchestra came about and not only WHAT came out. Every
-                    # field is a record of what actually happened; nothing is
-                    # composed on the author's behalf (BJ 2026-07-24: "nur was
-                    # ohnehin passiert ist").
-                    "consultation": sel["consultation"],
-                    # The compiler errors this body had to be repaired past, in
-                    # first-seen order; empty when it compiled on the first try.
-                    # Shown, not hidden: an orchestra that took four rounds to
-                    # stand up is a different fact about the machine than one
-                    # that landed immediately, and only the panel can say so.
-                    "repairs": list(seen_errors),
-                    "attempts": attempt}
+            return _respond(orchestra, controls, body, reading, raw, attempt,
+                            first_thinking or thinking)
         attempts.append(err)
         n_before = len(seen_errors)
         if err not in seen_errors:
@@ -3519,6 +3593,20 @@ def build_csound_response(text, llm, correction="", previous="",
             break
         last_raw = raw
         turn = _continue(base, prev_raw, seen_errors)
+
+    # The rounds ran out, and one of them left an orchestra that compiles and
+    # plays and is only guilty of a stripped part. That sound wins over the
+    # verdict: the player gets the instrument, and what was measured travels with
+    # it in `refused`, where the panel already shows what a knob did not become.
+    if spare is not None:
+        orchestra, controls, body, reading, raw, attempt = spare
+        orchestra, controls = gate_knobs(body, orchestra, controls)
+        return _respond(orchestra, controls, body, reading, raw, attempt,
+                        first_thinking,
+                        [f"{n} — frozen to a constant and read by nothing; the "
+                         f"part it belongs to was not built in full, and "
+                         f"{MAX_TRIES} rounds did not get it back"
+                         for n in frozen_controls(body)])
 
     # Report every DISTINCT error, not just the last one. The two cases look the
     # same from outside and need opposite responses: six times the same complaint
