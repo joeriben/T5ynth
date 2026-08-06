@@ -1,0 +1,425 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>The 27 STK opcodes — akróasys</title>
+<style>
+  :root { --bg:#fbfaf8; --fg:#1c1a17; --dim:#6f6862; --line:#e2ddd6; --accent:#7a4a1e;
+           --card:#fff; --code:#f2efea; --stands:#1f6b3a; --decays:#8a5a1e; --silent:#8a2f2f; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#141312; --fg:#e9e5df; --dim:#9d968e; --line:#2f2c28; --accent:#d9a066;
+             --card:#1c1b19; --code:#26241f; --stands:#6fc08d; --decays:#d9a066; --silent:#e08585; } }
+  :root[data-theme="dark"] { --bg:#141312; --fg:#e9e5df; --dim:#9d968e; --line:#2f2c28;
+           --accent:#d9a066; --card:#1c1b19; --code:#26241f; --stands:#6fc08d;
+           --decays:#d9a066; --silent:#e08585; }
+  :root[data-theme="light"] { --bg:#fbfaf8; --fg:#1c1a17; --dim:#6f6862; --line:#e2ddd6;
+           --accent:#7a4a1e; --card:#fff; --code:#f2efea; --stands:#1f6b3a;
+           --decays:#8a5a1e; --silent:#8a2f2f; }
+  body { background:var(--bg); color:var(--fg); margin:0; padding:2.5rem 1.25rem 5rem;
+          font:16px/1.62 ui-serif,Georgia,"Times New Roman",serif; -webkit-text-size-adjust:100%; }
+  main { max-width:64rem; margin:0 auto; }
+  h1 { font-size:2rem; margin:0 0 .35rem; letter-spacing:-.015em; font-weight:600; }
+  h2 { font-size:.82rem; margin:3rem 0 .5rem; padding-bottom:.4rem; font-weight:600;
+        border-bottom:1px solid var(--line); letter-spacing:.09em; text-transform:uppercase;
+        font-family:ui-sans-serif,system-ui,sans-serif; color:var(--accent); }
+  h3 { font-size:.98rem; margin:0; font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
+        font-weight:600; overflow:hidden; }
+  .lede { color:var(--dim); margin:0 0 1.8rem; font-size:1.02rem; }
+  .sub { color:var(--dim); margin:0 0 1.1rem; font-size:.9rem; max-width:52rem; }
+  code { background:var(--code); padding:.08em .34em; border-radius:3px;
+          font:.86em ui-monospace,SFMono-Regular,Menlo,monospace; }
+  pre { background:var(--code); padding:.9rem 1rem; border-radius:6px; overflow-x:auto;
+         font:.82rem/1.55 ui-monospace,SFMono-Regular,Menlo,monospace; margin:.7rem 0; }
+  pre code { background:none; padding:0; font-size:1em; }
+  .note { border-left:3px solid var(--accent); padding:.15rem 0 .15rem 1.1rem; margin:1.5rem 0; }
+  .note p { margin:.55rem 0; }
+  .grid { display:grid; gap:1rem; grid-template-columns:repeat(auto-fill,minmax(20.5rem,1fr)); }
+  .op { background:var(--card); border:1px solid var(--line); border-radius:9px;
+         padding:1rem 1.1rem 1.1rem; }
+  .cls { font:.72rem ui-sans-serif,system-ui,sans-serif; color:var(--dim); margin:.15rem 0 .5rem; }
+  .verdict { float:right; font:600 .62rem/1.6 ui-sans-serif,system-ui,sans-serif;
+              text-transform:uppercase; letter-spacing:.07em; padding:.05rem .45rem;
+              border-radius:99px; border:1px solid currentColor; white-space:nowrap; }
+  .stands { color:var(--stands); } .decays { color:var(--decays); } .silent { color:var(--silent); }
+  .brief { font-size:.88rem; margin:.4rem 0 .7rem; }
+  .meas { font-size:.76rem; color:var(--dim); margin:.4rem 0 .8rem;
+           font-family:ui-sans-serif,system-ui,sans-serif; }
+  .dim { color:var(--dim); }
+  table { border-collapse:collapse; width:100%; font-size:.78rem; }
+  .ctlwrap { overflow-x:auto; }
+  th { text-align:left; font:600 .64rem ui-sans-serif,system-ui,sans-serif; text-transform:uppercase;
+        letter-spacing:.06em; color:var(--dim); border-bottom:1px solid var(--line);
+        padding:.2rem .55rem .25rem 0; white-space:nowrap; }
+  td { padding:.28rem .55rem .28rem 0; border-bottom:1px solid var(--line); vertical-align:top; }
+  tr:last-child td { border-bottom:none; }
+  .num { font-family:ui-monospace,monospace; text-align:right; width:3.4rem;
+          color:var(--accent); white-space:nowrap; }
+  .dot { font-size:.55em; vertical-align:.35em; margin-left:.25em; }
+  .dot.on { color:var(--stands); } .dot.off { color:var(--line); }
+  .sym { white-space:nowrap; font-family:ui-sans-serif,system-ui,sans-serif; font-size:.74rem; }
+  .act { font-family:ui-sans-serif,system-ui,sans-serif; }
+  .act code { font-size:.72rem; background:none; padding:0; color:var(--dim); }
+  .chk { text-align:center; width:3rem; color:var(--stands); }
+  .none { color:var(--dim); font-style:italic; }
+  .from { font-size:.7rem; color:var(--dim); margin:.55rem 0 0;
+           font-family:ui-sans-serif,system-ui,sans-serif; }
+  .wide { max-width:44rem; }
+  footer { margin-top:3.5rem; padding-top:1.1rem; border-top:1px solid var(--line);
+            font-size:.82rem; color:var(--dim); }
+  footer p { max-width:52rem; }
+</style>
+</head>
+<body>
+<main>
+<h1>The 27 STK opcodes</h1>
+<p class="lede">Perry Cook and Gary Scavone's Synthesis ToolKit, reachable from an LRO body
+since the rawwaves ship inside the app. What each one is, what it does untouched, and every
+control it has.</p>
+
+<div class="note">
+<p><strong>How you call one.</strong> Frequency and amplitude, then any number of
+<em>(control, value)</em> pairs:</p>
+<pre><code>asig STKModalBar 220, 0.3, 16, 1, 2, 64, 4, 20
+                 ─┬─  ─┬─  ─┬──  ─┬──  ─┬──
+                  Hz  amp   │     │     └ strike position 20
+                            │     └ stick hardness 64
+                            └ preset 1 = Vibraphone</code></pre>
+<p>Values run 0–128 whatever the control means; STK divides by 128 internally. The pairs are
+optional, order does not matter, and a control the instrument does not know is ignored —
+which is why a wrong number fails silently instead of erroring.</p>
+</div>
+
+<div class="note">
+<p><strong>The one thing that decides whether any of this is usable.</strong> Frequency is an
+<strong>i-rate</strong> argument — <code>STKBowed kfreq, …</code> does not even compile — and the
+LRO host starts each voice once, for 100 hours, and never restarts it. So a plainly written
+STK body takes its pitch at engine build and then, under a played note, is
+<strong>silent</strong>. The lever is <code>reinit</code>, which re-runs a marked block's i-time
+code on the note edge:</p>
+<pre><code>ktr changed2 ktrig          ; ktrig flips at note-on
+if ktr == 1 then
+  reinit strike             ; ← re-run everything from the label
+endif
+strike:
+asig STKModalBar i(kfreq), 0.3, 16, 1, 2, 64
+rireturn</code></pre>
+<p>Measured at 220&nbsp;Hz: without it, silence. With it, a struck bar at −5&nbsp;cents, decaying
+0.056 → 0.0004 → 0. Still unmeasured, and gating any entry that ships on one of these:
+<code>reinit</code> re-runs STK's constructor, which is where it opens its data file, and inside
+the plugin Csound runs on the audio thread.</p>
+</div>
+
+<div class="note">
+<p><strong>Read the numbers here, not the Csound manual.</strong> The bundled module was built
+against an older STK than the 5.0.1 source these tables come from, and the two disagree in one
+measured place: on <code>STKShakers</code>, decay sits on control&nbsp;<b>4</b> and object count on
+<b>11</b> — the reverse of what 5.0.1's symbols say, and matching the stale inline comments
+that Csound's manual copied. Everywhere else source and render agree. A <span class="dot on">●</span>
+marks a control that demonstrably changed the sound in a sweep of the shipped module;
+<span class="dot off">○</span> means it did not move that render, which is not a disproof —
+several are inaudible until something else is set.</p>
+</div>
+
+<h2>Waveguide and physical models</h2><p class='sub'>Digital waveguides after Smith (1986) and McIntyre–Schumacher–Woodhouse (1983), with Cook's polynomial jet and reed excitations. This is the tier rule 1 of the authoring discipline asks for: a named method with a published source.</p><div class='grid'>
+<section class="op">
+  <h3>STKBowed <span class="verdict stands">stands</span></h3>
+  <p class="cls">stk::Bowed</p>
+  <p class="brief">STK bowed string instrument class. This class implements a bowed string model, a la Smith (1986), after McIntyre, Schumacher, Woodhouse (1983). This is a digital waveguide model, making its use possibly subject to patents held by Stanford University, Yamaha, and others.</p>
+  <p class="meas">Bare at 220&nbsp;Hz: peak 0.3172, then 0.05483 → 0.06925 → 0.06798 <span class='dim'>at 5&nbsp;ms / 1.0&nbsp;s / 1.8&nbsp;s</span></p>
+  <div class="ctlwrap"><table class="ctl">
+    <thead><tr><th>ctrl</th><th>STK name</th><th>what the value sets</th></tr></thead>
+    <tbody><tr><td class='num'>2<span class='dot on' title='this control changed the render'>●</span></td><td class='sym'>BowPressure</td><td class='act'><code>if ( normalizedValue &gt; 0.0 ) bowDown_ = true</code></td></tr><tr><td class='num'>4<span class='dot on' title='this control changed the render'>●</span></td><td class='sym'>BowPosition</td><td class='act'><code>betaRatio_ = normalizedValue; bridgeDelay_.setDelay( baseDelay_ * betaRatio_ ); neckDelay_.setDelay( baseDelay_ * (1.0 - …</code></td></tr><tr><td class='num'>11<span class='dot off' title='no audible change in the sweep — not disproved, just not audible there'>○</span></td><td class='sym'>ModFrequency</td><td class='act'><code>vibrato_.setFrequency( normalizedValue * 12.0 )</code></td></tr><tr><td class='num'>1<span class='dot on' title='this control changed the render'>●</span></td><td class='sym'>ModWheel</td><td class='act'><code>vibratoGain_ = ( normalizedValue * 0.4 )</code></td></tr><tr><td class='num'>100<span class='dot on' title='this control changed the render'>●</span></td><td class='sym'>—</td><td class='act'><code>set instantaneous bow velocity adsr_.setTarget( normalizedValue )</code></td></tr><tr><td class='num'>101<span class='dot on' title='this control changed the render'>●</span></td><td class='sym'>—</td><td class='act'><code>set instantaneous value of frequency setFrequency( value )</code></td></tr><tr><td class='num'>128<span class='dot on' title='this control changed the render'>●</span></td><td class='sym'>AfterTouch_Cont</td><td class='act'><code>adsr_.setTarget( normalizedValue )</code></td></tr></tbody></table></div>
+  <p class="from"></p>
+</section>
+<section class="op">
+  <h3>STKBlowBotl <span class="verdict stands">stands</span></h3>
+  <p class="cls">stk::BlowBotl</p>
+  <p class="brief">STK blown bottle instrument class. This class implements a helmholtz resonator (biquad filter) with a polynomial jet excitation (a la Cook).</p>
+  <p class="meas">Bare at 220&nbsp;Hz: peak 0.3743, then 0.06928 → 0.06649 → 0.04399 <span class='dim'>at 5&nbsp;ms / 1.0&nbsp;s / 1.8&nbsp;s</span></p>
+  <div class="ctlwrap"><table class="ctl">
+    <thead><tr><th>ctrl</th><th>STK name</th><th>what the value sets</th></tr></thead>
+    <tbody><tr><td class='num'>4<span class='dot on' title='this control changed the render'>●</span></td><td class='sym'>NoiseLevel</td><td class='act'><code>noiseGain_ = normalizedValue * 30.0</code></td></tr><tr><td class='num'>11<span class='dot off' title='no audible change in the sweep — not disproved, just not audible there'>○</span></td><td class='sym'>ModFrequency</td><td class='act'><code>vibrato_.setFrequency( normalizedValue * 12.0 )</code></td></tr><tr><td class='num'>1<span class='dot on' title='this control changed the render'>●</span></td><td class='sym'>ModWheel</td><td class='act'><code>vibratoGain_ = normalizedValue * 0.4</code></td></tr><tr><td class='num'>128<span class='dot on' title='this control changed the render'>●</span></td><td class='sym'>AfterTouch_Cont</td><td class='act'><code>adsr_.setTarget( normalizedValue )</code></td></tr></tbody></table></div>
+  <p class="from"></p>
+</section>
+<section class="op">
+  <h3>STKBlowHole <span class="verdict stands">stands</span></h3>
+  <p class="cls">stk::BlowHole</p>
+  <p class="brief">STK clarinet physical model with one register hole and one tonehole. This class is based on the clarinet model, with the addition of a two-port register hole and a three-port dynamic tonehole implementation, as discussed by Scavone and Cook (1998). In this implementation, the distances between the …</p>
+  <p class="meas">Bare at 220&nbsp;Hz: peak 0.3125, then 0.213 → 0.22236 → 0.22614 <span class='dim'>at 5&nbsp;ms / 1.0&nbsp;s / 1.8&nbsp;s</span></p>
+  <div class="ctlwrap"><table class="ctl">
+    <thead><tr><th>ctrl</th><th>STK name</th><th>what the value sets</th></tr></thead>
+    <tbody><tr><td class='num'>2<span class='dot on' title='this control changed the render'>●</span></td><td class='sym'>ReedStiffness</td><td class='act'><code>reedTable_.setSlope( -0.44 + (0.26 * normalizedValue) )</code></td></tr><tr><td class='num'>4<span class='dot on' title='this control changed the render'>●</span></td><td class='sym'>NoiseLevel</td><td class='act'><code>noiseGain_ = ( normalizedValue * 0.4)</code></td></tr><tr><td class='num'>11<span class='dot on' title='this control changed the render'>●</span></td><td class='sym'>ModFrequency</td><td class='act'><code>setTonehole( normalizedValue )</code></td></tr><tr><td class='num'>1<span class='dot on' title='this control changed the render'>●</span></td><td class='sym'>ModWheel</td><td class='act'><code>setVent( normalizedValue )</code></td></tr><tr><td class='num'>128<span class='dot on' title='this control changed the render'>●</span></td><td class='sym'>AfterTouch_Cont</td><td class='act'><code>envelope_.setValue( normalizedValue )</code></td></tr></tbody></table></div>
+  <p class="from"></p>
+</section>
+<section class="op">
+  <h3>STKBrass <span class="verdict silent">needs a control</span></h3>
+  <p class="cls">stk::Brass</p>
+  <p class="brief">STK simple brass instrument class. This class implements a simple brass instrument waveguide model, a la Cook (TBone, HosePlayer). This is a digital waveguide model, making its use possibly subject to patents held by Stanford University, Yamaha, and others.</p>
+  <p class="meas">Bare at 220&nbsp;Hz: only breath noise until lip tension (control 2) passes ≈90; at 220 Hz it speaks from 96 upward, rms 0.001 → 0.074</p>
+  <div class="ctlwrap"><table class="ctl">
+    <thead><tr><th>ctrl</th><th>STK name</th><th>what the value sets</th></tr></thead>
+    <tbody><tr><td class='num'>2</td><td class='sym'>LipTension</td><td class='act'><code>StkFloat temp = lipTarget_ * pow( 4.0, (2.0 * normalizedValue) - 1.0 ); setLip( temp );</code></td></tr><tr><td class='num'>4</td><td class='sym'>SlideLength</td><td class='act'><code>delayLine_.setDelay( slideTarget_ * (0.5 + normalizedValue) )</code></td></tr><tr><td class='num'>11</td><td class='sym'>ModFrequency</td><td class='act'><code>vibrato_.setFrequency( normalizedValue * 12.0 )</code></td></tr><tr><td class='num'>1</td><td class='sym'>ModWheel</td><td class='act'><code>vibratoGain_ = normalizedValue * 0.4</code></td></tr><tr><td class='num'>128</td><td class='sym'>AfterTouch_Cont</td><td class='act'><code>adsr_.setTarget( normalizedValue )</code></td></tr></tbody></table></div>
+  <p class="from"></p>
+</section>
+<section class="op">
+  <h3>STKClarinet <span class="verdict stands">stands</span></h3>
+  <p class="cls">stk::Clarinet</p>
+  <p class="brief">STK clarinet physical model class. This class implements a simple clarinet physical model, as discussed by Smith (1986), McIntyre, Schumacher, Woodhouse (1983), and others. This is a digital waveguide model, making its use possibly subject to patents held by Stanford University, Yamaha, and others.</p>
+  <p class="meas">Bare at 220&nbsp;Hz: peak 0.2322, then 0.18671 → 0.17295 → 0.20126 <span class='dim'>at 5&nbsp;ms / 1.0&nbsp;s / 1.8&nbsp;s</span></p>
+  <div class="ctlwrap"><table class="ctl">
+    <thead><tr><th>ctrl</th><th>STK name</th><th>what the value sets</th></tr></thead>
+    <tbody><tr><td class='num'>2<span class='dot on' title='this control changed the render'>●</span></td><td class='sym'>ReedStiffness</td><td class='act'><code>reedTable_.setSlope( -0.44 + ( 0.26 * normalizedValue ) )</code></td></tr><tr><td class='num'>4<span class='dot on' title='this control changed the render'>●</span></td><td class='sym'>NoiseLevel</td><td class='act'><code>noiseGain_ = ( normalizedValue * 0.4 )</code></td></tr><tr><td class='num'>11<span class='dot on' title='this control changed the render'>●</span></td><td class='sym'>ModFrequency</td><td class='act'><code>vibrato_.setFrequency( normalizedValue * 12.0 )</code></td></tr><tr><td class='num'>1<span class='dot on' title='this control changed the render'>●</span></td><td class='sym'>ModWheel</td><td class='act'><code>vibratoGain_ = ( normalizedValue * 0.5 )</code></td></tr><tr><td class='num'>128<span class='dot on' title='this control changed the render'>●</span></td><td class='sym'>AfterTouch_Cont</td><td class='act'><code>envelope_.setValue( normalizedValue )</code></td></tr></tbody></table></div>
+  <p class="from"></p>
+</section>
+<section class="op">
+  <h3>STKFlute <span class="verdict stands">stands</span></h3>
+  <p class="cls">stk::Flute</p>
+  <p class="brief">STK flute physical model class. This class implements a simple flute physical model, as discussed by Karjalainen, Smith, Waryznyk, etc. The jet model uses a polynomial, a la Cook. This is a digital waveguide model, making its use possibly subject to patents held by Stanford University, Yamaha, and …</p>
+  <p class="meas">Bare at 220&nbsp;Hz: peak 0.2011, then 0.14775 → 0.14758 → 0.14715 <span class='dim'>at 5&nbsp;ms / 1.0&nbsp;s / 1.8&nbsp;s</span></p>
+  <div class="ctlwrap"><table class="ctl">
+    <thead><tr><th>ctrl</th><th>STK name</th><th>what the value sets</th></tr></thead>
+    <tbody><tr><td class='num'>2<span class='dot on' title='this control changed the render'>●</span></td><td class='sym'>JetDelay</td><td class='act'><code>setJetDelay( (StkFloat) (0.08 + (0.48 * normalizedValue)) )</code></td></tr><tr><td class='num'>4<span class='dot on' title='this control changed the render'>●</span></td><td class='sym'>NoiseLevel</td><td class='act'><code>noiseGain_ = ( normalizedValue * 0.4)</code></td></tr><tr><td class='num'>11<span class='dot on' title='this control changed the render'>●</span></td><td class='sym'>ModFrequency</td><td class='act'><code>vibrato_.setFrequency( normalizedValue * 12.0)</code></td></tr><tr><td class='num'>1<span class='dot on' title='this control changed the render'>●</span></td><td class='sym'>ModWheel</td><td class='act'><code>vibratoGain_ = ( normalizedValue * 0.4 )</code></td></tr><tr><td class='num'>128<span class='dot on' title='this control changed the render'>●</span></td><td class='sym'>AfterTouch_Cont</td><td class='act'><code>adsr_.setTarget( normalizedValue )</code></td></tr></tbody></table></div>
+  <p class="from"></p>
+</section>
+<section class="op">
+  <h3>STKSaxofony <span class="verdict stands">stands</span></h3>
+  <p class="cls">stk::Saxofony</p>
+  <p class="brief">STK faux conical bore reed instrument class. This class implements a &quot;hybrid&quot; digital waveguide instrument that can generate a variety of wind-like sounds. It has also been referred to as the &quot;blowed string&quot; model. The waveguide section is essentially that of a string, with one rigid and one lossy …</p>
+  <p class="meas">Bare at 220&nbsp;Hz: peak 0.5287, then 0.2045 → 0.22498 → 0.25571 <span class='dim'>at 5&nbsp;ms / 1.0&nbsp;s / 1.8&nbsp;s</span></p>
+  <div class="ctlwrap"><table class="ctl">
+    <thead><tr><th>ctrl</th><th>STK name</th><th>what the value sets</th></tr></thead>
+    <tbody><tr><td class='num'>2<span class='dot on' title='this control changed the render'>●</span></td><td class='sym'>ReedStiffness</td><td class='act'><code>reedTable_.setSlope( 0.1 + (0.4 * normalizedValue) )</code></td></tr><tr><td class='num'>4<span class='dot on' title='this control changed the render'>●</span></td><td class='sym'>NoiseLevel</td><td class='act'><code>noiseGain_ = ( normalizedValue * 0.4 )</code></td></tr><tr><td class='num'>29<span class='dot on' title='this control changed the render'>●</span></td><td class='sym'>—</td><td class='act'><code>vibrato_.setFrequency( normalizedValue * 12.0 )</code></td></tr><tr><td class='num'>1<span class='dot on' title='this control changed the render'>●</span></td><td class='sym'>ModWheel</td><td class='act'><code>vibratoGain_ = ( normalizedValue * 0.5 )</code></td></tr><tr><td class='num'>128<span class='dot on' title='this control changed the render'>●</span></td><td class='sym'>AfterTouch_Cont</td><td class='act'><code>envelope_.setValue( normalizedValue )</code></td></tr><tr><td class='num'>11<span class='dot on' title='this control changed the render'>●</span></td><td class='sym'>—</td><td class='act'><code>setBlowPosition( normalizedValue )</code></td></tr><tr><td class='num'>26<span class='dot off' title='no audible change in the sweep — not disproved, just not audible there'>○</span></td><td class='sym'>—</td><td class='act'><code>reed table offset reedTable_.setOffset(0.4 + ( normalizedValue * 0.6))</code></td></tr></tbody></table></div>
+  <p class="from"></p>
+</section>
+<section class="op">
+  <h3>STKWhistle <span class="verdict stands">stands</span></h3>
+  <p class="cls">stk::Whistle</p>
+  <p class="brief">STK police/referee whistle instrument class. This class implements a hybrid physical/spectral model of a police whistle (a la Cook).</p>
+  <p class="meas">Bare at 220&nbsp;Hz: peak 0.1566, then 0.05492 → 0.05491 → 0.07094 <span class='dim'>at 5&nbsp;ms / 1.0&nbsp;s / 1.8&nbsp;s</span></p>
+  <div class="ctlwrap"><table class="ctl">
+    <thead><tr><th>ctrl</th><th>STK name</th><th>what the value sets</th></tr></thead>
+    <tbody><tr><td class='num'>4<span class='dot on' title='this control changed the render'>●</span></td><td class='sym'>NoiseLevel</td><td class='act'><code>noiseGain_ = 0.25 * normalizedValue</code></td></tr><tr><td class='num'>11<span class='dot on' title='this control changed the render'>●</span></td><td class='sym'>ModFrequency</td><td class='act'><code>fippleFreqMod_ = normalizedValue</code></td></tr><tr><td class='num'>1<span class='dot on' title='this control changed the render'>●</span></td><td class='sym'>ModWheel</td><td class='act'><code>fippleGainMod_ = normalizedValue</code></td></tr><tr><td class='num'>128<span class='dot on' title='this control changed the render'>●</span></td><td class='sym'>AfterTouch_Cont</td><td class='act'><code>envelope_.setTarget( normalizedValue * 2.0 )</code></td></tr><tr><td class='num'>2<span class='dot off' title='no audible change in the sweep — not disproved, just not audible there'>○</span></td><td class='sym'>Breath</td><td class='act'><code>blowFreqMod_ = normalizedValue * 0.5</code></td></tr><tr><td class='num'>64<span class='dot on' title='this control changed the render'>●</span></td><td class='sym'>Sustain</td><td class='act'><code>subSample_ = (int) value; if ( subSample_ &lt; 1.0 ) subSample_ = 1; envelope_.setRate( ENV_RATE / subSample_ );</code></td></tr></tbody></table></div>
+  <p class="from"></p>
+</section>
+<section class="op">
+  <h3>STKMandolin <span class="verdict decays">decays slowly</span></h3>
+  <p class="cls">stk::Mandolin</p>
+  <p class="brief">STK mandolin instrument model class. This class uses two &quot;twang&quot; models and &quot;commuted synthesis&quot; techniques to model a mandolin instrument. This is a digital waveguide model, making its use possibly subject to patents held by Stanford University, Yamaha, and others. Commuted Synthesis, in …</p>
+  <p class="meas">Bare at 220&nbsp;Hz: peak 0.0481, then 0.01105 → 0.00506 → 0.00259 <span class='dim'>at 5&nbsp;ms / 1.0&nbsp;s / 1.8&nbsp;s</span></p>
+  <div class="ctlwrap"><table class="ctl">
+    <thead><tr><th>ctrl</th><th>STK name</th><th>what the value sets</th></tr></thead>
+    <tbody><tr><td class='num'>2<span class='dot on' title='this control changed the render'>●</span></td><td class='sym'>BodySize</td><td class='act'><code>setBodySize( normalizedValue * 2.0 )</code></td></tr><tr><td class='num'>4<span class='dot off' title='no audible change in the sweep — not disproved, just not audible there'>○</span></td><td class='sym'>PickPosition</td><td class='act'><code>setPluckPosition( normalizedValue )</code></td></tr><tr><td class='num'>11<span class='dot on' title='this control changed the render'>●</span></td><td class='sym'>StringDamping</td><td class='act'><code>strings_[0].setLoopGain( 0.97 + (normalizedValue * 0.03) ); strings_[1].setLoopGain( 0.97 + (normalizedValue * 0.03) );</code></td></tr><tr><td class='num'>1<span class='dot on' title='this control changed the render'>●</span></td><td class='sym'>StringDetune</td><td class='act'><code>setDetune( 1.0 - (normalizedValue * 0.1) )</code></td></tr><tr><td class='num'>128<span class='dot on' title='this control changed the render'>●</span></td><td class='sym'>AfterTouch_Cont</td><td class='act'><code>mic_ = (int) (normalizedValue * 11.0)</code></td></tr></tbody></table></div>
+  <p class="from"></p>
+</section>
+<section class="op">
+  <h3>STKPlucked <span class="verdict decays">decays slowly</span></h3>
+  <p class="cls">stk::Plucked</p>
+  <p class="brief">STK basic plucked string class. This class implements a simple plucked string physical model based on the Karplus-Strong algorithm. For a more advanced plucked string implementation, see the stk::Twang class. This is a digital waveguide model, making its use possibly subject to patents held by …</p>
+  <p class="meas">Bare at 220&nbsp;Hz: peak 0.1222, then 0.05818 → 0.01961 → 0.00998 <span class='dim'>at 5&nbsp;ms / 1.0&nbsp;s / 1.8&nbsp;s</span></p>
+  <div class="ctlwrap"><table class="ctl">
+    <thead><tr><th>ctrl</th><th>STK name</th><th>what the value sets</th></tr></thead>
+    <tbody><tr><td colspan='3' class='none'>no controlChange at all — frequency and amplitude are the whole interface</td></tr></tbody></table></div>
+  <p class="from"></p>
+</section>
+<section class="op">
+  <h3>STKSitar <span class="verdict decays">decays slowly</span></h3>
+  <p class="cls">stk::Sitar</p>
+  <p class="brief">STK sitar string model class. This class implements a sitar plucked string physical model based on the Karplus-Strong algorithm. This is a digital waveguide model, making its use possibly subject to patents held by Stanford University, Yamaha, and others. There exist at least two patents, assigned …</p>
+  <p class="meas">Bare at 220&nbsp;Hz: peak 0.0772, then 0.02516 → 0.00536 → 0.002 <span class='dim'>at 5&nbsp;ms / 1.0&nbsp;s / 1.8&nbsp;s</span></p>
+  <div class="ctlwrap"><table class="ctl">
+    <thead><tr><th>ctrl</th><th>STK name</th><th>what the value sets</th></tr></thead>
+    <tbody><tr><td colspan='3' class='none'>no controlChange at all — frequency and amplitude are the whole interface</td></tr></tbody></table></div>
+  <p class="from"></p>
+</section>
+<section class="op">
+  <h3>STKStifKarp <span class="verdict decays">decays slowly</span></h3>
+  <p class="cls">stk::StifKarp</p>
+  <p class="brief">STK plucked stiff string instrument. This class implements a simple plucked string algorithm (Karplus Strong) with enhancements (Jaffe-Smith, Smith, and others), including string stiffness and pluck position controls. The stiffness is modeled with allpass filters. This is a digital waveguide model, …</p>
+  <p class="meas">Bare at 220&nbsp;Hz: peak 0.069, then 0.02525 → 0.0075 → 0.0038 <span class='dim'>at 5&nbsp;ms / 1.0&nbsp;s / 1.8&nbsp;s</span></p>
+  <div class="ctlwrap"><table class="ctl">
+    <thead><tr><th>ctrl</th><th>STK name</th><th>what the value sets</th></tr></thead>
+    <tbody><tr><td class='num'>4<span class='dot on' title='this control changed the render'>●</span></td><td class='sym'>PickPosition</td><td class='act'><code>setPickupPosition( normalizedValue )</code></td></tr><tr><td class='num'>11<span class='dot on' title='this control changed the render'>●</span></td><td class='sym'>StringDamping</td><td class='act'><code>setBaseLoopGain( 0.97 + (normalizedValue * 0.03) )</code></td></tr><tr><td class='num'>1<span class='dot on' title='this control changed the render'>●</span></td><td class='sym'>StringDetune</td><td class='act'><code>setStretch( 0.9 + (0.1 * (1.0 - normalizedValue)) )</code></td></tr></tbody></table></div>
+  <p class="from"></p>
+</section></div><h2>Modal and banded</h2><p class='sub'>Resonator banks rather than delay lines. STKModalBar is the one that carries a vibraphone; STKBandedWG is the banded waveguide — bowed bars, glasses, bowls.</p><div class='grid'>
+<section class="op">
+  <h3>STKModalBar <span class="verdict decays">decays</span></h3>
+  <p class="cls">stk::ModalBar</p>
+  <p class="brief">STK resonant bar instrument class. This class implements a number of different struck bar instruments. It inherits from the Modal class.</p>
+  <p class="meas">Bare at 220&nbsp;Hz: peak 0.0053, then 0.0034 → 0.0 → 0.0 <span class='dim'>at 5&nbsp;ms / 1.0&nbsp;s / 1.8&nbsp;s</span></p>
+  <div class="ctlwrap"><table class="ctl">
+    <thead><tr><th>ctrl</th><th>STK name</th><th>what the value sets</th></tr></thead>
+    <tbody><tr><td class='num'>2<span class='dot on' title='this control changed the render'>●</span></td><td class='sym'>StickHardness</td><td class='act'><code>setStickHardness( normalizedValue )</code></td></tr><tr><td class='num'>4<span class='dot on' title='this control changed the render'>●</span></td><td class='sym'>StrikePosition</td><td class='act'><code>setStrikePosition( normalizedValue )</code></td></tr><tr><td class='num'>16<span class='dot on' title='this control changed the render'>●</span></td><td class='sym'>ProphesyRibbon</td><td class='act'><code>setPreset((int) value)</code></td></tr><tr><td class='num'>8<span class='dot on' title='this control changed the render'>●</span></td><td class='sym'>Balance</td><td class='act'><code>vibratoGain_ = normalizedValue * 0.3</code></td></tr><tr><td class='num'>1<span class='dot on' title='this control changed the render'>●</span></td><td class='sym'>ModWheel</td><td class='act'><code>directGain_ = normalizedValue</code></td></tr><tr><td class='num'>11<span class='dot off' title='no audible change in the sweep — not disproved, just not audible there'>○</span></td><td class='sym'>ModFrequency</td><td class='act'><code>vibrato_.setFrequency( normalizedValue * 12.0 )</code></td></tr><tr><td class='num'>128<span class='dot on' title='this control changed the render'>●</span></td><td class='sym'>AfterTouch_Cont</td><td class='act'><code>envelope_.setTarget( normalizedValue )</code></td></tr></tbody></table></div>
+  <p class="from"></p>
+</section>
+<section class="op">
+  <h3>STKBandedWG <span class="verdict decays">decays</span></h3>
+  <p class="cls">stk::BandedWG</p>
+  <p class="brief">Banded waveguide modeling class. This class uses banded waveguide techniques to model a variety of sounds, including bowed bars, glasses, and bowls.</p>
+  <p class="meas">Bare at 220&nbsp;Hz: peak 0.0027, then 0.0018 → 0.0 → 0.0 <span class='dim'>at 5&nbsp;ms / 1.0&nbsp;s / 1.8&nbsp;s</span></p>
+  <div class="ctlwrap"><table class="ctl">
+    <thead><tr><th>ctrl</th><th>STK name</th><th>what the value sets</th></tr></thead>
+    <tbody><tr><td class='num'>2<span class='dot on' title='this control changed the render'>●</span></td><td class='sym'>BowPressure</td><td class='act'><code>if ( normalizedValue == 0.0 ) doPluck_ = true</code></td></tr><tr><td class='num'>4<span class='dot off' title='no audible change in the sweep — not disproved, just not audible there'>○</span></td><td class='sym'>—</td><td class='act'><code>if ( !trackVelocity_ ) trackVelocity_ = true; bowTarget_ += 0.005 * (normalizedValue - bowPosition_); bowPosition_ = nor …</code></td></tr><tr><td class='num'>8<span class='dot off' title='no audible change in the sweep — not disproved, just not audible there'>○</span></td><td class='sym'>—</td><td class='act'><code>setStrikePosition( normalizedValue )</code></td></tr><tr><td class='num'>128<span class='dot off' title='no audible change in the sweep — not disproved, just not audible there'>○</span></td><td class='sym'>AfterTouch_Cont</td><td class='act'><code>bowTarget_ += 0.02 * (normalizedValue - bowPosition_); //bowPosition_ = normalizedValue; if ( trackVelocity_ ) trackVelo …</code></td></tr><tr><td class='num'>1<span class='dot on' title='this control changed the render'>●</span></td><td class='sym'>ModWheel</td><td class='act'><code>baseGain_ = 0.9989999999 + (0.001 * normalizedValue ); baseGain_ = 0.8999999999999999 + (0.1 * normalizedValue); // std: …</code></td></tr><tr><td class='num'>11<span class='dot off' title='no audible change in the sweep — not disproved, just not audible there'>○</span></td><td class='sym'>ModFrequency</td><td class='act'><code>integrationConstant_ = normalizedValue</code></td></tr><tr><td class='num'>64<span class='dot on' title='this control changed the render'>●</span></td><td class='sym'>Sustain</td><td class='act'><code>if (value &lt; 65) doPluck_ = true</code></td></tr><tr><td class='num'>65<span class='dot off' title='no audible change in the sweep — not disproved, just not audible there'>○</span></td><td class='sym'>Portamento</td><td class='act'><code>if (value &lt; 65) trackVelocity_ = false</code></td></tr><tr><td class='num'>16<span class='dot on' title='this control changed the render'>●</span></td><td class='sym'>ProphesyRibbon</td><td class='act'><code>setPreset((int) value)</code></td></tr></tbody></table></div>
+  <p class="from"></p>
+</section></div><h2>Stochastic particles, and samples</h2><p class='sub'>STKShakers is PhISEM, Cook's stochastic event model — the same physics as Csound's own shaker/guiro/cabasa, but with the object count and decay on knobs. STKDrummer plays STK's rawwave drum samples.</p><div class='grid'>
+<section class="op">
+  <h3>STKShakers <span class="verdict silent">needs a control</span></h3>
+  <p class="cls">stk::Shakers</p>
+  <p class="brief">PhISEM and PhOLIES class. PhISEM (Physically Informed Stochastic Event Modeling) is an algorithmic approach for simulating collisions of multiple independent sound producing objects. This class is a meta-model that can simulate a Maraca, Sekere, Cabasa, Bamboo Wind Chimes, Water Drops, Tambourine, …</p>
+  <p class="meas">Bare at 220&nbsp;Hz: silent until shake energy (control 2 or 128) is set; every shake is an impulse of energy that decays, not a held tone</p>
+  <div class="ctlwrap"><table class="ctl">
+    <thead><tr><th>ctrl</th><th>STK name</th><th>what the value sets</th></tr></thead>
+    <tbody><tr><td class='num'>2<span class='dot on' title='confirmed by render'>●</span></td><td class='sym'>ShakerEnergy</td><td class='act'>shake energy — nothing sounds until this is set</td></tr><tr><td class='num'>128<span class='dot on' title='confirmed by render'>●</span></td><td class='sym'>AfterTouch</td><td class='act'>same shake energy, second entry point</td></tr><tr><td class='num'>4<span class='dot on' title='confirmed by render'>●</span></td><td class='sym'>ShakerDamping</td><td class='act'>decay — half-life 0 → 4 → 14 ms across the range</td></tr><tr><td class='num'>11<span class='dot on' title='confirmed by render'>●</span></td><td class='sym'>ShakerNumObjects</td><td class='act'>number of objects — 30 → 54 → 645 collisions</td></tr><tr><td class='num'>1<span class='dot on' title='confirmed by render'>●</span></td><td class='sym'>ModWheel</td><td class='act'>resonance frequency, ±2 octaves around the type&#x27;s own</td></tr><tr><td class='num'>1071<span class='dot on' title='confirmed by render'>●</span></td><td class='sym'>ShakerInst</td><td class='act'>instrument: maraca, sekere, cabasa, bamboo, water drops, tambourine, sleigh bells, guiro, ratchet …</td></tr></tbody></table></div>
+  <p class="from"></p>
+</section>
+<section class="op">
+  <h3>STKDrummer <span class="verdict decays">decays</span></h3>
+  <p class="cls">stk::Drummer</p>
+  <p class="brief">STK drum sample player class. This class implements a drum sampling synthesizer using WvIn objects and one-pole filters. The drum rawwave files are sampled at 22050 Hz, but will be appropriately interpolated for other sample rates. You can specify the maximum polyphony (maximum number of …</p>
+  <p class="meas">Bare at 220&nbsp;Hz: peak 0.297, then 0.12403 → 0.0 → 0.0 <span class='dim'>at 5&nbsp;ms / 1.0&nbsp;s / 1.8&nbsp;s</span></p>
+  <div class="ctlwrap"><table class="ctl">
+    <thead><tr><th>ctrl</th><th>STK name</th><th>what the value sets</th></tr></thead>
+    <tbody><tr><td colspan='3' class='none'>no controlChange at all — frequency and amplitude are the whole interface</td></tr></tbody></table></div>
+  <p class="from"></p>
+</section></div><h2>FM — the TX81Z algorithms</h2><p class='sub'>Four-operator FM in the Yamaha topologies, the operator routing written into each class. The toy tier next to the waveguides, but the algorithms are real and named.</p><div class='grid'>
+<section class="op">
+  <h3>STKBeeThree <span class="verdict stands">stands</span></h3>
+  <p class="cls">stk::BeeThree</p>
+  <p class="brief">STK Hammond-oid organ FM synthesis instrument. This class implements a simple 4 operator topology, also referred to as algorithm 8 of the TX81Z.</p>
+  <p class="meas">Bare at 220&nbsp;Hz: peak 0.2035, then 0.08265 → 0.08153 → 0.08003 <span class='dim'>at 5&nbsp;ms / 1.0&nbsp;s / 1.8&nbsp;s</span></p>
+  <div class="ctlwrap"><table class="ctl">
+    <thead><tr><th>ctrl</th><th>STK name</th><th>what the value sets</th></tr></thead>
+    <tbody><tr><td class='num'>2<span class='dot on' title='this control changed the render'>●</span></td><td class='sym'>Breath</td><td class='act'><code>setControl1( normalizedValue )</code></td></tr><tr><td class='num'>4<span class='dot on' title='this control changed the render'>●</span></td><td class='sym'>FootControl</td><td class='act'><code>setControl2( normalizedValue )</code></td></tr><tr><td class='num'>11<span class='dot off' title='no audible change in the sweep — not disproved, just not audible there'>○</span></td><td class='sym'>ModFrequency</td><td class='act'><code>setModulationSpeed( normalizedValue * 12.0)</code></td></tr><tr><td class='num'>1<span class='dot on' title='this control changed the render'>●</span></td><td class='sym'>ModWheel</td><td class='act'><code>setModulationDepth( normalizedValue )</code></td></tr><tr><td class='num'>128<span class='dot on' title='this control changed the render'>●</span></td><td class='sym'>AfterTouch_Cont</td><td class='act'><code>adsr_[0]-&gt;setTarget( normalizedValue ); adsr_[1]-&gt;setTarget( normalizedValue ); //adsr_[2]-&gt;setTarget( normalizedValue ) …</code></td></tr></tbody></table></div>
+  <p class="from">controls inherited from <code>stk::FM</code></p>
+</section>
+<section class="op">
+  <h3>STKFMVoices <span class="verdict stands">stands</span></h3>
+  <p class="cls">stk::FMVoices</p>
+  <p class="brief">STK singing FM synthesis instrument. This class implements 3 carriers and a common modulator, also referred to as algorithm 6 of the TX81Z.</p>
+  <p class="meas">Bare at 220&nbsp;Hz: peak 0.1675, then 0.10281 → 0.10357 → 0.10359 <span class='dim'>at 5&nbsp;ms / 1.0&nbsp;s / 1.8&nbsp;s</span></p>
+  <div class="ctlwrap"><table class="ctl">
+    <thead><tr><th>ctrl</th><th>STK name</th><th>what the value sets</th></tr></thead>
+    <tbody><tr><td class='num'>2<span class='dot on' title='this control changed the render'>●</span></td><td class='sym'>Breath</td><td class='act'><code>gains_[3] = fmGains_[(int) ( normalizedValue * 99.9 )]</code></td></tr><tr><td class='num'>4<span class='dot on' title='this control changed the render'>●</span></td><td class='sym'>FootControl</td><td class='act'><code>currentVowel_ = (int) (normalizedValue * 127.0); setFrequency(baseFrequency_);</code></td></tr><tr><td class='num'>11<span class='dot on' title='this control changed the render'>●</span></td><td class='sym'>ModFrequency</td><td class='act'><code>setModulationSpeed( normalizedValue * 12.0)</code></td></tr><tr><td class='num'>1<span class='dot on' title='this control changed the render'>●</span></td><td class='sym'>ModWheel</td><td class='act'><code>setModulationDepth( normalizedValue )</code></td></tr><tr><td class='num'>128<span class='dot on' title='this control changed the render'>●</span></td><td class='sym'>AfterTouch_Cont</td><td class='act'><code>tilt_[0] = normalizedValue; tilt_[1] = normalizedValue * normalizedValue; tilt_[2] = tilt_[1] * normalizedValue;</code></td></tr></tbody></table></div>
+  <p class="from"></p>
+</section>
+<section class="op">
+  <h3>STKHevyMetl <span class="verdict stands">stands</span></h3>
+  <p class="cls">stk::HevyMetl</p>
+  <p class="brief">STK heavy metal FM synthesis instrument. This class implements 3 cascade operators with feedback modulation, also referred to as algorithm 3 of the TX81Z.</p>
+  <p class="meas">Bare at 220&nbsp;Hz: peak 0.1231, then 0.09055 → 0.09138 → 0.09082 <span class='dim'>at 5&nbsp;ms / 1.0&nbsp;s / 1.8&nbsp;s</span></p>
+  <div class="ctlwrap"><table class="ctl">
+    <thead><tr><th>ctrl</th><th>STK name</th><th>what the value sets</th></tr></thead>
+    <tbody><tr><td class='num'>2<span class='dot on' title='this control changed the render'>●</span></td><td class='sym'>Breath</td><td class='act'><code>setControl1( normalizedValue )</code></td></tr><tr><td class='num'>4<span class='dot on' title='this control changed the render'>●</span></td><td class='sym'>FootControl</td><td class='act'><code>setControl2( normalizedValue )</code></td></tr><tr><td class='num'>11<span class='dot off' title='no audible change in the sweep — not disproved, just not audible there'>○</span></td><td class='sym'>ModFrequency</td><td class='act'><code>setModulationSpeed( normalizedValue * 12.0)</code></td></tr><tr><td class='num'>1<span class='dot on' title='this control changed the render'>●</span></td><td class='sym'>ModWheel</td><td class='act'><code>setModulationDepth( normalizedValue )</code></td></tr><tr><td class='num'>128<span class='dot on' title='this control changed the render'>●</span></td><td class='sym'>AfterTouch_Cont</td><td class='act'><code>adsr_[0]-&gt;setTarget( normalizedValue ); adsr_[1]-&gt;setTarget( normalizedValue ); //adsr_[2]-&gt;setTarget( normalizedValue ) …</code></td></tr></tbody></table></div>
+  <p class="from">controls inherited from <code>stk::FM</code></p>
+</section>
+<section class="op">
+  <h3>STKPercFlut <span class="verdict stands">stands</span></h3>
+  <p class="cls">stk::PercFlut</p>
+  <p class="brief">STK percussive flute FM synthesis instrument. This class implements algorithm 4 of the TX81Z.</p>
+  <p class="meas">Bare at 220&nbsp;Hz: peak 0.0707, then 0.05093 → 0.05001 → 0.04993 <span class='dim'>at 5&nbsp;ms / 1.0&nbsp;s / 1.8&nbsp;s</span></p>
+  <div class="ctlwrap"><table class="ctl">
+    <thead><tr><th>ctrl</th><th>STK name</th><th>what the value sets</th></tr></thead>
+    <tbody><tr><td class='num'>2<span class='dot on' title='this control changed the render'>●</span></td><td class='sym'>Breath</td><td class='act'><code>setControl1( normalizedValue )</code></td></tr><tr><td class='num'>4<span class='dot on' title='this control changed the render'>●</span></td><td class='sym'>FootControl</td><td class='act'><code>setControl2( normalizedValue )</code></td></tr><tr><td class='num'>11<span class='dot on' title='this control changed the render'>●</span></td><td class='sym'>ModFrequency</td><td class='act'><code>setModulationSpeed( normalizedValue * 12.0)</code></td></tr><tr><td class='num'>1<span class='dot on' title='this control changed the render'>●</span></td><td class='sym'>ModWheel</td><td class='act'><code>setModulationDepth( normalizedValue )</code></td></tr><tr><td class='num'>128<span class='dot on' title='this control changed the render'>●</span></td><td class='sym'>AfterTouch_Cont</td><td class='act'><code>adsr_[0]-&gt;setTarget( normalizedValue ); adsr_[1]-&gt;setTarget( normalizedValue ); //adsr_[2]-&gt;setTarget( normalizedValue ) …</code></td></tr></tbody></table></div>
+  <p class="from">controls inherited from <code>stk::FM</code></p>
+</section>
+<section class="op">
+  <h3>STKRhodey <span class="verdict decays">decays</span></h3>
+  <p class="cls">stk::Rhodey</p>
+  <p class="brief">STK Fender Rhodes electric piano FM synthesis instrument. This class implements two simple FM Pairs summed together, also referred to as algorithm 5 of the TX81Z.</p>
+  <p class="meas">Bare at 220&nbsp;Hz: peak 0.1578, then 0.10663 → 0.01414 → 0.0 <span class='dim'>at 5&nbsp;ms / 1.0&nbsp;s / 1.8&nbsp;s</span></p>
+  <div class="ctlwrap"><table class="ctl">
+    <thead><tr><th>ctrl</th><th>STK name</th><th>what the value sets</th></tr></thead>
+    <tbody><tr><td class='num'>2<span class='dot on' title='this control changed the render'>●</span></td><td class='sym'>Breath</td><td class='act'><code>setControl1( normalizedValue )</code></td></tr><tr><td class='num'>4<span class='dot on' title='this control changed the render'>●</span></td><td class='sym'>FootControl</td><td class='act'><code>setControl2( normalizedValue )</code></td></tr><tr><td class='num'>11<span class='dot off' title='no audible change in the sweep — not disproved, just not audible there'>○</span></td><td class='sym'>ModFrequency</td><td class='act'><code>setModulationSpeed( normalizedValue * 12.0)</code></td></tr><tr><td class='num'>1<span class='dot on' title='this control changed the render'>●</span></td><td class='sym'>ModWheel</td><td class='act'><code>setModulationDepth( normalizedValue )</code></td></tr><tr><td class='num'>128<span class='dot on' title='this control changed the render'>●</span></td><td class='sym'>AfterTouch_Cont</td><td class='act'><code>adsr_[0]-&gt;setTarget( normalizedValue ); adsr_[1]-&gt;setTarget( normalizedValue ); //adsr_[2]-&gt;setTarget( normalizedValue ) …</code></td></tr></tbody></table></div>
+  <p class="from">controls inherited from <code>stk::FM</code></p>
+</section>
+<section class="op">
+  <h3>STKTubeBell <span class="verdict stands">stands</span></h3>
+  <p class="cls">stk::TubeBell</p>
+  <p class="brief">STK tubular bell (orchestral chime) FM synthesis instrument. This class implements two simple FM Pairs summed together, also referred to as algorithm 5 of the TX81Z.</p>
+  <p class="meas">Bare at 220&nbsp;Hz: peak 0.144, then 0.03037 → 0.032 → 0.02483 <span class='dim'>at 5&nbsp;ms / 1.0&nbsp;s / 1.8&nbsp;s</span></p>
+  <div class="ctlwrap"><table class="ctl">
+    <thead><tr><th>ctrl</th><th>STK name</th><th>what the value sets</th></tr></thead>
+    <tbody><tr><td class='num'>2<span class='dot on' title='this control changed the render'>●</span></td><td class='sym'>Breath</td><td class='act'><code>setControl1( normalizedValue )</code></td></tr><tr><td class='num'>4<span class='dot on' title='this control changed the render'>●</span></td><td class='sym'>FootControl</td><td class='act'><code>setControl2( normalizedValue )</code></td></tr><tr><td class='num'>11<span class='dot off' title='no audible change in the sweep — not disproved, just not audible there'>○</span></td><td class='sym'>ModFrequency</td><td class='act'><code>setModulationSpeed( normalizedValue * 12.0)</code></td></tr><tr><td class='num'>1<span class='dot on' title='this control changed the render'>●</span></td><td class='sym'>ModWheel</td><td class='act'><code>setModulationDepth( normalizedValue )</code></td></tr><tr><td class='num'>128<span class='dot on' title='this control changed the render'>●</span></td><td class='sym'>AfterTouch_Cont</td><td class='act'><code>adsr_[0]-&gt;setTarget( normalizedValue ); adsr_[1]-&gt;setTarget( normalizedValue ); //adsr_[2]-&gt;setTarget( normalizedValue ) …</code></td></tr></tbody></table></div>
+  <p class="from">controls inherited from <code>stk::FM</code></p>
+</section>
+<section class="op">
+  <h3>STKWurley <span class="verdict decays">decays</span></h3>
+  <p class="cls">stk::Wurley</p>
+  <p class="brief">STK Wurlitzer electric piano FM synthesis instrument. This class implements two simple FM Pairs summed together, also referred to as algorithm 5 of the TX81Z.</p>
+  <p class="meas">Bare at 220&nbsp;Hz: peak 0.0898, then 0.0613 → 0.01462 → 0.0 <span class='dim'>at 5&nbsp;ms / 1.0&nbsp;s / 1.8&nbsp;s</span></p>
+  <div class="ctlwrap"><table class="ctl">
+    <thead><tr><th>ctrl</th><th>STK name</th><th>what the value sets</th></tr></thead>
+    <tbody><tr><td class='num'>2<span class='dot on' title='this control changed the render'>●</span></td><td class='sym'>Breath</td><td class='act'><code>setControl1( normalizedValue )</code></td></tr><tr><td class='num'>4<span class='dot on' title='this control changed the render'>●</span></td><td class='sym'>FootControl</td><td class='act'><code>setControl2( normalizedValue )</code></td></tr><tr><td class='num'>11<span class='dot off' title='no audible change in the sweep — not disproved, just not audible there'>○</span></td><td class='sym'>ModFrequency</td><td class='act'><code>setModulationSpeed( normalizedValue * 12.0)</code></td></tr><tr><td class='num'>1<span class='dot on' title='this control changed the render'>●</span></td><td class='sym'>ModWheel</td><td class='act'><code>setModulationDepth( normalizedValue )</code></td></tr><tr><td class='num'>128<span class='dot on' title='this control changed the render'>●</span></td><td class='sym'>AfterTouch_Cont</td><td class='act'><code>adsr_[0]-&gt;setTarget( normalizedValue ); adsr_[1]-&gt;setTarget( normalizedValue ); //adsr_[2]-&gt;setTarget( normalizedValue ) …</code></td></tr></tbody></table></div>
+  <p class="from">controls inherited from <code>stk::FM</code></p>
+</section></div><h2>Wavetable, filter, formant</h2><p class='sub'>Excitation plus sweepable resonances. STKVoicForm carries measured formant data for sung vowels; STKMoog is the swept-filter sampler.</p><div class='grid'>
+<section class="op">
+  <h3>STKMoog <span class="verdict stands">stands</span></h3>
+  <p class="cls">stk::Moog</p>
+  <p class="brief">STK moog-like swept filter sampling synthesis class. This instrument uses one attack wave, one looped wave, and an ADSR envelope (inherited from the Sampler class) and adds two sweepable formant (FormSwep) filters.</p>
+  <p class="meas">Bare at 220&nbsp;Hz: peak 0.2826, then 0.07288 → 0.06993 → 0.06162 <span class='dim'>at 5&nbsp;ms / 1.0&nbsp;s / 1.8&nbsp;s</span></p>
+  <div class="ctlwrap"><table class="ctl">
+    <thead><tr><th>ctrl</th><th>STK name</th><th>what the value sets</th></tr></thead>
+    <tbody><tr><td class='num'>2<span class='dot off' title='no audible change in the sweep — not disproved, just not audible there'>○</span></td><td class='sym'>FilterQ</td><td class='act'><code>filterQ_ = 0.80 + ( 0.1 * normalizedValue )</code></td></tr><tr><td class='num'>4<span class='dot off' title='no audible change in the sweep — not disproved, just not audible there'>○</span></td><td class='sym'>FilterSweepRate</td><td class='act'><code>filterRate_ = normalizedValue * 0.0002</code></td></tr><tr><td class='num'>11<span class='dot off' title='no audible change in the sweep — not disproved, just not audible there'>○</span></td><td class='sym'>ModFrequency</td><td class='act'><code>setModulationSpeed( normalizedValue * 12.0 )</code></td></tr><tr><td class='num'>1<span class='dot on' title='this control changed the render'>●</span></td><td class='sym'>ModWheel</td><td class='act'><code>setModulationDepth( normalizedValue )</code></td></tr><tr><td class='num'>128<span class='dot on' title='this control changed the render'>●</span></td><td class='sym'>AfterTouch_Cont</td><td class='act'><code>adsr_.setTarget( normalizedValue )</code></td></tr></tbody></table></div>
+  <p class="from"></p>
+</section>
+<section class="op">
+  <h3>STKResonate <span class="verdict stands">stands</span></h3>
+  <p class="cls">stk::Resonate</p>
+  <p class="brief">STK noise driven formant filter. This instrument contains a noise source, which excites a biquad resonance filter, with volume controlled by an ADSR.</p>
+  <p class="meas">Bare at 220&nbsp;Hz: peak 0.194, then 0.04599 → 0.04823 → 0.04905 <span class='dim'>at 5&nbsp;ms / 1.0&nbsp;s / 1.8&nbsp;s</span></p>
+  <div class="ctlwrap"><table class="ctl">
+    <thead><tr><th>ctrl</th><th>STK name</th><th>what the value sets</th></tr></thead>
+    <tbody><tr><td class='num'>2<span class='dot on' title='this control changed the render'>●</span></td><td class='sym'>—</td><td class='act'><code>setResonance( normalizedValue * Stk::sampleRate() * 0.5, poleRadius_ )</code></td></tr><tr><td class='num'>4<span class='dot on' title='this control changed the render'>●</span></td><td class='sym'>—</td><td class='act'><code>setResonance( poleFrequency_, normalizedValue * 0.9999 )</code></td></tr><tr><td class='num'>11<span class='dot on' title='this control changed the render'>●</span></td><td class='sym'>—</td><td class='act'><code>setNotch( normalizedValue * Stk::sampleRate() * 0.5, zeroRadius_ )</code></td></tr><tr><td class='num'>1<span class='dot on' title='this control changed the render'>●</span></td><td class='sym'>—</td><td class='act'><code>setNotch( zeroFrequency_, normalizedValue )</code></td></tr><tr><td class='num'>128<span class='dot on' title='this control changed the render'>●</span></td><td class='sym'>AfterTouch_Cont</td><td class='act'><code>adsr_.setTarget( normalizedValue )</code></td></tr></tbody></table></div>
+  <p class="from"></p>
+</section>
+<section class="op">
+  <h3>STKSimple <span class="verdict stands">stands</span></h3>
+  <p class="cls">stk::Simple</p>
+  <p class="brief">STK wavetable/noise instrument. This class combines a looped wave, a noise source, a biquad resonance filter, a one-pole filter, and an ADSR envelope to create some interesting sounds.</p>
+  <p class="meas">Bare at 220&nbsp;Hz: peak 0.1222, then 0.02039 → 0.02214 → 0.02342 <span class='dim'>at 5&nbsp;ms / 1.0&nbsp;s / 1.8&nbsp;s</span></p>
+  <div class="ctlwrap"><table class="ctl">
+    <thead><tr><th>ctrl</th><th>STK name</th><th>what the value sets</th></tr></thead>
+    <tbody><tr><td class='num'>2<span class='dot on' title='this control changed the render'>●</span></td><td class='sym'>Breath</td><td class='act'><code>filter_.setPole( 0.99 * (1.0 - (normalizedValue * 2.0)) )</code></td></tr><tr><td class='num'>4<span class='dot on' title='this control changed the render'>●</span></td><td class='sym'>NoiseLevel</td><td class='act'><code>loopGain_ = normalizedValue</code></td></tr><tr><td class='num'>11<span class='dot on' title='this control changed the render'>●</span></td><td class='sym'>ModFrequency</td><td class='act'><code>normalizedValue /= 0.2 * Stk::sampleRate(); adsr_.setAttackRate( normalizedValue ); adsr_.setDecayRate( normalizedValue  …</code></td></tr><tr><td class='num'>128<span class='dot on' title='this control changed the render'>●</span></td><td class='sym'>AfterTouch_Cont</td><td class='act'><code>adsr_.setTarget( normalizedValue )</code></td></tr></tbody></table></div>
+  <p class="from"></p>
+</section>
+<section class="op">
+  <h3>STKVoicForm <span class="verdict stands">stands</span></h3>
+  <p class="cls">stk::VoicForm</p>
+  <p class="brief">Four formant synthesis instrument. This instrument contains an excitation singing wavetable (looping wave with random and periodic vibrato, smoothing on frequency, etc.), excitation noise, and four sweepable complex resonances. Measured formant data is included, and enough data is there to support …</p>
+  <p class="meas">Bare at 220&nbsp;Hz: peak 0.0394, then 0.02385 → 0.02309 → 0.01958 <span class='dim'>at 5&nbsp;ms / 1.0&nbsp;s / 1.8&nbsp;s</span></p>
+  <div class="ctlwrap"><table class="ctl">
+    <thead><tr><th>ctrl</th><th>STK name</th><th>what the value sets</th></tr></thead>
+    <tbody><tr><td class='num'>2<span class='dot on' title='this control changed the render'>●</span></td><td class='sym'>Breath</td><td class='act'><code>setVoiced( 1.0 - normalizedValue ); setUnVoiced( 0.01 * normalizedValue );</code></td></tr><tr><td class='num'>4<span class='dot on' title='this control changed the render'>●</span></td><td class='sym'>FootControl</td><td class='act'><code>StkFloat temp = 0.0; unsigned int i = (int) value; if (i &lt; 32)  temp = 0.9;</code></td></tr><tr><td class='num'>11<span class='dot on' title='this control changed the render'>●</span></td><td class='sym'>ModFrequency</td><td class='act'><code>voiced_-&gt;setVibratoRate( normalizedValue * 12.0); // 0 to 12 Hz</code></td></tr><tr><td class='num'>1<span class='dot on' title='this control changed the render'>●</span></td><td class='sym'>ModWheel</td><td class='act'><code>voiced_-&gt;setVibratoGain( normalizedValue * 0.2)</code></td></tr><tr><td class='num'>128<span class='dot on' title='this control changed the render'>●</span></td><td class='sym'>AfterTouch_Cont</td><td class='act'><code>setVoiced( normalizedValue ); onepole_.setPole( 0.97 - ( normalizedValue * 0.2) );</code></td></tr></tbody></table></div>
+  <p class="from"></p>
+</section></div>
+
+<h2>STKModalBar presets — control 16</h2>
+<p class="sub">The only preset selector in the set, and where the vibraphone lives. Ratios are
+Cook's own, read out of <code>ModalBar.cpp</code>; a <b>bold</b> value is a <em>fixed</em> mode in
+Hz that does not follow the note. Preset 1 is also the only one that switches on ModalBar's
+internal vibrato (gain 0.2) — set control 8 to 0 to take it back out.
+<span class="dim">● struck and every mode matched · ◐ the modes that resolve matched · ○ decays
+too fast, or its modes sit too close together, to read back from a render.</span></p>
+<div class="ctlwrap wide"><table>
+<thead><tr><th>value</th><th>preset</th><th>mode ratios</th><th>heard</th></tr></thead>
+<tbody><tr><td class='num'>0</td><td class='sym'>Marimba</td><td class='act'>1 · 3.99 · 10.65 · <b>2443&nbsp;Hz</b></td><td class='chk'>●</td></tr><tr><td class='num'>1</td><td class='sym'>Vibraphone</td><td class='act'>1 · 2.01 · 3.9 · 14.37</td><td class='chk'>◐</td></tr><tr><td class='num'>2</td><td class='sym'>Agogo</td><td class='act'>1 · 4.08 · 6.669 · <b>3725&nbsp;Hz</b></td><td class='chk'>●</td></tr><tr><td class='num'>3</td><td class='sym'>Wood1</td><td class='act'>1 · 2.777 · 7.378 · 15.377</td><td class='chk'>○</td></tr><tr><td class='num'>4</td><td class='sym'>Reso</td><td class='act'>1 · 2.777 · 7.378 · 15.377</td><td class='chk'>●</td></tr><tr><td class='num'>5</td><td class='sym'>Wood2</td><td class='act'>1 · 1.777 · 2.378 · 3.377</td><td class='chk'>○</td></tr><tr><td class='num'>6</td><td class='sym'>Beats</td><td class='act'>1 · 1.004 · 1.013 · 2.377</td><td class='chk'>○</td></tr><tr><td class='num'>7</td><td class='sym'>2Fix</td><td class='act'>1 · 4 · <b>1320&nbsp;Hz</b> · <b>3960&nbsp;Hz</b></td><td class='chk'>◐</td></tr><tr><td class='num'>8</td><td class='sym'>Clump</td><td class='act'>1 · 1.217 · 1.475 · 1.729</td><td class='chk'>●</td></tr></tbody></table></div>
+
+<footer>
+<p><strong>Where this comes from.</strong> Class descriptions, control numbers and preset ratios
+are parsed out of the Synthesis ToolKit in C++ 5.0.1 by Perry R. Cook and Gary P. Scavone —
+<code>src/*.cpp</code> and <code>include/stk/SKINImsg.h</code>, every <code>__SK_*</code> alias
+chain resolved. The standing/decaying column, the confirmation dots, the Shakers numbers, the
+Brass threshold and the preset check are renders at 44100 through the Csound payload the app
+ships. MIT-style licence, carried as <code>resources/licenses/csound/STK.txt</code>.</p>
+<p>Csound's Windows release contains no <code>stkops</code> module at all, so every opcode on this
+page is <strong>macOS-only</strong>. That asymmetry is the open question about whether the LRO
+author gets them in its vocabulary.</p>
+<p>Compiled 2026-08-06 against STK 5.0.1 and Csound 6.18.1_14 as vendored in
+<code>third_party/csound/macos-arm64/</code>. The shipping rules and the two gates around the
+data directory are in <code>docs/CSOUND_INTEGRATION.md</code>; what an entry built on one of
+these has to declare is rule&nbsp;6 of the Instrument Authoring section in
+<code>CLAUDE.md</code>.</p>
+</footer>
+</main>
+</body>
+</html>

@@ -68,7 +68,11 @@ these very files. Two properties follow. The directory must be
 uncaught `stk::StkError` and `abort()`s the process, which inside a plugin is the
 host DAW — so the bundling step and the verifier both count the files. And the
 opcodes are **macOS-only**, because the Csound project's Windows release ships no
-`stkops` module. Nothing in `backend/lco_library.json` uses one.
+`stkops` module. Nothing in `backend/lco_library.json` uses one. What the 27 are,
+what each does with bare arguments and every control it has is in
+[`STK_OPCODES.html`](STK_OPCODES.html) — open it in a browser; it also records the
+one place where the shipped module and the Csound manual disagree with STK 5.0.1's
+current source.
 
 ## The two things that are not obvious
 
