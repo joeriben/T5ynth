@@ -229,10 +229,10 @@ def mono_samples(wav_path):
             for i in range(0, len(inter) - channels + 1, channels)], rate
 
 
-def analyse(wav_path):
-    """Peak, RMS and the pitch the recording actually has. A peak alone would
-    accept hum, a click or the tail of something else — for this to be the synth
-    answering, the sound has to BE the note that was asked for."""
+def analyse(wav_path, window_s=1.0):
+    """Peak, RMS and the pitch trajectory the recording actually has. A peak
+    alone would accept hum, a click or the tail of something else — for this to
+    be the synth answering, the sound has to BE the note that was asked for."""
     mono, rate = mono_samples(wav_path)
     skip = int(0.2 * rate)                   # the device's own start-up click
     seg = mono[skip:]
@@ -240,25 +240,52 @@ def analyse(wav_path):
         fail(f"nothing was recorded into {wav_path}")
     peak = max(abs(s) for s in seg)
     rms = (sum(s * s for s in seg) / len(seg)) ** 0.5
-    return peak, rms, fundamental(mono, skip, rate), len(mono) / rate
+    return (peak, rms,
+            partial_trajectory(mono, skip, rate, window_s), len(mono) / rate)
 
 
-def fundamental(mono, start, rate):
-    """The strongest partial in the first second of the note, by DFT.
+def partial_trajectory(mono, start, rate, window_s=1.0):
+    """The strongest partial of each half-overlapping window, by DFT.
 
     Not autocorrelation: an LRO sound MOVES by design, and the bowed-string idiom
     this runs on spreads its energy over 199…234 Hz. Correlation over a moving
     period locks onto a wrong lag (measured: 265 Hz for a note whose spectrum
-    plainly peaks at 227) — the estimator, not the synth, was wrong."""
+    plainly peaks at 227) — the estimator, not the synth, was wrong.
+
+    And not one fixed early window either: a bowed body may creak on higher
+    modes for seconds before it settles on the note. Measured on 'Bowed
+    String', same build, eight runs in one day: six had 220 Hz strongest by
+    0.3–1.3 s, two sat at 601/612 Hz there and reached 220 Hz only from ~2 s
+    (1214 → 612 → 224 Hz across one 3 s note). So the whole recording is
+    measured and the CALLER decides what counts as the note — it requires the
+    pitch to be HELD across two consecutive windows, because a single in-band
+    window is also what a sweeping interferer produces in passing.
+
+    The window follows the note: 1 s for notes of a second and up, the note
+    length itself below that (floor 0.25 s, which still gives 4 Hz bins — the
+    55 Hz accept band is ±6.6 Hz wide, so it keeps more than one bin). With a
+    fixed 1 s window, a 0.5 s note had its energy in the high-gain region of
+    only ONE window and the held-pitch rule below could not be satisfied at
+    all — whether it failed then depended on the device-open delay, which the
+    script cannot observe.
+
+    Times are window starts, relative to the 0.2 s device-skip mark of the
+    recording — NOT note time; the device-open delay in front is variable.
+    Windows whose level never reaches 1e-4 are omitted (before the onset,
+    after the tail); the caller marks the resulting time gaps in its printout."""
     import numpy as np
-    start += int(0.3 * rate)
-    seg = np.asarray(mono[start:start + rate], dtype=float)
-    if len(seg) < rate // 4 or np.abs(seg).max() < 1e-4:
-        return 0.0
-    spectrum = np.abs(np.fft.rfft(seg * np.hanning(len(seg))))
-    freqs = np.fft.rfftfreq(len(seg), 1.0 / rate)
-    band = (freqs > 40.0) & (freqs < 4000.0)
-    return float(freqs[band][np.argmax(spectrum[band])])
+    out = []
+    win = int(window_s * rate)
+    for s in range(start, len(mono) - win + 1, win // 2):
+        seg = np.asarray(mono[s:s + win], dtype=float)
+        if np.abs(seg).max() < 1e-4:
+            continue                         # before the onset / after the tail
+        spectrum = np.abs(np.fft.rfft(seg * np.hanning(len(seg))))
+        freqs = np.fft.rfftfreq(len(seg), 1.0 / rate)
+        band = (freqs > 40.0) & (freqs < 4000.0)
+        out.append(((s - start) / rate,
+                    float(freqs[band][np.argmax(spectrum[band])])))
+    return out
 
 
 def main():
@@ -268,7 +295,11 @@ def main():
     # default has been failing the run it is meant to make one command long.
     ap.add_argument("--preset", default="Bowed String",
                     help="preset whose stored orchestra is played")
-    ap.add_argument("--seconds", type=float, default=3.0, help="note length")
+    ap.add_argument("--seconds", type=float, default=3.0,
+                    help="note length; the default preset takes ~1-2 s of bow "
+                         "creak to settle on the pitch, so a very short note "
+                         "fails the pitch gate truthfully (measured at 0.5 s: "
+                         "1212 Hz creak throughout, release included)")
     ap.add_argument("--app", default=str(APP),
                     help="the bundle to test (default: the one in build_clean)")
     ap.add_argument("--keep", action="store_true", help="leave the app running")
@@ -370,10 +401,14 @@ def main():
        f"{ctl_peak:.2e})")
 
     wav = scratch / "lro_note.wav"
+    # The recording must OUTLIVE the note: the device-open delay (up to ~1 s)
+    # plus the 1 s pre-note sleep sit at the front, so with -t = args.seconds
+    # the file used to end about a second BEFORE note-off and a body that
+    # settles on the pitch late was judged on its creaky attack alone.
     rec = subprocess.Popen(
         ["ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
          "-f", "avfoundation", "-i", f":{device_index}",
-         "-t", str(args.seconds), "-ac", "2", "-ar", "48000", str(wav)],
+         "-t", str(args.seconds + 1.5), "-ac", "2", "-ar", "48000", str(wav)],
         stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
     time.sleep(1.0)                     # let the device open before the note
     midi.send_message([0x90, NOTE, 100])
@@ -382,7 +417,8 @@ def main():
     rec.wait(timeout=30)
     ok(f"recorded {args.seconds:.1f} s note (MIDI {NOTE}, 220 Hz)")
 
-    peak, rms, f0, length = analyse(wav)
+    window_s = min(1.0, max(0.25, args.seconds))   # see partial_trajectory
+    peak, rms, trajectory, length = analyse(wav, window_s)
     if args.prove_it_can_fail:
         if peak >= SILENCE_FLOOR:
             fail(f"the app made sound ({peak:.4f}) with its own Contents/libs "
@@ -395,16 +431,48 @@ def main():
         fail(f"the app played SILENCE (peak {peak:.2e} over {length:.1f} s) — "
              f"see {app_log}")
     # ±12 % is about two semitones: wide enough for the vibrato and bow noise an
-    # LRO sound is supposed to have (movement by default), narrow enough that hum,
-    # a click or an unrelated stream would not pass — and the control recording
-    # has already shown the device is otherwise silent.
+    # LRO sound is supposed to have (movement by default). The pitch gate alone
+    # never excluded mains hum (50 and 60 Hz both sit inside 55 ±12 %) — the
+    # control recording is what guards stationary interferers, and it precedes
+    # the note, so a source that starts later must instead fail the rule below:
+    # TWO CONSECUTIVE windows on the note. One in-band window is not enough,
+    # because the accept bands are only ~8 semitones apart and anything that
+    # SWEEPS (a glide, speech, a stream) crosses one in a single window —
+    # measured: a 150→900 Hz glide that is never the note passes an any-window
+    # rule. Holding a band for two adjacent windows (a window and a half of
+    # overlap-connected signal) is what a played note does and a sweep does
+    # not. Known boundary, accepted: pitch movement DEEPER than the ±12 % band
+    # (~2.5 semitones and up) can alias against the window hop and fail runs
+    # at some LFO rates — the preset this check ships with spreads 199…234 Hz,
+    # inside the band with margin. Widening the rule into a real pitch tracker
+    # is meter-building this tool deliberately stays out of.
+    if len(trajectory) < 2:
+        fail(f"could not apply the held-pitch rule: the {length:.1f} s "
+             f"recording yields {len(trajectory)} sounding {window_s:.2g} s "
+             "analysis window(s), and holding the note takes two")
     octaves = [220.0 * (2 ** k) for k in range(-2, 3)]
-    if not any(abs(f0 - o) < 0.12 * o for o in octaves):
-        fail(f"the sound is not the note that was played: its strongest partial "
-             f"is {f0:.1f} Hz, and MIDI {NOTE} is 220 Hz (an octave of it would "
-             "pass)")
-    ok(f"heard it: {f0:.1f} Hz, peak {peak:.4f}, rms {rms:.4f} over "
-       f"{length:.1f} s")
+    on_note = [any(abs(hz - o) < 0.12 * o for o in octaves) for _, hz in trajectory]
+    hop = window_s / 2 + 0.05               # the window step, plus slack
+    held = [i for i in range(len(trajectory) - 1)
+            if on_note[i] and on_note[i + 1]
+            and trajectory[i + 1][0] - trajectory[i][0] <= hop]
+    bits = []
+    for i, (t, hz) in enumerate(trajectory):
+        if i and t - trajectory[i - 1][0] > hop:
+            bits.append("…")                # silent windows were skipped here
+        bits.append(f"{hz:.0f}")
+    path = " → ".join(bits)
+    if not held:
+        fail(f"the sound never holds the note that was played: its strongest "
+             f"partial runs {path} Hz and MIDI {NOTE} is 220 Hz (an octave of "
+             "it, held for two consecutive windows, would pass — a preset "
+             "whose body does not follow the played pitch fails this by "
+             "design; run the check on one that does)")
+    first = trajectory[held[0]]
+    ok(f"heard it: {first[1]:.1f} Hz held from {first[0]:.1f} s into the "
+       f"{length:.1f} s recording ({sum(on_note)}/{len(on_note)} windows on "
+       f"the note; strongest partial: {path} Hz), peak {peak:.4f}, "
+       f"rms {rms:.4f}")
     print(f"PASS  the built Standalone plays the LRO with no Csound on the system")
     print(f"      recording: {wav}")
     return 0
