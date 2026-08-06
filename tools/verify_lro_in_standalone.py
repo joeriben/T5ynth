@@ -45,7 +45,7 @@ APP = REPO / "build_clean/T5ynth_artefacts/Release/Standalone/akroasys.app"
 PRESETS = Path.home() / "Library/T5ynth/presets"
 OUT_DEVICE = "BlackHole 2ch"
 MIDI_PORT = "akroasys LRO acceptance"
-NOTE = 57                     # A3, 220 Hz — the pitch every LRO measurement uses
+NOTE = 57                     # A3, 220 Hz — the default pitch of LRO measurements
 SILENCE_FLOOR = 1e-3
 REAL_SETTINGS = Path.home() / "Library/Application Support/akróasys.settings"
 LAUNCHED = []                 # apps this run started, and is responsible for
@@ -300,6 +300,12 @@ def main():
                          "creak to settle on the pitch, so a very short note "
                          "fails the pitch gate truthfully (measured at 0.5 s: "
                          "1212 Hz creak throughout, release included)")
+    # A single hardcoded pitch was a blind spot: every run before 2026-08-06
+    # measured MIDI 57 only, so "the standalone plays the LRO" was only ever
+    # proven for A3 while a register defect anywhere else stayed invisible.
+    ap.add_argument("--note", type=int, default=NOTE,
+                    help="MIDI note to play (default 57 = A3 220 Hz); the "
+                         "pitch gate follows it")
     ap.add_argument("--app", default=str(APP),
                     help="the bundle to test (default: the one in build_clean)")
     ap.add_argument("--keep", action="store_true", help="leave the app running")
@@ -410,12 +416,14 @@ def main():
          "-f", "avfoundation", "-i", f":{device_index}",
          "-t", str(args.seconds + 1.5), "-ac", "2", "-ar", "48000", str(wav)],
         stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
+    note = args.note
+    note_hz = 440.0 * 2.0 ** ((note - 69) / 12.0)
     time.sleep(1.0)                     # let the device open before the note
-    midi.send_message([0x90, NOTE, 100])
+    midi.send_message([0x90, note, 100])
     time.sleep(args.seconds)
-    midi.send_message([0x80, NOTE, 0])
+    midi.send_message([0x80, note, 0])
     rec.wait(timeout=30)
-    ok(f"recorded {args.seconds:.1f} s note (MIDI {NOTE}, 220 Hz)")
+    ok(f"recorded {args.seconds:.1f} s note (MIDI {note}, {note_hz:.1f} Hz)")
 
     window_s = min(1.0, max(0.25, args.seconds))   # see partial_trajectory
     peak, rms, trajectory, length = analyse(wav, window_s)
@@ -450,7 +458,7 @@ def main():
         fail(f"could not apply the held-pitch rule: the {length:.1f} s "
              f"recording yields {len(trajectory)} sounding {window_s:.2g} s "
              "analysis window(s), and holding the note takes two")
-    octaves = [220.0 * (2 ** k) for k in range(-2, 3)]
+    octaves = [note_hz * (2 ** k) for k in range(-2, 3)]
     on_note = [any(abs(hz - o) < 0.12 * o for o in octaves) for _, hz in trajectory]
     hop = window_s / 2 + 0.05               # the window step, plus slack
     held = [i for i in range(len(trajectory) - 1)
@@ -464,10 +472,10 @@ def main():
     path = " → ".join(bits)
     if not held:
         fail(f"the sound never holds the note that was played: its strongest "
-             f"partial runs {path} Hz and MIDI {NOTE} is 220 Hz (an octave of "
-             "it, held for two consecutive windows, would pass — a preset "
-             "whose body does not follow the played pitch fails this by "
-             "design; run the check on one that does)")
+             f"partial runs {path} Hz and MIDI {note} is {note_hz:.1f} Hz (an "
+             "octave of it, held for two consecutive windows, would pass — a "
+             "preset whose body does not follow the played pitch fails this "
+             "by design; run the check on one that does)")
     first = trajectory[held[0]]
     ok(f"heard it: {first[1]:.1f} Hz held from {first[0]:.1f} s into the "
        f"{length:.1f} s recording ({sum(on_note)}/{len(on_note)} windows on "
