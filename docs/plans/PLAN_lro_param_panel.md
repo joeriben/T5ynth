@@ -88,8 +88,11 @@ k<var>  = <Zahl>   ; <name>[<lo>..<hi>]: <was er tut>
 
 **Spalte = Teilinstrument, nicht zwingend Layer.** Die Plattform kennt drei Layer (`kvol1..3` /
 `koct1..3`, „You may layer up to THREE oscillators", `lco_write.py:487`) — BJs „max 3
-instrumente/Spalten" trifft genau diese Grenze. Aber ein **Morph** („a > b") ist EINE Stimme mit
-zwei Enden und nur einem `kvol1`; seine beiden Enden sind trotzdem zwei Teilinstrumente. Deshalb
+instrumente/Spalten" trifft genau diese Grenze. Ein **Morph** („a > b") ist EINE Stimme mit zwei
+Enden, und diese Enden sind zwei Teilinstrumente — **jedes mit eigenem `kvolN`** (BJ, 2026-08-06:
+„selbstverständlich gibt es zu jedem Partial einen mix-Regler"; bis dahin teilten sich beide Enden
+`kvol1`, und der Fader für das zweite Teil existierte nicht). Geteilt bleibt nur die Tonhöhe
+`kfreq * koct1`. Deshalb
 zählt die Spalte, was der Autor als Teil benennt: bei „a + b" die Layer, bei „a > b" die beiden
 Enden. Drei Spalten bleiben die Grenze.
 
@@ -251,8 +254,9 @@ Sie standen hier als Fragen. Keine davon blockiert etwas, also gehören sie in d
 auf Deinen Tisch. Jede ist ein Satz von Dir entfernt, wieder anders zu sein.
 
 1. **Spalte = das vom Autor benannte Teilinstrument**, nicht strikt Layer 1/2/3. Ein Morph
-   („a > b") ist EINE Stimme mit einem `kvol1` und trotzdem zwei Körpern; bei strikter
-   Layer-Bindung bekäme er eine Spalte für zwei Instrumente, und der zweite hätte keinen Ort.
+   („a > b") ist EINE Stimme mit zwei Körpern; bei strikter Layer-Bindung bekäme er eine Spalte
+   für zwei Instrumente, und der zweite hätte keinen Ort. (Seinen eigenen `kvolN` hat seit dem
+   2026-08-06 jedes Teil — das war die zweite Hälfte desselben Fehlers.)
    Drei Spalten bleiben die Grenze, weil die Plattform drei Layer kennt.
 2. **Waagerechter Slider, kein Knopf.** Deine Vorgabe ist das *einheitliche* Slider-Layout, und
    die `SliderRow` in ihrer waagerechten Form ist überall sonst im Synth die Zeile: Name links,

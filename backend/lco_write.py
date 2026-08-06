@@ -473,9 +473,9 @@ HARD RULES
 - A LOOP is a free-running `oscili`/`phasor`/`lfo` that NEVER resets, driving a parameter or a crossfade. If the user asks for a loop or for something repeating, write a REPEATING trajectory — never a one-shot `linseg`, which moves once and then holds.
 - "a > b" (equivalently "a into b", "a morphing into b", "a turning into b", "a transition from a to b", "a becomes b") is ONE voice that STARTS as a and BECOMES b across the note — a true crossfade, NOT two things. Build it in exactly this shape, and give a and b their OWN variables — never write your final `asig` more than once:
     <a's OWN lines>                        ; a, built in full — as many lines as it takes
-    asiga   = <a's output>                 ; the first timbre, in its own variable
+    asiga   = <a's output> * kvol1         ; the first timbre, in its own variable and on its own mix knob
     <b's OWN lines>                        ; b, built in full — as many lines as it takes
-    asigb   = <b's output>                 ; the second timbre, in its own variable
+    asigb   = <b's output> * kvol2         ; the second timbre, in its own variable and on its own mix knob
     kmorph  = min(knote / 2.0, 1)          ; 0 -> 1 over 2 s then holds (knote is in scope, seconds since the note began)
     asig    = asiga * (1 - kmorph) + asigb * kmorph
   The `2.0` is NOT fixed — T is yours, and a SHORT T is how you write a transient. "a short glassy strike, then a pwm square" is `kmorph = min(knote / 0.08, 1)`: a is gone in 80 ms and b stands for the rest of the note. Do not reach for an amplitude envelope to make an end short. The crossfade already holds the loudness — a's energy is replaced by b's, not faded out — an envelope would take the loudness away from the player, and there is no per-end envelope for you to write one into: one note, one envelope, and it is the player's.
@@ -486,17 +486,17 @@ HARD RULES
   AN END OF A MORPH IS A WHOLE INSTRUMENT, NOT A ONE-LINER. Each end keeps every line it needs — including its own moving controls. NEVER freeze a k-rate control to a constant to make an end fit on one line: that silently deletes the very thing the user named. If the user asks for "sine > pulse width modulation" (or "sine > pwm"), b IS pulse-width MODULATION — its duty must go on sweeping after the morph arrives, so b keeps its LFO (`klfo oscili 0.5, 0.5`, `kpw = 0.5 + 0.6 * klfo`, `apw vco2 0.6, kfreq * koct1, 2, kpw`) and you write `asigb = apw - 0.6 * (2 * kpw - 1)`. Writing `vco2 …, 2, 0.5` there is a STATIC pulse wave — a different instrument from the one that was asked for, and the DC-correction line then reads `- 0.6 * (2 * 0.5 - 1)`, which is zero: dead code that proves the modulation was dropped. The same holds for every moving instrument used as an end — a bowed string still breathes, an organ still drifts, a filter sweep still sweeps.
   A REPEATING morph (a loop of a>b) drives kmorph from a free-running `oscili` instead of `min(knote…)`, so it sweeps back and forth forever.
 - "a + b" means two layers sounding at once — the static mix of (2), correct ONLY when the user asked to layer, never as a substitute for a transition. You may layer up to THREE oscillators this way.
-- "a through b" (equivalently "a driven by b", "a modulated by b", "b opening a", "a ring modulated by b", "a shaped by b") is the THIRD relation and it is neither of the two above: one sound ACTS ON the other instead of sounding beside it. Build both in full with their own variables, exactly as in a transition — but b is not ADDED to a, it goes IN as an ARGUMENT of a. The coupled pair is ONE voice and shares `kvol1` and `kfreq * koct1`.
+- "a through b" (equivalently "a driven by b", "a modulated by b", "b opening a", "a ring modulated by b", "a shaped by b") is the THIRD relation and it is neither of the two above: one sound ACTS ON the other instead of sounding beside it. Build both in full with their own variables, exactly as in a transition — but b is not ADDED to a, it goes IN as an ARGUMENT of a. The coupled pair is ONE voice and shares `kfreq * koct1`, and each side is on its own mix knob.
     <a's OWN lines>                        ; a, built in full
-    asiga   = <a's output>
+    asiga   = <a's output> * kvol1
     <b's OWN lines>                        ; b, built in full
-    asigb   = <b's output>
+    asigb   = <b's output> * kvol2
     asig    = asiga * asigb                ; ring modulation: sum and difference only, no carrier
   or b opening a's filter — `zdf_ladder` takes its cutoff at AUDIO rate, so b can drive it directly:
     acut    = 200 + 4000 * abs(asigb)
     asig    zdf_ladder asiga, acut, 4
   Before you drive an argument, check its RATE in the opcode's signature: `foscili`'s FM index is k-rate, so an audio signal cannot BE an index there — only its ratios are `x`. An `a` where the opcode wants `k` does not compile, and the message names the opcode rather than the rate.
-- Layer 1 must be scaled by `kvol1`, layer 2 by `kvol2`, layer 3 by `kvol3`, and each layer's pitch is `kfreq * koct1` / `koct2` / `koct3`. Those are the player's mix and octave knobs — a layer that ignores them cannot be mixed. With one layer, use `kvol1` and `kfreq * koct1`. In an "a > b" transition the two ends share `kvol1` and `kfreq * koct1` (it is one voice, not two layers).
+- EVERY PART YOU BUILD GETS ITS OWN `kvolN`, whatever the relation joins them. Part 1 is scaled by `kvol1`, part 2 by `kvol2`, part 3 by `kvol3` — the two ends of an "a > b" transition and the two sides of an "a through b" are parts in exactly this sense, and each of them is the player's to mix. A part that ignores its `kvolN` cannot be mixed and takes the fader off the panel. With one part, use `kvol1`. Pitch is the other way round: layers of an "a + b" take `kfreq * koct1` / `koct2` / `koct3`, while a transition and a coupled pair share `kfreq * koct1` — those ARE one voice, and only the mixing is per part.
 
 AVAILABLE IN SCOPE
   kfreq  k-rate pitch in Hz (already glide-smoothed and limited)
@@ -505,7 +505,8 @@ AVAILABLE IN SCOPE
   ivoice this voice's number, 1..16 — DO NOT define it yourself, the host routes
          the output with it. Use it to give each voice its own phase or seed so a
          chord does not move in lockstep: `ivph = frac(ivoice * 0.6180339887)`.
-  kvol1 kvol2 kvol3                per-layer mix (player knobs)
+  kvol1 kvol2 kvol3                per-PART mix (player knobs) — one per part you
+         build, including each end of a transition and each side of a coupled pair
   koct1 koct2 koct3                per-layer octave multiplier (player knobs)
   (the player's sliders are not variables you write — see THE KNOBS THE PLAYER
    GETS below: they are the library's own parameter lines, kept in your body)
@@ -914,15 +915,18 @@ def read_controls(body, skip=None):
         pat = re.compile(rf"\b{re.escape(var)}\b")
         return any(pat.search(l) for n, l in enumerate(bare) if n != decl_line)
 
-    # WHICH LAYERS THIS BODY HAS, which is a different question from which
+    # WHICH PARTS THIS BODY MIXES, which is a different question from which
     # columns it has and must not be answered with the same number. A COLUMN is a
-    # library entry a parameter line survived from; a LAYER is `kvol1`/`kvol2`/
+    # library entry a parameter line survived from; a PART is `kvol1`/`kvol2`/
     # `kvol3`, the scaffold's own mix variables, and the author is told to scale
-    # layer N by `kvolN`. The two decompositions cross: an `a > b` transition is
-    # ONE layer sharing `kvol1` and can easily be TWO entries, and two layers
-    # built out of one entry are one column. Answering "how many columns" with
-    # "how many layers" put a level under a column heading that drove a variable
-    # the body never read, and left a real layer with no level at all.
+    # every part it builds by its own `kvolN` — the two ends of an `a > b` and the
+    # two sides of an `a through b` included, because a fader per part is the
+    # player's, not something the relation may take away (BJ 2026-08-06:
+    # "selbstverständlich gibt es zu jedem Partial einen mix-Regler"). The two
+    # decompositions still cross: two parts can be built out of ONE entry, and an
+    # entry can carry a line into a part without owning it. Answering "how many
+    # columns" with "how many parts" put a level under a column heading that drove
+    # a variable the body never read, and left a real part with no level at all.
     #
     # So this is read off the body directly. The names are the scaffold's, fixed
     # and known, which is exactly why this one is decidable where "which entry is

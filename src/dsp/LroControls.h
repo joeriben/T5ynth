@@ -58,13 +58,14 @@ struct LroControls
     /** Which LAYERS the body has — the subset of 1..3 whose `kvolN` it reads.
      *
      *  NOT the parts above, and never to be counted with the same number. A part
-     *  is a library entry a parameter line survived from; a layer is one of the
-     *  scaffold's three mix variables, which the author is told to scale each
-     *  layer by. The two cross both ways: an `a > b` transition is one layer and
-     *  can be two entries, two layers built from one entry are one column. Taken
-     *  from the body by `read_controls`, because the `kvolN` names are the
-     *  scaffold's and fixed — where "which entry is layer 2" is not decidable at
-     *  all. */
+     *  here is a library entry a parameter line survived from; a layer is one of
+     *  the scaffold's three mix variables, and the author scales EVERY part it
+     *  builds by its own `kvolN` — each end of an `a > b` and each side of an
+     *  `a through b` included, because a fader per part belongs to the player and
+     *  the relation does not get to take it away (BJ 2026-08-06). The two still
+     *  cross: two layers built from one entry are one column. Taken from the body
+     *  by `read_controls`, because the `kvolN` names are the scaffold's and fixed
+     *  — where "which entry is layer 2" is not decidable at all. */
     std::vector<int> layers;
 
     bool isEmpty() const { return knobs.empty(); }
