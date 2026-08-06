@@ -4,7 +4,7 @@ Standalone and record it. BJ's acceptance test for bundling Csound, 2026-07-26:
 "Alles darunter beweist nichts — es ist genau der Fehler, dass ein grüner Lauf auf
 der Maschine, die die Abhängigkeit schon hat, wie ein Beweis aussieht."
 
-    tools/verify_lro_in_standalone.py [--preset "Bowed Cello"] [--seconds 3]
+    tools/verify_lro_in_standalone.py [--preset "Bowed String"] [--seconds 3]
     tools/verify_lro_in_standalone.py --prove-it-can-fail
 
 What it does, in the app, not beside it:

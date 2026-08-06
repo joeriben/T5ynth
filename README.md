@@ -222,6 +222,14 @@ into being.
 
 ## What Is New in 3.1.0
 
+- **An LRO instrument keeps playing.** Its voices were scored for 100 hours;
+  past that the sound froze into a buzz or into silence until you regenerated.
+  They now run for about 63 years, and presets saved before this fix are
+  corrected as they load.
+- **The panel tells you when an orchestra has stopped itself.** A written
+  instrument can end its own performance from inside. That used to show as
+  nothing but silence; the Reading field now names it, and regenerating brings
+  the engine back.
 - **A clarinet that is a bore, not an impression of one.** The library entry the
   LRO reaches for when you ask for a clarinet is now Csound's `wgclar` — a
   waveguide with a reed, a bore and a bell — where it used to be FM standing in

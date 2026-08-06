@@ -8,6 +8,17 @@ unbroken.
 
 ### The instrument
 
+- **An LRO orchestra no longer stops after 100 hours.** The always-on voices
+  were scored for 360 000 s; past that the performance ended and the render path
+  kept reading Csound's frozen output — a held note became a standing 64-sample
+  buzz, an idle synth permanent silence, until the next regeneration. The score
+  now runs 2·10⁹ s (~63 years), and a preset written before today has its stored
+  score rewritten as it is compiled, so it does not carry the old cliff either.
+- **The Reading field says when an orchestra stopped its own performance.** A
+  body can end the Csound performance from inside; the only symptom used to be
+  silence. The engine latches that moment and the RUNNING station reports it with
+  a warning dot, and regenerating the same text really does recompile instead of
+  reporting success for an engine that can no longer sound.
 - **The clarinet is a clarinet bore.** The library entry the LRO reaches for on
   a clarinet prompt is Csound's `wgclar` — reed, bore and bell — where it was FM
   standing in for one. Its first control is named for the blowing pressure it
