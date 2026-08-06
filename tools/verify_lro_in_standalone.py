@@ -264,7 +264,9 @@ def fundamental(mono, start, rate):
 def main():
     global APP
     ap = argparse.ArgumentParser()
-    ap.add_argument("--preset", default="Bowed Cello",
+    # A preset that is actually in the bank: 'Bowed Cello' was renamed and the
+    # default has been failing the run it is meant to make one command long.
+    ap.add_argument("--preset", default="Bowed String",
                     help="preset whose stored orchestra is played")
     ap.add_argument("--seconds", type=float, default=3.0, help="note length")
     ap.add_argument("--app", default=str(APP),
