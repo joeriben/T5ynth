@@ -75,6 +75,7 @@ tools/clap_homeostasis_out/results.json
 # with its licence.
 tools/lco_reference_out/*/sa3_*.wav
 tools/lco_reference_out/*/lco_*.wav
+tools/lco_reference_out/*/incumbent_*.wav
 # CLAP semantic loop: keep REPORT.md + per-experiment manifest.json, drop WAVs + run log
 tools/clap_semantic_loop_out/*/*.wav
 tools/clap_semantic_loop_out_run.log
@@ -114,3 +115,26 @@ tools/filter_os_test/filter_os_test
 /tools/audition_amp_effects
 /tools/csound_orch_check
 /tools/measure_note_latency
+/tools/audition_snapshot_switch
+
+# Instrument A/B folders (one per entry: nearest_existing vs new, both pitches).
+# Keep the .orc bodies and any hand-written note -- those ARE the record of what
+# was compared; drop the renders and the level bookkeeping, which the matching
+# tools/lco_ab_*.py regenerates. Deliberately NOT a directory rule: two .orc
+# bodies under tools/lco_ab_string_bowed/ are tracked, and `tools/lco_ab_*/`
+# would silently shadow them.
+tools/lco_ab_*/*.wav
+tools/lco_ab_*/*.npz
+tools/lco_ab_*/levels.json
+tools/ab_snapshot_click/*.wav
+tools/lco_morph_time_ab/*.wav
+
+# Audition/diagnostic output dirs (no tracked file inside any of them; each holds
+# renders plus the compiled probe that wrote them)
+tools/csound_swap_out/
+tools/csound_preset_roundtrip_out/
+tools/env_bend_out/
+tools/lco_trace_wire_out/
+
+# Hidden scratch measurement scripts (the shipped ones carry no leading dot)
+tools/.lco_*.py
