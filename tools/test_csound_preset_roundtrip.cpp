@@ -100,6 +100,12 @@ static int failures = 0;
 // Captured verbatim via:
 //   .venv/bin/python -c "import backend.csound_assembler as a; \
 //     o,r = a.assemble({'layers':[{'tool':'sub'}]}); print(o); print(r)"
+//
+// The fixture deliberately keeps the pre-2026-08 100 h score (`i 1 0 360000`
+// / `e 360000`) — that is what every stored preset of that era contains, and
+// prepare() must heal it via substituteScoreLifetime() at compile time while
+// the STORED text roundtrips untouched, which is exactly what this tool
+// asserts.
 static const char* kTestOrchestra = R"CSDTEXT(<CsoundSynthesizer>
 <CsOptions>
 -n -d

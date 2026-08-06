@@ -123,7 +123,7 @@ def scaffold(body, dur=4.0, freq=220.0, glide=None, preroll=0.0):
     audio is trimmed back to the note. It matters more than it looks, because at
     preroll=0 this harness does not reproduce the host:
 
-      the host scores `i 1 0 360000 <voice>` — sixteen instances, always on since
+      the host scores `i 1 0 2000000000 <voice>` — sixteen instances, always on since
       the plugin loaded, notes signalled through `ktrig`/`kgate`
       this harness scores `i 1 0 <dur> 1` — the instance BEGINS at the note
 

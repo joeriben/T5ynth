@@ -265,10 +265,10 @@ static std::string buildTestOrchestra(double sampleRate, double freqMultiplier)
            "endin\n</CsInstruments>\n<CsScore>\n";
     for (int v = 1; v <= CsoundEngine::kMaxVoices; ++v)
     {
-        std::snprintf(line, sizeof(line), "i 1 0 360000 %d\n", v);
+        std::snprintf(line, sizeof(line), "i 1 0 2000000000 %d\n", v);
         csd += line;
     }
-    csd += "e 360000\n</CsScore>\n</CsoundSynthesizer>\n";
+    csd += "e 2000000000\n</CsScore>\n</CsoundSynthesizer>\n";
     return csd;
 }
 

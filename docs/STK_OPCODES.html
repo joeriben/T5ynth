@@ -93,7 +93,7 @@ which is why a wrong number fails silently instead of erroring.</p>
 <div class="note">
 <p><strong>The one thing that decides whether any of this is usable.</strong> Frequency is an
 <strong>i-rate</strong> argument — <code>STKBowed kfreq, …</code> does not even compile — and the
-LRO host starts each voice once, for 100 hours, and never restarts it. So a plainly written
+LRO host starts each voice once, for an effectively unbounded 2·10⁹ s (~63 years), and never restarts it. So a plainly written
 STK body takes its pitch at engine build and then, under a played note, is
 <strong>silent</strong>. The lever is <code>reinit</code>, which re-runs a marked block's i-time
 code on the note edge:</p>

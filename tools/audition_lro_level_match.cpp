@@ -209,8 +209,8 @@ namespace
             "  outch    ivoice, aout\n"
             "endin\n</CsInstruments>\n<CsScore>\n";
         for (int v = 1; v <= 16; ++v)
-            csd += "i 1 0 360000 " + std::to_string(v) + "\n";
-        csd += "e 360000\n</CsScore>\n</CsoundSynthesizer>\n";
+            csd += "i 1 0 2000000000 " + std::to_string(v) + "\n";
+        csd += "e 2000000000\n</CsScore>\n</CsoundSynthesizer>\n";
         return csd;
     }
 

@@ -1962,8 +1962,20 @@ _TAIL = (
     "</CsInstruments>\n<CsScore>\n"
 )
 
-_SCORE = "".join(f"i 1 0 360000 {v}\n" for v in range(1, NCHNLS + 1)) \
-         + "e 360000\n</CsScore>\n</CsoundSynthesizer>\n"
+# _SCORE_LIFETIME: per-voice score duration in seconds, ~63 years and
+# deliberately < INT32_MAX so no parse path can overflow. The previous
+# 360000 s (100 h) ENDED the performance in long-running sessions —
+# csoundPerformKsmps then returns non-zero forever and spout freezes on its
+# last block (measured 2026-08-06 on the bundled CsoundLib64), which the
+# host loops as a standing buzz mid-note or permanent silence when idle,
+# until the next recompile. A held note (`i 1 0 -1`) does NOT survive —
+# measured, the performance ends immediately. Stored presets carry the full
+# CSD with the old score; CsoundEngine::prepare() substitutes those at load
+# (substituteScoreLifetime).
+_SCORE_LIFETIME = 2000000000
+
+_SCORE = "".join(f"i 1 0 {_SCORE_LIFETIME} {v}\n" for v in range(1, NCHNLS + 1)) \
+         + f"e {_SCORE_LIFETIME}\n</CsScore>\n</CsoundSynthesizer>\n"
 
 
 def bake_knob_defaults(head, controls=None):

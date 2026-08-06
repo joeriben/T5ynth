@@ -392,10 +392,11 @@ else is the host's:
   (4, a strike impulse for models that take their excitation as a table
   number).
 - one numeric `instr 1` with `ivoice = p4` and sixteen always-on score
-  instances (`i 1 0 360000 <v>` for v = 1..16) — there is no note-off and
-  no per-note score event; every struck idiom in the library is
-  continuously driven (noise, `dust`) rather than one-shot, because the
-  synth's own envelope owns amplitude shape, never the oscillator.
+  instances (`i 1 0 2000000000 <v>` for v = 1..16, ~63 years) — there is
+  no note-off and no per-note score event; every struck idiom in the
+  library is continuously driven (noise, `dust`) rather than one-shot,
+  because the synth's own envelope owns amplitude shape, never the
+  oscillator.
 - six per-voice control channels read via `sprintf`+`chnget`
   (`gate`/`freq`/`vel`/`pres`/`timb`/`trig`), `kgate` declicked with
   `portk`, `kfreq` limited to 20..12000 Hz, and the player's `kvol1-3`/

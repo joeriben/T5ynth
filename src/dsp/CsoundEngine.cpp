@@ -417,12 +417,16 @@ namespace
             "endin\n"
             "</CsInstruments>\n<CsScore>\n";
 
+        // ~63 years, deliberately < INT32_MAX — 360000 s (100 h) ended the
+        // performance mid-session and the bridge then looped the frozen
+        // spout; mirrors lco_write.py's _SCORE_LIFETIME. substituteScoreLifetime()
+        // heals stored presets that still carry the old number.
         for (int v = 1; v <= CsoundEngine::kMaxVoices; ++v)
         {
-            std::snprintf(line, sizeof(line), "i 1 0 360000 %d\n", v);
+            std::snprintf(line, sizeof(line), "i 1 0 2000000000 %d\n", v);
             csd += line;
         }
-        csd += "e 360000\n</CsScore>\n</CsoundSynthesizer>\n";
+        csd += "e 2000000000\n</CsScore>\n</CsoundSynthesizer>\n";
         return csd;
     }
 
@@ -479,6 +483,39 @@ namespace
             text.replace(pos, marker.size(), srBuf);
             pos += std::strlen(srBuf);
         }
+        return text;
+    }
+
+    // Presets store the complete CSD including the score, so every preset
+    // written before 2026-08-06 carries the 100 h voice lifetime whose end
+    // freezes spout (see the score builder above). The two patterns are
+    // anchored to the exact score-statement shapes the score writers ever
+    // wrote (this file's built-in orchestra, lco_write.py, and the tools
+    // mirroring them), so nothing inside an instrument body can match. A
+    // no-op on text without the marker, exactly like substituteSr.
+    // Deliberately NOT mirrored into tools/csound_orch_check.cpp — that
+    // tool's copy of substituteSr stays verbatim, and its 0.25 s probe
+    // never reaches a score end.
+    std::string substituteScoreLifetime (std::string text)
+    {
+        const std::string oldVoice = "i 1 0 360000 ";
+        const std::string newVoice = "i 1 0 2000000000 ";
+        size_t pos = 0;
+        while ((pos = text.find(oldVoice, pos)) != std::string::npos)
+        {
+            text.replace(pos, oldVoice.size(), newVoice);
+            pos += newVoice.size();
+        }
+
+        const std::string oldEnd = "e 360000\n";
+        const std::string newEnd = "e 2000000000\n";
+        pos = 0;
+        while ((pos = text.find(oldEnd, pos)) != std::string::npos)
+        {
+            text.replace(pos, oldEnd.size(), newEnd);
+            pos += newEnd.size();
+        }
+
         return text;
     }
 }
@@ -641,6 +678,14 @@ struct CsoundEngine::Impl
     int blockSize = 0;   // current host block length
     int writePos  = 0;   // samples already rendered into the current block
 
+    // Latched by renderUpTo() at the first non-zero csoundPerformKsmps return
+    // (the ended state never reverts — measured, 500 consecutive post-end
+    // calls all non-zero). While set, renderUpTo() emits silence WITHOUT
+    // calling into Csound again: every post-end call queues one never-drained
+    // message-buffer entry — a heap allocation plus a mutex on the audio
+    // thread. Reset only by a successful recompile.
+    bool performanceEnded = false;
+
     // The static level trim measured for the compiled orchestra (see
     // CsoundEngine::outputTrim's header comment for why it is a measurement and
     // not a constant). Written by prepare() on the compile thread BEFORE `ready`
@@ -780,9 +825,16 @@ bool CsoundEngine::prepare (double sampleRate, int maxBlockSize, const char* orc
     // The oversampling factor is part of what got COMPILED (it sets Csound's own
     // sr, and an authored orchestra may read `sr` to bound its own bandwidth), so
     // a factor change must take the full recompile path, never this early-out.
+    // A LATCHED engine (performanceEnded — its Csound performance is over and
+    // renderUpTo emits only silence) must fall through too: taking the early-out
+    // would report success for an engine that can never sound again, and every
+    // ordinary re-prepare (transport stop/start, block-size change, session
+    // reload) matches "same text, same rate". Only the full recompile below
+    // builds a fresh performance and clears the latch.
     if (impl->ready.load(std::memory_order_acquire) && impl->preparedSampleRate == sampleRate
         && impl->osFactor == oversampleFactor
-        && sameOrchestraAlreadyCompiled)
+        && sameOrchestraAlreadyCompiled
+        && ! impl->performanceEnded)
     {
         if (wantedCapacity > impl->capacity)
         {
@@ -832,7 +884,7 @@ bool CsoundEngine::prepare (double sampleRate, int maxBlockSize, const char* orc
     // partial count or FM index from `sr` — telling it 48000 while running it at
     // 192000 would keep it bandwidth-limited to a Nyquist that no longer applies.
     const std::string rawText = requestedIsBuiltIn ? buildOrchestra(engineRate) : std::string(orchestraText);
-    const std::string csdText = substituteSr(rawText, engineRate);
+    const std::string csdText = substituteSr(substituteScoreLifetime(rawText), engineRate);
     if (csoundCompileCsdText(cs, csdText.c_str()) != 0)
     {
         std::fprintf(stderr, "CsoundEngine: compile failed:\n%s\n", drainMessages(cs).c_str());
@@ -904,6 +956,7 @@ bool CsoundEngine::prepare (double sampleRate, int maxBlockSize, const char* orc
     impl->writePos   = 0;
     impl->blockSize  = 0;
     impl->osFactor   = oversampleFactor;
+    impl->performanceEnded = false; // fresh performance, fresh latch
 
     // ---- D4 warm-up: absorb the one-time lazy-init allocation residue
     // inside the first gated performKsmps passes, BEFORE the instance is
@@ -1269,7 +1322,23 @@ void CsoundEngine::renderUpTo (int upToSample)
     // block), the loop body never runs.
     while (impl->writePos < target && impl->writePos < impl->blockSize)
     {
-        csoundPerformKsmps(cs);
+        // Non-zero return = the performance has ENDED (score exhausted, or a
+        // fatal runtime error): Csound stops refilling spout, so de-interleaving
+        // it again would replay the last k-cycle forever — mid-note a standing
+        // buzz until the next recompile (measured 2026-08-06). Unreachable with
+        // the ~63-year score above, but any future regression now fails to
+        // silence instead of to a buzz. Also measured: every post-end
+        // csoundPerformKsmps call queues one "Score finished in
+        // csoundPerformKsmps() with 2." line into the engine's message buffer
+        // (csoundCreateMessageBuffer in prepare()), which the live path never
+        // drains — one heap allocation plus Csound's message-buffer mutex per
+        // k-cycle on the audio thread, ~16.9 MB RSS per 100 s of audio at the
+        // 176400/64 engine rate. So once ended, Csound is never called again
+        // from here — impl->performanceEnded latches the first non-zero return
+        // and every call after that skips straight to silence.
+        if (! impl->performanceEnded)
+            impl->performanceEnded = (csoundPerformKsmps(cs) != 0);
+        const bool performanceEnded = impl->performanceEnded;
         MYFLT* spout = csoundGetSpout(cs);
 
         // De-interleave spout and, when oversampling, band-limit + decimate it
@@ -1277,7 +1346,12 @@ void CsoundEngine::renderUpTo (int upToSample)
         for (int v = 0; v < kMaxVoices; ++v)
         {
             float* out = impl->decimScratch[v];
-            if (osF == 1)
+            if (performanceEnded)
+            {
+                for (int s = 0; s < perPerform; ++s)
+                    out[s] = 0.0f;
+            }
+            else if (osF == 1)
             {
                 for (int s = 0; s < kKsmps; ++s)
                     out[s] = boundOutput(trim * (float) spout[(size_t) s * (size_t) kMaxVoices + (size_t) v]);
