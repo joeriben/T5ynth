@@ -342,6 +342,91 @@ int main()
     CHECK(csoundField(reExported, "csound_reading") == utf8(kTestReading),
           "re-export after import carries the same reading text");
 
+    // ── 5. The performance-ended latch reaches the processor accessor ──
+    // This is the wire the Reading field's "engine stopped" state hangs on
+    // (CsoundEngine latch -> processor accessor); the GUI poll reads exactly
+    // this accessor.
+    {
+        const double sr = 48000.0;
+        const int    bs = 512;
+        juce::MidiBuffer noteOn, empty;
+        noteOn.addEvent(juce::MidiMessage::noteOn(1, 57, 1.0f), 0);   // A3
+
+        // Case A: the healthy fixture never reports ended.
+        T5ynthProcessor procA;
+        procA.setRateAndBufferSizeDetails(sr, bs);
+        procA.prepareToPlay(sr, bs);
+        procA.forceCsoundEngineMode();
+        CHECK(procA.requestCsoundOrchestra(utf8(kTestOrchestra)),
+              "Case A: requestCsoundOrchestra() accepts the healthy fixture");
+        waitForCsoundSettle(procA);
+        // The request lands via INSTANT ADOPT, not a fade — measured (the
+        // whole binary settles in under a second): forceCsoundEngineMode()
+        // and requestCsoundOrchestra() both run before anything pumps the
+        // message loop, so handleAsyncUpdate's swapAlreadyQueued suppresses
+        // the built-in bootstrap, the active engine is never isReady()
+        // beforehand, and the compile lands in place. 64 blocks is simply a
+        // generous bound (even the never-taken fade path would need ~19).
+        {
+            juce::AudioBuffer<float> buf(2, bs);
+            for (int b = 0; b < 64; ++b)
+            {
+                buf.clear();
+                procA.processBlock(buf, b == 0 ? noteOn : empty);
+            }
+        }
+        CHECK(! procA.csoundPerformanceEnded(), "healthy orchestra does not report ended");
+
+        // Case B: the same fixture with its score SHORTENED to 0.25 s — the
+        // original 100 h failure shape in miniature, and deliberately NOT one
+        // of the two historical statement shapes substituteScoreLifetime()
+        // rewrites, so the heal leaves it alone and the performance genuinely
+        // ends (during prepare()'s own ~1.2 s warmup already; renderUpTo()
+        // then latches on its very first call).
+        //
+        // Why not end it from INSIDE the orchestra: with the healed eternal
+        // instances plus a pending `e`, score events cannot end the
+        // performance at all — measured 2026-08-06 in this harness,
+        // `scoreline_i "e 0"` acts as a SECTION end that kills all 16 voice
+        // instances while the performance runs on (rc stays 0: permanent
+        // silence the latch cannot see — a distinct failure shape the
+        // ended-state display does not cover). And `exitnow` CRASHED this
+        // harness inside the swap-thread prepare() (measured, same day) — an
+        // authored `exitnow` is a host-crash risk, not a diagnosable state.
+        std::string endedOrchestra(kTestOrchestra);
+        size_t shortened = 0;
+        for (size_t pos = 0; (pos = endedOrchestra.find("i 1 0 360000 ", pos)) != std::string::npos; ++shortened)
+        {
+            endedOrchestra.replace(pos, std::string("i 1 0 360000 ").size(), "i 1 0 0.25 ");
+            pos += std::string("i 1 0 0.25 ").size();
+        }
+        CHECK(shortened == 16, "Case B: all 16 score lines shortened to 0.25 s");
+        const size_t ePos = endedOrchestra.find("e 360000\n");
+        CHECK(ePos != std::string::npos, "Case B: end statement found");
+        if (ePos != std::string::npos)
+            endedOrchestra.replace(ePos, std::string("e 360000\n").size(), "e 0.25\n");
+
+        T5ynthProcessor procB;
+        procB.setRateAndBufferSizeDetails(sr, bs);
+        procB.prepareToPlay(sr, bs);
+        procB.forceCsoundEngineMode();
+        CHECK(procB.requestCsoundOrchestra(utf8(endedOrchestra.c_str())),
+              "Case B: requestCsoundOrchestra() accepts the self-ending fixture");
+        waitForCsoundSettle(procB);
+        // Same instant-adopt path and generous bound as Case A, with an early
+        // exit once the latch shows: the adopted engine IS the active one, so
+        // the very first renderUpTo k-cycle can already latch it.
+        {
+            juce::AudioBuffer<float> buf(2, bs);
+            for (int b = 0; b < 64 && ! procB.csoundPerformanceEnded(); ++b)
+            {
+                buf.clear();
+                procB.processBlock(buf, b == 0 ? noteOn : empty);
+            }
+        }
+        CHECK(procB.csoundPerformanceEnded(), "ended orchestra latches and the processor reports it");
+    }
+
     std::printf("%s (%d failure%s)\n", failures ? "FAILED" : "ALL PASS",
                 failures, failures == 1 ? "" : "s");
     return failures ? 1 : 0;

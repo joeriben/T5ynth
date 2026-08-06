@@ -1594,6 +1594,9 @@ public:
     /** Message thread: last compile failure text (empty = none, or the last
      *  request succeeded). */
     juce::String csoundCompileError() const;
+    /** True when the ACTIVE Csound engine's performance has ended (it renders
+     *  silence until something recompiles it). GUI polls this; any thread. */
+    bool csoundPerformanceEnded() const;
     /** Message thread: a compiled+primed orchestra is waiting for processBlock
      *  to consume it and start the fade. */
     bool csoundSwapPending() const { return csoundSwapPending_.load(std::memory_order_acquire); }

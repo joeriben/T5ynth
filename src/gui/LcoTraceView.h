@@ -49,7 +49,7 @@ public:
      *  compile window abandoned because the engine left Csound mode, genuinely
      *  did not observe a compile — and saying "compiled" there would be the
      *  panel asserting something nobody checked. */
-    enum class CompileState { Unknown, Compiling, Ok, Error };
+    enum class CompileState { Unknown, Compiling, Ok, Error, Ended };
 
     /** One authored orchestra's trace, as it came off the wire. */
     struct Trace
@@ -298,6 +298,14 @@ public:
         compileDetail_ = detail;
         relayout();
     }
+
+    /** What the RUNNING station currently shows. The panel's runtime-ended
+     *  poll keys its precedence on THIS, not on a shadow copy of its own last
+     *  write: setTrace()/setStatus() reset compile_ to Unknown without going
+     *  through the panel, and a shadow copy that misses those resets pins the
+     *  poll's "already shown" guard on a state nobody is displaying — a
+     *  latched engine could then never be reported again. */
+    CompileState compileState() const { return compile_; }
 
     /** Stop the pulse if it is still going. Called from the panel's existing
      *  10 Hz tick with the real busy state, because a status can be armed by a
@@ -587,6 +595,9 @@ private:
                 case CompileState::Error:
                     text = compileDetail_.isNotEmpty() ? compileDetail_
                                                        : juce::String("the orchestra did not compile");
+                    break;
+                case CompileState::Ended:
+                    text = "the orchestra stopped its own performance - regenerate to restart the engine";
                     break;
                 case CompileState::Unknown:   break;
             }
@@ -1102,7 +1113,7 @@ private:
         }
 
         // ── RUNNING ──────────────────────────────────────────────────────────
-        // Four states, and Unknown is not a synonym for Ok: an orchestra whose
+        // Five states, and Unknown is not a synonym for Ok: an orchestra whose
         // compile nobody watched (a recalled preset; a window abandoned because
         // the engine left Csound mode mid-compile) must say so rather than
         // report a success it never saw.
@@ -1116,6 +1127,9 @@ private:
                 case CompileState::Error:     dot = kError;   ink = kErrorText;
                     text = compileDetail_.isNotEmpty() ? compileDetail_
                                                        : juce::String("the orchestra did not compile");
+                    break;
+                case CompileState::Ended:     dot = kWarning; ink = kWarning;
+                    text = "the orchestra stopped its own performance - regenerate to restart the engine";
                     break;
                 case CompileState::Unknown:   break;
             }

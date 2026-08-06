@@ -99,6 +99,11 @@ public:
 
     bool isReady() const;
 
+    /** True once the compiled performance has ended (renderUpTo latched a
+     *  non-zero csoundPerformKsmps) — the engine emits only silence until a
+     *  full recompile. Any thread. */
+    bool performanceHasEnded() const;
+
     /** The static gain `prepare()` measured for the orchestra it compiled, and that
      *  `renderUpTo` applies to every voice — 1.0 when nothing is compiled, or when
      *  the reference render came back silent.
@@ -285,6 +290,7 @@ inline const std::string& CsoundEngine::orchestraText() const
     return kEmpty;
 }
 inline bool CsoundEngine::isReady() const { return false; }
+inline bool CsoundEngine::performanceHasEnded() const { return false; }
 inline float CsoundEngine::outputTrim() const { return 1.0f; }
 inline void CsoundEngine::setVoiceControls (int, const VoiceControls&) {}
 inline void CsoundEngine::renderUpTo (int) {}

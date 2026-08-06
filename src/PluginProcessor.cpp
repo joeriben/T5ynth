@@ -2554,6 +2554,12 @@ juce::String T5ynthProcessor::csoundCompileError() const
     return csoundCompileErrorText_;
 }
 
+bool T5ynthProcessor::csoundPerformanceEnded() const
+{
+    const int activeIdx = csoundActiveIdx_.load(std::memory_order_acquire);
+    return csoundEngines_[activeIdx].performanceHasEnded();
+}
+
 void T5ynthProcessor::forceCsoundEngineMode()
 {
     // Message thread. Mirrors loadDcoWavetable's engine-mode stash/force EXACTLY

@@ -473,7 +473,8 @@ private:
     // Compile-state holder, likewise no longer laid out: the write-path only ever
     // put "compiling..." / the Csound error here (the per-word guardrail flags it
     // was built for belong to the retired keys path), and that state is now the
-    // trace's RUNNING station. Written through setLcoCompileState.
+    // trace's RUNNING station. Written by setLcoCompileState and cleared by
+    // setLcoStatus.
     juce::Label dcoFlagsLabel;
     // The AUTHORING TRACE, filling the middle of the LCO panel: what was heard,
     // what the words reached in the library, who wrote it and what they said
@@ -528,6 +529,12 @@ private:
     bool   csoundCompileWatching_ = false;   // a compile-window poll is active
     bool   csoundCompileSeenBusy_ = false;   // observed at least one busy tick this window
     double csoundCompileWatchStartMs_ = 0.0; // juce::Time::getMillisecondCounterHiRes() at window-open
+
+    /** Poll the latched performance-ended state (called every tick). Keys its
+     *  precedence on dcoTraceView.compileState() — the view's own truth —
+     *  never on a shadow copy of the last write, because setTrace()/setStatus()
+     *  reset the station without passing through setLcoCompileState. */
+    void pollCsoundPerformanceEnded();
 
     // DCO Re-Prompt (stance-driven self-listening loop, docs/DCO_REPROMPT_CONCEPT.md
     // and its Nachtrag of 2026-07-28): a SECOND stance bar bound to its OWN parameter

@@ -684,7 +684,9 @@ struct CsoundEngine::Impl
     // calling into Csound again: every post-end call queues one never-drained
     // message-buffer entry — a heap allocation plus a mutex on the audio
     // thread. Reset only by a successful recompile.
-    bool performanceEnded = false;
+    // Read by the GUI through performanceHasEnded(), hence atomic — the plain
+    // bool was a data race the moment a second thread reads it.
+    std::atomic<bool> performanceEnded { false };
 
     // The static level trim measured for the compiled orchestra (see
     // CsoundEngine::outputTrim's header comment for why it is a measurement and
@@ -834,7 +836,7 @@ bool CsoundEngine::prepare (double sampleRate, int maxBlockSize, const char* orc
     if (impl->ready.load(std::memory_order_acquire) && impl->preparedSampleRate == sampleRate
         && impl->osFactor == oversampleFactor
         && sameOrchestraAlreadyCompiled
-        && ! impl->performanceEnded)
+        && ! impl->performanceEnded.load(std::memory_order_acquire))
     {
         if (wantedCapacity > impl->capacity)
         {
@@ -956,7 +958,7 @@ bool CsoundEngine::prepare (double sampleRate, int maxBlockSize, const char* orc
     impl->writePos   = 0;
     impl->blockSize  = 0;
     impl->osFactor   = oversampleFactor;
-    impl->performanceEnded = false; // fresh performance, fresh latch
+    impl->performanceEnded.store(false, std::memory_order_release); // fresh performance, fresh latch
 
     // ---- D4 warm-up: absorb the one-time lazy-init allocation residue
     // inside the first gated performKsmps passes, BEFORE the instance is
@@ -1245,6 +1247,11 @@ bool CsoundEngine::isReady() const
     return impl->ready.load(std::memory_order_acquire);
 }
 
+bool CsoundEngine::performanceHasEnded() const
+{
+    return impl->performanceEnded.load(std::memory_order_acquire);
+}
+
 void CsoundEngine::setVoiceControls (int voiceIndex, const VoiceControls& c)
 {
     if (voiceIndex < 0 || voiceIndex >= kMaxVoices)
@@ -1336,9 +1343,12 @@ void CsoundEngine::renderUpTo (int upToSample)
         // 176400/64 engine rate. So once ended, Csound is never called again
         // from here — impl->performanceEnded latches the first non-zero return
         // and every call after that skips straight to silence.
-        if (! impl->performanceEnded)
-            impl->performanceEnded = (csoundPerformKsmps(cs) != 0);
-        const bool performanceEnded = impl->performanceEnded;
+        bool performanceEnded = impl->performanceEnded.load(std::memory_order_relaxed);
+        if (! performanceEnded && csoundPerformKsmps(cs) != 0)
+        {
+            impl->performanceEnded.store(true, std::memory_order_release);
+            performanceEnded = true;
+        }
         MYFLT* spout = csoundGetSpout(cs);
 
         // De-interleave spout and, when oversampling, band-limit + decimate it

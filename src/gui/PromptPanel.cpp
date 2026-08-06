@@ -908,6 +908,7 @@ void PromptPanel::timerCallback()
     // Phase 5 Csound compile-window poll (SPEC_phase4_5_csound_llm_preset.md):
     // a cheap no-op unless triggerDcoBake() opened a window.
     pollCsoundCompile();
+    pollCsoundPerformanceEnded();
 
     // The trace view's "something is running" pulse, held to the truth. A status
     // that arms it is written at the START of an authoring or a re-prompt, and
@@ -2319,10 +2320,13 @@ void PromptPanel::setLcoStatus(const juce::String& text, const juce::String& too
     dcoKnobsRefused_.clear();
 }
 
-// The compile window's report — see the declaration comment. Writes the logical
-// holder AND the trace's RUNNING station, so the two can never disagree about
-// what the engine did with the orchestra on screen. EVERY writer of the compile
-// state goes through here, including beginCsoundCompileWatch.
+// The compile window's report — see the declaration comment. Writes the label
+// holder and the trace's RUNNING station together, but it is NOT the only
+// writer of either: LcoTraceView::setTrace()/setStatus() reset the station's
+// state to Unknown from their own call sites, and setLcoStatus clears the
+// label. That is why pollCsoundPerformanceEnded() keys its precedence on
+// dcoTraceView.compileState() — the view's own truth — never on a record of
+// what this function last wrote.
 void PromptPanel::setLcoCompileState(LcoTraceView::CompileState state, const juce::String& detail)
 {
     juce::String label;
@@ -2331,7 +2335,8 @@ void PromptPanel::setLcoCompileState(LcoTraceView::CompileState state, const juc
         case LcoTraceView::CompileState::Compiling: label = "compiling..."; break;
         case LcoTraceView::CompileState::Error:     label = detail;         break;
         case LcoTraceView::CompileState::Ok:
-        case LcoTraceView::CompileState::Unknown:   break;   // nothing to report on a line
+        case LcoTraceView::CompileState::Unknown:
+        case LcoTraceView::CompileState::Ended:     break;   // nothing to report on a line
     }
     dcoFlagsLabel.setText(label, juce::dontSendNotification);
     dcoFlagsLabel.setTooltip(state == LcoTraceView::CompileState::Error ? detail : juce::String());
@@ -2418,6 +2423,37 @@ void PromptPanel::pollCsoundCompile()
     {
         setLcoCompileState(LcoTraceView::CompileState::Ok);
     }
+}
+
+void PromptPanel::pollCsoundPerformanceEnded()
+{
+    // The compile watch owns the RUNNING station while it is open, and a shown
+    // Error keeps its diagnostic (the blunter "engine stopped" adds nothing a
+    // regenerate would not fix either way). This poll only fills the gaps: it
+    // raises Ended when nothing else claims the station, and clears it back to
+    // Unknown -- "compile not observed", deliberately not Ok, nobody observed a
+    // compile -- once a recompile (regenerate, or any re-prepare: the engine
+    // refuses the same-text early-out while latched) has revived the engine.
+    if (csoundCompileWatching_)
+        return;
+    const int engineModeNow = static_cast<int>(processorRef.getValueTreeState()
+                                  .getRawParameterValue(PID::engineMode)->load());
+    const bool inCsound = (engineModeNow == EngineMode::Csound);
+    const bool ended = inCsound && processorRef.csoundPerformanceEnded();
+    // Precedence keys on the VIEW's shown state, never a shadow copy of the
+    // last write: setTrace()/setStatus() reset the station to Unknown without
+    // passing through setLcoCompileState, and a shadow copy that misses those
+    // resets would pin the "already shown" guard on a state nobody displays —
+    // a latched engine could then never be reported again. Reading the view
+    // also makes the raise self-healing: whatever wipes the station, the next
+    // tick re-raises Ended for as long as the engine really is latched.
+    const auto shown = dcoTraceView.compileState();
+    if (ended
+        && shown != LcoTraceView::CompileState::Ended
+        && shown != LcoTraceView::CompileState::Error)
+        setLcoCompileState(LcoTraceView::CompileState::Ended);
+    else if (! ended && shown == LcoTraceView::CompileState::Ended)
+        setLcoCompileState(LcoTraceView::CompileState::Unknown);
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
